@@ -12,8 +12,8 @@ data/
 *.sqlite
 
 # Compiled binaries
-archer
-archer.exe
+/archer
+/archer.exe
 
 # macOS
 .DS_Store
