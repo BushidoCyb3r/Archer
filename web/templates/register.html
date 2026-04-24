@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Archer — Register</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d0d0f;
+      color: #c9cdd4;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    .card {
+      background: #14151a;
+      border: 1px solid #2a2d38;
+      border-radius: 10px;
+      padding: 40px 36px;
+      width: 100%;
+      max-width: 400px;
+    }
+
+    .brand {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+    .brand-name {
+      font-size: 22px;
+      font-weight: 700;
+      color: #e2e4ea;
+      letter-spacing: 1px;
+    }
+    .brand-sub {
+      font-size: 12px;
+      color: #5a6070;
+      margin-top: 4px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    .form-group { margin-bottom: 16px; }
+    .form-row {
+      display: flex;
+      gap: 12px;
+    }
+    .form-row .form-group { flex: 1; margin-bottom: 0; }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: #8891a4;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .label-hint {
+      font-size: 11px;
+      color: #5a6070;
+      font-style: italic;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    input[type="text"],
+    input[type="email"],
+    input[type="password"] {
+      width: 100%;
+      background: #0d0d0f;
+      border: 1px solid #2a2d38;
+      border-radius: 6px;
+      color: #e2e4ea;
+      font-size: 14px;
+      padding: 10px 12px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus { border-color: #4a6fa5; }
+
+    .error {
+      background: #2a1215;
+      border: 1px solid #5a1d24;
+      border-radius: 6px;
+      color: #f0666e;
+      font-size: 13px;
+      padding: 10px 12px;
+      margin-bottom: 18px;
+    }
+
+    .btn {
+      width: 100%;
+      background: #4a6fa5;
+      border: none;
+      border-radius: 6px;
+      color: #fff;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 11px;
+      transition: background 0.15s;
+      margin-top: 4px;
+    }
+    .btn:hover { background: #5a80b8; }
+
+    .footer {
+      text-align: center;
+      margin-top: 20px;
+      font-size: 13px;
+      color: #5a6070;
+    }
+    .footer a { color: #4a6fa5; text-decoration: none; }
+    .footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">
+      <div class="brand-name">ARCHER</div>
+      <div class="brand-sub">Silent Hunter</div>
+    </div>
+
+    {{if .Error}}
+    <div class="error">{{.Error}}</div>
+    {{end}}
+
+    <form method="POST" action="/register">
+      <div class="form-row" style="margin-bottom:16px">
+        <div class="form-group">
+          <label for="first_name">First Name</label>
+          <input type="text" id="first_name" name="first_name" required autofocus
+                 placeholder="Jane" value="{{.FirstName}}">
+        </div>
+        <div class="form-group">
+          <label for="last_name">Last Name</label>
+          <input type="text" id="last_name" name="last_name" required
+                 placeholder="Smith" value="{{.LastName}}">
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="email">Email Address</label>
+        <input type="email" id="email" name="email" required
+               placeholder="jane.smith@company.com" value="{{.Email}}">
+      </div>
+      <div class="form-group">
+        <label for="password">Password <span class="label-hint">(min 8 characters)</span></label>
+        <input type="password" id="password" name="password" required
+               placeholder="••••••••" minlength="8">
+      </div>
+      <div class="form-group">
+        <label for="confirm">Confirm Password</label>
+        <input type="password" id="confirm" name="confirm" required
+               placeholder="••••••••">
+      </div>
+      <button type="submit" class="btn">Create Account</button>
+    </form>
+
+    <div class="footer">
+      Already have an account? <a href="/login">Sign in</a>
+    </div>
+  </div>
+</body>
+</html>

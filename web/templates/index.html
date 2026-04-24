@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Archer — Silent Hunter</title>
+<link rel="stylesheet" href="/static/css/archer.css">
+</head>
+<body>
+
+<!-- ── Top bar ─────────────────────────────────────────────────── -->
+<div id="topbar">
+  <span class="app-title">🏹 Archer</span>
+  <span class="subtitle">Silent Hunter</span>
+  <div class="spacer"></div>
+  <div id="notif-wrap">
+    <button id="bell-btn" title="Notifications">🔔</button>
+    <span id="notif-badge" class="badge hidden">0</span>
+    <div id="notif-panel" class="notif-panel hidden">
+      <div class="notif-header">
+        <span>Alerts</span>
+        <button class="notif-dismiss-all" id="dismiss-all-btn">Dismiss all</button>
+      </div>
+      <div id="notif-list"></div>
+    </div>
+  </div>
+  <button id="users-btn" style="display:none">👥 Users</button>
+  <button id="settings-btn">⚙ Settings</button>
+  <div id="user-badge">
+    <span id="user-display"></span>
+    <a href="/logout" id="logout-link" title="Sign out">⏻</a>
+  </div>
+</div>
+
+<!-- ── Body ───────────────────────────────────────────────────── -->
+<div id="body">
+
+  <!-- ── Sidebar ──────────────────────────────────────────────── -->
+  <div id="sidebar">
+    <div class="sidebar-section-title">Zeek Logs</div>
+    <div id="logs-dir-hint" style="font-size:9px;color:var(--fg-dim);padding:0 12px 4px;line-height:1.5">
+      Scanning <em id="logs-dir-path">/logs</em>
+    </div>
+    <div class="sidebar-btn-row">
+      <button class="sb-btn" id="import-logs-btn">📂 Import</button>
+      <button class="sb-btn dim" id="clear-files-btn">✕ Clear</button>
+    </div>
+    <ul id="file-list"></ul>
+
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section-title">Analysis</div>
+    <div class="sidebar-btn-row">
+      <button class="sb-btn" id="analyze-btn">▶ Analyze</button>
+    </div>
+    <progress id="progress-bar" value="0" max="100"></progress>
+    <span class="sidebar-status" id="analysis-status"></span>
+    <div id="analysis-controls" style="display:none;gap:6px;margin-top:6px;display:none">
+      <button class="sb-btn sb-btn-stop"  id="stop-btn">⏹ Stop</button>
+      <button class="sb-btn sb-btn-pause" id="pause-btn">⏸ Pause</button>
+    </div>
+
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section-title">Threat Intel</div>
+    <span class="ti-label" id="ti-status">Not fetched</span>
+
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section-title">Watch Mode</div>
+    <div class="sidebar-label" id="watch-status-label">Disabled</div>
+    <div id="watch-admin-controls" style="display:none">
+      <div class="sidebar-label">Daily analysis time (UTC)</div>
+      <div class="sidebar-row">
+        <input class="sidebar-input" id="watch-time" type="time" value="02:00" style="flex:1">
+        <button class="sidebar-small-btn" id="watch-btn">Enable</button>
+      </div>
+    </div>
+
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section-title">Allowlist</div>
+    <button class="sb-btn dim full" id="allowlist-btn">Edit Allowlist</button>
+
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section-title">IOC List</div>
+    <button class="sb-btn dim full" id="ioc-btn">Edit IOC List</button>
+
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section-title">Suppressions</div>
+    <button class="sb-btn dim full" id="suppressions-btn">Manage Suppressions</button>
+
+  </div>
+
+  <!-- ── Main panel ────────────────────────────────────────────── -->
+  <div id="main">
+
+    <!-- Filter bar -->
+    <div id="filter-bar">
+      <label>Search <input class="filter-input" id="filter-search" type="text" placeholder="IP / domain / type…"></label>
+      <label>Severity
+        <select class="filter-select" id="filter-sev">
+          <option value="">All</option>
+          <option value="CRITICAL">Critical</option>
+          <option value="HIGH">High</option>
+          <option value="MEDIUM">Medium</option>
+          <option value="LOW">Low</option>
+          <option value="INFO">Info</option>
+        </select>
+      </label>
+      <label>Type
+        <select class="filter-select" id="filter-type">
+          <option value="">All Types</option>
+        </select>
+      </label>
+      <label>Min Score <input class="filter-input filter-score" id="filter-score" type="number" min="0" max="100" value="0"></label>
+      <button class="filter-btn" id="apply-filter-btn">Apply</button>
+      <button class="filter-btn dim" id="reset-filter-btn">Reset</button>
+    </div>
+
+    <!-- Delta bar -->
+    <div id="delta-bar">
+      <button class="delta-btn" id="delta-btn">🆕 New Only</button>
+      <button class="delta-btn" id="show-all-btn">Show All</button>
+    </div>
+
+    <div id="info-line"></div>
+
+    <!-- Tabs -->
+    <div id="tabs">
+      <button class="tab-btn active" data-tab="findings">🔍 Findings</button>
+      <button class="tab-btn" data-tab="ack">✓ Acknowledged</button>
+      <button class="tab-btn" data-tab="esc">⚠ Escalated</button>
+      <button class="tab-btn" data-tab="ioc">⚡ IOC Hits</button>
+      <button class="tab-btn" data-tab="campaigns">🕸 Campaigns</button>
+      <button class="tab-btn" data-tab="hosts">🖥 Hosts</button>
+    </div>
+
+    <!-- ── Findings / Acknowledged / Escalated share this panel ── -->
+    <div class="tab-panel active" id="tab-findings">
+      <div class="table-wrap">
+        <table id="findings-table">
+          <thead>
+            <tr>
+              <th style="width:24px"></th>
+              <th data-col="score" style="width:48px">Score</th>
+              <th data-col="severity" style="width:64px">Sev</th>
+              <th data-col="type" style="width:140px">Type</th>
+              <th data-col="src_ip" style="width:110px">Src IP</th>
+              <th data-col="dst_ip" style="width:110px">Dst IP</th>
+              <th data-col="dst_port" style="width:46px">Port</th>
+              <th data-col="timestamp" style="width:100px">Time</th>
+              <th data-col="status" style="width:46px">Status</th>
+              <th data-col="dataset" style="width:90px">Dataset</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody id="findings-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- Detail pane — always visible when any findings-type tab is active -->
+      <div id="detail-pane">
+        <div id="detail-header">SELECT A FINDING</div>
+        <div id="detail-text"></div>
+        <div id="detail-actions">
+          <button class="action-btn ack" id="ack-btn" disabled>✓ Acknowledge</button>
+          <button class="action-btn esc" id="esc-btn" disabled>⚠ Escalate</button>
+          <button class="action-btn chart" id="chart-btn" disabled>📈 Beacon Chart</button>
+          <button class="action-btn pcap" id="pcap-btn" disabled>📋 PCAP Filter</button>
+          <button class="action-btn supp" id="supp-btn" disabled>⏱ Suppress</button>
+          <span id="analyst-rec"></span>
+        </div>
+        <div id="notes-section" style="display:none">
+          <div id="notes-header">ANALYST NOTES</div>
+          <div id="notes-list"></div>
+          <div id="add-note-row">
+            <textarea id="inline-note-input" placeholder="Add a note…" rows="2"></textarea>
+            <button id="add-note-btn">Add Note</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Campaigns tab ─────────────────────────────────────────── -->
+    <div class="tab-panel" id="tab-campaigns">
+      <div class="hint">Destinations contacted by ≥ 2 distinct source IPs (potential campaign / C2 infrastructure)</div>
+      <div class="table-wrap">
+        <table id="campaigns-table">
+          <thead>
+            <tr>
+              <th style="width:180px">Destination</th>
+              <th style="width:60px">Port</th>
+              <th class="hosts" style="width:60px">Hosts</th>
+              <th style="width:80px">Max Score</th>
+              <th>Source IPs</th>
+            </tr>
+          </thead>
+          <tbody id="campaigns-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Hosts tab ─────────────────────────────────────────────── -->
+    <div class="tab-panel" id="tab-hosts">
+      <div class="hint">Per-host composite risk score across all finding types</div>
+      <div class="table-wrap">
+        <table id="hosts-table">
+          <thead>
+            <tr>
+              <th style="width:150px">Host IP</th>
+              <th class="score" style="width:80px">Risk Score</th>
+              <th style="width:80px">Findings</th>
+              <th style="width:90px">Severity</th>
+              <th>Top Finding Types</th>
+            </tr>
+          </thead>
+          <tbody id="hosts-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Status bar ─────────────────────────────────────────────── -->
+<div id="statusbar">
+  <span id="status-msg">Ready</span>
+  <span id="findings-count"></span>
+</div>
+
+<!-- ── Context menu ───────────────────────────────────────────── -->
+<ul class="ctx-menu hidden" id="ctx-menu">
+  <li id="ctx-pivot-src">Pivot → Src IP</li>
+  <li id="ctx-pivot-dst">Pivot → Dst IP</li>
+  <li class="ctx-separator"></li>
+  <li id="ctx-pcap">Copy PCAP Filter</li>
+  <li id="ctx-copy-row">Copy Row</li>
+  <li class="ctx-separator"></li>
+  <li id="ctx-ack">Acknowledge</li>
+  <li id="ctx-suppress" class="ctx-submenu">Suppress
+    <ul class="ctx-submenu-panel" id="ctx-supp-sub">
+      <li data-days="1">1 day</li>
+      <li data-days="7">7 days</li>
+      <li data-days="14">14 days</li>
+      <li data-days="30">30 days</li>
+    </ul>
+  </li>
+  <li class="ctx-separator"></li>
+  <li id="ctx-allowlist" class="ctx-submenu">Add to Allowlist
+    <ul class="ctx-submenu-panel" id="ctx-allowlist-sub">
+      <li data-target="dst">Dst IP</li>
+      <li data-target="src">Src IP</li>
+    </ul>
+  </li>
+  <li id="ctx-ioc-add" class="ctx-submenu">Add to IOC List
+    <ul class="ctx-submenu-panel" id="ctx-ioc-sub">
+      <li data-target="dst">Dst IP</li>
+      <li data-target="src">Src IP</li>
+    </ul>
+  </li>
+  <li class="ctx-separator"></li>
+  <li id="ctx-lookup" class="ctx-submenu">Lookup IOC ↗
+    <ul class="ctx-submenu-panel" id="ctx-lookup-sub">
+      <li id="ctx-vt">VirusTotal</li>
+      <li id="ctx-abuseipdb">AbuseIPDB</li>
+      <li id="ctx-shodan">Shodan</li>
+      <li id="ctx-crowdsec">CrowdSec</li>
+    </ul>
+  </li>
+</ul>
+
+<!-- ── Dialogs ────────────────────────────────────────────────── -->
+
+<dialog id="users-dialog">
+  <div class="dlg-header">User Management</div>
+  <div class="dlg-body">
+    <div id="users-table-wrap">
+      <table id="users-table">
+        <thead>
+          <tr>
+            <th style="width:180px">Name</th>
+            <th style="width:200px">Email</th>
+            <th style="width:110px">Role</th>
+            <th style="width:80px">Joined</th>
+            <th style="width:60px"></th>
+          </tr>
+        </thead>
+        <tbody id="users-tbody"></tbody>
+      </table>
+    </div>
+
+    <div class="dlg-section-title" style="margin-top:18px">Create Account</div>
+    <div id="users-create-form">
+      <div class="users-form-row" style="margin-bottom:8px">
+        <input id="new-user-first" type="text" placeholder="First name" style="flex:1">
+        <input id="new-user-last"  type="text" placeholder="Last name"  style="flex:1">
+      </div>
+      <div class="users-form-row">
+        <input id="new-user-email"    type="email"    placeholder="Email address"    style="flex:2">
+        <input id="new-user-password" type="password" placeholder="Password (min 8)" style="flex:2">
+        <select id="new-user-role">
+          <option value="analyst">Analyst</option>
+          <option value="viewer">Viewer</option>
+          <option value="admin">Admin</option>
+        </select>
+        <button id="create-user-btn" class="dlg-btn primary" style="white-space:nowrap">+ Create</button>
+      </div>
+      <div id="users-error" style="color:var(--sev-critical);font-size:12px;margin-top:6px;display:none"></div>
+    </div>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="users-close">Close</button>
+  </div>
+</dialog>
+
+<dialog id="note-dialog">
+  <div class="dlg-header" id="note-dialog-title">Add Note</div>
+  <div class="dlg-body">
+    <textarea id="note-text" placeholder="Describe your action or reasoning…" rows="4"
+      style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--fg-text);font-size:13px;padding:8px;resize:vertical;font-family:inherit"></textarea>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="note-cancel">Cancel</button>
+    <button class="dlg-btn primary" id="note-ok">Confirm</button>
+  </div>
+</dialog>
+
+<dialog id="escalate-dialog">
+  <div class="dlg-header">Escalate Finding</div>
+  <div class="dlg-body">
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;color:var(--fg-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Note (optional)</div>
+      <textarea id="esc-note" class="dlg-textarea" rows="3" style="width:100%"></textarea>
+    </div>
+    <div id="esc-ti-section" style="display:none">
+      <div style="font-size:11px;color:var(--fg-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Threat Intel Lookup</div>
+      <div style="font-size:11px;color:var(--fg-dim);margin-bottom:4px">Artifact</div>
+      <div id="esc-ip-options" style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap"></div>
+      <div style="font-size:11px;color:var(--fg-dim);margin-bottom:4px">Service</div>
+      <div id="esc-svc-options" style="display:flex;gap:16px;flex-wrap:wrap"></div>
+    </div>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="esc-dlg-cancel">Cancel</button>
+    <button class="dlg-btn primary" id="esc-dlg-confirm">Escalate</button>
+  </div>
+</dialog>
+
+<dialog id="analysis-alert-dlg">
+  <div class="dlg-header">Analysis Complete</div>
+  <div class="dlg-body" style="text-align:center;padding:24px 32px">
+    <div id="analysis-alert-msg" style="font-size:16px;line-height:1.6;white-space:pre"></div>
+  </div>
+  <div class="dlg-footer" style="justify-content:center">
+    <button class="dlg-btn primary" id="analysis-alert-ok">OK</button>
+  </div>
+</dialog>
+
+<dialog id="suppress-dialog">
+  <div class="dlg-header">Suppress Finding</div>
+  <div class="dlg-body">
+    <div id="suppress-target" style="font-family:monospace;font-size:12px;margin-bottom:10px;color:var(--fg-text)"></div>
+    <div class="preset-row">
+      <button class="preset-btn" data-days="1">1 day</button>
+      <button class="preset-btn" data-days="7">7 days</button>
+      <button class="preset-btn" data-days="14">14 days</button>
+      <button class="preset-btn" data-days="30">30 days</button>
+    </div>
+    <label>Custom (days)</label>
+    <input class="dlg-input" id="suppress-custom" type="number" min="1" max="365" value="7" style="width:120px">
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="suppress-cancel">Cancel</button>
+    <button class="dlg-btn primary" id="suppress-ok">Suppress</button>
+  </div>
+</dialog>
+
+<dialog id="allowlist-dialog">
+  <div class="dlg-header">Allowlist</div>
+  <div class="dlg-body">
+    <label>One IP / CIDR / domain per line</label>
+    <textarea class="dlg-textarea" id="allowlist-ta" rows="12" style="width:100%"></textarea>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="allowlist-cancel">Cancel</button>
+    <button class="dlg-btn primary" id="allowlist-save">Save</button>
+  </div>
+</dialog>
+
+<dialog id="ioc-dialog">
+  <div class="dlg-header">IOC List</div>
+  <div class="dlg-body">
+    <label>One IP / CIDR / domain / JA3 hash per line</label>
+    <textarea class="dlg-textarea" id="ioc-ta" rows="12" style="width:100%"></textarea>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="ioc-cancel">Cancel</button>
+    <button class="dlg-btn primary" id="ioc-save">Save</button>
+  </div>
+</dialog>
+
+<dialog id="suppressions-dialog">
+  <div class="dlg-header">Active Suppressions</div>
+  <div class="dlg-body">
+    <div id="suppressions-list" style="min-height:60px"></div>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="suppressions-close">Close</button>
+  </div>
+</dialog>
+
+<dialog id="settings-dialog">
+  <div class="dlg-header">Settings</div>
+  <div class="dlg-body">
+    <div class="settings-group">
+      <div class="settings-group-title">Beaconing</div>
+      <div class="settings-grid">
+        <label>Min Connections<input class="dlg-input" id="cfg-beacon-thresh" type="number" min="1"></label>
+        <label>Strobe Min Conns<input class="dlg-input" id="cfg-strobe-thresh" type="number" min="1"></label>
+        <label>Long Conn (hours)<input class="dlg-input" id="cfg-longconn" type="number" min="0.1" step="0.5"></label>
+        <label>Exfil Min (MB)<input class="dlg-input" id="cfg-exfil" type="number" min="1"></label>
+      </div>
+    </div>
+    <div class="settings-group">
+      <div class="settings-group-title">DNS</div>
+      <div class="settings-grid">
+        <label>NXDOMAIN Thresh<input class="dlg-input" id="cfg-nxdomain" type="number" min="1"></label>
+        <label>Tunnel Label Len<input class="dlg-input" id="cfg-tunnelbytes" type="number" min="1"></label>
+        <label>Uniq Subdomain Min<input class="dlg-input" id="cfg-tunneldiv" type="number" min="1"></label>
+      </div>
+    </div>
+    <div class="settings-group">
+      <div class="settings-group-title">Threat Intelligence</div>
+      <div class="settings-grid">
+        <label>VirusTotal API Key<input class="dlg-input" id="cfg-vt-key" type="password" placeholder="optional"></label>
+        <label>AbuseIPDB Key<input class="dlg-input" id="cfg-abuse-key" type="password" placeholder="optional"></label>
+        <label>OTX Key<input class="dlg-input" id="cfg-otx-key" type="password" placeholder="optional"></label>
+        <label>CrowdSec Key<input class="dlg-input" id="cfg-crowdsec-key" type="password" placeholder="optional"></label>
+      </div>
+    </div>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="settings-cancel">Cancel</button>
+    <button class="dlg-btn primary" id="settings-save">Save</button>
+  </div>
+</dialog>
+
+<dialog id="chart-dialog">
+  <div class="dlg-header" id="chart-title">Beacon Data Volume</div>
+  <div class="chart-presets">
+    <button class="chart-preset-btn" data-secs="300">5m</button>
+    <button class="chart-preset-btn" data-secs="1800">30m</button>
+    <button class="chart-preset-btn active" data-secs="3600">1h</button>
+    <button class="chart-preset-btn" data-secs="21600">6h</button>
+    <button class="chart-preset-btn" data-secs="86400">24h</button>
+    <button class="chart-preset-btn" data-secs="604800">7d</button>
+    <button class="chart-preset-btn" data-secs="2592000">1mo</button>
+    <button class="chart-preset-btn" data-secs="31536000">1y</button>
+  </div>
+  <div class="dlg-body" style="padding-top:0">
+    <canvas id="chart-canvas" width="720" height="340"></canvas>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="chart-close">Close</button>
+  </div>
+</dialog>
+
+<div id="pcap-toast" style="
+  position:fixed;bottom:36px;left:50%;transform:translateX(-50%);
+  background:#1e1e2e;border:1px solid #313244;border-radius:6px;
+  padding:8px 16px;font-family:monospace;font-size:12px;color:#a6e3a1;
+  box-shadow:0 4px 16px rgba(0,0,0,.6);z-index:9999;display:none">
+</div>
+
+<!-- ── JS modules ─────────────────────────────────────────────── -->
+<script>
+  window.SCORE_EXPLANATIONS = {{.ScoreExplanations}};
+  window.INIT_CONFIG = {{.Config}};
+</script>
+<script src="/static/js/sse.js"></script>
+<script src="/static/js/notifications.js"></script>
+<script src="/static/js/chart.js"></script>
+<script src="/static/js/detail.js"></script>
+<script src="/static/js/table.js"></script>
+<script src="/static/js/campaigns.js"></script>
+<script src="/static/js/resize.js"></script>
+<script src="/static/js/dialog.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
