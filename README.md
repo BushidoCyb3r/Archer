@@ -179,58 +179,80 @@ All state is persisted in a single SQLite database at `/data/archer.db`. There a
 
 Docker is required for the recommended deployment path. Docker Compose is included with Docker Desktop on Mac and Windows, and is installed as a plugin on Linux.
 
-#### Debian / Ubuntu / Kali Linux
+#### Ubuntu / Kali Linux
 
 ```bash
-# Remove any old Docker packages
-sudo apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null
-
-# Install dependencies
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl gnupg lsb-release
-
-# Add Docker's official GPG key and repository
+# Add Docker's official GPG key
+sudo apt update
+sudo apt install ca-certificates curl
 sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
 
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-  https://download.docker.com/linux/debian $(lsb_release -cs) stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+# Add the repository to apt sources
+sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+
+sudo apt update
 
 # Install Docker Engine and Compose plugin
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Start and enable Docker
 sudo systemctl enable --now docker
 ```
 
-> **Kali Linux note:** Kali is Debian-based but `lsb_release -cs` may return a Kali codename instead of a Debian one. If the repository step fails, replace `$(lsb_release -cs)` with the current Debian stable codename (e.g. `bookworm`).
+> **Kali Linux note:** Kali is Ubuntu/Debian-based. If `UBUNTU_CODENAME` is not set in `/etc/os-release`, the sources entry will fall back to `VERSION_CODENAME`. If the repository step fails, replace the `Suites:` value manually with the current Ubuntu LTS codename (e.g. `noble`).
 
-#### RHEL / Rocky Linux / AlmaLinux / CentOS Stream
+#### Debian
 
 ```bash
-sudo dnf remove -y docker docker-client docker-client-latest docker-common \
-     docker-latest docker-latest-logrotate docker-logrotate docker-engine 2>/dev/null
+# Add Docker's official GPG key
+sudo apt update
+sudo apt install ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
 
-sudo dnf install -y dnf-plugins-core
-sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
-sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+# Add the repository to apt sources
+sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/debian
+Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
 
+sudo apt update
+
+# Install Docker Engine and Compose plugin
+sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Start and enable Docker
 sudo systemctl enable --now docker
 ```
 
 #### Fedora
 
 ```bash
-sudo dnf install -y dnf-plugins-core
-sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
-sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+# Add the Docker repository
+sudo dnf config-manager addrepo --from-repofile https://download.docker.com/linux/fedora/docker-ce.repo
 
+# Install Docker Engine and Compose plugin
+sudo dnf install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Start and enable Docker
 sudo systemctl enable --now docker
 ```
+
+> **Fedora note:** When prompted during installation, verify the GPG key fingerprint matches `060A 61C5 1B55 8A7F 742B 77AA C52F EB6B 621E 9F35` before accepting.
 
 #### macOS
 
