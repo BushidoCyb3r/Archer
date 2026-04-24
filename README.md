@@ -18,7 +18,6 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 - [User Roles](#user-roles)
 - [Web Interface](#web-interface)
 - [API Reference](#api-reference)
-- [Import & Export](#import--export)
 - [Resetting to Factory State](#resetting-to-factory-state)
 - [Running Without Docker](#running-without-docker)
 - [License](#license)
@@ -34,9 +33,8 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 - **Automatic free TI feeds** — Feodo Tracker C2 IPs and URLhaus malware hosts are fetched and cross-referenced during every analysis run without requiring API keys
 - **Role-based access control** — admin, analyst, and viewer roles with per-endpoint enforcement
 - **Analyst workbench** — acknowledge, escalate, suppress, add notes, and copy tcpdump/Suricata filter strings directly from the UI
-- **Watch mode** — Archer can monitor a directory on a configurable interval and automatically re-analyze when new logs appear
+- **Watch mode** — admin-configurable daily schedule that automatically re-analyzes the logs directory at a set UTC time
 - **Campaign & host views** — see which destinations are contacted by multiple internal hosts and view per-host composite risk scores
-- **Export & import** — download findings as JSON or CSV; import JSON snapshots from other Archer instances
 - **Resource-aware deployment** — `start.sh` automatically allocates 80% of host CPU and RAM to the container
 
 ---
@@ -141,11 +139,12 @@ archer/
 │   ├── server/
 │   │   ├── server.go           # Route registration
 │   │   ├── handlers_api.go     # All REST API handlers
+│   │   ├── watch.go            # Watch mode scheduler
 │   │   ├── auth.go             # Session management, role middleware
 │   │   ├── upload.go           # Log file ingestion
 │   │   └── sse_broker.go       # Server-Sent Events fan-out
 │   └── store/
-│       ├── store.go            # Findings, allowlist, IOC list, config — SQLite persistence
+│       ├── store.go            # Findings, allowlist, IOC list, suppressions, config — SQLite persistence
 │       └── userstore.go        # User accounts, sessions — SQLite persistence
 └── web/
     ├── templates/index.html    # Single-page application shell
@@ -440,7 +439,7 @@ Navigate to `http://localhost:8080`. The first user to register automatically re
 
 ### 5. Import and analyze
 
-1. Click **Import Logs** in the sidebar to scan the `logs/` directory
+1. Click **Import** in the sidebar to scan the `logs/` directory
 2. Click **Analyze** to run the full detection pipeline
 3. Findings appear in real time as the pipeline progresses
 
@@ -557,6 +556,7 @@ The first user to register automatically becomes an **admin**. Subsequent regist
 | Capability | Admin | Analyst | Viewer |
 |---|:---:|:---:|:---:|
 | View findings, campaigns, hosts | ✓ | ✓ | ✓ |
+| View watch mode status | ✓ | ✓ | ✓ |
 | Acknowledge / escalate findings | ✓ | ✓ | — |
 | Add analyst notes | ✓ | ✓ | — |
 | Run TI escalation lookups | ✓ | ✓ | — |
@@ -564,11 +564,9 @@ The first user to register automatically becomes an **admin**. Subsequent regist
 | Scan and clear log files | ✓ | ✓ | — |
 | Edit allowlist and IOC list | ✓ | ✓ | — |
 | Manage suppressions | ✓ | ✓ | — |
-| Configure watch mode | ✓ | ✓ | — |
-| Export findings (JSON / CSV) | ✓ | ✓ | — |
-| Import findings | ✓ | ✓ | — |
 | Update analysis thresholds | ✓ | — | — |
 | Manage API keys | ✓ | — | — |
+| Configure watch mode | ✓ | — | — |
 | Create / delete users | ✓ | — | — |
 | Promote / demote user roles | ✓ | — | — |
 
@@ -585,9 +583,10 @@ Sessions are stored in SQLite with a 24-hour expiry, httpOnly cookies, and `Same
 | **Zeek Logs** | Shows the current log directory; **Import** scans for new files; **Clear** removes the file list. The file list is grouped by dataset name with a file count. |
 | **Analysis** | **Analyze** starts the detection pipeline. A progress bar and step indicator update in real time via SSE. **Pause** and **Stop** are available during a run. |
 | **Threat Intel** | Displays a count of TI hits found in the last analysis. |
-| **Watch Mode** | Configure a directory and polling interval (minutes) for automatic re-analysis. |
-| **Allowlist** | Edit the list of IPs and domains to exclude from all detections. One entry per line. |
-| **IOC List** | Edit the list of known-bad IPs and domains. Findings with a src/dst IP matching this list are tagged in real time and appear in the IOC Hits tab. |
+| **Watch Mode** | All users can see whether watch mode is enabled and when the next run is scheduled. Admins can set a daily UTC time and enable or disable automatic analysis. |
+| **Allowlist** | Edit the list of IPs and domains to exclude from all findings. One entry per line. Findings matching an allowlisted IP are hidden across all tabs immediately after saving. |
+| **IOC List** | Edit the list of known-bad IPs and domains. Findings with a src/dst IP matching this list are tagged and appear in the IOC Hits tab. |
+| **Suppressions** | View all active suppressions with their target, context, and expiry time. Individual suppressions can be removed here; expired suppressions are pruned automatically. |
 
 ### Finding Tabs
 
@@ -615,7 +614,7 @@ Selecting a finding opens the detail pane, which shows:
 - **Escalate** — opens the TI escalation dialog
 - **Beacon Chart** — visualises inter-arrival times and connection timestamps (beaconing findings only)
 - **PCAP Filter** — copies a ready-to-use `tcpdump` or Suricata filter string to the clipboard
-- **Suppress** — suppresses alerts for the source or destination IP for a configurable duration
+- **Suppress** — suppresses alerts for the source or destination IP for a configurable duration; suppressed findings are hidden from all tabs until the suppression expires or is manually removed
 - **Analyst Recommendation** — auto-generated investigative guidance based on the finding type and score
 - **Notes** — chronological thread of analyst annotations; new notes can be added inline
 
@@ -688,17 +687,17 @@ All API endpoints require authentication. Role requirements are noted where appl
 | Method | Path | Role | Description |
 |---|---|---|---|
 | `GET` | `/api/allowlist` | Any | `["ip-or-domain", ...]` |
-| `PUT` | `/api/allowlist` | Analyst+ | Replace allowlist: `{"entries":["..."]}` |
+| `PUT` | `/api/allowlist` | Analyst+ | Replace allowlist: `["ip-or-domain", ...]` |
 | `GET` | `/api/ioc` | Any | `["ip-or-domain", ...]` |
-| `PUT` | `/api/ioc` | Analyst+ | Replace IOC list: `{"entries":["..."]}` |
+| `PUT` | `/api/ioc` | Analyst+ | Replace IOC list: `["ip-or-domain", ...]` |
 
 ### Suppressions
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/api/suppressions` | Any | `{"target": "ISO-expiry-timestamp", ...}` |
-| `POST` | `/api/suppressions` | Analyst+ | Add suppression: `{"target":"1.2.3.4","days":7}` |
-| `DELETE` | `/api/suppressions/{target}` | Analyst+ | Remove suppression |
+| `GET` | `/api/suppressions` | Any | `[{"target":"1.2.3.4","expiry":1234567890,"detail":"..."},...]` |
+| `POST` | `/api/suppressions` | Analyst+ | Add suppression: `{"target":"1.2.3.4","days":7,"detail":"..."}` |
+| `DELETE` | `/api/suppressions/{target}` | Analyst+ | Remove suppression immediately |
 
 ### Notifications
 
@@ -711,8 +710,8 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/api/watch` | Any | `{"dir":"...","interval_hours":N,"enabled":bool}` |
-| `POST` | `/api/watch` | Analyst+ | `{"dir":"...","interval_minutes":N,"enabled":bool}` |
+| `GET` | `/api/watch` | Any | `{"time":"HH:MM","enabled":bool,"next_run":"2026-04-25 02:00 UTC"}` |
+| `POST` | `/api/watch` | Admin | `{"time":"HH:MM","enabled":bool}` |
 
 ### Threat Intelligence
 
@@ -720,45 +719,11 @@ All API endpoints require authentication. Role requirements are noted where appl
 |---|---|---|---|
 | `GET` | `/api/ti/services` | Any | `{"vt":bool,"crowdsec":bool,"otx":bool,"abuseipdb":bool}` — true means API key is configured |
 
-### Export / Import
-
-| Method | Path | Role | Description |
-|---|---|---|---|
-| `GET` | `/api/export/json` | Any | Download findings as JSON |
-| `GET` | `/api/export/csv` | Any | Download findings as CSV |
-| `POST` | `/api/import` | Analyst+ | Upload JSON export file to import findings |
-
 ### Real-Time Events
 
 | Method | Path | Role | Description |
 |---|---|---|---|
 | `GET` | `/events` | Any | SSE stream. Event types: `progress` `{"pct":N,"step":"..."}`, `status` `{"msg":"..."}`, `done` `{"count":N,"new_count":N,"cancelled":bool}`, `notification` (finding alert), `ti_result` `{"finding_id":N,"source":"...","detail":"...","hit":bool}`, `ti_done` `{"finding_id":N,"hits":N}` |
-
----
-
-## Import & Export
-
-### Export
-
-From the sidebar or via API:
-- **JSON export** includes all findings with full metadata, analyst notes, IOC list, and allowlist
-- **CSV export** includes core finding fields suitable for import into SIEM or spreadsheet tools
-
-JSON export format:
-
-```json
-{
-  "archer_version": "3.0.0-go",
-  "saved_at": "2026-04-24 12:00:00 UTC",
-  "findings": [ ... ],
-  "allowlist": [ "10.0.0.0/8" ],
-  "ioc_list": [ "185.220.101.1" ]
-}
-```
-
-### Import
-
-POST a JSON export file to `/api/import` or use the Import button in the UI. Findings are merged with the existing database using fingerprint matching — analyst annotations on matching findings are preserved.
 
 ---
 
@@ -796,7 +761,7 @@ The binary has no runtime dependencies beyond the operating system. SQLite is co
 
 MIT License
 
-Copyright (c) 2026 Archer Contributors
+Copyright (c) 2026 BushidoCyb3r
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
