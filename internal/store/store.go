@@ -262,8 +262,10 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 		existing[f.Fingerprint()] = f
 	}
 
+	newFPSet := make(map[model.Fingerprint]bool, len(findings))
 	for i := range findings {
 		fp := findings[i].Fingerprint()
+		newFPSet[fp] = true
 		if old, ok := existing[fp]; ok {
 			findings[i].Status      = old.Status
 			findings[i].Analyst     = old.Analyst
@@ -273,6 +275,19 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 			findings[i].IsNew       = false
 		} else {
 			findings[i].IsNew = true
+		}
+	}
+
+	// Preserve historical TI findings that weren't regenerated in this run.
+	// Live feeds (Feodo, URLhaus) rotate — an IP removed from a feed today was
+	// still malicious when it appeared in the logs, so we keep the record.
+	for fp, old := range existing {
+		if old.Type != "Threat Intel Hit" && old.Type != "Suspicious URL" {
+			continue
+		}
+		if !newFPSet[fp] {
+			old.IsNew = false
+			findings = append(findings, old)
 		}
 	}
 
