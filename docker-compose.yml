@@ -14,10 +14,6 @@ services:
       - GOMAXPROCS=0      # all cores; Go runtime auto-scales goroutines
       - GOGC=200          # less-frequent GC for large batch workloads (trades RAM for throughput)
     command: ["--addr=:8080", "--logs-dir=/logs"]
-    ulimits:
-      nofile:             # open file handles — critical for millions of log files
-        soft: 1048576
-        hard: 1048576
     deploy:
       resources:
         limits:
