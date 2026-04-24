@@ -7,18 +7,17 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./logs:/logs:ro   # drop datasets here: logs/<dataset-name>/*.log
+      - ./logs:/logs      # drop datasets here: logs/<dataset-name>/*.log — writable so the archive worker can relocate aged files
       - archer-data:/data
     environment:
       - TZ=UTC
-      - GOMAXPROCS=0      # all cores; Go runtime auto-scales goroutines
-      - GOGC=200          # less-frequent GC for large batch workloads (trades RAM for throughput)
+      - GOMAXPROCS=0
     command: ["--addr=:8080", "--logs-dir=/logs"]
     deploy:
       resources:
         limits:
           cpus: '${ARCHER_CPUS:-9999}'
-          memory: '${ARCHER_MEMORY:-999999m}'
+          memory: '${ARCHER_MEMORY:-4g}'
 
 volumes:
   archer-data:

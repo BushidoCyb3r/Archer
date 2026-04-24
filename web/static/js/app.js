@@ -47,6 +47,7 @@
     const data = await api('/api/findings' + (qs ? '?' + qs : ''));
     _allFindings = Array.isArray(data) ? data : [];
     Table.populateTypeFilter(_allFindings);
+    _updateDatasetFilter(_allFindings);
     Campaigns.build(_allFindings);
     _applyTabFilter();
   }
@@ -124,28 +125,86 @@
   function initFilterBar() {
     document.getElementById('apply-filter-btn').addEventListener('click', applyFilter);
     document.getElementById('reset-filter-btn').addEventListener('click', () => {
-      document.getElementById('filter-search').value = '';
+      ['filter-search','filter-src','filter-dst','filter-from','filter-to'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.value = '';
+      });
       document.getElementById('filter-sev').value = '';
       document.getElementById('filter-type').value = '';
+      document.getElementById('filter-dataset').value = '';
       document.getElementById('filter-score').value = '0';
       _applyTabFilter();
     });
-    document.getElementById('filter-search').addEventListener('keydown', e => {
-      if (e.key === 'Enter') applyFilter();
+    ['filter-search','filter-src','filter-dst','filter-from','filter-to'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') applyFilter(); });
     });
+
+    document.getElementById('export-csv-btn').addEventListener('click', () => {
+      window.location.href = '/api/export/csv?' + _currentFilterQS();
+    });
+    document.getElementById('export-json-btn').addEventListener('click', () => {
+      window.location.href = '/api/export/json?' + _currentFilterQS();
+    });
+
+    // Advanced-filters toggle. Remembered in localStorage so the panel stays
+    // in whatever state the analyst left it in across page reloads.
+    const advToggle = document.getElementById('filter-advanced-toggle');
+    const advPanel  = document.getElementById('filter-bar-advanced');
+    const setAdv = open => {
+      advPanel.style.display = open ? 'flex' : 'none';
+      advToggle.classList.toggle('active', open);
+      advToggle.textContent = open ? 'Advanced ▴' : 'Advanced ▾';
+      try { localStorage.setItem('archer.filter.advanced', open ? '1' : '0'); } catch (e) {}
+    };
+    advToggle.addEventListener('click', () => setAdv(advPanel.style.display === 'none'));
+    try {
+      if (localStorage.getItem('archer.filter.advanced') === '1') setAdv(true);
+    } catch (e) {}
+  }
+
+  // Build the query string representing the current filter state. Shared by
+  // applyFilter (for /api/findings) and the export buttons so the exported
+  // file matches the on-screen view exactly.
+  function _currentFilterParams() {
+    const g = id => (document.getElementById(id) || {}).value || '';
+    const params = {};
+    const search = g('filter-search').trim();
+    if (search) params.search = search;
+    const sev = g('filter-sev');   if (sev)  params.severity = sev;
+    const type = g('filter-type'); if (type) params.type = type;
+    const score = parseInt(g('filter-score')) || 0;
+    if (score > 0) params.min_score = score;
+    const src = g('filter-src').trim(); if (src) params.src_ip = src;
+    const dst = g('filter-dst').trim(); if (dst) params.dst_ip = dst;
+    const ds  = g('filter-dataset');    if (ds)  params.dataset = ds;
+    const from = g('filter-from');      if (from) params.from = from;
+    const to   = g('filter-to');        if (to)   params.to   = to;
+    return params;
+  }
+
+  function _currentFilterQS() {
+    const p = _currentFilterParams();
+    return Object.keys(p).map(k => `${encodeURIComponent(k)}=${encodeURIComponent(p[k])}`).join('&');
   }
 
   function applyFilter() {
-    const params = {};
-    const search = document.getElementById('filter-search').value.trim();
-    const sev    = document.getElementById('filter-sev').value;
-    const type   = document.getElementById('filter-type').value;
-    const score  = parseInt(document.getElementById('filter-score').value) || 0;
-    if (search) params.search = search;
-    if (sev)    params.severity = sev;
-    if (type)   params.type = type;
-    if (score > 0) params.min_score = score;
-    loadFindings(params);
+    loadFindings(_currentFilterParams());
+  }
+
+  // Populate the Dataset filter dropdown from the distinct datasets present
+  // in the current findings list.
+  function _updateDatasetFilter(findings) {
+    const sel = document.getElementById('filter-dataset');
+    if (!sel) return;
+    const current = sel.value;
+    const datasets = [...new Set((findings || []).map(f => f.dataset).filter(Boolean))].sort();
+    while (sel.options.length > 1) sel.remove(1);
+    datasets.forEach(d => {
+      const o = document.createElement('option');
+      o.value = d; o.textContent = d;
+      sel.appendChild(o);
+    });
+    if (datasets.includes(current)) sel.value = current;
   }
 
   // ── Delta mode ─────────────────────────────────────────────────────────────
@@ -414,7 +473,211 @@
   }
 
   // ── Detail actions ─────────────────────────────────────────────────────────
+  // Full standard Zeek schema per log type. Columns the record doesn't carry
+  // render as blank cells. Analyst can resize any column to read long values
+  // (uid, uri, ja3) by dragging the right edge of its header.
+  const RAW_COLUMNS = {
+    conn: [
+      'ts','uid','id.orig_h','id.orig_p','id.resp_h','id.resp_p','proto','service',
+      'duration','orig_bytes','resp_bytes','conn_state','local_orig','local_resp',
+      'missed_bytes','history','orig_pkts','orig_ip_bytes','resp_pkts','resp_ip_bytes',
+      'tunnel_parents','community_id','vlan','inner_vlan','_source_file',
+    ],
+    http: [
+      'ts','uid','id.orig_h','id.orig_p','id.resp_h','id.resp_p','trans_depth',
+      'method','host','uri','referrer','version','user_agent','origin',
+      'request_body_len','response_body_len','status_code','status_msg',
+      'info_code','info_msg','tags','username','password','proxied',
+      'orig_fuids','orig_filenames','orig_mime_types',
+      'resp_fuids','resp_filenames','resp_mime_types','_source_file',
+    ],
+    dns: [
+      'ts','uid','id.orig_h','id.orig_p','id.resp_h','id.resp_p','proto',
+      'trans_id','rtt','query','qclass','qclass_name','qtype','qtype_name',
+      'rcode','rcode_name','AA','TC','RD','RA','Z','answers','TTLs','rejected',
+      '_source_file',
+    ],
+    ssl: [
+      'ts','uid','id.orig_h','id.orig_p','id.resp_h','id.resp_p','version','cipher',
+      'curve','server_name','resumed','last_alert','next_protocol','established',
+      'cert_chain_fuids','client_cert_chain_fuids','subject','issuer',
+      'client_subject','client_issuer','validation_status','ja3','ja3s',
+      '_source_file',
+    ],
+    x509: [
+      'ts','id','certificate.version','certificate.serial','certificate.subject',
+      'certificate.issuer','certificate.not_valid_before','certificate.not_valid_after',
+      'certificate.key_alg','certificate.sig_alg','certificate.key_type',
+      'certificate.key_length','certificate.exponent','certificate.curve',
+      'san.dns','san.uri','san.email','san.ip','basic_constraints.ca',
+      'basic_constraints.path_len','_source_file',
+    ],
+    files: [
+      'ts','fuid','tx_hosts','rx_hosts','conn_uids','source','depth','analyzers',
+      'mime_type','filename','duration','local_orig','is_orig','seen_bytes',
+      'total_bytes','missing_bytes','overflow_bytes','timedout','parent_fuid',
+      'md5','sha1','sha256','extracted','_source_file',
+    ],
+    weird: ['ts','uid','id.orig_h','id.orig_p','id.resp_h','id.resp_p','name','addl','notice','peer','_source_file'],
+    notice: [
+      'ts','uid','id.orig_h','id.orig_p','id.resp_h','id.resp_p','fuid','file_mime_type',
+      'file_desc','proto','note','msg','sub','src','dst','p','n',
+      'peer_descr','actions','suppress_for','_source_file',
+    ],
+  };
+  const RAW_DEFAULT_COLS = ['ts','uid','id.orig_h','id.resp_h','id.resp_p','_source_file'];
+
+  // Per-column starting width in pixels. Anything not listed uses the default.
+  const RAW_COL_WIDTH = {
+    ts: 110, uid: 150, query: 240, uri: 260, host: 180, user_agent: 260,
+    server_name: 200, ja3: 280, ja3s: 280, answers: 260, history: 90,
+    'certificate.subject': 280, 'certificate.issuer': 280, filename: 220,
+    md5: 280, sha1: 280, sha256: 280, _source_file: 260,
+  };
+  const RAW_COL_WIDTH_DEFAULT = 120;
+
+  async function _showRawRecords(f) {
+    const dlg    = document.getElementById('raw-dialog');
+    const title  = document.getElementById('raw-dlg-title');
+    const status = document.getElementById('raw-dlg-status');
+    const body   = document.getElementById('raw-dlg-table');
+    const winSel = document.getElementById('raw-dlg-window');
+    title.textContent = `Source Records — ${f.type} — ${f.src_ip} → ${f.dst_ip}`;
+    dlg.dataset.findingId = f.id;
+    await _fetchRawRecords(f.id);
+    dlg.showModal();
+  }
+
+  async function _fetchRawRecords(findingId) {
+    const status = document.getElementById('raw-dlg-status');
+    const body   = document.getElementById('raw-dlg-table');
+    const winSel = document.getElementById('raw-dlg-window');
+    const window_hours = winSel ? winSel.value : '6';
+    status.textContent = 'Scanning logs…';
+    body.innerHTML = '';
+    try {
+      const resp = await api(`/api/findings/${findingId}/raw?limit=500&window_hours=${encodeURIComponent(window_hours)}`);
+      const records  = resp.records || [];
+      const logTypes = resp.log_types || [];
+      if (records.length === 0) {
+        status.textContent = `No matching records in ${logTypes.join(', ')} logs. Source files may have been archived or rotated.`;
+        return;
+      }
+      // Group records by log type so the table stays aligned per section
+      const byType = {};
+      records.forEach(r => {
+        const t = r._log_type || 'unknown';
+        (byType[t] = byType[t] || []).push(r);
+      });
+      status.textContent =
+        `${records.length} record${records.length === 1 ? '' : 's'} from ${logTypes.join(', ')} ` +
+        `log${logTypes.length === 1 ? '' : 's'}${resp.truncated ? ' (truncated at ' + resp.limit + ')' : ''}.`;
+      body.innerHTML = '';
+      for (const [logType, recs] of Object.entries(byType)) {
+        const cols = RAW_COLUMNS[logType] || RAW_DEFAULT_COLS;
+        const sec = document.createElement('div');
+        sec.style.marginBottom = '14px';
+        sec.innerHTML = `<div style="font-weight:bold;margin:6px 0;color:var(--accent)">${logType} — ${recs.length} record(s)</div>`;
+        const tbl = _buildRawTable(cols, recs);
+        sec.appendChild(tbl);
+        body.appendChild(sec);
+      }
+    } catch (e) {
+      status.textContent = 'Error fetching records: ' + e;
+    }
+  }
+
+  // _buildRawTable renders one log-type section of the Source Records dialog.
+  // Each header cell has a right-edge resize handle; dragging sets the <th>'s
+  // inline width, which table-layout:fixed honors across the whole column.
+  function _buildRawTable(cols, recs) {
+    const tbl = document.createElement('table');
+    tbl.className = 'raw-table';
+    const colgroup = document.createElement('colgroup');
+    cols.forEach(c => {
+      const col = document.createElement('col');
+      col.style.width = (RAW_COL_WIDTH[c] || RAW_COL_WIDTH_DEFAULT) + 'px';
+      colgroup.appendChild(col);
+    });
+    tbl.appendChild(colgroup);
+
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    cols.forEach((c, idx) => {
+      const th = document.createElement('th');
+      th.textContent = c;
+      th.title = c;
+      const handle = document.createElement('span');
+      handle.className = 'col-resizer';
+      th.appendChild(handle);
+      _attachColumnResize(handle, colgroup.children[idx]);
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    tbl.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    recs.forEach(r => {
+      const tr = document.createElement('tr');
+      cols.forEach(c => {
+        const v = r[c];
+        const text = v == null ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+        const td = document.createElement('td');
+        td.textContent = text;
+        td.title = text;
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    tbl.appendChild(tbody);
+    return tbl;
+  }
+
+  // Drag a <col> element wider / narrower. Operates on the colgroup entry so
+  // both the <th> and every <td> in the column resize together under
+  // table-layout:fixed.
+  function _attachColumnResize(handle, colEl) {
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      handle.classList.add('resizing');
+      const startX = e.pageX;
+      const startWidth = colEl.getBoundingClientRect().width;
+      const onMove = ev => {
+        const w = Math.max(40, startWidth + ev.pageX - startX);
+        colEl.style.width = w + 'px';
+      };
+      const onUp = () => {
+        handle.classList.remove('resizing');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
   function initDetailActions() {
+    const rawBtn = document.getElementById('raw-btn');
+    if (rawBtn) {
+      rawBtn.addEventListener('click', () => {
+        if (_selectedFinding) _showRawRecords(_selectedFinding);
+      });
+    }
+    const rawClose = document.getElementById('raw-dlg-close');
+    if (rawClose) {
+      rawClose.addEventListener('click', () => {
+        document.getElementById('raw-dialog').close();
+      });
+    }
+    const rawWin = document.getElementById('raw-dlg-window');
+    if (rawWin) {
+      rawWin.addEventListener('change', () => {
+        const id = document.getElementById('raw-dialog').dataset.findingId;
+        if (id) _fetchRawRecords(parseInt(id, 10));
+      });
+    }
+
     document.getElementById('ack-btn').addEventListener('click', async () => {
       if (!_selectedFinding) return;
       const f = _selectedFinding;
@@ -682,20 +945,95 @@
   function initSettings() {
     const dlg = document.getElementById('settings-dialog');
     document.getElementById('settings-btn').addEventListener('click', async () => {
-      const cfg = await api('/api/config').catch(() => ({}));
+      const [cfg, archive] = await Promise.all([
+        api('/api/config').catch(() => ({})),
+        api('/api/archive').catch(() => null),
+      ]);
       _populateSettings(cfg);
+      _populateArchive(archive);
       dlg.showModal();
     });
     document.getElementById('settings-cancel').addEventListener('click', () => dlg.close());
     document.getElementById('settings-save').addEventListener('click', async () => {
-      await api('/api/config', {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(_collectSettings()),
-      }).catch(e => setStatus('Error: ' + e));
-      setStatus('Settings saved');
+      try {
+        await api('/api/config', {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(_collectSettings()),
+        });
+        await api('/api/archive', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(_collectArchive()),
+        });
+        setStatus('Settings saved');
+      } catch (e) {
+        setStatus('Error: ' + e);
+      }
       dlg.close();
     });
+
+    const resetBtn = document.getElementById('reset-analyze-btn');
+    const resetStatus = document.getElementById('reset-analyze-status');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', async () => {
+        const ok = window.confirm(
+          'Discard ALL findings in the database and re-run analysis from scratch?\n\n' +
+          'Analyst notes, statuses, and acknowledgements will be lost. This cannot be undone.'
+        );
+        if (!ok) return;
+        resetBtn.disabled = true;
+        resetStatus.textContent = 'Starting…';
+        resetStatus.style.color = 'var(--fg-dim)';
+        try {
+          const res = await api('/api/analyze/reset', {method: 'POST'});
+          if (res && res.error) {
+            resetStatus.textContent = 'Error: ' + res.error;
+            resetStatus.style.color = 'var(--sev-high, #c66)';
+          } else {
+            resetStatus.textContent = `Cleared ${res.findings_cleared||0} finding(s); analysis started.`;
+            resetStatus.style.color = 'var(--accent)';
+            dlg.close();
+          }
+        } catch (e) {
+          resetStatus.textContent = 'Error: ' + e;
+          resetStatus.style.color = 'var(--sev-high, #c66)';
+        }
+        resetBtn.disabled = false;
+      });
+    }
+
+    const runBtn = document.getElementById('archive-run-btn');
+    const runStatus = document.getElementById('archive-run-status');
+    if (runBtn) {
+      runBtn.addEventListener('click', async () => {
+        runBtn.disabled = true;
+        runStatus.textContent = 'Running…';
+        runStatus.style.color = 'var(--fg-dim)';
+        try {
+          const res = await api('/api/archive/run', {method: 'POST'});
+          if (res && res.error) {
+            runStatus.textContent = 'Error: ' + res.error;
+            runStatus.style.color = 'var(--sev-high, #c66)';
+          } else {
+            runStatus.textContent = `Archived ${res.files_archived||0} file(s), ${_humanBytes(res.bytes_archived||0)}${res.findings_pruned ? `, pruned ${res.findings_pruned} finding(s)` : ''}.`;
+            runStatus.style.color = 'var(--accent)';
+          }
+        } catch (e) {
+          runStatus.textContent = 'Error: ' + e;
+          runStatus.style.color = 'var(--sev-high, #c66)';
+        }
+        runBtn.disabled = false;
+      });
+    }
+  }
+
+  function _humanBytes(n) {
+    if (!n) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0, v = n;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
   }
 
   function _populateSettings(cfg) {
@@ -713,6 +1051,18 @@
     set('cfg-crowdsec-key',   cfg.crowdsec_api_key);
   }
 
+  function _populateArchive(a) {
+    if (!a) a = {};
+    const en = document.getElementById('cfg-archive-enabled');
+    const af = document.getElementById('cfg-archive-after');
+    const pr = document.getElementById('cfg-archive-prune');
+    const rs = document.getElementById('archive-run-status');
+    if (en) en.checked = !!a.enabled;
+    if (af) af.value = a.after_days || 30;
+    if (pr) pr.checked = !!a.prune_findings_on_archive;
+    if (rs) rs.textContent = '';
+  }
+
   function _collectSettings() {
     const g = id => { const el = document.getElementById(id); return el ? el.value : ''; };
     return {
@@ -727,6 +1077,18 @@
       abuseipdb_api_key:        g('cfg-abuse-key'),
       otx_api_key:              g('cfg-otx-key'),
       crowdsec_api_key:         g('cfg-crowdsec-key'),
+    };
+  }
+
+  function _collectArchive() {
+    const g  = id => document.getElementById(id);
+    const en = g('cfg-archive-enabled');
+    const af = g('cfg-archive-after');
+    const pr = g('cfg-archive-prune');
+    return {
+      enabled: !!(en && en.checked),
+      after_days: parseInt(af && af.value) || 30,
+      prune_findings_on_archive: !!(pr && pr.checked),
     };
   }
 

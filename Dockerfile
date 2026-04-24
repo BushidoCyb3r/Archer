@@ -15,10 +15,12 @@ RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=builder /archer ./archer
 COPY web/ ./web/
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 VOLUME ["/logs", "/data"]
 
 EXPOSE 8080
 
-ENTRYPOINT ["/app/archer"]
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["--addr=:8080", "--logs-dir=/logs"]

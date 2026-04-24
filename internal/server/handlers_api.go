@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/model"
+	"github.com/BushidoCyb3r/Archer/internal/store"
 )
 
 // datasetFromPath returns the first path component under logsDir.
@@ -70,6 +71,39 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	s.launchAnalysis(files)
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{"status": "started"})
+}
+
+// handleAnalyzeReset clears the findings table and relaunches analysis from
+// scratch. Admin-only. Intended for "the config changed, I want a clean
+// baseline" workflows where preserving old findings would be misleading.
+func (s *Server) handleAnalyzeReset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if u := userFromCtx(r); u.Role != model.RoleAdmin {
+		jsonError(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if s.store.IsAnalyzing() {
+		jsonError(w, "analysis already running", http.StatusConflict)
+		return
+	}
+	files := s.store.GetUploadedFiles()
+	if len(files) == 0 {
+		files = s.scanLogsDir()
+	}
+	if len(files) == 0 {
+		jsonError(w, "no files to analyze", http.StatusBadRequest)
+		return
+	}
+	cleared := s.store.ClearFindings()
+	s.launchAnalysis(files)
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":           "started",
+		"findings_cleared": cleared,
+	})
 }
 
 // handleAnalyzeStatus returns whether analysis is currently running/paused.
@@ -147,61 +181,13 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	search := strings.ToLower(q.Get("search"))
-	typeF := q.Get("type")
-	sevF := q.Get("severity")
-	minScore, _ := strconv.Atoi(q.Get("min_score"))
-	delta := q.Get("delta") == "true"
 	sortCol := q.Get("sort")
 	if sortCol == "" {
 		sortCol = "score"
 	}
 	sortDir := q.Get("dir")
 
-	findings := s.store.GetFindings()
-	allowlist := s.store.GetAllowlist()
-	alSet := make(map[string]bool, len(allowlist))
-	for _, e := range allowlist {
-		alSet[e] = true
-	}
-	iocList := s.store.GetIOCList()
-	iocSet := make(map[string]bool, len(iocList))
-	for _, e := range iocList {
-		iocSet[e] = true
-	}
-
-	var result []model.Finding
-	for i := range findings {
-		f := &findings[i]
-		if typeF != "" && typeF != "All" && f.Type != typeF {
-			continue
-		}
-		if sevF != "" && sevF != "All" && string(f.Severity) != sevF {
-			continue
-		}
-		if f.Score < minScore {
-			continue
-		}
-		if alSet[f.DstIP] || alSet[f.SrcIP] {
-			continue
-		}
-		if s.store.IsSuppressed(f.SrcIP) || s.store.IsSuppressed(f.DstIP) {
-			continue
-		}
-		if delta && !f.IsNew {
-			continue
-		}
-		if search != "" {
-			hay := strings.ToLower(fmt.Sprintf("%s %s %s %s %s %s %s",
-				f.Type, f.SrcIP, f.DstIP, f.DstPort, f.Detail, f.Timestamp, f.Severity))
-			if !strings.Contains(hay, search) {
-				continue
-			}
-		}
-		// Mark IOC matches
-		f.IOCMatch = iocSet[f.DstIP] || iocSet[f.SrcIP]
-		result = append(result, *f)
-	}
+	result := s.filterFindings(s.store.GetFindings(), q)
 
 	// Sort
 	sort.Slice(result, func(i, j int) bool {
@@ -234,14 +220,23 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimPrefix(r.URL.Path, "/api/findings/")
-	// Strip any trailing path segment
-	if i := strings.Index(idStr, "/"); i >= 0 {
-		idStr = idStr[:i]
-	}
+	rest := strings.TrimPrefix(r.URL.Path, "/api/findings/")
+	parts := strings.SplitN(rest, "/", 2)
+	idStr := parts[0]
 	id, err := strconv.Atoi(idStr)
 	if err != nil || id <= 0 {
 		jsonError(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	// Sub-resource dispatch: /api/findings/{id}/raw → raw-log pivot
+	if len(parts) > 1 {
+		switch parts[1] {
+		case "raw":
+			s.handleFindingRaw(w, r, id)
+		default:
+			http.NotFound(w, r)
+		}
 		return
 	}
 
@@ -709,8 +704,58 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleArchive(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(s.store.GetArchive())
+
+	case http.MethodPost, http.MethodPut:
+		if u := userFromCtx(r); u.Role != model.RoleAdmin {
+			jsonError(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var req store.ArchiveSettings
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if req.Enabled && req.AfterDays <= 0 {
+			jsonError(w, "after_days must be positive when enabling", http.StatusBadRequest)
+			return
+		}
+		s.store.SetArchive(req)
+		jsonOK(w)
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleArchiveRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if u := userFromCtx(r); u.Role != model.RoleAdmin {
+		jsonError(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	settings := s.store.GetArchive()
+	if settings.AfterDays <= 0 {
+		jsonError(w, "configure archive_after_days before running", http.StatusBadRequest)
+		return
+	}
+	res := s.runArchive(settings.AfterDays, settings.PruneFindingsOnArchive)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
+}
+
+// Exports honor the same query-string filters as /api/findings. Passing no
+// parameters exports everything (original behavior); passing filters produces
+// a file that matches exactly what the analyst sees on screen.
 func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
-	findings := s.store.GetFindings()
+	findings := s.filterFindings(s.store.GetFindings(), r.URL.Query())
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="archer_results_%s.json"`, time.Now().Format("20060102_150405")))
 	enc := json.NewEncoder(w)
@@ -725,15 +770,15 @@ func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
-	findings := s.store.GetFindings()
+	findings := s.filterFindings(s.store.GetFindings(), r.URL.Query())
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="archer_%s.csv"`, time.Now().Format("20060102_150405")))
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"score", "severity", "type", "src_ip", "dst_ip", "dst_port", "timestamp", "detail", "source_file", "status", "analyst", "analyst_note"})
+	_ = cw.Write([]string{"score", "severity", "type", "src_ip", "dst_ip", "dst_port", "timestamp", "detail", "source_file", "dataset", "status", "analyst", "analyst_note"})
 	for _, f := range findings {
 		_ = cw.Write([]string{
 			strconv.Itoa(f.Score), string(f.Severity), f.Type,
-			f.SrcIP, f.DstIP, f.DstPort, f.Timestamp, f.Detail, f.SourceFile,
+			f.SrcIP, f.DstIP, f.DstPort, f.Timestamp, f.Detail, f.SourceFile, f.Dataset,
 			string(f.Status), f.Analyst, f.AnalystNote,
 		})
 	}

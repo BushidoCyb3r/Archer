@@ -2,9 +2,16 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"log"
+	"math"
 	"os"
 	"path/filepath"
+	"runtime/debug"
+	"sort"
 	"strings"
 	"time"
 
@@ -109,7 +116,10 @@ func parseIntRange(s string, min, max int, out *int) (bool, error) {
 	return true, nil
 }
 
-// triggerWatchAnalysis scans logsDir and starts a full analysis run.
+// triggerWatchAnalysis scans logsDir and starts a full analysis run. Watch
+// runs are unattended, so they honor the dataset-fingerprint skip: if nothing
+// on disk has changed since the last successful run, this returns without
+// burning CPU to produce identical findings.
 func (s *Server) triggerWatchAnalysis() {
 	if s.store.IsAnalyzing() {
 		return
@@ -119,7 +129,96 @@ func (s *Server) triggerWatchAnalysis() {
 		return
 	}
 	s.store.SetUploadedFiles(files)
-	s.launchAnalysis(files)
+	s.launchAnalysisWithOptions(files, false)
+}
+
+// preflightMemoryWarning estimates peak analysis memory from total log size
+// and compares it against the Go soft-memory budget. Returns a warning
+// message when the run is projected to approach or exceed the budget, or ""
+// when the run is expected to fit comfortably. Non-blocking — callers should
+// emit this as a status event but still proceed.
+func (s *Server) preflightMemoryWarning(files []string) string {
+	var totalBytes int64
+	for _, p := range files {
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+			totalBytes += info.Size()
+		}
+	}
+	if totalBytes == 0 {
+		return ""
+	}
+	// Empirical ratio on post-refactor Zeek workloads: peak working set is
+	// roughly 1.2× total log byte-size (conservatively rounded up from the
+	// 3.2 GB dataset → 3.2 GB peak observation).
+	estPeak := int64(float64(totalBytes) * 1.2)
+
+	limit := debug.SetMemoryLimit(-1)
+	if limit <= 0 || limit == math.MaxInt64 {
+		return ""
+	}
+	if float64(estPeak) < 0.8*float64(limit) {
+		return ""
+	}
+
+	verb := "approaching"
+	if estPeak > limit {
+		verb = "likely exceeding"
+	}
+	return fmt.Sprintf(
+		"Preflight: %s of logs, estimated peak memory %s — %s the %s container budget. Analysis will proceed; watch `docker stats` or set ARCHER_MEMORY higher if it OOMs.",
+		humanBytes(totalBytes), humanBytes(estPeak), verb, humanBytes(limit),
+	)
+}
+
+// humanBytes formats a byte count with IEC units (KiB/MiB/GiB) at one decimal
+// place for values below 10 in their chosen unit.
+func humanBytes(n int64) string {
+	if n < 1024 {
+		return fmt.Sprintf("%d B", n)
+	}
+	units := []string{"KiB", "MiB", "GiB", "TiB", "PiB"}
+	v := float64(n) / 1024.0
+	i := 0
+	for v >= 1024 && i < len(units)-1 {
+		v /= 1024
+		i++
+	}
+	if v < 10 {
+		return fmt.Sprintf("%.1f %s", v, units[i])
+	}
+	return fmt.Sprintf("%.0f %s", v, units[i])
+}
+
+// datasetFingerprint hashes the (relpath, size, mtime) tuple of every file
+// that will be analyzed. Two runs produce the same fingerprint iff the set of
+// files and each file's size + mtime are identical — the cheapest accurate
+// proxy for "nothing has changed" without re-reading file contents.
+func (s *Server) datasetFingerprint(files []string) string {
+	type entry struct {
+		rel  string
+		size int64
+		mod  int64
+	}
+	entries := make([]entry, 0, len(files))
+	for _, p := range files {
+		info, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		rel := p
+		if s.logsDir != "" {
+			if r, err := filepath.Rel(s.logsDir, p); err == nil {
+				rel = r
+			}
+		}
+		entries = append(entries, entry{rel, info.Size(), info.ModTime().UnixNano()})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].rel < entries[j].rel })
+	h := sha256.New()
+	for _, e := range entries {
+		fmt.Fprintf(h, "%s\x00%d\x00%d\n", e.rel, e.size, e.mod)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // scanLogsDir walks the configured logs directory and returns all recognised log files.
@@ -146,8 +245,28 @@ func (s *Server) scanLogsDir() []string {
 }
 
 // launchAnalysis starts the full analysis pipeline in a background goroutine.
-// It is shared between the HTTP handler and the watch scheduler.
+// It is shared between the HTTP handler and the watch scheduler. Manual
+// invocations should use this (which always runs); watch uses the "options"
+// form below with force=false to honor the dataset-fingerprint skip.
 func (s *Server) launchAnalysis(files []string) {
+	s.launchAnalysisWithOptions(files, true)
+}
+
+func (s *Server) launchAnalysisWithOptions(files []string, force bool) {
+	if !force {
+		fp := s.datasetFingerprint(files)
+		if fp != "" && fp == s.store.GetLastAnalysisFingerprint() {
+			s.broker.Publish(SSEEvent{Type: "status", Data: `{"msg":"No changes since last analysis — skipping."}`})
+			return
+		}
+	}
+
+	if warn := s.preflightMemoryWarning(files); warn != "" {
+		log.Printf("preflight: %s", warn)
+		msg, _ := json.Marshal(map[string]string{"msg": warn})
+		s.broker.Publish(SSEEvent{Type: "status", Data: string(msg)})
+	}
+
 	cfg := s.store.GetConfig()
 	s.store.SetAnalyzing(true)
 	progressCh := make(chan analysis.ProgressEvent, 32)
@@ -212,8 +331,18 @@ func (s *Server) launchAnalysis(files []string) {
 			s.broker.Publish(SSEEvent{Type: "notification", Data: string(nData)})
 		}
 
-		newCount := 0
 		wasCancelled := az.Ctx().Err() != nil
+		if !wasCancelled {
+			s.store.SetLastAnalysisFingerprint(s.datasetFingerprint(files))
+			if arc := s.store.GetArchive(); arc.Enabled {
+				res := s.runArchive(arc.AfterDays, arc.PruneFindingsOnArchive)
+				if res.Err != "" {
+					log.Printf("archive: %s", res.Err)
+				}
+			}
+		}
+
+		newCount := 0
 		for _, f := range findings {
 			if f.IsNew {
 				newCount++

@@ -5,7 +5,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"runtime"
+	"syscall"
 
 	"github.com/BushidoCyb3r/Archer/internal/config"
 	"github.com/BushidoCyb3r/Archer/internal/server"
@@ -28,6 +31,18 @@ func main() {
 			*webDir = "web"
 		}
 	}
+
+	// Log any terminating signal with a full goroutine stack dump before exit,
+	// so silent container deaths become visible in `docker logs`.
+	sigCh := make(chan os.Signal, 4)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP, syscall.SIGQUIT)
+	go func() {
+		sig := <-sigCh
+		buf := make([]byte, 1<<20)
+		n := runtime.Stack(buf, true)
+		log.Printf("=== received signal %v ===\n%s=== end stack dump ===", sig, buf[:n])
+		os.Exit(128 + int(sig.(syscall.Signal)))
+	}()
 
 	cfg    := config.Default()
 	st     := store.New(cfg)

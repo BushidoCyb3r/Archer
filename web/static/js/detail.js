@@ -66,6 +66,7 @@ const Detail = (() => {
     const escBtn   = document.getElementById('esc-btn');
     const chartBtn = document.getElementById('chart-btn');
     const pcapBtn  = document.getElementById('pcap-btn');
+    const rawBtn   = document.getElementById('raw-btn');
     const suppBtn  = document.getElementById('supp-btn');
 
     ackBtn.disabled  = false;
@@ -73,6 +74,10 @@ const Detail = (() => {
     suppBtn.disabled = false;
     pcapBtn.disabled = !(f.src_ip && f.dst_ip);
     chartBtn.disabled = !(f.ts_data && f.ts_data.length > 0);
+    if (rawBtn) {
+      rawBtn.disabled = !(f.src_ip && f.dst_ip);
+      rawBtn.dataset.findingId = f.id;
+    }
 
     ackBtn.textContent = f.status === 'acknowledged' ? '✓ Acknowledged' : '✓ Acknowledge';
 

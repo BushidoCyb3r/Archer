@@ -29,6 +29,17 @@ type Config struct {
 	// Watch mode — daily scheduled analysis
 	WatchTime    string `json:"watch_time"`    // HH:MM in UTC, e.g. "02:00"
 	WatchEnabled bool   `json:"watch_enabled"`
+
+	// Archive mode — moves log files older than a cutoff out of the scan
+	// directory. Findings remain in the database by default.
+	ArchiveEnabled         bool `json:"archive_enabled"`
+	ArchiveAfterDays       int  `json:"archive_after_days"`
+	PruneFindingsOnArchive bool `json:"prune_findings_on_archive"`
+
+	// Last successful analysis fingerprint — (relpath,size,mtime) SHA256 of
+	// the /logs tree. When this matches, launchAnalysis can skip a redundant
+	// run (watch fires but no files changed). Internal; not user-editable.
+	LastAnalysisFingerprint string `json:"last_analysis_fingerprint"`
 }
 
 func Default() Config {
@@ -52,5 +63,7 @@ func Default() Config {
 		DNSNXDomainThreshold:  200,
 		DNSUniqueSubdomainMin: 50,
 		TITimeoutSec:          12,
+
+		ArchiveAfterDays: 30,
 	}
 }

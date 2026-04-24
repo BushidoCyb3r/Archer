@@ -3,54 +3,74 @@ package analysis
 import (
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"sort"
-	"strings"
-	"sync"
 	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/model"
 	"github.com/BushidoCyb3r/Archer/internal/parser"
 )
 
-type connRecord struct {
-	ts        float64
-	duration  float64
-	origBytes float64
-	respBytes float64
-	dstPort   int
-	proto     string
-	sslUID    string
+// Reservoir caps keep per-pair beacon state at O(1) memory regardless of
+// record count. Algorithm R sampling preserves an unbiased random sample of
+// the underlying stream, so Bowley/MAD regularity scores remain valid.
+const (
+	beaconIvCap       = 1000
+	beaconByteCap     = 1000
+	beaconTsCap       = 200
+	beaconLazyMinConn = 3
+)
+
+type pairKey struct{ src, dst string }
+type strobeKey struct{ src, dst string }
+type exfilKey struct{ src, dst string }
+type offKey struct{ src, dst string }
+
+type beaconState struct {
+	total      int
+	lastTs     float64
+	ivs        []float64
+	ivsSeen    int
+	byteVals   []float64
+	byteSeen   int
+	tsData     [][3]float64
+	tsSeen     int
+	hourMap    map[int]int // absolute hour index → count
+	minTs      float64
+	maxTs      float64
+	firstTs    float64
+	firstPort  int
+	firstProto string
 }
 
 func (a *Analyzer) analyzeConn(files []string) {
-	type pairKey struct{ src, dst string }
-	type strobeKey struct{ src, dst string }
-	type exfilKey struct{ src, dst string }
-	type offKey struct{ src, dst string }
-
-	// Shared accumulation maps — written once per file (merge under lock)
-	var mu sync.Mutex
-	pairs        := make(map[pairKey][]connRecord)
-	strobeCounts := make(map[strobeKey]int)
-	exfilOrig    := make(map[exfilKey]float64)
-	exfilResp    := make(map[exfilKey]float64)
-	offBytes     := make(map[offKey]float64)
-	offFirst     := make(map[offKey]float64)
-
 	connFiles := filterFiles(files, "conn")
 
-	// Each conn.log file is parsed independently into a local set of maps,
-	// then merged into the shared maps with a single mutex acquire per file.
-	// This eliminates per-record lock contention and scales with core count.
-	a.parallelEach(connFiles, func(path string) {
-		lPairs        := make(map[pairKey][]connRecord)
-		lStrobeCounts := make(map[strobeKey]int)
-		lExfilOrig    := make(map[exfilKey]float64)
-		lExfilResp    := make(map[exfilKey]float64)
-		lOffBytes     := make(map[offKey]float64)
-		lOffFirst     := make(map[offKey]float64)
-		lDsMin        := math.MaxFloat64
-		lDsMax        := 0.0
+	pairCounts := make(map[pairKey]int)
+	beacon := make(map[pairKey]*beaconState)
+
+	strobeCounts := make(map[strobeKey]int)
+	exfilOrig := make(map[exfilKey]float64)
+	exfilResp := make(map[exfilKey]float64)
+	offBytes := make(map[offKey]float64)
+	offFirst := make(map[offKey]float64)
+
+	lateralSeen := make(map[string]struct{})
+	c2Seen := make(map[string]struct{})
+
+	dsMin := math.MaxFloat64
+	dsMax := 0.0
+
+	// Conn files are processed sequentially so per-pair interval math stays
+	// ordering-correct without cross-goroutine coordination. Coarse phase-1
+	// parallelism (7 analyzers in parallel) is preserved at the Analyze level.
+	for _, path := range connFiles {
+		if a.ctx.Err() != nil {
+			break
+		}
+		if !a.waitIfPaused() {
+			break
+		}
 
 		_ = parser.ParseLog(path, func(rec map[string]any) bool {
 			src := parser.GetStr(rec, "id.orig_h")
@@ -58,8 +78,8 @@ func (a *Analyzer) analyzeConn(files []string) {
 			if src == "" || dst == "" {
 				return true
 			}
-			ts    := parser.GetFloat(rec, "ts")
-			dur   := parser.GetFloat(rec, "duration")
+			ts := parser.GetFloat(rec, "ts")
+			dur := parser.GetFloat(rec, "duration")
 			origB := parser.GetFloat(rec, "orig_bytes")
 			if origB == 0 {
 				origB = parser.GetFloat(rec, "orig_ip_bytes")
@@ -69,23 +89,20 @@ func (a *Analyzer) analyzeConn(files []string) {
 				respB = parser.GetFloat(rec, "resp_ip_bytes")
 			}
 			dstPort := parser.GetInt(rec, "id.resp_p")
-			proto   := parser.GetStr(rec, "proto")
-			uid     := parser.GetStr(rec, "uid")
+			proto := parser.GetStr(rec, "proto")
 
 			if ts > 0 {
-				if ts < lDsMin { lDsMin = ts }
-				if ts > lDsMax { lDsMax = ts }
+				if ts < dsMin {
+					dsMin = ts
+				}
+				if ts > dsMax {
+					dsMax = ts
+				}
 			}
 
-			pk := pairKey{src, dst}
-			lPairs[pk] = append(lPairs[pk], connRecord{
-				ts: ts, duration: dur,
-				origBytes: origB, respBytes: respB,
-				dstPort: dstPort, proto: proto, sslUID: uid,
-			})
-			lStrobeCounts[strobeKey{src, dst}]++
-			lExfilOrig[exfilKey{src, dst}] += origB
-			lExfilResp[exfilKey{src, dst}] += respB
+			strobeCounts[strobeKey{src, dst}]++
+			exfilOrig[exfilKey{src, dst}] += origB
+			exfilResp[exfilKey{src, dst}] += respB
 
 			if ts > 0 && !isPrivateIP(dst) {
 				hour := time.Unix(int64(ts), 0).UTC().Hour()
@@ -97,73 +114,145 @@ func (a *Analyzer) analyzeConn(files []string) {
 				}
 				if offHours && origB > 0 {
 					ok2 := offKey{src, dst}
-					lOffBytes[ok2] += origB
-					if lOffFirst[ok2] == 0 || ts < lOffFirst[ok2] {
-						lOffFirst[ok2] = ts
+					offBytes[ok2] += origB
+					if offFirst[ok2] == 0 || ts < offFirst[ok2] {
+						offFirst[ok2] = ts
 					}
 				}
 			}
+
+			hours := dur / 3600.0
+			if hours >= a.cfg.LongConnMinHours {
+				score := clamp(int(50+hours/8), 1, 95)
+				var sev model.Severity
+				if hours > 24 {
+					sev = model.SevHigh
+				} else {
+					sev = model.SevMedium
+				}
+				a.add(model.Finding{
+					Type:      "Long Connection",
+					Severity:  sev,
+					Score:     score,
+					SrcIP:     src,
+					DstIP:     dst,
+					DstPort:   fmt.Sprint(dstPort),
+					Detail:    fmt.Sprintf("Duration: %.2f hours | Proto: %s", hours, proto),
+					Timestamp: fmtTS(ts),
+				})
+			}
+
+			if isPrivateIP(src) && isPrivateIP(dst) && model.LateralMovementPorts[dstPort] {
+				lk := fmt.Sprintf("%s→%s:%d", src, dst, dstPort)
+				if _, ok := lateralSeen[lk]; !ok {
+					lateralSeen[lk] = struct{}{}
+					a.add(model.Finding{
+						Type:      "Lateral Movement",
+						Severity:  model.SevHigh,
+						Score:     78,
+						SrcIP:     src,
+						DstIP:     dst,
+						DstPort:   fmt.Sprint(dstPort),
+						Detail:    fmt.Sprintf("Internal→Internal on port %d (%s)", dstPort, lateralPortLabel(dstPort)),
+						Timestamp: fmtTS(ts),
+					})
+				}
+			}
+
+			if !isPrivateIP(dst) {
+				if label, ok := model.KnownC2Ports[dstPort]; ok {
+					ck := fmt.Sprintf("%s→%s:%d", src, dst, dstPort)
+					if _, ok2 := c2Seen[ck]; !ok2 {
+						c2Seen[ck] = struct{}{}
+						a.add(model.Finding{
+							Type:      "C2 Port",
+							Severity:  model.SevHigh,
+							Score:     75,
+							SrcIP:     src,
+							DstIP:     dst,
+							DstPort:   fmt.Sprint(dstPort),
+							Detail:    fmt.Sprintf("Port %d — %s", dstPort, label),
+							Timestamp: fmtTS(ts),
+						})
+					}
+				}
+			}
+
+			pk := pairKey{src, dst}
+			pairCounts[pk]++
+			if pairCounts[pk] < beaconLazyMinConn {
+				return true
+			}
+			st := beacon[pk]
+			if st == nil {
+				st = &beaconState{
+					hourMap:    make(map[int]int),
+					firstTs:    ts,
+					firstPort:  dstPort,
+					firstProto: proto,
+					minTs:      ts,
+					maxTs:      ts,
+				}
+				beacon[pk] = st
+			}
+			st.total++
+			if ts < st.minTs {
+				st.minTs = ts
+			}
+			if ts > st.maxTs {
+				st.maxTs = ts
+			}
+			if st.lastTs > 0 && ts > st.lastTs {
+				iv := ts - st.lastTs
+				st.ivs, st.ivsSeen = reservoirAddF(st.ivs, st.ivsSeen, iv, beaconIvCap)
+			}
+			st.lastTs = ts
+			if origB > 0 {
+				st.byteVals, st.byteSeen = reservoirAddF(st.byteVals, st.byteSeen, origB, beaconByteCap)
+			}
+			st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{ts, origB, respB}, beaconTsCap)
+			if ts > 0 {
+				st.hourMap[int(ts)/3600]++
+			}
+
 			return true
 		})
+	}
 
-		// Single lock per file — merge local results into shared maps
-		mu.Lock()
-		for k, v := range lPairs        { pairs[k] = append(pairs[k], v...) }
-		for k, v := range lStrobeCounts { strobeCounts[k] += v }
-		for k, v := range lExfilOrig    { exfilOrig[k] += v }
-		for k, v := range lExfilResp    { exfilResp[k] += v }
-		for k, v := range lOffBytes     { offBytes[k] += v }
-		for k, v := range lOffFirst {
-			if cur, ok := offFirst[k]; !ok || v < cur { offFirst[k] = v }
-		}
-		if lDsMin < a.datasetMin { a.datasetMin = lDsMin }
-		if lDsMax > a.datasetMax { a.datasetMax = lDsMax }
-		mu.Unlock()
-	})
-
-	a.mu.RLock()
-	dsMin := a.datasetMin
-	dsMax := a.datasetMax
-	a.mu.RUnlock()
+	a.mu.Lock()
+	if dsMin < a.datasetMin {
+		a.datasetMin = dsMin
+	}
+	if dsMax > a.datasetMax {
+		a.datasetMax = dsMax
+	}
+	a.mu.Unlock()
 	if dsMin == math.MaxFloat64 {
 		dsMin = 0
 	}
 
 	// ── Beaconing ────────────────────────────────────────────────────────────
-	for pk, recs := range pairs {
-		if len(recs) < a.cfg.BeaconMinConnections {
+	for pk, st := range beacon {
+		totalObserved := pairCounts[pk]
+		if totalObserved < a.cfg.BeaconMinConnections {
 			continue
 		}
-		sort.Slice(recs, func(i, j int) bool { return recs[i].ts < recs[j].ts })
-		timestamps := make([]float64, len(recs))
-		for i, r := range recs {
-			timestamps[i] = r.ts
-		}
-
-		allIvs := make([]float64, 0, len(recs)-1)
-		for i := 1; i < len(recs); i++ {
-			if iv := recs[i].ts - recs[i-1].ts; iv > 0 {
-				allIvs = append(allIvs, iv)
-			}
-		}
-		if len(allIvs) < 3 {
+		if len(st.ivs) < 3 {
 			continue
 		}
 
-		byteVals := make([]float64, 0, len(recs))
-		for _, r := range recs {
-			if r.origBytes > 0 {
-				byteVals = append(byteVals, r.origBytes)
-			}
-		}
+		ivs := make([]float64, len(st.ivs))
+		copy(ivs, st.ivs)
+		byteVals := make([]float64, len(st.byteVals))
+		copy(byteVals, st.byteVals)
 
-		tsScore  := statisticalScore(allIvs, 1.0)
-		dsScore  := 0.0
+		tsScore := statisticalScore(ivs, 1.0)
+		dsScore := 0.0
 		if len(byteVals) >= 3 {
 			dsScore = statisticalScore(byteVals, 0.0)
 		}
-		hScore, _ := histScoreRITA(timestamps, dsMin, dsMax)
-		durScore   := durationScore(timestamps, dsMin, dsMax, 6)
+		hScore, _ := histScoreFromHourMap(st.hourMap, dsMin, dsMax)
+		durScore := durationScoreFromHourMap(st.hourMap, st.minTs, st.maxTs, dsMin, dsMax, 6)
 
 		score := clamp(int(100*(tsScore*0.25+dsScore*0.25+hScore*0.25+durScore*0.25)), 1, 100)
 		if score < 1 {
@@ -177,21 +266,20 @@ func (a *Analyzer) analyzeConn(files []string) {
 			sev = model.SevHigh
 		}
 
-		ivMean := fmean(allIvs)
+		ivMean := fmean(ivs)
 		ivCV := 0.0
 		if ivMean > 0 {
 			variance := 0.0
-			for _, v := range allIvs {
+			for _, v := range ivs {
 				d := v - ivMean
 				variance += d * d
 			}
-			ivCV = math.Sqrt(variance/float64(len(allIvs))) / ivMean
+			ivCV = math.Sqrt(variance/float64(len(ivs))) / ivMean
 		}
 
-		tsData := make([][3]float64, len(recs))
-		for i, r := range recs {
-			tsData[i] = [3]float64{r.ts, r.origBytes, r.respBytes}
-		}
+		tsData := make([][3]float64, len(st.tsData))
+		copy(tsData, st.tsData)
+		sort.Slice(tsData, func(i, j int) bool { return tsData[i][0] < tsData[j][0] })
 
 		a.add(model.Finding{
 			Type:      "Beaconing",
@@ -199,38 +287,11 @@ func (a *Analyzer) analyzeConn(files []string) {
 			Score:     score,
 			SrcIP:     pk.src,
 			DstIP:     pk.dst,
-			DstPort:   fmt.Sprint(recs[0].dstPort),
-			Detail:    fmt.Sprintf("Connections: %d | Mean interval: %.1fs | CV: %.2f | Score components: ts=%.2f ds=%.2f hist=%.2f dur=%.2f", len(recs), ivMean, ivCV, tsScore, dsScore, hScore, durScore),
-			Timestamp: fmtTS(recs[0].ts),
+			DstPort:   fmt.Sprint(st.firstPort),
+			Detail:    fmt.Sprintf("Connections: %d | Mean interval: %.1fs | CV: %.2f | Score components: ts=%.2f ds=%.2f hist=%.2f dur=%.2f", totalObserved, ivMean, ivCV, tsScore, dsScore, hScore, durScore),
+			Timestamp: fmtTS(st.firstTs),
 			TSData:    tsData,
 		})
-	}
-
-	// ── Long Connections ─────────────────────────────────────────────────────
-	for pk, recs := range pairs {
-		for _, r := range recs {
-			hours := r.duration / 3600.0
-			if hours < a.cfg.LongConnMinHours {
-				continue
-			}
-			score := clamp(int(50+hours/8), 1, 95)
-			var sev model.Severity
-			if hours > 24 {
-				sev = model.SevHigh
-			} else {
-				sev = model.SevMedium
-			}
-			a.add(model.Finding{
-				Type:      "Long Connection",
-				Severity:  sev,
-				Score:     score,
-				SrcIP:     pk.src,
-				DstIP:     pk.dst,
-				DstPort:   fmt.Sprint(r.dstPort),
-				Detail:    fmt.Sprintf("Duration: %.2f hours | Proto: %s", hours, r.proto),
-				Timestamp: fmtTS(r.ts),
-			})
-		}
 	}
 
 	// ── Strobe ───────────────────────────────────────────────────────────────
@@ -255,7 +316,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 			continue
 		}
 		respB := exfilResp[ek]
-		mb    := origB / 1e6
+		mb := origB / 1e6
 		if mb < a.cfg.ExfilMinBytesMB {
 			continue
 		}
@@ -279,63 +340,6 @@ func (a *Analyzer) analyzeConn(files []string) {
 		})
 	}
 
-	// ── Lateral Movement ─────────────────────────────────────────────────────
-	seen := make(map[string]bool)
-	for pk, recs := range pairs {
-		if !isPrivateIP(pk.src) || !isPrivateIP(pk.dst) {
-			continue
-		}
-		for _, r := range recs {
-			if !model.LateralMovementPorts[r.dstPort] {
-				continue
-			}
-			key := fmt.Sprintf("%s→%s:%d", pk.src, pk.dst, r.dstPort)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			a.add(model.Finding{
-				Type:      "Lateral Movement",
-				Severity:  model.SevHigh,
-				Score:     78,
-				SrcIP:     pk.src,
-				DstIP:     pk.dst,
-				DstPort:   fmt.Sprint(r.dstPort),
-				Detail:    fmt.Sprintf("Internal→Internal on port %d (%s)", r.dstPort, lateralPortLabel(r.dstPort)),
-				Timestamp: fmtTS(r.ts),
-			})
-		}
-	}
-
-	// ── C2 Ports ─────────────────────────────────────────────────────────────
-	c2seen := make(map[string]bool)
-	for pk, recs := range pairs {
-		if isPrivateIP(pk.dst) {
-			continue
-		}
-		for _, r := range recs {
-			label, ok := model.KnownC2Ports[r.dstPort]
-			if !ok {
-				continue
-			}
-			key := fmt.Sprintf("%s→%s:%d", pk.src, pk.dst, r.dstPort)
-			if c2seen[key] {
-				continue
-			}
-			c2seen[key] = true
-			a.add(model.Finding{
-				Type:      "C2 Port",
-				Severity:  model.SevHigh,
-				Score:     75,
-				SrcIP:     pk.src,
-				DstIP:     pk.dst,
-				DstPort:   fmt.Sprint(r.dstPort),
-				Detail:    fmt.Sprintf("Port %d — %s", r.dstPort, label),
-				Timestamp: fmtTS(r.ts),
-			})
-		}
-	}
-
 	// ── Off-Hours Transfer ───────────────────────────────────────────────────
 	for ok2, bytes := range offBytes {
 		mb := bytes / 1e6
@@ -343,7 +347,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 			continue
 		}
 		score := clamp(int(45+math.Log10(mb+1)*12), 1, 78)
-		ts   := offFirst[ok2]
+		ts := offFirst[ok2]
 		hour := time.Unix(int64(ts), 0).UTC().Hour()
 		a.add(model.Finding{
 			Type:      "Off-Hours Transfer",
@@ -355,8 +359,119 @@ func (a *Analyzer) analyzeConn(files []string) {
 			Timestamp: fmtTS(ts),
 		})
 	}
+}
 
-	_ = strings.ToLower // ensure import used
+// reservoirAddF applies Algorithm R reservoir sampling to a float64 stream.
+// Returns the possibly-updated buffer and the incremented seen-count.
+func reservoirAddF(buf []float64, seen int, v float64, capN int) ([]float64, int) {
+	if len(buf) < capN {
+		buf = append(buf, v)
+	} else {
+		idx := rand.IntN(seen + 1)
+		if idx < capN {
+			buf[idx] = v
+		}
+	}
+	return buf, seen + 1
+}
+
+func reservoirAddT(buf [][3]float64, seen int, v [3]float64, capN int) ([][3]float64, int) {
+	if len(buf) < capN {
+		buf = append(buf, v)
+	} else {
+		idx := rand.IntN(seen + 1)
+		if idx < capN {
+			buf[idx] = v
+		}
+	}
+	return buf, seen + 1
+}
+
+// histScoreFromHourMap computes the 24-bucket histogram regularity score from
+// pre-bucketed hour counters. Mirrors histScoreRITA but avoids retaining raw
+// timestamps.
+func histScoreFromHourMap(hourMap map[int]int, dsMin, dsMax float64) (float64, int) {
+	const nBuckets = 24
+	freq := make([]int, nBuckets)
+	if dsMax <= dsMin {
+		return 0, 0
+	}
+	span := dsMax - dsMin
+	for hr, c := range hourMap {
+		ts := float64(hr) * 3600.0
+		idx := int((ts - dsMin) / span * float64(nBuckets))
+		if idx >= nBuckets {
+			idx = nBuckets - 1
+		}
+		if idx < 0 {
+			idx = 0
+		}
+		freq[idx] += c
+	}
+	freqCount := make(map[int]int)
+	for i, v := range freq {
+		if v > 0 {
+			freqCount[i] = v
+		}
+	}
+	totalBars := len(freqCount)
+	cv := cvScore(freq)
+	bm := bimodalScore(freqCount, totalBars, 0.05)
+	score := cv
+	if bm > score {
+		score = bm
+	}
+	return score, totalBars
+}
+
+func durationScoreFromHourMap(hourMap map[int]int, firstTs, lastTs, dsMin, dsMax float64, minBars int) float64 {
+	_, totalBars := histScoreFromHourMap(hourMap, dsMin, dsMax)
+	if totalBars < minBars {
+		return 0
+	}
+
+	coverage := 0.0
+	if dsMax > dsMin {
+		coverage = (lastTs - firstTs) / (dsMax - dsMin)
+	}
+
+	const nBuckets = 24
+	freq := make([]int, nBuckets)
+	if dsMax > dsMin {
+		span := dsMax - dsMin
+		for hr, c := range hourMap {
+			ts := float64(hr) * 3600.0
+			idx := int((ts - dsMin) / span * float64(nBuckets))
+			if idx >= nBuckets {
+				idx = nBuckets - 1
+			}
+			if idx < 0 {
+				idx = 0
+			}
+			freq[idx] += c
+		}
+	}
+	longestRun := 0
+	currentRun := 0
+	for i := 0; i < nBuckets; i++ {
+		if freq[i] > 0 {
+			currentRun++
+			if currentRun > longestRun {
+				longestRun = currentRun
+			}
+		} else {
+			currentRun = 0
+		}
+	}
+	consistency := float64(longestRun) / 12.0
+	if consistency > 1 {
+		consistency = 1
+	}
+
+	if coverage > consistency {
+		return coverage
+	}
+	return consistency
 }
 
 func lateralPortLabel(port int) string {

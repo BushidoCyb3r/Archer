@@ -83,6 +83,7 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/analyze/cancel", write(s.handleAnalyzeCancel))
 	s.mux.Handle("/api/analyze/pause",  write(s.handleAnalyzePause))
 	s.mux.Handle("/api/analyze/resume", write(s.handleAnalyzeResume))
+	s.mux.Handle("/api/analyze/reset",  any(s.handleAnalyzeReset)) // admin enforced inside handler
 
 	// Findings — read=any, write=analyst+
 	s.mux.Handle("/api/findings", any(s.handleFindings))
@@ -98,6 +99,8 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/suppressions/", any(s.handleDeleteSuppression))
 	s.mux.Handle("/api/notifications", any(s.handleNotifications))
 	s.mux.Handle("/api/watch", any(s.handleWatch))           // GET=any; POST enforced as admin inside handler
+	s.mux.Handle("/api/archive", any(s.handleArchive))       // GET=any; POST enforced as admin inside handler
+	s.mux.Handle("/api/archive/run", any(s.handleArchiveRun))
 
 	// User / auth API
 	s.mux.Handle("/api/me", any(s.handleMe))

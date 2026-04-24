@@ -5,6 +5,7 @@ import (
 	"math"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -239,14 +240,15 @@ func (a *Analyzer) sendStatus(msg string) {
 	}
 }
 
-// parallelEach runs fn on each file concurrently, bounded to runtime.NumCPU() workers.
-// It checks for cancellation and pause between file dispatches.
+// parallelEach runs fn on each file concurrently, bounded by both CPU count
+// and the process memory budget. It checks for cancellation and pause between
+// file dispatches.
 func (a *Analyzer) parallelEach(files []string, fn func(path string)) {
 	n := len(files)
 	if n == 0 {
 		return
 	}
-	workers := runtime.NumCPU()
+	workers := memoryBoundedWorkers(runtime.NumCPU())
 	if workers > n {
 		workers = n
 	}
@@ -280,6 +282,27 @@ func (a *Analyzer) parallelEach(files []string, fn func(path string)) {
 		}(f)
 	}
 	wg.Wait()
+}
+
+// memoryBoundedWorkers caps the caller's desired parallelism by the Go memory
+// limit. Each concurrent log parser is estimated to peak around perWorkerBytes
+// of live data while merging its local maps, so we divide the soft budget and
+// take the lower of CPU count and memory count. Small hosts get 1–2 workers;
+// big hosts get full CPU parallelism.
+func memoryBoundedWorkers(cpus int) int {
+	const perWorkerBytes int64 = 256 << 20 // 256 MiB per concurrent file parser
+	lim := debug.SetMemoryLimit(-1)
+	if lim <= 0 || lim == math.MaxInt64 {
+		return cpus
+	}
+	byMem := int(lim / perWorkerBytes)
+	if byMem < 1 {
+		byMem = 1
+	}
+	if byMem < cpus {
+		return byMem
+	}
+	return cpus
 }
 
 // filterFiles returns only files that match a given Zeek log type name.

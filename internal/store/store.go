@@ -278,13 +278,13 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 		}
 	}
 
-	// Preserve historical TI findings that weren't regenerated in this run.
-	// Live feeds (Feodo, URLhaus) rotate — an IP removed from a feed today was
-	// still malicious when it appeared in the logs, so we keep the record.
+	// Preserve all historical findings that weren't regenerated in this run.
+	// A finding reflected a real observation at the time it was detected, and
+	// remains valid even when its source logs are later archived or rotated
+	// out of /logs. Removal is explicit-only — admin-driven via archive
+	// pruning (PruneFindingsOnArchive) or manual deletion — never a side
+	// effect of re-analysis.
 	for fp, old := range existing {
-		if old.Type != "Threat Intel Hit" && old.Type != "Suspicious URL" {
-			continue
-		}
 		if !newFPSet[fp] {
 			old.IsNew = false
 			findings = append(findings, old)
@@ -541,6 +541,97 @@ func (s *Store) GetWatch() (watchTime string, enabled bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.config.WatchTime, s.config.WatchEnabled
+}
+
+// ArchiveSettings is the admin-editable subset of archive config.
+type ArchiveSettings struct {
+	Enabled                bool `json:"enabled"`
+	AfterDays              int  `json:"after_days"`
+	PruneFindingsOnArchive bool `json:"prune_findings_on_archive"`
+}
+
+func (s *Store) SetArchive(settings ArchiveSettings) {
+	s.mu.Lock()
+	s.config.ArchiveEnabled = settings.Enabled
+	if settings.AfterDays > 0 {
+		s.config.ArchiveAfterDays = settings.AfterDays
+	}
+	s.config.PruneFindingsOnArchive = settings.PruneFindingsOnArchive
+	if s.db != nil {
+		cfgJSON, _ := json.Marshal(s.config)
+		s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))
+	}
+	s.mu.Unlock()
+}
+
+func (s *Store) GetArchive() ArchiveSettings {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return ArchiveSettings{
+		Enabled:                s.config.ArchiveEnabled,
+		AfterDays:              s.config.ArchiveAfterDays,
+		PruneFindingsOnArchive: s.config.PruneFindingsOnArchive,
+	}
+}
+
+func (s *Store) GetLastAnalysisFingerprint() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.config.LastAnalysisFingerprint
+}
+
+func (s *Store) SetLastAnalysisFingerprint(fp string) {
+	s.mu.Lock()
+	s.config.LastAnalysisFingerprint = fp
+	if s.db != nil {
+		cfgJSON, _ := json.Marshal(s.config)
+		s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))
+	}
+	s.mu.Unlock()
+}
+
+// ClearFindings removes every finding from the in-memory slice and persists
+// the empty state. Notifications and analyst annotations tied to those
+// findings are lost. Intended for admin-triggered "discard and re-analyze"
+// flows after config changes that should produce a fresh baseline.
+func (s *Store) ClearFindings() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := len(s.findings)
+	s.findings = nil
+	s.config.LastAnalysisFingerprint = ""
+	if s.db != nil {
+		cfgJSON, _ := json.Marshal(s.config)
+		s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))
+	}
+	s.saveFindings()
+	return n
+}
+
+// PruneFindingsBefore removes findings whose Timestamp parses to a time
+// earlier than cutoff. Returns the number of findings dropped.
+func (s *Store) PruneFindingsBefore(cutoff time.Time) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := s.findings[:0]
+	dropped := 0
+	for _, f := range s.findings {
+		if f.Timestamp == "" {
+			kept = append(kept, f)
+			continue
+		}
+		t, err := time.Parse("2006-01-02 15:04:05", f.Timestamp)
+		if err != nil || !t.Before(cutoff) {
+			kept = append(kept, f)
+			continue
+		}
+		dropped++
+	}
+	if dropped > 0 {
+		s.findings = kept
+		s.saveFindings()
+	}
+	return dropped
 }
 
 func (s *Store) SetAnalyzing(v bool) {

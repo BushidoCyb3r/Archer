@@ -3,12 +3,24 @@ package analysis
 import (
 	"fmt"
 	"math"
-	"sort"
 	"strings"
 
 	"github.com/BushidoCyb3r/Archer/internal/model"
 	"github.com/BushidoCyb3r/Archer/internal/parser"
 )
+
+type httpBeaconState struct {
+	total      int
+	lastTs     float64
+	ivs        []float64
+	ivsSeen    int
+	byteVals   []float64
+	byteSeen   int
+	hourMap    map[int]int
+	minTs      float64
+	maxTs      float64
+	firstTs    float64
+}
 
 func csChecksum8(uri string) int {
 	sum := 0
@@ -20,8 +32,8 @@ func csChecksum8(uri string) int {
 
 func (a *Analyzer) analyzeHTTP(files []string) {
 	type beaconKey struct{ src, dst, host, uri string }
-	beaconTimes := make(map[beaconKey][]float64)
-	beaconOrig := make(map[beaconKey][]float64)
+	beaconCounts := make(map[beaconKey]int)
+	beacon := make(map[beaconKey]*httpBeaconState)
 
 	seenUA := make(map[[2]string]bool)
 	seenCS := make(map[[3]string]bool)
@@ -176,12 +188,41 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 				}
 			}
 
-			// HTTP Beaconing: group by (src, dst, host, uri)
+			// HTTP Beaconing: group by (src, dst, host, uri).
+			// Lazy-create per-key state after a minimum count to keep
+			// high-cardinality low-count keys at O(1) memory.
 			if uri != "" && host != "" {
 				bk := beaconKey{src, dst, host, uri}
-				beaconTimes[bk] = append(beaconTimes[bk], ts)
-				if origB > 0 {
-					beaconOrig[bk] = append(beaconOrig[bk], origB)
+				beaconCounts[bk]++
+				if beaconCounts[bk] >= beaconLazyMinConn {
+					st := beacon[bk]
+					if st == nil {
+						st = &httpBeaconState{
+							hourMap: make(map[int]int),
+							firstTs: ts,
+							minTs:   ts,
+							maxTs:   ts,
+						}
+						beacon[bk] = st
+					}
+					st.total++
+					if ts < st.minTs {
+						st.minTs = ts
+					}
+					if ts > st.maxTs {
+						st.maxTs = ts
+					}
+					if st.lastTs > 0 && ts > st.lastTs {
+						iv := ts - st.lastTs
+						st.ivs, st.ivsSeen = reservoirAddF(st.ivs, st.ivsSeen, iv, beaconIvCap)
+					}
+					st.lastTs = ts
+					if origB > 0 {
+						st.byteVals, st.byteSeen = reservoirAddF(st.byteVals, st.byteSeen, origB, beaconByteCap)
+					}
+					if ts > 0 {
+						st.hourMap[int(ts)/3600]++
+					}
 				}
 			}
 
@@ -207,30 +248,27 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 		dsMin = 0
 	}
 
-	for bk, times := range beaconTimes {
-		if len(times) < a.cfg.HTTPBeaconMinRequests {
+	for bk, st := range beacon {
+		totalObserved := beaconCounts[bk]
+		if totalObserved < a.cfg.HTTPBeaconMinRequests {
 			continue
 		}
-		sort.Float64s(times)
-		allIvs := make([]float64, 0, len(times)-1)
-		for i := 1; i < len(times); i++ {
-			iv := times[i] - times[i-1]
-			if iv > 0 {
-				allIvs = append(allIvs, iv)
-			}
-		}
-		if len(allIvs) < 3 {
+		if len(st.ivs) < 3 {
 			continue
 		}
-		byteVals := beaconOrig[bk]
 
-		tsScore := statisticalScore(allIvs, 1.0)
+		ivs := make([]float64, len(st.ivs))
+		copy(ivs, st.ivs)
+		byteVals := make([]float64, len(st.byteVals))
+		copy(byteVals, st.byteVals)
+
+		tsScore := statisticalScore(ivs, 1.0)
 		dsScore := 0.0
 		if len(byteVals) >= 3 {
 			dsScore = statisticalScore(byteVals, 0.0)
 		}
-		hScore, _ := histScoreRITA(times, dsMin, dsMax)
-		durScore := durationScore(times, dsMin, dsMax, 6)
+		hScore, _ := histScoreFromHourMap(st.hourMap, dsMin, dsMax)
+		durScore := durationScoreFromHourMap(st.hourMap, st.minTs, st.maxTs, dsMin, dsMax, 6)
 
 		score := int(100 * (tsScore*0.25 + dsScore*0.25 + hScore*0.25 + durScore*0.25))
 		if score < 1 {
@@ -251,8 +289,8 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 			Score:     score,
 			SrcIP:     bk.src,
 			DstIP:     bk.dst,
-			Detail:    fmt.Sprintf("Requests: %d | Host: %s | URI: %s | Score: ts=%.2f ds=%.2f hist=%.2f dur=%.2f", len(times), bk.host, bk.uri, tsScore, dsScore, hScore, durScore),
-			Timestamp: fmtTS(times[0]),
+			Detail:    fmt.Sprintf("Requests: %d | Host: %s | URI: %s | Score: ts=%.2f ds=%.2f hist=%.2f dur=%.2f", totalObserved, bk.host, bk.uri, tsScore, dsScore, hScore, durScore),
+			Timestamp: fmtTS(st.firstTs),
 		})
 	}
 }

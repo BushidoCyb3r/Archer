@@ -27,15 +27,22 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 ## Features
 
 - **Multi-log analysis** — ingests conn, DNS, HTTP, SSL, X.509, files, weird, and notice logs in TSV or JSON/NDJSON format, including gzip-compressed files
-- **Persistent findings** — findings survive restarts and rebuilds; analyst annotations are preserved across re-analyses via fingerprint matching
+- **Bounded memory detection** — beacon analyzers use streaming aggregates and reservoir sampling so peak memory is a function of unique pair count, not total record count; Docker entrypoint auto-derives `GOMEMLIMIT` from the container's cgroup so the Go runtime applies back-pressure before OOM
+- **Persistent findings** — findings survive restarts, rebuilds, and re-analyses; analyst annotations (status, notes, assignee) are carried over by fingerprint match; findings are preserved even when the logs that produced them are later archived, and are only removed when an admin explicitly prunes them
 - **Delta detection** — new findings are flagged so analysts can focus on what changed since the last run
+- **Raw-log pivot** — clicking a finding opens a Source Records dialog that scans the original Zeek logs (plus the archive) for matching records and renders the full standard schema with resizable, horizontally-scrollable columns
+- **Advanced filtering** — in addition to search/severity/type/min-score, filters include Src IP/CIDR, Dst IP/CIDR, dataset, and a time range; all filters are server-side
+- **Filtered exports** — CSV and JSON exports honor the current filter state so the downloaded file matches exactly what the analyst sees on screen
+- **Log archive & retention** — admin-configurable: files older than N days automatically move from `/logs` to `/data/archive` after each watch analysis; findings are preserved by default (or optionally pruned past the same cutoff)
+- **Dataset fingerprint skip** — watch-mode re-analyses short-circuit when the set of files + their sizes + mtimes is unchanged from the last successful run; nightly runs over a static dataset return in milliseconds
+- **Preflight memory warning** — before each run Archer compares the total log size against `GOMEMLIMIT` and surfaces a status-bar warning when the run is projected to approach or exceed the budget
 - **Live threat intelligence** — manual escalation queries VirusTotal, CrowdSec CTI, AlienVault OTX, and AbuseIPDB; results are saved as permanent notes on the finding and pushed to the browser in real time via Server-Sent Events
 - **Automatic free TI feeds** — Feodo Tracker C2 IPs and URLhaus malware hosts are fetched and cross-referenced during every analysis run without requiring API keys
 - **Role-based access control** — admin, analyst, and viewer roles with per-endpoint enforcement
 - **Analyst workbench** — acknowledge, escalate, suppress, add notes, and copy tcpdump/Suricata filter strings directly from the UI
 - **Watch mode** — admin-configurable daily schedule that automatically re-analyzes the logs directory at a set UTC time
 - **Campaign & host views** — see which destinations are contacted by multiple internal hosts and view per-host composite risk scores
-- **Resource-aware deployment** — `start.sh` automatically allocates 80% of host CPU and RAM to the container
+- **Resource-aware deployment** — `start.sh` automatically allocates 80% of host CPU and RAM to the container; the container entrypoint then wires the Go runtime memory limit to 90% of whatever budget it gets
 
 ---
 
@@ -120,12 +127,13 @@ Archer runs five parallel analysis phases across all supported log types.
 
 ```
 archer/
-├── cmd/archer/main.go          # Entry point — flags, wiring, HTTP server
+├── entrypoint.sh               # Derives GOMEMLIMIT from cgroup before exec
+├── cmd/archer/main.go          # Entry point — flags, wiring, HTTP server, signal handler
 ├── internal/
 │   ├── analysis/               # Detection engines (one file per log type)
-│   │   ├── conn.go             # Beaconing, strobe, exfil, lateral movement
+│   │   ├── conn.go             # Beaconing, strobe, exfil, lateral, long-conn, C2 port (streaming + reservoir)
 │   │   ├── dns.go              # Tunneling, DGA, suspicious TLDs, DoH bypass
-│   │   ├── http_analysis.go    # HTTP beaconing, Cobalt Strike, domain fronting
+│   │   ├── http_analysis.go    # HTTP beaconing (reservoir-sampled), Cobalt Strike, domain fronting
 │   │   ├── ssl.go              # JA3, no-SNI, weak TLS
 │   │   ├── x509.go             # Certificate anomalies
 │   │   ├── files.go            # Suspicious file downloads
@@ -133,13 +141,16 @@ archer/
 │   │   ├── notice.go           # Zeek notice alerts
 │   │   ├── ti.go               # Threat intelligence feed lookups
 │   │   ├── risk.go             # Host risk composite scoring
-│   │   └── analyzer.go         # Pipeline orchestration (pause/cancel/progress)
-│   ├── config/config.go        # Tunable thresholds with defaults
+│   │   └── analyzer.go         # Pipeline orchestration (pause/cancel/progress, memory-bounded worker pool)
+│   ├── config/config.go        # Tunable thresholds + watch + archive settings with defaults
 │   ├── model/                  # Finding, Severity, Status, User, Note types
 │   ├── server/
 │   │   ├── server.go           # Route registration
 │   │   ├── handlers_api.go     # All REST API handlers
-│   │   ├── watch.go            # Watch mode scheduler
+│   │   ├── findings_filter.go  # Shared query-param filter used by list + exports
+│   │   ├── findings_raw.go     # Raw-log pivot: finds source records for a finding
+│   │   ├── archive.go          # Aged-log archive worker + finding prune
+│   │   ├── watch.go            # Watch mode scheduler, dataset fingerprint skip, preflight check, launchAnalysis
 │   │   ├── auth.go             # Session management, role middleware
 │   │   ├── upload.go           # Log file ingestion
 │   │   └── sse_broker.go       # Server-Sent Events fan-out
@@ -445,11 +456,13 @@ Each subdirectory under `logs/` is treated as a distinct **dataset** or campaign
 
 ### 3. Start Archer
 
+One command. No configuration required.
+
 ```bash
-sudo ./start.sh
+sudo ./start.sh up
 ```
 
-The script reads host resources, allocates 80% of available CPU and RAM to the container, builds the image, and starts Archer on port 8080.
+`start.sh` measures the host, allocates 80% of available CPU and RAM to the container, builds the image, and starts Archer on port 8080. Drop the tool on a 16 GB laptop and it scales down; drop it on a 256 GB analysis box and it scales up. No env vars to set, no memory values to guess.
 
 ```
 Host resources:   16 CPUs  |  32768 MB RAM
@@ -457,6 +470,33 @@ Archer limits:    12.8 CPUs  |  26214m RAM  (80%)
 
 Archer is running at http://localhost:8080
 ```
+
+**Everyday operations** — same script:
+
+```bash
+sudo ./start.sh up        # build + start (or rebuild after code changes)
+sudo ./start.sh down      # stop
+sudo ./start.sh restart   # restart without rebuild
+sudo ./start.sh logs      # tail container logs
+sudo ./start.sh status    # show running state + live memory/CPU usage
+```
+
+<details>
+<summary>Advanced: running without start.sh</summary>
+
+If you're managing your own Docker environment (CI, orchestrated hosts, existing `.env` workflow), you can bypass `start.sh` and run compose directly. The container sizes itself based on whatever `ARCHER_MEMORY` / `ARCHER_CPUS` you supply; Archer's entrypoint always derives `GOMEMLIMIT` from the cgroup memory cap at runtime, so the Go runtime is correctly budgeted regardless of how you start it.
+
+```bash
+# Accept the conservative 4 GB default (fine for demo datasets, too small for large deployments):
+sudo docker compose up -d
+
+# Or set your own limits:
+ARCHER_MEMORY=32g ARCHER_CPUS=8 sudo docker compose up -d
+```
+
+Note: bare `docker compose up -d` gives the container only 4 GB of RAM regardless of host size — the default in `docker-compose.yml` is a safety floor, not a host-aware size. On a big VM, either use `./start.sh up` or set `ARCHER_MEMORY` explicitly.
+
+</details>
 
 ### 4. Register your admin account
 
@@ -530,9 +570,9 @@ sudo ./start.sh status    # Show container status and live resource usage
 |---|---|---|
 | `TZ` | `UTC` | Container timezone |
 | `GOMAXPROCS` | `0` | CPU cores available to the Go runtime (`0` = all) |
-| `GOGC` | `200` | Go GC aggressiveness (higher = less frequent GC, more RAM used) |
-| `ARCHER_CPUS` | auto | CPU limit written by `start.sh` |
-| `ARCHER_MEMORY` | auto | Memory limit written by `start.sh` |
+| `ARCHER_CPUS` | `9999` (none) or `start.sh` output | CPU limit enforced by Docker |
+| `ARCHER_MEMORY` | `4g` or `start.sh` output | Memory limit enforced by Docker (cgroup cap) |
+| `GOMEMLIMIT` | auto | Go soft memory budget — set by `entrypoint.sh` at startup to 90% of the cgroup memory cap. Passing an explicit value overrides the auto-derivation. |
 
 ---
 
@@ -626,9 +666,15 @@ Sessions are stored in SQLite with a 24-hour expiry, httpOnly cookies, and `Same
 
 ### Findings Table
 
-Columns: **Score**, **Severity**, **Type**, **Src IP**, **Dst IP**, **Port**, **Timestamp**, **Dataset**, **Detail**, **Status**. All columns are sortable. The table supports free-text search across IP addresses, domain names, types, and detail strings.
+Columns: **Score**, **Severity**, **Type**, **Src IP**, **Dst IP**, **Port**, **Timestamp**, **Dataset**, **Detail**, **Status**. All columns are sortable.
 
-Filters: severity level, detection type, minimum score slider, and **New Only** / **Show All** delta mode toggle.
+**Basic filters** (always visible): free-text search across IP addresses, domain names, types, and detail strings; severity level; detection type; minimum score.
+
+**Advanced filters** (collapsible panel, state remembered): **Src IP/CIDR**, **Dst IP/CIDR**, **Dataset**, **From**, and **To** (time-range pickers). All filters are server-side and compose freely.
+
+**Exports**: **⬇ CSV** and **⬇ JSON** buttons produce a file reflecting exactly what the current filter state returns. With no filters set, the full findings list is exported.
+
+**Delta mode**: **New Only** / **Show All** toggle to focus on findings that appeared in the most recent analysis.
 
 ### Detail Pane
 
@@ -639,9 +685,19 @@ Selecting a finding opens the detail pane, which shows:
 - **Escalate** — opens the TI escalation dialog
 - **Beacon Chart** — visualises inter-arrival times and connection timestamps (beaconing findings only)
 - **PCAP Filter** — copies a ready-to-use `tcpdump` or Suricata filter string to the clipboard
+- **Source Records** — scans the original Zeek logs (and `/data/archive`) for records matching the finding's (src, dst) pair, then opens a dialog with the full standard schema for the relevant log types. Columns are resizable; the table scrolls on both axes. A **Search range** dropdown (±6h default, up to All time) broadens the scan when needed.
 - **Suppress** — suppresses alerts for the source or destination IP for a configurable duration; suppressed findings are hidden from all tabs until the suppression expires or is manually removed
 - **Analyst Recommendation** — auto-generated investigative guidance based on the finding type and score
 - **Notes** — chronological thread of analyst annotations; new notes can be added inline
+
+### Settings Dialog (Admin only)
+
+Opened with the gear button in the header. Contains:
+
+- **Beaconing / DNS thresholds** — runtime-tunable detection parameters
+- **Threat Intelligence** — VirusTotal, AbuseIPDB, OTX, and CrowdSec API keys
+- **Log Archive** — enable/disable automatic archive, retention days, and the opt-in **Also remove findings older than the archive cutoff** toggle; includes a **Run Archive Now** button that uses the saved settings
+- **Danger Zone** — **Discard findings & re-analyze** button that clears every finding in the database and runs a fresh analysis. Useful for clean re-baselines after threshold changes. Destructive — analyst notes and statuses on existing findings are lost; confirmation required.
 
 ### Analysis Complete Alert
 
@@ -689,16 +745,33 @@ All API endpoints require authentication. Role requirements are noted where appl
 | `POST` | `/api/analyze/cancel` | Analyst+ | Stop running analysis |
 | `POST` | `/api/analyze/pause` | Analyst+ | Pause running analysis |
 | `POST` | `/api/analyze/resume` | Analyst+ | Resume paused analysis |
+| `POST` | `/api/analyze/reset` | Admin | Clear all findings and launch a fresh analysis — used for baselining after threshold changes. Returns `{"status":"started","findings_cleared":N}` |
 
 ### Findings
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/api/findings` | Any | List findings. Query params: `search`, `type`, `severity`, `min_score`, `delta` (new only), `sort`, `dir` |
+| `GET` | `/api/findings` | Any | List findings. Query params: `search`, `type`, `severity`, `min_score`, `delta`, `src_ip` (IP or CIDR), `dst_ip` (IP or CIDR), `dataset`, `from`, `to` (both accept `YYYY-MM-DD HH:MM:SS` UTC or RFC3339), `sort`, `dir` |
 | `GET` | `/api/findings/{id}` | Any | Single finding detail |
+| `GET` | `/api/findings/{id}/raw` | Any | Raw-log pivot. Returns source Zeek records matching the finding's (src, dst) pair. Query params: `limit` (default 500, max 5000), `window_hours` (default 6; `0` means no time filter — scan every matching file) |
 | `PATCH` | `/api/findings/{id}` | Analyst+ | Update status: `{"status":"acknowledged"\|"escalated","analyst":"...","note":"..."}` |
 | `POST` | `/api/findings/{id}/escalate` | Analyst+ | Escalate + run TI lookups: `{"note":"...","ips":["..."],"services":["vt","crowdsec","otx","abuseipdb"]}` |
 | `POST` | `/api/findings/{id}/notes` | Analyst+ | Add note: `{"text":"..."}` |
+
+### Exports
+
+| Method | Path | Role | Description |
+|---|---|---|---|
+| `GET` | `/api/export/json` | Any | Download filtered findings + allowlist + IOC list as JSON. Accepts every query param supported by `GET /api/findings` |
+| `GET` | `/api/export/csv` | Any | Download filtered findings as CSV. Accepts every query param supported by `GET /api/findings` |
+
+### Archive
+
+| Method | Path | Role | Description |
+|---|---|---|---|
+| `GET` | `/api/archive` | Any | `{"enabled":bool,"after_days":N,"prune_findings_on_archive":bool}` |
+| `POST` | `/api/archive` | Admin | Update archive config with the same shape |
+| `POST` | `/api/archive/run` | Admin | Run the archive worker immediately against the saved config. Returns `{"files_archived":N,"bytes_archived":N,"findings_pruned":N,"skipped":N}` |
 
 ### Configuration
 
@@ -754,7 +827,11 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 ## Resetting to Factory State
 
-`reset.sh` stops Archer, removes the database volume, and starts a fresh instance. Log files in `./logs` are not affected.
+Two paths, depending on scope.
+
+**Soft reset — clear findings only.** From the Settings dialog, **Danger Zone → Discard findings & re-analyze** drops every finding in the database and relaunches analysis against the current log set. User accounts, allowlists, IOC lists, suppressions, threshold config, and API keys are preserved. Useful after threshold changes when you want a clean finding baseline without losing operator state.
+
+**Hard reset — wipe the database volume.** `reset.sh` stops Archer, removes the entire SQLite volume (users, findings, suppressions, archive config — everything), and starts a fresh instance. Log files in `./logs` are not affected.
 
 ```bash
 sudo ./reset.sh

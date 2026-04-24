@@ -91,11 +91,11 @@
   <!-- ── Main panel ────────────────────────────────────────────── -->
   <div id="main">
 
-    <!-- Filter bar -->
+    <!-- Filter bar: basic row always visible, advanced row collapsible -->
     <div id="filter-bar">
-      <label>Search <input class="filter-input" id="filter-search" type="text" placeholder="IP / domain / type…"></label>
+      <label>Search <input class="filter-input wide" id="filter-search" type="text" placeholder="IP / domain / type…"></label>
       <label>Severity
-        <select class="filter-select" id="filter-sev">
+        <select class="filter-select narrow" id="filter-sev">
           <option value="">All</option>
           <option value="CRITICAL">Critical</option>
           <option value="HIGH">High</option>
@@ -109,9 +109,24 @@
           <option value="">All Types</option>
         </select>
       </label>
-      <label>Min Score <input class="filter-input filter-score" id="filter-score" type="number" min="0" max="100" value="0"></label>
+      <label>Score ≥ <input class="filter-input filter-score" id="filter-score" type="number" min="0" max="100" value="0"></label>
+      <button class="filter-btn dim" id="filter-advanced-toggle" type="button" title="Show advanced filters">Advanced ▾</button>
       <button class="filter-btn" id="apply-filter-btn">Apply</button>
       <button class="filter-btn dim" id="reset-filter-btn">Reset</button>
+      <span class="filter-spacer"></span>
+      <button class="filter-btn dim" id="export-csv-btn" title="Export current filter as CSV">⬇ CSV</button>
+      <button class="filter-btn dim" id="export-json-btn" title="Export current filter as JSON">⬇ JSON</button>
+    </div>
+    <div id="filter-bar-advanced" style="display:none">
+      <label>Src IP/CIDR <input class="filter-input" id="filter-src" type="text" placeholder="10.0.0.0/24"></label>
+      <label>Dst IP/CIDR <input class="filter-input" id="filter-dst" type="text" placeholder="1.2.3.4"></label>
+      <label>Dataset
+        <select class="filter-select" id="filter-dataset">
+          <option value="">All</option>
+        </select>
+      </label>
+      <label>From <input class="filter-input datetime" id="filter-from" type="datetime-local"></label>
+      <label>To <input class="filter-input datetime" id="filter-to" type="datetime-local"></label>
     </div>
 
     <!-- Delta bar -->
@@ -164,6 +179,7 @@
           <button class="action-btn esc" id="esc-btn" disabled>⚠ Escalate</button>
           <button class="action-btn chart" id="chart-btn" disabled>📈 Beacon Chart</button>
           <button class="action-btn pcap" id="pcap-btn" disabled>📋 PCAP Filter</button>
+          <button class="action-btn raw" id="raw-btn" disabled>🔍 Source Records</button>
           <button class="action-btn supp" id="supp-btn" disabled>⏱ Suppress</button>
           <span id="analyst-rec"></span>
         </div>
@@ -383,6 +399,29 @@
   </div>
 </dialog>
 
+<dialog id="raw-dialog">
+  <div class="dlg-header" id="raw-dlg-title">Source Records</div>
+  <div class="dlg-body">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;font-size:0.9em">
+      <label style="display:flex;align-items:center;gap:6px;margin:0;color:var(--fg-dim)">
+        Search range
+        <select id="raw-dlg-window" class="dlg-select" style="width:auto;padding:2px 6px">
+          <option value="6">±6 hours (default)</option>
+          <option value="24">±24 hours</option>
+          <option value="168">±1 week</option>
+          <option value="720">±30 days</option>
+          <option value="0">All time</option>
+        </select>
+      </label>
+      <span id="raw-dlg-status" style="color:var(--fg-dim);flex:1"></span>
+    </div>
+    <div id="raw-dlg-table" style="max-height:60vh;overflow:auto;font-family:monospace;font-size:11px"></div>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="raw-dlg-close">Close</button>
+  </div>
+</dialog>
+
 <dialog id="ioc-dialog">
   <div class="dlg-header">IOC List</div>
   <div class="dlg-body">
@@ -433,6 +472,28 @@
         <label>OTX Key<input class="dlg-input" id="cfg-otx-key" type="password" placeholder="optional"></label>
         <label>CrowdSec Key<input class="dlg-input" id="cfg-crowdsec-key" type="password" placeholder="optional"></label>
       </div>
+    </div>
+    <div class="settings-group">
+      <div class="settings-group-title">Log Archive</div>
+      <div class="settings-grid">
+        <label>Archive after (days)<input class="dlg-input" id="cfg-archive-after" type="number" min="1"></label>
+      </div>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">
+        <label><input id="cfg-archive-enabled" type="checkbox"> Enable daily archive of aged logs</label>
+        <label><input id="cfg-archive-prune" type="checkbox"> Also remove findings older than the archive cutoff <span style="color:var(--fg-dim)">(destructive)</span></label>
+      </div>
+      <div style="margin-top:10px">
+        <button class="dlg-btn secondary" id="archive-run-btn" type="button">Run Archive Now</button>
+        <span id="archive-run-status" style="margin-left:12px;color:var(--fg-dim)"></span>
+      </div>
+    </div>
+    <div class="settings-group">
+      <div class="settings-group-title" style="color:var(--sev-high, #c66)">Danger Zone</div>
+      <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
+        Discards every finding in the database and re-analyzes the current log set from scratch. Analyst notes, statuses, and acknowledgements on existing findings are lost. Use after a threshold change when you want a clean baseline.
+      </div>
+      <button class="dlg-btn secondary" id="reset-analyze-btn" type="button" style="border-color:var(--sev-high, #c66);color:var(--sev-high, #c66)">Discard findings &amp; re-analyze</button>
+      <span id="reset-analyze-status" style="margin-left:12px;color:var(--fg-dim)"></span>
     </div>
   </div>
   <div class="dlg-footer">
