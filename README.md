@@ -426,19 +426,22 @@ cd Archer
 
 ### 2. Place your Zeek logs
 
-Logs are organized into named datasets under the `logs/` directory. Each subdirectory is treated as a distinct dataset or campaign:
+Archer expects logs in the `logs/` directory **inside the cloned repository folder on the host machine**. Docker bind-mounts this directory into the container at `/logs` — any files you place there are immediately visible to Archer without a rebuild or restart.
 
 ```
-logs/
-├── campaign-apt29/
-│   ├── conn.log
-│   ├── dns.log
-│   ├── http.log
-│   └── ssl.log
-└── campaign-lateral-2026/
-    ├── conn.log.gz
-    └── dns.log.gz
+/home/user/Archer/          ← cloned repo on the host
+└── logs/                   ← place your Zeek logs here
+    ├── campaign-apt29/
+    │   ├── conn.log
+    │   ├── dns.log
+    │   ├── http.log
+    │   └── ssl.log
+    └── campaign-lateral-2026/
+        ├── conn.log.gz
+        └── dns.log.gz
 ```
+
+Each subdirectory under `logs/` is treated as a distinct **dataset** or campaign and is labeled as such throughout the UI. Files can be uncompressed (`.log`) or gzip-compressed (`.log.gz`, `.gz`).
 
 ### 3. Start Archer
 
