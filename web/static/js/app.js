@@ -1284,16 +1284,21 @@
 
   async function _loadUsers() {
     const tbody = document.getElementById('users-tbody');
-    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--fg-dim);padding:10px">Loading…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--fg-dim);padding:10px">Loading…</td></tr>';
     try {
       const users = await api('/api/users');
       tbody.innerHTML = '';
       users.forEach(u => {
         const tr = document.createElement('tr');
-        const isSelf = _currentUser && u.id === _currentUser.id;
+        const isSelf  = _currentUser && u.id === _currentUser.id;
+        const pending = u.status === 'pending';
         const roleOpts = ['admin','analyst','viewer'].map(r =>
           `<option value="${r}"${r === u.role ? ' selected' : ''}>${r.charAt(0).toUpperCase()+r.slice(1)}</option>`
         ).join('');
+        const status = u.status || 'active';
+        const actions = [];
+        if (pending) actions.push(`<button class="user-approve-btn" data-uid="${u.id}">Approve</button>`);
+        if (!isSelf) actions.push(`<button class="user-delete-btn" data-uid="${u.id}">Delete</button>`);
         tr.innerHTML = `
           <td style="font-weight:600">${_esc(u.first_name)} ${_esc(u.last_name)}</td>
           <td style="font-family:monospace;font-size:11px">${_esc(u.email)}</td>
@@ -1302,8 +1307,9 @@
               ? `<span class="role-badge ${u.role}">${u.role}</span>`
               : `<select class="user-role-select" data-uid="${u.id}">${roleOpts}</select>`}
           </td>
+          <td><span class="status-badge ${status}">${status}</span></td>
           <td style="font-size:11px;color:var(--fg-dim)">${(u.created_at||'').split(' ')[0]}</td>
-          <td>${isSelf ? '' : `<button class="user-delete-btn" data-uid="${u.id}">Delete</button>`}</td>`;
+          <td style="white-space:nowrap">${actions.join(' ')}</td>`;
         tbody.appendChild(tr);
       });
 
@@ -1321,6 +1327,21 @@
         });
       });
 
+      // Approve handlers
+      tbody.querySelectorAll('.user-approve-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const uid = parseInt(btn.dataset.uid);
+          try {
+            await api(`/api/users/${uid}`, {
+              method: 'PATCH',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({status: 'active'}),
+            });
+            _loadUsers();
+          } catch (e) { setStatus('Approval failed: ' + e); }
+        });
+      });
+
       // Delete handlers
       tbody.querySelectorAll('.user-delete-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -1333,7 +1354,7 @@
         });
       });
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="5" style="color:var(--sev-critical)">Failed to load users</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" style="color:var(--sev-critical)">Failed to load users</td></tr>`;
     }
   }
 

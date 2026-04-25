@@ -20,6 +20,12 @@ func IsValidRole(r string) bool {
 	return false
 }
 
+// Status constants for user account approval state.
+const (
+	StatusPending = "pending"
+	StatusActive  = "active"
+)
+
 // User represents an authenticated Archer analyst.
 type User struct {
 	ID           int    `json:"id"`
@@ -27,7 +33,8 @@ type User struct {
 	FirstName    string `json:"first_name"`
 	LastName     string `json:"last_name"`
 	PasswordHash string `json:"password_hash"`
-	Role         string `json:"role"` // "admin" | "analyst"
+	Role         string `json:"role"`
+	Status       string `json:"status"` // "pending" | "active"
 	CreatedAt    string `json:"created_at"`
 }
 

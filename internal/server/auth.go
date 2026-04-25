@@ -32,6 +32,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			s.renderAuth(w, "login.html", map[string]any{"Error": "Invalid email or password."})
 			return
 		}
+		if user.Status == model.StatusPending {
+			s.renderAuth(w, "login.html", map[string]any{"Error": "Your account is awaiting admin approval."})
+			return
+		}
 
 		token := s.users.CreateSession(user.ID)
 		http.SetCookie(w, &http.Cookie{
@@ -92,14 +96,24 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		role := model.RoleAnalyst
-		if s.users.UserCount() == 0 {
+		isFirstUser := s.users.UserCount() == 0
+		role := model.RoleViewer
+		status := model.StatusPending
+		if isFirstUser {
+			// First registration bootstraps the admin and is auto-approved,
+			// otherwise nobody could ever log in on a fresh install.
 			role = model.RoleAdmin
+			status = model.StatusActive
 		}
 
-		user, err := s.users.CreateUser(email, firstName, lastName, password, role)
+		user, err := s.users.CreateUser(email, firstName, lastName, password, role, status)
 		if err != nil {
 			fail("Registration failed. Please try again.")
+			return
+		}
+
+		if !isFirstUser {
+			s.renderAuth(w, "register.html", map[string]any{"Pending": true})
 			return
 		}
 
@@ -204,7 +218,7 @@ func (s *Server) handleUsersCollection(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "email already registered", http.StatusConflict)
 			return
 		}
-		user, err := s.users.CreateUser(req.Email, req.FirstName, req.LastName, req.Password, req.Role)
+		user, err := s.users.CreateUser(req.Email, req.FirstName, req.LastName, req.Password, req.Role, model.StatusActive)
 		if err != nil {
 			jsonError(w, "failed to create user", http.StatusInternalServerError)
 			return
@@ -234,10 +248,27 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPatch:
 		var req struct {
-			Role string `json:"role"`
+			Role   string `json:"role,omitempty"`
+			Status string `json:"status,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonError(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		if req.Status != "" {
+			if req.Status != model.StatusActive {
+				jsonError(w, "invalid status", http.StatusBadRequest)
+				return
+			}
+			if !s.users.ApproveUser(id) {
+				http.NotFound(w, r)
+				return
+			}
+			jsonOK(w)
+			return
+		}
+		if req.Role == "" {
+			jsonError(w, "no changes specified", http.StatusBadRequest)
 			return
 		}
 		if !model.IsValidRole(req.Role) {

@@ -644,7 +644,7 @@ Results are classified as `[HIT]` (threat confirmed) or `[CLEAN]` (no threats fo
 
 ## User Roles
 
-The first user to register automatically becomes an **admin**. Subsequent registrations default to the **viewer** role and must be promoted by an admin.
+The first user to register automatically becomes an **admin** and is signed in immediately. Subsequent registrations create a **pending** account with the **viewer** role; the new user cannot sign in until an administrator approves them from the **Users** dialog. Approved viewers can be promoted to **analyst** or **admin** by an admin via the same dialog.
 
 | Capability | Admin | Analyst | Viewer |
 |---|:---:|:---:|:---:|

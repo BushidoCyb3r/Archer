@@ -114,6 +114,18 @@
     }
     .footer a { color: #4a6fa5; text-decoration: none; }
     .footer a:hover { text-decoration: underline; }
+
+    .pending {
+      background: #1f2a15;
+      border: 1px solid #3a4a20;
+      border-radius: 6px;
+      color: #c4d28a;
+      font-size: 13px;
+      line-height: 1.5;
+      padding: 14px 16px;
+      margin-bottom: 18px;
+    }
+    .pending strong { color: #e2e4ea; display: block; margin-bottom: 6px; }
   </style>
 </head>
 <body>
@@ -122,6 +134,16 @@
       <div class="brand-name">ARCHER</div>
       <div class="brand-sub">Silent Hunter</div>
     </div>
+
+    {{if .Pending}}
+    <div class="pending">
+      <strong>Account created — awaiting approval</strong>
+      Your account has been created and is pending administrator approval. You'll be able to sign in once an administrator activates your account.
+    </div>
+    <div class="footer">
+      <a href="/login">Return to sign in</a>
+    </div>
+    {{else}}
 
     {{if .Error}}
     <div class="error">{{.Error}}</div>
@@ -161,6 +183,7 @@
     <div class="footer">
       Already have an account? <a href="/login">Sign in</a>
     </div>
+    {{end}}
   </div>
 </body>
 </html>

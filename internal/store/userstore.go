@@ -47,10 +47,16 @@ func NewUserStore(dataDir string) *UserStore {
 			last_name     TEXT    NOT NULL DEFAULT '',
 			password_hash TEXT    NOT NULL,
 			role          TEXT    NOT NULL DEFAULT 'analyst',
+			status        TEXT    NOT NULL DEFAULT 'active',
 			created_at    TEXT    NOT NULL
 		)`); err != nil {
 		log.Fatalf("userstore: cannot create users table: %v", err)
 	}
+
+	// Migration for deployments created before the status column existed.
+	// Existing rows default to 'active' so current admins are not locked out.
+	// Errors here mean the column already exists, which is fine.
+	_, _ = db.Exec(`ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`)
 
 	us := &UserStore{
 		db:       db,
@@ -78,16 +84,16 @@ func (us *UserStore) pruneSessionsLoop() {
 func (us *UserStore) DB() *sql.DB { return us.db }
 
 // CreateUser hashes the password and inserts a new user row.
-func (us *UserStore) CreateUser(email, firstName, lastName, password, role string) (model.User, error) {
+func (us *UserStore) CreateUser(email, firstName, lastName, password, role, status string) (model.User, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return model.User{}, err
 	}
 	now := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 	res, err := us.db.Exec(
-		`INSERT INTO users (email, first_name, last_name, password_hash, role, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		email, firstName, lastName, string(hash), role, now,
+		`INSERT INTO users (email, first_name, last_name, password_hash, role, status, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		email, firstName, lastName, string(hash), role, status, now,
 	)
 	if err != nil {
 		return model.User{}, err
@@ -99,7 +105,7 @@ func (us *UserStore) CreateUser(email, firstName, lastName, password, role strin
 	return model.User{
 		ID: int(id), Email: email,
 		FirstName: firstName, LastName: lastName,
-		Role: role, CreatedAt: now,
+		Role: role, Status: status, CreatedAt: now,
 	}, nil
 }
 
@@ -107,9 +113,9 @@ func (us *UserStore) CreateUser(email, firstName, lastName, password, role strin
 func (us *UserStore) GetUserByEmail(email string) (model.User, bool) {
 	var u model.User
 	err := us.db.QueryRow(
-		`SELECT id, email, first_name, last_name, password_hash, role, created_at
+		`SELECT id, email, first_name, last_name, password_hash, role, status, created_at
 		 FROM users WHERE email = ? COLLATE NOCASE`, email,
-	).Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.PasswordHash, &u.Role, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.PasswordHash, &u.Role, &u.Status, &u.CreatedAt)
 	if err != nil {
 		return model.User{}, false
 	}
@@ -120,9 +126,9 @@ func (us *UserStore) GetUserByEmail(email string) (model.User, bool) {
 func (us *UserStore) GetUserByID(id int) (model.User, bool) {
 	var u model.User
 	err := us.db.QueryRow(
-		`SELECT id, email, first_name, last_name, password_hash, role, created_at
+		`SELECT id, email, first_name, last_name, password_hash, role, status, created_at
 		 FROM users WHERE id = ?`, id,
-	).Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.PasswordHash, &u.Role, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.PasswordHash, &u.Role, &u.Status, &u.CreatedAt)
 	if err != nil {
 		return model.User{}, false
 	}
@@ -132,7 +138,7 @@ func (us *UserStore) GetUserByID(id int) (model.User, bool) {
 // ListUsers returns all users without password hashes.
 func (us *UserStore) ListUsers() []model.User {
 	rows, err := us.db.Query(
-		`SELECT id, email, first_name, last_name, role, created_at FROM users ORDER BY id`)
+		`SELECT id, email, first_name, last_name, role, status, created_at FROM users ORDER BY id`)
 	if err != nil {
 		return nil
 	}
@@ -140,7 +146,7 @@ func (us *UserStore) ListUsers() []model.User {
 	var out []model.User
 	for rows.Next() {
 		var u model.User
-		if err := rows.Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Role, &u.CreatedAt); err == nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Role, &u.Status, &u.CreatedAt); err == nil {
 			out = append(out, u)
 		}
 	}
@@ -176,6 +182,16 @@ func (us *UserStore) Authenticate(email, password string) (model.User, bool) {
 // UpdateUserRole changes a user's role.
 func (us *UserStore) UpdateUserRole(id int, role string) bool {
 	res, err := us.db.Exec(`UPDATE users SET role = ? WHERE id = ?`, role, id)
+	if err != nil {
+		return false
+	}
+	n, _ := res.RowsAffected()
+	return n > 0
+}
+
+// ApproveUser flips a pending account to active.
+func (us *UserStore) ApproveUser(id int) bool {
+	res, err := us.db.Exec(`UPDATE users SET status = 'active' WHERE id = ?`, id)
 	if err != nil {
 		return false
 	}

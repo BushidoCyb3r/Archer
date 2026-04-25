@@ -177,6 +177,18 @@ html, body {
 .role-badge.analyst { background: #1a2f3a; color: #4ab8e8; }
 .role-badge.viewer  { background: #1a2a1a; color: #6ab87a; }
 
+.status-badge {
+  display: inline-block;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.status-badge.active  { background: #1a2a1a; color: #6ab87a; }
+.status-badge.pending { background: #3a2a15; color: #e8a04a; }
+
 #user-badge {
   display: flex;
   align-items: center;
