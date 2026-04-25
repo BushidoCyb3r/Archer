@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/archer-logo.png" alt="Archer — Silent Hunter" width="420">
+  <img src="docs/archer-logo.png" alt="Archer — Silent Hunter" width="720">
 </p>
 
 # Archer — Network Threat Detection & Analyst Workbench
