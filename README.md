@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/archer-logo.png" alt="Archer — Silent Hunter" width="420">
+</p>
+
 # Archer — Network Threat Detection & Analyst Workbench
 
 Archer is a self-hosted, open-source network threat detection platform that processes Zeek IDS log files to identify adversarial behaviors including C2 beaconing, data exfiltration, lateral movement, DNS tunneling, malicious TLS fingerprints, and more. It provides a browser-based analyst workbench for reviewing, annotating, and escalating findings — including live threat intelligence enrichment via VirusTotal, CrowdSec, AlienVault OTX, and AbuseIPDB.
@@ -264,6 +268,30 @@ sudo systemctl enable --now docker
 ```
 
 > **Fedora note:** When prompted during installation, verify the GPG key fingerprint matches `060A 61C5 1B55 8A7F 742B 77AA C52F EB6B 621E 9F35` before accepting.
+
+#### RHEL / Rocky Linux
+
+```bash
+# Remove any conflicting older packages
+sudo dnf remove docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine podman runc
+
+# Install the dnf plugin manager
+sudo dnf -y install dnf-plugins-core
+
+# Add the Docker repository
+sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+
+# Install Docker Engine and Compose plugin
+sudo dnf install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Start and enable Docker
+sudo systemctl enable --now docker
+
+# Verify
+sudo docker run hello-world
+```
+
+> **Rocky Linux / AlmaLinux note:** These are RHEL-compatible rebuilds, so the RHEL repository above is the correct one to use. If `dnf config-manager` is not found, install it with `sudo dnf -y install dnf-plugins-core` first. When prompted during installation, accept the Docker GPG key only after verifying the fingerprint matches `060A 61C5 1B55 8A7F 742B 77AA C52F EB6B 621E 9F35`.
 
 #### macOS
 
