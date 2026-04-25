@@ -1287,6 +1287,7 @@
     tbody.innerHTML = '<tr><td colspan="6" style="color:var(--fg-dim);padding:10px">Loading…</td></tr>';
     try {
       const users = await api('/api/users');
+      _setPendingBadge(users.filter(u => u.status === 'pending').length);
       tbody.innerHTML = '';
       users.forEach(u => {
         const tr = document.createElement('tr');
@@ -1362,6 +1363,25 @@
     return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
+  async function _refreshPendingBadge() {
+    try {
+      const users = await api('/api/users');
+      _setPendingBadge(users.filter(u => u.status === 'pending').length);
+    } catch (e) { /* badge is best-effort */ }
+  }
+
+  function _setPendingBadge(n) {
+    const el = document.getElementById('pending-badge');
+    if (!el) return;
+    if (n > 0) {
+      el.textContent = String(n);
+      el.title = `${n} account${n === 1 ? '' : 's'} awaiting approval`;
+      el.style.display = '';
+    } else {
+      el.style.display = 'none';
+    }
+  }
+
   // ── Init ───────────────────────────────────────────────────────────────────
   function init() {
     const showMenu = initContextMenu();
@@ -1397,6 +1417,7 @@
         document.getElementById('users-btn').style.display = '';
         const wac = document.getElementById('watch-admin-controls');
         if (wac) wac.style.display = '';
+        _refreshPendingBadge();
       }
       // Hide write-only controls for viewers
       if (u.role === 'viewer') {
