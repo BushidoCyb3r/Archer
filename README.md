@@ -705,10 +705,10 @@ Columns: **Score**, **Severity**, **Type**, **Src IP**, **Dst IP**, **Port**, **
 - **⬇ Export current tab ▾** in the filter bar dispatches based on the active tab — Findings/Ack/Esc/IOC do a server-side export honoring all active filters plus the tab's status filter; Campaigns and Hosts emit their client-side aggregations directly. CSV or JSON for any tab.
 - **⬇ Export all ▾** in the filter bar exports every finding in the database, ignoring filters and tab. CSV or JSON.
 - **Single campaign export** — right-click any row in the Campaigns tab and pick **Export campaign ▸** to get a hub-and-spoke graph (one node per source IP plus a destination hub) ready for graph viewers. Submenu offers four formats:
-  - **CSV** — edge list with `Source`, `Target`, `Port`, `MaxScore`, `FindingTypes` columns
+  - **CSV** — edge list with `Source`, `Target`, `Port`, `MaxScore`, `FindingTypes` columns; works with [Cytoscape Web](https://js.cytoscape.org/) and any spreadsheet
   - **Graphology JSON** — [Graphology serialization](https://graphology.github.io/serialization.html) format (`{attributes, nodes, edges}`)
   - **GEXF** — Gephi's native XML format, the most reliable choice for [Gephi Lite](https://gephi.org/gephi-lite/) and desktop Gephi
-  - **GraphML** — XML format consumed by Cytoscape, yEd, and most graph tools
+  - **GraphML** — XML format consumed by Cytoscape Desktop, yEd, and most desktop graph tools (note: Cytoscape Web does not accept GraphML — use the CSV export for it)
 
 Filter-bar dropdowns produce server-streamed downloads for findings tabs and client-side Blob downloads for Campaigns/Hosts; right-click campaign exports are always client-side.
 
