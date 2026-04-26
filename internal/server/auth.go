@@ -91,8 +91,14 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 			fail("Passwords do not match.")
 			return
 		}
+		// Don't reveal whether an email is already registered — return the
+		// same "pending approval" response a real new registration produces.
+		// The existing account is left untouched. A throwaway bcrypt also
+		// equalizes timing so the duplicate-email path isn't distinguishable
+		// by latency.
 		if s.users.EmailExists(email) {
-			fail("An account with that email already exists.")
+			s.users.EnumerationTimingPad(password)
+			s.renderAuth(w, "register.html", map[string]any{"Pending": true})
 			return
 		}
 

@@ -877,11 +877,11 @@
         row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)';
         row.innerHTML = `
           <div style="flex:1;min-width:0">
-            <div style="font-family:monospace;font-size:13px">${s.target}</div>
-            ${s.detail ? `<div style="font-size:11px;color:var(--fg-dim);margin-top:2px">${s.detail}</div>` : ''}
+            <div style="font-family:monospace;font-size:13px">${_esc(s.target)}</div>
+            ${s.detail ? `<div style="font-size:11px;color:var(--fg-dim);margin-top:2px">${_esc(s.detail)}</div>` : ''}
             <div style="font-size:11px;color:var(--fg-dim);margin-top:2px">Expires ${expStr}</div>
           </div>
-          <button class="dlg-btn secondary" style="padding:3px 10px;font-size:12px;flex-shrink:0" data-target="${s.target}">Remove</button>`;
+          <button class="dlg-btn secondary" style="padding:3px 10px;font-size:12px;flex-shrink:0">Remove</button>`;
         row.querySelector('button').addEventListener('click', async () => {
           await api(`/api/suppressions/${encodeURIComponent(s.target)}`, {method:'DELETE'}).catch(() => {});
           setStatus(`Unsuppressed ${s.target}`);
