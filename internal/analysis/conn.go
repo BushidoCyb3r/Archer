@@ -50,8 +50,10 @@ func (a *Analyzer) analyzeConn(files []string) {
 	beacon := make(map[pairKey]*beaconState)
 
 	strobeCounts := make(map[strobeKey]int)
+	strobeFirst := make(map[strobeKey]float64)
 	exfilOrig := make(map[exfilKey]float64)
 	exfilResp := make(map[exfilKey]float64)
+	exfilFirst := make(map[exfilKey]float64)
 	offBytes := make(map[offKey]float64)
 	offFirst := make(map[offKey]float64)
 
@@ -100,9 +102,17 @@ func (a *Analyzer) analyzeConn(files []string) {
 				}
 			}
 
-			strobeCounts[strobeKey{src, dst}]++
-			exfilOrig[exfilKey{src, dst}] += origB
-			exfilResp[exfilKey{src, dst}] += respB
+			sk := strobeKey{src, dst}
+			strobeCounts[sk]++
+			if ts > 0 && (strobeFirst[sk] == 0 || ts < strobeFirst[sk]) {
+				strobeFirst[sk] = ts
+			}
+			ek := exfilKey{src, dst}
+			exfilOrig[ek] += origB
+			exfilResp[ek] += respB
+			if ts > 0 && (exfilFirst[ek] == 0 || ts < exfilFirst[ek]) {
+				exfilFirst[ek] = ts
+			}
 
 			if ts > 0 && !isPrivateIP(dst) {
 				hour := time.Unix(int64(ts), 0).UTC().Hour()
@@ -301,12 +311,13 @@ func (a *Analyzer) analyzeConn(files []string) {
 		}
 		score := clamp(int(50+math.Log10(float64(count))*15), 1, 88)
 		a.add(model.Finding{
-			Type:     "Strobe",
-			Severity: model.SevHigh,
-			Score:    score,
-			SrcIP:    sk.src,
-			DstIP:    sk.dst,
-			Detail:   fmt.Sprintf("Connection count: %d (threshold: %d)", count, a.cfg.StrobeMinConnections),
+			Type:      "Strobe",
+			Severity:  model.SevHigh,
+			Score:     score,
+			SrcIP:     sk.src,
+			DstIP:     sk.dst,
+			Detail:    fmt.Sprintf("Connection count: %d (threshold: %d)", count, a.cfg.StrobeMinConnections),
+			Timestamp: fmtTS(strobeFirst[sk]),
 		})
 	}
 
@@ -331,12 +342,13 @@ func (a *Analyzer) analyzeConn(files []string) {
 		}
 		score := clamp(int(55+math.Log10(mb+1)*12), 1, 92)
 		a.add(model.Finding{
-			Type:     "Data Exfiltration",
-			Severity: model.SevCritical,
-			Score:    score,
-			SrcIP:    ek.src,
-			DstIP:    ek.dst,
-			Detail:   fmt.Sprintf("Outbound: %.2f MB | Ratio out/in: %.1f (threshold: %.1f)", mb, ratio, a.cfg.ExfilRatioThreshold),
+			Type:      "Data Exfiltration",
+			Severity:  model.SevCritical,
+			Score:     score,
+			SrcIP:     ek.src,
+			DstIP:     ek.dst,
+			Detail:    fmt.Sprintf("Outbound: %.2f MB | Ratio out/in: %.1f (threshold: %.1f)", mb, ratio, a.cfg.ExfilRatioThreshold),
+			Timestamp: fmtTS(exfilFirst[ek]),
 		})
 	}
 
