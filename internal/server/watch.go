@@ -334,10 +334,17 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) {
 		wasCancelled := az.Ctx().Err() != nil
 		if !wasCancelled {
 			s.store.SetLastAnalysisFingerprint(s.datasetFingerprint(files))
-			if arc := s.store.GetArchive(); arc.Enabled {
-				res := s.runArchive(arc.AfterDays, arc.PruneFindingsOnArchive)
-				if res.Err != "" {
-					log.Printf("archive: %s", res.Err)
+			// The post-analysis archive only fires for the automated daily
+			// watch tick (force=false). Manual analyses — including the
+			// "Discard findings & re-analyze" reset — must not silently move
+			// log files out from under the user. Admins who want to archive
+			// on demand have the "Run Archive Now" button.
+			if !force {
+				if arc := s.store.GetArchive(); arc.Enabled {
+					res := s.runArchive(arc.AfterDays, arc.PruneFindingsOnArchive)
+					if res.Err != "" {
+						log.Printf("archive: %s", res.Err)
+					}
 				}
 			}
 		}
