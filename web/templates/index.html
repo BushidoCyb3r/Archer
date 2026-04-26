@@ -480,7 +480,7 @@
         <label>Archive after (days)<input class="dlg-input" id="cfg-archive-after" type="number" min="1"></label>
       </div>
       <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">
-        <label><input id="cfg-archive-enabled" type="checkbox"> Enable daily archive of aged logs</label>
+        <label><input id="cfg-archive-enabled" type="checkbox"> Auto-archive logs older than the cutoff <span style="color:var(--fg-dim)">(fires after each watch-mode run)</span></label>
         <label><input id="cfg-archive-prune" type="checkbox"> Also remove findings older than the archive cutoff <span style="color:var(--fg-dim)">(destructive)</span></label>
       </div>
       <div style="margin-top:10px">
