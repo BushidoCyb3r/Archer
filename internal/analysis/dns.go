@@ -44,14 +44,15 @@ func (a *Analyzer) analyzeDNS(files []string) {
 				if !seenDoH[key] {
 					seenDoH[key] = true
 					a.add(model.Finding{
-						Type:      "DoH Bypass",
-						Severity:  model.SevMedium,
-						Score:     62,
-						SrcIP:     src,
-						DstIP:     dst,
-						DstPort:   "443",
-						Detail:    fmt.Sprintf("DNS-over-HTTPS to known resolver %s — evades DNS logging", dst),
-						Timestamp: fmtTS(ts),
+						Type:       "DoH Bypass",
+						Severity:   model.SevMedium,
+						Score:      62,
+						SrcIP:      src,
+						DstIP:      dst,
+						DstPort:    "443",
+						Detail:     fmt.Sprintf("DNS-over-HTTPS to known resolver %s — evades DNS logging", dst),
+						Timestamp:  fmtTS(ts),
+						SourceFile: f,
 					})
 				}
 			}
@@ -77,14 +78,15 @@ func (a *Analyzer) analyzeDNS(files []string) {
 				if !seenTLD[key] {
 					seenTLD[key] = true
 					a.add(model.Finding{
-						Type:      "Suspicious TLD",
-						Severity:  model.SevMedium,
-						Score:     52,
-						SrcIP:     src,
-						DstIP:     apex,
-						DstPort:   "53",
-						Detail:    fmt.Sprintf("TLD %q is a free/abused zone — query: %s", tld, query),
-						Timestamp: fmtTS(ts),
+						Type:       "Suspicious TLD",
+						Severity:   model.SevMedium,
+						Score:      52,
+						SrcIP:      src,
+						DstIP:      apex,
+						DstPort:    "53",
+						Detail:     fmt.Sprintf("TLD %q is a free/abused zone — query: %s", tld, query),
+						Timestamp:  fmtTS(ts),
+						SourceFile: f,
 					})
 				}
 			}
@@ -132,14 +134,15 @@ func (a *Analyzer) analyzeDNS(files []string) {
 					seenPerQuery[key] = true
 					score := clamp(int(math.Min(55+ent*6, 88)), 1, 95)
 					a.add(model.Finding{
-						Type:      "DNS Tunneling",
-						Severity:  model.SevHigh,
-						Score:     score,
-						SrcIP:     src,
-						DstIP:     apex,
-						DstPort:   "53",
-						Detail:    fmt.Sprintf("Tunnel indicators: %s | query: %s", strings.Join(reasons, ", "), query),
-						Timestamp: fmtTS(ts),
+						Type:       "DNS Tunneling",
+						Severity:   model.SevHigh,
+						Score:      score,
+						SrcIP:      src,
+						DstIP:      apex,
+						DstPort:    "53",
+						Detail:     fmt.Sprintf("Tunnel indicators: %s | query: %s", strings.Join(reasons, ", "), query),
+						Timestamp:  fmtTS(ts),
+						SourceFile: f,
 					})
 				}
 			}

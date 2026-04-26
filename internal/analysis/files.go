@@ -65,13 +65,14 @@ func (a *Analyzer) analyzeFiles(files []string) {
 					detail += " | File: " + filename
 				}
 				a.add(model.Finding{
-					Type:      "Suspicious File Download",
-					Severity:  model.SevHigh,
-					Score:     72,
-					SrcIP:     dst,
-					DstIP:     src,
-					Detail:    detail,
-					Timestamp: fmtTS(ts),
+					Type:       "Suspicious File Download",
+					Severity:   model.SevHigh,
+					Score:      72,
+					SrcIP:      dst,
+					DstIP:      src,
+					Detail:     detail,
+					Timestamp:  fmtTS(ts),
+					SourceFile: f,
 				})
 			}
 			return true

@@ -141,14 +141,15 @@ func (a *Analyzer) analyzeConn(files []string) {
 					sev = model.SevMedium
 				}
 				a.add(model.Finding{
-					Type:      "Long Connection",
-					Severity:  sev,
-					Score:     score,
-					SrcIP:     src,
-					DstIP:     dst,
-					DstPort:   fmt.Sprint(dstPort),
-					Detail:    fmt.Sprintf("Duration: %.2f hours | Proto: %s", hours, proto),
-					Timestamp: fmtTS(ts),
+					Type:       "Long Connection",
+					Severity:   sev,
+					Score:      score,
+					SrcIP:      src,
+					DstIP:      dst,
+					DstPort:    fmt.Sprint(dstPort),
+					Detail:     fmt.Sprintf("Duration: %.2f hours | Proto: %s", hours, proto),
+					Timestamp:  fmtTS(ts),
+					SourceFile: path,
 				})
 			}
 
@@ -157,14 +158,15 @@ func (a *Analyzer) analyzeConn(files []string) {
 				if _, ok := lateralSeen[lk]; !ok {
 					lateralSeen[lk] = struct{}{}
 					a.add(model.Finding{
-						Type:      "Lateral Movement",
-						Severity:  model.SevHigh,
-						Score:     78,
-						SrcIP:     src,
-						DstIP:     dst,
-						DstPort:   fmt.Sprint(dstPort),
-						Detail:    fmt.Sprintf("Internal→Internal on port %d (%s)", dstPort, lateralPortLabel(dstPort)),
-						Timestamp: fmtTS(ts),
+						Type:       "Lateral Movement",
+						Severity:   model.SevHigh,
+						Score:      78,
+						SrcIP:      src,
+						DstIP:      dst,
+						DstPort:    fmt.Sprint(dstPort),
+						Detail:     fmt.Sprintf("Internal→Internal on port %d (%s)", dstPort, lateralPortLabel(dstPort)),
+						Timestamp:  fmtTS(ts),
+						SourceFile: path,
 					})
 				}
 			}
@@ -175,14 +177,15 @@ func (a *Analyzer) analyzeConn(files []string) {
 					if _, ok2 := c2Seen[ck]; !ok2 {
 						c2Seen[ck] = struct{}{}
 						a.add(model.Finding{
-							Type:      "C2 Port",
-							Severity:  model.SevHigh,
-							Score:     75,
-							SrcIP:     src,
-							DstIP:     dst,
-							DstPort:   fmt.Sprint(dstPort),
-							Detail:    fmt.Sprintf("Port %d — %s", dstPort, label),
-							Timestamp: fmtTS(ts),
+							Type:       "C2 Port",
+							Severity:   model.SevHigh,
+							Score:      75,
+							SrcIP:      src,
+							DstIP:      dst,
+							DstPort:    fmt.Sprint(dstPort),
+							Detail:     fmt.Sprintf("Port %d — %s", dstPort, label),
+							Timestamp:  fmtTS(ts),
+							SourceFile: path,
 						})
 					}
 				}

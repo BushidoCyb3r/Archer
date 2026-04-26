@@ -65,13 +65,14 @@ func (a *Analyzer) analyzeX509(files []string) {
 			if !seen[key] {
 				seen[key] = true
 				a.add(model.Finding{
-					Type:      "Suspicious Certificate",
-					Severity:  model.SevMedium,
-					Score:     58,
-					SrcIP:     "(cert)",
-					DstIP:     subject,
-					Detail:    fmt.Sprintf("Subject: %s | Issuer: %s | Indicators: %s", subject, issuer, strings.Join(reasons, ", ")),
-					Timestamp: fmtTS(ts),
+					Type:       "Suspicious Certificate",
+					Severity:   model.SevMedium,
+					Score:      58,
+					SrcIP:      "(cert)",
+					DstIP:      subject,
+					Detail:     fmt.Sprintf("Subject: %s | Issuer: %s | Indicators: %s", subject, issuer, strings.Join(reasons, ", ")),
+					Timestamp:  fmtTS(ts),
+					SourceFile: f,
 				})
 			}
 			return true

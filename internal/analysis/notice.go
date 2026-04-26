@@ -50,13 +50,14 @@ func (a *Analyzer) analyzeNotice(files []string) {
 			}
 
 			a.add(model.Finding{
-				Type:      "Zeek Notice",
-				Severity:  sev,
-				Score:     score,
-				SrcIP:     src,
-				DstIP:     dst,
-				Detail:    detail,
-				Timestamp: fmtTS(ts),
+				Type:       "Zeek Notice",
+				Severity:   sev,
+				Score:      score,
+				SrcIP:      src,
+				DstIP:      dst,
+				Detail:     detail,
+				Timestamp:  fmtTS(ts),
+				SourceFile: f,
 			})
 			return true
 		})

@@ -215,9 +215,13 @@ func (a *Analyzer) add(f model.Finding) {
 	a.mu.Lock()
 	a.nextID++
 	f.ID = a.nextID
-	if f.SourceFile == "" {
-		f.SourceFile = f.Type
-	}
+	// SourceFile is intentionally not defaulted. Per-record analyzers fill
+	// it with the originating Zeek log path; aggregate detections (Beacon-
+	// ing, Strobe, Exfil, NXDOMAIN flood, Subdomain Diversity, HTTP
+	// Beaconing, Host Risk Score) span many records across many files and
+	// honestly have no single source file — leaving the field empty is
+	// truthful, where the old behaviour of defaulting to f.Type produced
+	// misleading values like "Beaconing" or "URLhaus" in CSV/JSON exports.
 	a.findings = append(a.findings, f)
 	a.mu.Unlock()
 }
