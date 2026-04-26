@@ -9,10 +9,12 @@
   let _selectedFinding = null;
   let _ctxFinding      = null;
   let _watchActive     = false;
-  let _tabMode         = 'findings'; // 'findings' | 'ack' | 'esc' | 'ioc'
+  let _tabMode         = 'findings'; // 'findings' | 'ack' | 'esc' | 'ioc' (drives findings-table filter)
+  let _activeTab       = 'findings'; // 'findings' | 'ack' | 'esc' | 'ioc' | 'campaigns' | 'hosts' (which panel is visible)
   let _iocSet          = new Set();  // live cache of IOC list IPs for instant tab overlay
   let _logsDir         = '/logs';
   let _currentUser     = null;
+  let _orgCIDRs        = []; // admin-supplied CIDRs that augment the built-in private ranges for the Hosts tab
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function setStatus(msg) {
@@ -105,8 +107,10 @@
         const tab = btn.dataset.tab;
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
+        _activeTab = tab;
 
-        if (tab === 'findings' || tab === 'ack' || tab === 'esc' || tab === 'ioc') {
+        const findingsTab = tab === 'findings' || tab === 'ack' || tab === 'esc' || tab === 'ioc';
+        if (findingsTab) {
           // All four share #tab-findings panel; just change the filter
           document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
           document.getElementById('tab-findings').classList.add('active');
@@ -139,11 +143,31 @@
       if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') applyFilter(); });
     });
 
-    document.getElementById('export-csv-btn').addEventListener('click', () => {
-      window.location.href = '/api/export/csv?' + _currentFilterQS();
+    // "Export current tab" dispatches on the active tab. Findings-style
+    // tabs go through the server (server-side filters apply); Campaigns
+    // and Hosts are aggregations built client-side, so we serialize the
+    // in-memory rows directly.
+    _initExportDropdown('export-current-btn', 'export-current-menu', format => {
+      switch (_activeTab) {
+        case 'campaigns':
+          if (format === 'csv') _downloadCampaignsCSV(Campaigns.getCampaigns());
+          else                  _downloadCampaignsJSON(Campaigns.getCampaigns());
+          return;
+        case 'hosts':
+          if (format === 'csv') _downloadHostsCSV(Campaigns.getHosts());
+          else                  _downloadHostsJSON(Campaigns.getHosts());
+          return;
+        default:
+          window.location.href = `/api/export/${format}?${_exportQSForCurrentTab()}`;
+      }
     });
-    document.getElementById('export-json-btn').addEventListener('click', () => {
-      window.location.href = '/api/export/json?' + _currentFilterQS();
+    _initExportDropdown('export-all-btn', 'export-all-menu', format => {
+      window.location.href = `/api/export/${format}`;
+    });
+    // Close any open export menu when clicking outside it. The button
+    // handler's stopPropagation prevents this from firing on its own click.
+    document.addEventListener('click', () => {
+      document.querySelectorAll('.export-menu').forEach(m => m.classList.add('hidden'));
     });
 
     // Advanced-filters toggle. Remembered in localStorage so the panel stays
@@ -185,6 +209,341 @@
   function _currentFilterQS() {
     const p = _currentFilterParams();
     return Object.keys(p).map(k => `${encodeURIComponent(k)}=${encodeURIComponent(p[k])}`).join('&');
+  }
+
+  // Like _currentFilterQS but also adds a tab-aware status / ioc_only filter
+  // so "Export current view" matches what the active tab is showing.
+  function _exportQSForCurrentTab() {
+    const p = _currentFilterParams();
+    if (_tabMode === 'ack') p.status = 'acknowledged';
+    else if (_tabMode === 'esc') p.status = 'escalated';
+    else if (_tabMode === 'ioc') p.ioc_only = 'true';
+    else p.status = 'open'; // default 'findings' tab
+    if (_deltaMode) p.delta = 'true';
+    return Object.keys(p).map(k => `${encodeURIComponent(k)}=${encodeURIComponent(p[k])}`).join('&');
+  }
+
+  // ── Client-side export helpers (Campaigns / Hosts) ─────────────────────────
+  // CSV escaping per RFC 4180: wrap fields containing comma, quote, CR, or LF
+  // in double quotes; double up internal quotes.
+  function _csvField(v) {
+    const s = v == null ? '' : String(v);
+    if (/[",\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+  function _csvRow(fields) { return fields.map(_csvField).join(',') + '\r\n'; }
+
+  // Wires up a small dropdown menu next to a trigger button. Each <li>
+  // inside the menu carries a data-format attribute; clicking it invokes
+  // onSelect(format) — the caller decides whether to navigate to a server
+  // URL (for streamed exports via Content-Disposition) or to build the
+  // payload client-side and trigger a Blob download. Clicking the trigger
+  // toggles the menu and closes any sibling menus that happen to be open.
+  function _initExportDropdown(buttonId, menuId, onSelect) {
+    const btn = document.getElementById(buttonId);
+    const menu = document.getElementById(menuId);
+    if (!btn || !menu) return;
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      if (btn.disabled) return;
+      document.querySelectorAll('.export-menu').forEach(m => {
+        if (m !== menu) m.classList.add('hidden');
+      });
+      menu.classList.toggle('hidden');
+    });
+    menu.querySelectorAll('li[data-format]').forEach(li => {
+      li.addEventListener('click', () => {
+        onSelect(li.dataset.format);
+        menu.classList.add('hidden');
+      });
+    });
+  }
+
+  function _downloadBlob(filename, mime, content) {
+    const blob = new Blob([content], {type: mime + ';charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function _ts() {
+    const d = new Date();
+    const z = n => String(n).padStart(2, '0');
+    return `${d.getUTCFullYear()}${z(d.getUTCMonth()+1)}${z(d.getUTCDate())}_${z(d.getUTCHours())}${z(d.getUTCMinutes())}${z(d.getUTCSeconds())}`;
+  }
+
+  function _campaignToRow(c) {
+    return {
+      destination: c.dst,
+      port: c.port,
+      hosts: c.srcs.size,
+      max_score: c.maxScore,
+      source_ips: [...c.srcs].join(' '),
+      finding_types: [...c.types].join(' '),
+    };
+  }
+
+  function _downloadCampaignsCSV(campaigns) {
+    const header = ['destination','port','hosts','max_score','source_ips','finding_types'];
+    let out = _csvRow(header);
+    campaigns.forEach(c => {
+      const r = _campaignToRow(c);
+      out += _csvRow(header.map(h => r[h]));
+    });
+    _downloadBlob(`archer_campaigns_${_ts()}.csv`, 'text/csv', out);
+  }
+
+  function _downloadCampaignsJSON(campaigns) {
+    const out = JSON.stringify({
+      archer_version: '3.0.0-go',
+      saved_at: new Date().toISOString(),
+      campaigns: campaigns.map(_campaignToRow),
+    }, null, 2);
+    _downloadBlob(`archer_campaigns_${_ts()}.json`, 'application/json', out);
+  }
+
+  // Single-campaign export uses an edge-list shape: one row per source IP,
+  // with the campaign's destination as the shared target. This is what
+  // Gephi Lite and other graph viewers consume directly to render
+  // hub-and-spoke topology — the destination becomes the hub node and each
+  // source becomes a spoke. Capitalised "Source" / "Target" column names
+  // are Gephi's convention; other tools accept them too.
+  function _safeFilenamePart(s) {
+    return String(s || 'campaign').replace(/[^A-Za-z0-9._-]/g, '_');
+  }
+
+  function _downloadCampaignEdgesCSV(campaign) {
+    const types = [...campaign.types].join(' ');
+    const header = ['Source', 'Target', 'Port', 'MaxScore', 'FindingTypes'];
+    let out = _csvRow(header);
+    [...campaign.srcs].forEach(src => {
+      out += _csvRow([src, campaign.dst, campaign.port, campaign.maxScore, types]);
+    });
+    _downloadBlob(
+      `archer_campaign_${_safeFilenamePart(campaign.dst)}_${_ts()}.csv`,
+      'text/csv',
+      out,
+    );
+  }
+
+  function _downloadCampaignEdgesJSON(campaign) {
+    // Graphology serialization format consumable by Gephi Lite. Mirrors the
+    // canonical sample at gephi/gephi-lite (testGraphs/graphology.json):
+    // {attributes, nodes, edges} only — no `options` block, since Gephi
+    // Lite's import path doesn't expect it and including it has caused
+    // "Graph.import: invalid nodes" errors on import. The destination IP
+    // is a single hub node; each source IP is a spoke; one edge per source.
+    const types = [...campaign.types].join(' ');
+    const dst = String(campaign.dst);
+    const port = campaign.port;
+    const maxScore = campaign.maxScore;
+    const sources = [...campaign.srcs];
+
+    const nodes = [
+      {
+        key: dst,
+        attributes: {
+          label: `${dst}:${port}`,
+          kind: 'destination',
+          max_score: maxScore,
+        },
+      },
+      ...sources.map(src => ({
+        key: src,
+        attributes: {
+          label: src,
+          kind: 'source',
+        },
+      })),
+    ];
+
+    const edges = sources.map(src => ({
+      key: `${src}->${dst}:${port}`,
+      source: src,
+      target: dst,
+      attributes: {
+        port: port,
+        max_score: maxScore,
+        finding_types: types,
+      },
+    }));
+
+    const graphology = {
+      attributes: {
+        name: `Archer Campaign - ${dst}:${port}`,
+        destination: dst,
+        port: port,
+        max_score: maxScore,
+        finding_types: types,
+        archer_version: '3.0.0-go',
+        saved_at: new Date().toISOString(),
+      },
+      nodes,
+      edges,
+    };
+
+    _downloadBlob(
+      `archer_campaign_${_safeFilenamePart(campaign.dst)}_${_ts()}.json`,
+      'application/json',
+      JSON.stringify(graphology, null, 2),
+    );
+  }
+
+  // XML escape used by the GEXF and GraphML emitters. Wraps every value
+  // that lands in attribute or text positions; safe for IPs/labels.
+  function _xmlEscape(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function _downloadCampaignEdgesGEXF(campaign) {
+    const types = [...campaign.types].join(' ');
+    const dst = String(campaign.dst);
+    const port = campaign.port;
+    const maxScore = campaign.maxScore;
+    const sources = [...campaign.srcs];
+    const today = new Date().toISOString().slice(0, 10);
+
+    const lines = [];
+    lines.push('<?xml version="1.0" encoding="UTF-8"?>');
+    lines.push('<gexf xmlns="http://gexf.net/1.3" version="1.3">');
+    lines.push(`  <meta lastmodifieddate="${today}">`);
+    lines.push('    <creator>Archer</creator>');
+    lines.push(`    <description>Archer campaign export — ${_xmlEscape(dst)}:${port}</description>`);
+    lines.push('  </meta>');
+    lines.push('  <graph mode="static" defaultedgetype="directed">');
+    lines.push('    <attributes class="node">');
+    lines.push('      <attribute id="kind" title="kind" type="string"/>');
+    lines.push('    </attributes>');
+    lines.push('    <attributes class="edge">');
+    lines.push('      <attribute id="port" title="port" type="integer"/>');
+    lines.push('      <attribute id="max_score" title="max_score" type="integer"/>');
+    lines.push('      <attribute id="finding_types" title="finding_types" type="string"/>');
+    lines.push('    </attributes>');
+    lines.push('    <nodes>');
+    lines.push(`      <node id="${_xmlEscape(dst)}" label="${_xmlEscape(dst + ':' + port)}">`);
+    lines.push('        <attvalues>');
+    lines.push('          <attvalue for="kind" value="destination"/>');
+    lines.push('        </attvalues>');
+    lines.push('      </node>');
+    sources.forEach(src => {
+      lines.push(`      <node id="${_xmlEscape(src)}" label="${_xmlEscape(src)}">`);
+      lines.push('        <attvalues>');
+      lines.push('          <attvalue for="kind" value="source"/>');
+      lines.push('        </attvalues>');
+      lines.push('      </node>');
+    });
+    lines.push('    </nodes>');
+    lines.push('    <edges>');
+    sources.forEach((src, i) => {
+      lines.push(`      <edge id="e${i}" source="${_xmlEscape(src)}" target="${_xmlEscape(dst)}">`);
+      lines.push('        <attvalues>');
+      lines.push(`          <attvalue for="port" value="${port}"/>`);
+      lines.push(`          <attvalue for="max_score" value="${maxScore}"/>`);
+      lines.push(`          <attvalue for="finding_types" value="${_xmlEscape(types)}"/>`);
+      lines.push('        </attvalues>');
+      lines.push('      </edge>');
+    });
+    lines.push('    </edges>');
+    lines.push('  </graph>');
+    lines.push('</gexf>');
+
+    _downloadBlob(
+      `archer_campaign_${_safeFilenamePart(campaign.dst)}_${_ts()}.gexf`,
+      'application/xml',
+      lines.join('\n'),
+    );
+  }
+
+  function _downloadCampaignEdgesGraphML(campaign) {
+    const types = [...campaign.types].join(' ');
+    const dst = String(campaign.dst);
+    const port = campaign.port;
+    const maxScore = campaign.maxScore;
+    const sources = [...campaign.srcs];
+
+    const lines = [];
+    lines.push('<?xml version="1.0" encoding="UTF-8"?>');
+    lines.push('<graphml xmlns="http://graphml.graphdrawing.org/xmlns"');
+    lines.push('         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"');
+    lines.push('         xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd">');
+    lines.push('  <key id="kind" for="node" attr.name="kind" attr.type="string"/>');
+    lines.push('  <key id="label" for="node" attr.name="label" attr.type="string"/>');
+    lines.push('  <key id="port" for="edge" attr.name="port" attr.type="int"/>');
+    lines.push('  <key id="max_score" for="edge" attr.name="max_score" attr.type="int"/>');
+    lines.push('  <key id="finding_types" for="edge" attr.name="finding_types" attr.type="string"/>');
+    lines.push('  <graph id="G" edgedefault="directed">');
+    lines.push(`    <node id="${_xmlEscape(dst)}">`);
+    lines.push('      <data key="kind">destination</data>');
+    lines.push(`      <data key="label">${_xmlEscape(dst + ':' + port)}</data>`);
+    lines.push('    </node>');
+    sources.forEach(src => {
+      lines.push(`    <node id="${_xmlEscape(src)}">`);
+      lines.push('      <data key="kind">source</data>');
+      lines.push(`      <data key="label">${_xmlEscape(src)}</data>`);
+      lines.push('    </node>');
+    });
+    sources.forEach((src, i) => {
+      lines.push(`    <edge id="e${i}" source="${_xmlEscape(src)}" target="${_xmlEscape(dst)}">`);
+      lines.push(`      <data key="port">${port}</data>`);
+      lines.push(`      <data key="max_score">${maxScore}</data>`);
+      lines.push(`      <data key="finding_types">${_xmlEscape(types)}</data>`);
+      lines.push('    </edge>');
+    });
+    lines.push('  </graph>');
+    lines.push('</graphml>');
+
+    _downloadBlob(
+      `archer_campaign_${_safeFilenamePart(campaign.dst)}_${_ts()}.graphml`,
+      'application/xml',
+      lines.join('\n'),
+    );
+  }
+
+  function _downloadSingleCampaign(format, campaign) {
+    switch (format) {
+      case 'csv':              _downloadCampaignEdgesCSV(campaign); break;
+      case 'graphology-json':  _downloadCampaignEdgesJSON(campaign); break;
+      case 'gexf':             _downloadCampaignEdgesGEXF(campaign); break;
+      case 'graphml':          _downloadCampaignEdgesGraphML(campaign); break;
+    }
+  }
+
+  function _hostToRow(h) {
+    return {
+      host_ip: h.ip,
+      risk_score: h.score,
+      findings: h.count,
+      severity: h.topSev,
+      finding_types: [...h.types].join(' '),
+    };
+  }
+
+  function _downloadHostsCSV(hosts) {
+    const header = ['host_ip','risk_score','findings','severity','finding_types'];
+    let out = _csvRow(header);
+    hosts.forEach(h => {
+      const r = _hostToRow(h);
+      out += _csvRow(header.map(c => r[c]));
+    });
+    _downloadBlob(`archer_hosts_${_ts()}.csv`, 'text/csv', out);
+  }
+
+  function _downloadHostsJSON(hosts) {
+    const out = JSON.stringify({
+      archer_version: '3.0.0-go',
+      saved_at: new Date().toISOString(),
+      hosts: hosts.map(_hostToRow),
+    }, null, 2);
+    _downloadBlob(`archer_hosts_${_ts()}.json`, 'application/json', out);
   }
 
   function applyFilter() {
@@ -956,16 +1315,21 @@
     document.getElementById('settings-cancel').addEventListener('click', () => dlg.close());
     document.getElementById('settings-save').addEventListener('click', async () => {
       try {
+        const payload = _collectSettings();
         await api('/api/config', {
           method: 'PUT',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(_collectSettings()),
+          body: JSON.stringify(payload),
         });
         await api('/api/archive', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(_collectArchive()),
         });
+        // Refresh the in-memory org CIDR list and rebuild the Hosts panel so
+        // the new filter is reflected without a page reload.
+        _orgCIDRs = Array.isArray(payload.org_internal_cidrs) ? payload.org_internal_cidrs : [];
+        Campaigns.build(_allFindings);
         setStatus('Settings saved');
       } catch (e) {
         setStatus('Error: ' + e);
@@ -1101,6 +1465,8 @@
     set('cfg-abuse-key',      cfg.abuseipdb_api_key);
     set('cfg-otx-key',        cfg.otx_api_key);
     set('cfg-crowdsec-key',   cfg.crowdsec_api_key);
+    const cidrEl = document.getElementById('cfg-org-cidrs');
+    if (cidrEl) cidrEl.value = Array.isArray(cfg.org_internal_cidrs) ? cfg.org_internal_cidrs.join('\n') : '';
   }
 
   function _populateArchive(a) {
@@ -1135,6 +1501,10 @@
 
   function _collectSettings() {
     const g = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+    const cidrs = g('cfg-org-cidrs')
+      .split('\n')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
     return {
       beacon_min_connections:   parseInt(g('cfg-beacon-thresh'))  || 10,
       strobe_min_connections:   parseInt(g('cfg-strobe-thresh'))  || 1000,
@@ -1147,6 +1517,7 @@
       abuseipdb_api_key:        g('cfg-abuse-key'),
       otx_api_key:              g('cfg-otx-key'),
       crowdsec_api_key:         g('cfg-crowdsec-key'),
+      org_internal_cidrs:       cidrs,
     };
   }
 
@@ -1213,6 +1584,13 @@
 
     function showMenu(e, f) {
       _ctxFinding = f;
+      // Campaign-only items reveal themselves when the trigger row attached
+      // a _campaign payload (set by campaigns.js). Hidden for plain finding
+      // rows where they don't apply.
+      const showCampaign = !!(f && f._campaign);
+      document.querySelectorAll('.ctx-campaign-only').forEach(el => {
+        el.style.display = showCampaign ? '' : 'none';
+      });
       menu.style.left = Math.min(e.clientX, window.innerWidth - 220) + 'px';
       menu.style.top  = Math.min(e.clientY, window.innerHeight - 200) + 'px';
       menu.classList.remove('hidden');
@@ -1308,6 +1686,14 @@
     });
     document.getElementById('ctx-crowdsec').addEventListener('click', () => {
       const ioc = _iocTarget(); if (ioc) window.open(`https://app.crowdsec.net/cti/${encodeURIComponent(ioc)}`, '_blank');
+    });
+
+    document.querySelectorAll('#ctx-export-campaign-sub li[data-format]').forEach(li => {
+      li.addEventListener('click', () => {
+        if (_ctxFinding && _ctxFinding._campaign) {
+          _downloadSingleCampaign(li.dataset.format, _ctxFinding._campaign);
+        }
+      });
     });
 
     return showMenu;
@@ -1433,6 +1819,62 @@
     return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
+  // ── Org-IP predicate (drives the Hosts tab filter) ─────────────────────────
+  // _isOrgIP returns true if `ip` is a host this organisation owns:
+  // either it falls inside a built-in private range (RFC 1918, IPv4
+  // link-local, IPv6 ULA, IPv6 link-local) or it matches an admin-supplied
+  // CIDR/IP from `_orgCIDRs`. Used to keep public source IPs and the
+  // synthetic "(TI)" src out of the Hosts panel.
+  function _isOrgIP(ip) {
+    if (!ip) return false;
+    if (_isBuiltinPrivate(ip)) return true;
+    for (const entry of _orgCIDRs) {
+      if (_ipInCIDR(ip, entry)) return true;
+    }
+    return false;
+  }
+
+  function _isBuiltinPrivate(ip) {
+    // IPv4
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(ip)) {
+      const p = ip.split('.').map(Number);
+      if (p.some(n => Number.isNaN(n) || n < 0 || n > 255)) return false;
+      if (p[0] === 10) return true;
+      if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true;
+      if (p[0] === 192 && p[1] === 168) return true;
+      if (p[0] === 169 && p[1] === 254) return true;
+      return false;
+    }
+    // IPv6 — simple prefix match on the lowercased address. fc00::/7
+    // matches first byte 0xfc or 0xfd; fe80::/10 matches first 10 bits
+    // 1111111010xxxxxx, i.e. bytes fe80..febf.
+    const lower = ip.toLowerCase();
+    if (/[a-f0-9:]/.test(lower) === false) return false; // not IPv6-shaped
+    if (/^f[cd][0-9a-f]{0,2}:/.test(lower) || lower === 'fc' || lower === 'fd') return true;
+    if (/^fe[89ab][0-9a-f]?:/.test(lower)) return true;
+    return false;
+  }
+
+  // _ipInCIDR matches an IPv4 address against a CIDR or single IP. IPv6
+  // CIDR matching is intentionally out of scope; admins who need to pin a
+  // specific IPv6 host can list the literal address (it'll match exactly).
+  function _ipInCIDR(ip, entry) {
+    if (!entry) return false;
+    entry = entry.trim();
+    if (!entry) return false;
+    // Exact-match path covers both IPv4 with no slash and any IPv6 literal.
+    if (!entry.includes('/')) return ip === entry;
+    const [base, prefixStr] = entry.split('/');
+    const prefix = parseInt(prefixStr, 10);
+    if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip) || !/^\d+\.\d+\.\d+\.\d+$/.test(base)) return false;
+    if (Number.isNaN(prefix) || prefix < 0 || prefix > 32) return false;
+    const toInt = s => s.split('.').reduce((a, b) => (a << 8) | parseInt(b, 10), 0) >>> 0;
+    const ipN = toInt(ip);
+    const baseN = toInt(base);
+    const mask = prefix === 0 ? 0 : ((~0) << (32 - prefix)) >>> 0;
+    return (ipN & mask) === (baseN & mask);
+  }
+
   async function _refreshPendingBadge() {
     try {
       const users = await api('/api/users');
@@ -1461,7 +1903,7 @@
       (e, f) => showMenu(e, f)
     );
 
-    Campaigns.init((e, pseudo) => showMenu(e, pseudo));
+    Campaigns.init((e, pseudo) => showMenu(e, pseudo), _isOrgIP);
 
     Notifications.init(findingId => {
       const f = _allFindings.find(x => x.id === findingId);
@@ -1531,10 +1973,18 @@
     DlgManager.init();
 
     _loadIOCList();
+    _loadOrgCIDRs(); // populate the Hosts-tab filter list before findings render
     loadFindings()
       .then(() => _updateTIStatus())
       .catch(() => setStatus('Ready — click Import then Analyze'));
     setStatus('Ready');
+  }
+
+  async function _loadOrgCIDRs() {
+    try {
+      const cfg = await api('/api/config');
+      _orgCIDRs = Array.isArray(cfg.org_internal_cidrs) ? cfg.org_internal_cidrs : [];
+    } catch (_) { /* keep current list on failure */ }
   }
 
   init();

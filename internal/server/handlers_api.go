@@ -772,17 +772,35 @@ func (s *Server) handleArchiveRun(w http.ResponseWriter, r *http.Request) {
 // a file that matches exactly what the analyst sees on screen.
 func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
 	findings := s.filterFindings(s.store.GetFindings(), r.URL.Query())
+
+	// Strip the per-finding chart data — it's only useful for the in-UI
+	// beacon chart, and including it bloats exports by 10-20×. Findings
+	// are already a slice of value copies returned by filterFindings, so
+	// mutating them here doesn't affect the live store.
+	for i := range findings {
+		findings[i].TSData = nil
+		findings[i].Intervals = nil
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="archer_results_%s.json"`, time.Now().Format("20060102_150405")))
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	enc.Encode(map[string]any{
+
+	out := map[string]any{
 		"archer_version": "3.0.0-go",
 		"saved_at":       time.Now().UTC().Format("2006-01-02 15:04:05 UTC"),
 		"findings":       findings,
-		"allowlist":      s.store.GetAllowlist(),
-		"ioc_list":       s.store.GetIOCList(),
-	})
+	}
+	// Allowlist + IOC list are only useful for /api/import round-trips
+	// (config restore from a backup). Default exports are scoped to the
+	// findings analysts care about; pass ?include_lists=true to opt in.
+	if r.URL.Query().Get("include_lists") == "true" {
+		out["allowlist"] = s.store.GetAllowlist()
+		out["ioc_list"] = s.store.GetIOCList()
+	}
+
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	enc.Encode(out)
 }
 
 func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {

@@ -36,7 +36,7 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 - **Delta detection** — new findings are flagged so analysts can focus on what changed since the last run
 - **Raw-log pivot** — clicking a finding opens a Source Records dialog that scans the original Zeek logs (plus the archive) for matching records and renders the full standard schema with resizable, horizontally-scrollable columns
 - **Advanced filtering** — in addition to search/severity/type/min-score, filters include Src IP/CIDR, Dst IP/CIDR, dataset, and a time range; all filters are server-side
-- **Filtered exports** — CSV and JSON exports honor the current filter state so the downloaded file matches exactly what the analyst sees on screen
+- **Per-tab exports** — every tab has its own CSV and JSON export. Findings/Acknowledged/Escalated/IOC Hits export only the visible subset (server-side, honoring all active filters). Campaigns and Hosts export their aggregations directly. A separate "All" export grabs every finding in the database. Right-click any single campaign row to export just that one campaign — useful for loading into a graphical viewer for stakeholder presentations.
 - **Log archive & retention** — admin-configurable: files older than N days automatically move from `/logs` to `/data/archive` after each watch analysis; findings are preserved by default (or optionally pruned past the same cutoff)
 - **Dataset fingerprint skip** — watch-mode re-analyses short-circuit when the set of files + their sizes + mtimes is unchanged from the last successful run; nightly runs over a static dataset return in milliseconds
 - **Preflight memory warning** — before each run Archer compares the total log size against `GOMEMLIMIT` and surfaces a status-bar warning when the run is projected to approach or exceed the budget
@@ -700,7 +700,17 @@ Columns: **Score**, **Severity**, **Type**, **Src IP**, **Dst IP**, **Port**, **
 
 **Advanced filters** (collapsible panel, state remembered): **Src IP/CIDR**, **Dst IP/CIDR**, **Dataset**, **From**, and **To** (time-range pickers). All filters are server-side and compose freely.
 
-**Exports**: **⬇ CSV** and **⬇ JSON** buttons produce a file reflecting exactly what the current filter state returns. With no filters set, the full findings list is exported.
+**Exports**: every tab has its own CSV and JSON download.
+
+- **⬇ Export current tab ▾** in the filter bar dispatches based on the active tab — Findings/Ack/Esc/IOC do a server-side export honoring all active filters plus the tab's status filter; Campaigns and Hosts emit their client-side aggregations directly. CSV or JSON for any tab.
+- **⬇ Export all ▾** in the filter bar exports every finding in the database, ignoring filters and tab. CSV or JSON.
+- **Single campaign export** — right-click any row in the Campaigns tab and pick **Export campaign ▸** to get a hub-and-spoke graph (one node per source IP plus a destination hub) ready for graph viewers. Submenu offers four formats:
+  - **CSV** — edge list with `Source`, `Target`, `Port`, `MaxScore`, `FindingTypes` columns
+  - **Graphology JSON** — [Graphology serialization](https://graphology.github.io/serialization.html) format (`{attributes, nodes, edges}`)
+  - **GEXF** — Gephi's native XML format, the most reliable choice for [Gephi Lite](https://gephi.org/gephi-lite/) and desktop Gephi
+  - **GraphML** — XML format consumed by Cytoscape, yEd, and most graph tools
+
+Filter-bar dropdowns produce server-streamed downloads for findings tabs and client-side Blob downloads for Campaigns/Hosts; right-click campaign exports are always client-side.
 
 **Delta mode**: **New Only** / **Show All** toggle to focus on findings that appeared in the most recent analysis.
 
@@ -779,7 +789,7 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/api/findings` | Any | List findings. Query params: `search`, `type`, `severity`, `min_score`, `delta`, `src_ip` (IP or CIDR), `dst_ip` (IP or CIDR), `dataset`, `from`, `to` (both accept `YYYY-MM-DD HH:MM:SS` UTC or RFC3339), `sort`, `dir` |
+| `GET` | `/api/findings` | Any | List findings. Query params: `search`, `type`, `severity`, `min_score`, `delta`, `src_ip` (IP or CIDR), `dst_ip` (IP or CIDR), `dataset`, `from`, `to` (both accept `YYYY-MM-DD HH:MM:SS` UTC or RFC3339), `status` (`open` / `acknowledged` / `escalated`), `ioc_only` (`true`), `sort`, `dir` |
 | `GET` | `/api/findings/{id}` | Any | Single finding detail |
 | `GET` | `/api/findings/{id}/raw` | Any | Raw-log pivot. Returns source Zeek records matching the finding's (src, dst) pair. Query params: `limit` (default 500, max 5000), `window_hours` (default 6; `0` means no time filter — scan every matching file) |
 | `PATCH` | `/api/findings/{id}` | Analyst+ | Update status: `{"status":"acknowledged"\|"escalated","analyst":"...","note":"..."}` |
@@ -790,7 +800,7 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/api/export/json` | Any | Download filtered findings + allowlist + IOC list as JSON. Accepts every query param supported by `GET /api/findings` |
+| `GET` | `/api/export/json` | Any | Download filtered findings as JSON. Accepts every query param supported by `GET /api/findings`. The per-finding chart data (`ts_data`, `intervals`) is stripped from the output — it's only used by the in-UI beacon chart and bloats the file ~10–20×. Pass `?include_lists=true` to bundle the current allowlist and IOC list in the output (needed only for `/api/import` round-trips). |
 | `GET` | `/api/export/csv` | Any | Download filtered findings as CSV. Accepts every query param supported by `GET /api/findings` |
 
 ### Archive

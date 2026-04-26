@@ -36,6 +36,8 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 	minScore, _ := strconv.Atoi(q.Get("min_score"))
 	delta := q.Get("delta") == "true"
 	datasetF := q.Get("dataset")
+	statusF := q.Get("status")     // "open" | "acknowledged" | "escalated"
+	iocOnly := q.Get("ioc_only") == "true"
 
 	srcMatcher := parseIPMatcher(q.Get("src_ip"))
 	dstMatcher := parseIPMatcher(q.Get("dst_ip"))
@@ -115,7 +117,27 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 				continue
 			}
 		}
-		f.IOCMatch = iocSet[f.DstIP] || iocSet[f.SrcIP]
+		// Tab-aware filters. status="open" matches blank/empty status;
+		// status="acknowledged" / "escalated" match exactly. ioc_only mirrors
+		// the IOC Hits tab logic — IP in IOC list OR finding type is a
+		// Threat Intel Hit / Suspicious URL.
+		if statusF != "" {
+			if statusF == "open" {
+				if string(f.Status) != "" {
+					continue
+				}
+			} else if string(f.Status) != statusF {
+				continue
+			}
+		}
+		ioMatch := iocSet[f.DstIP] || iocSet[f.SrcIP]
+		if iocOnly {
+			isTI := f.Type == "Threat Intel Hit" || f.Type == "Suspicious URL"
+			if !ioMatch && !isTI {
+				continue
+			}
+		}
+		f.IOCMatch = ioMatch
 		result = append(result, *f)
 	}
 	return result
