@@ -609,7 +609,11 @@ func (s *Store) ClearFindings() int {
 }
 
 // PruneFindingsBefore removes findings whose Timestamp parses to a time
-// earlier than cutoff. Returns the number of findings dropped.
+// earlier than cutoff. Findings with empty or unparseable timestamps are
+// also dropped — this function is only invoked from the explicitly opt-in
+// "Also remove findings older than the archive cutoff (destructive)"
+// toggle, so an aggressive default matches the user's intent. Returns the
+// number of findings dropped.
 func (s *Store) PruneFindingsBefore(cutoff time.Time) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -617,11 +621,15 @@ func (s *Store) PruneFindingsBefore(cutoff time.Time) int {
 	dropped := 0
 	for _, f := range s.findings {
 		if f.Timestamp == "" {
-			kept = append(kept, f)
+			dropped++
 			continue
 		}
 		t, err := time.Parse("2006-01-02 15:04:05", f.Timestamp)
-		if err != nil || !t.Before(cutoff) {
+		if err != nil {
+			dropped++
+			continue
+		}
+		if !t.Before(cutoff) {
 			kept = append(kept, f)
 			continue
 		}
