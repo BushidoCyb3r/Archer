@@ -341,7 +341,7 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) {
 			// on demand have the "Run Archive Now" button.
 			if !force {
 				if arc := s.store.GetArchive(); arc.Enabled {
-					res := s.runArchive(arc.AfterDays, arc.PruneFindingsOnArchive)
+					res := s.runArchive(arc.AfterDays, arc.PruneFindingsOnArchive, false, "scheduled")
 					if res.Err != "" {
 						log.Printf("archive: %s", res.Err)
 					}

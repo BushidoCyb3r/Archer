@@ -7,7 +7,18 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/BushidoCyb3r/Archer/internal/config"
+	"github.com/BushidoCyb3r/Archer/internal/store"
 )
+
+// newArchiveTestServer builds a Server wired to an in-memory store so the
+// archive worker's RecordArchiveRun and Prune/Count calls are safe to call.
+// Tests don't care about the recorded telemetry; this just keeps runArchive
+// from nil-dereferencing on s.store.
+func newArchiveTestServer(logsDir string) *Server {
+	return &Server{logsDir: logsDir, store: store.New(config.Default())}
+}
 
 // TestRunArchive_MovesOldFilesPreservingLayout exercises the core archive
 // workflow end-to-end: files older than the cutoff move into the archive dir
@@ -66,8 +77,8 @@ func TestRunArchive_MovesOldFilesPreservingLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := &Server{logsDir: tmpLogs}
-	res := s.runArchive(30, false)
+	s := newArchiveTestServer(tmpLogs)
+	res := s.runArchive(30, false, false, "test")
 
 	if res.Err != "" {
 		t.Fatalf("unexpected error: %s", res.Err)
@@ -179,8 +190,8 @@ func TestRunArchive_PrunesEmptyDirsAfterMove(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := &Server{logsDir: tmpLogs}
-	res := s.runArchive(30, false)
+	s := newArchiveTestServer(tmpLogs)
+	res := s.runArchive(30, false, false, "test")
 
 	if res.Err != "" {
 		t.Fatalf("unexpected error: %s", res.Err)
@@ -218,6 +229,54 @@ func TestRunArchive_PrunesEmptyDirsAfterMove(t *testing.T) {
 	}
 }
 
+// TestRunArchive_DryRunReportsWithoutMutating exercises the preview path
+// powering the "confirm before archive" UI flow. The dry run must report
+// the same counts a real run would produce, while leaving every file in
+// place, every finding in the store, and the last-run telemetry empty.
+func TestRunArchive_DryRunReportsWithoutMutating(t *testing.T) {
+	tmpLogs := t.TempDir()
+	tmpArchive := t.TempDir()
+
+	origArchiveDir := archiveDir
+	archiveDir = tmpArchive
+	defer func() { archiveDir = origArchiveDir }()
+
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	oldFile := filepath.Join(tmpLogs, "ds", "conn.log")
+	if err := os.MkdirAll(filepath.Dir(oldFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldFile, []byte("ancient zeek data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(oldFile, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	s := newArchiveTestServer(tmpLogs)
+	res := s.runArchive(30, false, true, "preview-by-admin")
+
+	if res.FilesArchived != 1 {
+		t.Errorf("dry run should report 1 file movable, got %d", res.FilesArchived)
+	}
+	if int(res.BytesArchived) != len("ancient zeek data") {
+		t.Errorf("dry run should report payload size, got %d", res.BytesArchived)
+	}
+
+	// File must still be in logsDir
+	if _, err := os.Stat(oldFile); err != nil {
+		t.Errorf("dry run should not move files, but source is gone: %v", err)
+	}
+	// Archive dir must be untouched
+	if _, err := os.Stat(filepath.Join(tmpArchive, "ds", "conn.log")); !os.IsNotExist(err) {
+		t.Errorf("dry run should not write to archive dir: %v", err)
+	}
+	// Last-run telemetry must remain empty — preview never records.
+	if last := s.store.GetArchive().LastRunAt; last != "" {
+		t.Errorf("dry run should not record telemetry, got LastRunAt=%q", last)
+	}
+}
+
 // TestRunArchive_RejectsInvalidConfig confirms we don't silently succeed when
 // the caller passes a nonsensical retention value or an unconfigured logs dir.
 func TestRunArchive_RejectsInvalidConfig(t *testing.T) {
@@ -226,17 +285,17 @@ func TestRunArchive_RejectsInvalidConfig(t *testing.T) {
 	archiveDir = tmpArchive
 	defer func() { archiveDir = origArchiveDir }()
 
-	s := &Server{logsDir: t.TempDir()}
+	s := newArchiveTestServer(t.TempDir())
 
-	if res := s.runArchive(0, false); res.Err == "" {
+	if res := s.runArchive(0, false, false, "test"); res.Err == "" {
 		t.Error("expected error for afterDays=0")
 	}
-	if res := s.runArchive(-1, false); res.Err == "" {
+	if res := s.runArchive(-1, false, false, "test"); res.Err == "" {
 		t.Error("expected error for negative afterDays")
 	}
 
-	noLogs := &Server{logsDir: ""}
-	if res := noLogs.runArchive(30, false); res.Err == "" {
+	noLogs := newArchiveTestServer("")
+	if res := noLogs.runArchive(30, false, false, "test"); res.Err == "" {
 		t.Error("expected error for empty logsDir")
 	}
 }
@@ -272,8 +331,8 @@ func TestRunArchive_SkipsExistingDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := &Server{logsDir: tmpLogs}
-	res := s.runArchive(30, false)
+	s := newArchiveTestServer(tmpLogs)
+	res := s.runArchive(30, false, false, "test")
 
 	if res.FilesArchived != 0 {
 		t.Errorf("expected 0 archived (dest exists), got %d", res.FilesArchived)

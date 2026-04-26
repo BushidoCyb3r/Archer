@@ -543,11 +543,18 @@ func (s *Store) GetWatch() (watchTime string, enabled bool) {
 	return s.config.WatchTime, s.config.WatchEnabled
 }
 
-// ArchiveSettings is the admin-editable subset of archive config.
+// ArchiveSettings is the admin-editable archive config plus read-only
+// telemetry from the most recent run. The last_* fields are only ever
+// written by RecordArchiveRun — SetArchive ignores them.
 type ArchiveSettings struct {
-	Enabled                bool `json:"enabled"`
-	AfterDays              int  `json:"after_days"`
-	PruneFindingsOnArchive bool `json:"prune_findings_on_archive"`
+	Enabled                bool   `json:"enabled"`
+	AfterDays              int    `json:"after_days"`
+	PruneFindingsOnArchive bool   `json:"prune_findings_on_archive"`
+	LastRunAt              string `json:"last_run_at,omitempty"`
+	LastFilesArchived      int    `json:"last_files_archived,omitempty"`
+	LastBytesArchived      int64  `json:"last_bytes_archived,omitempty"`
+	LastFindingsPruned     int    `json:"last_findings_pruned,omitempty"`
+	LastTriggeredBy        string `json:"last_triggered_by,omitempty"`
 }
 
 func (s *Store) SetArchive(settings ArchiveSettings) {
@@ -571,7 +578,30 @@ func (s *Store) GetArchive() ArchiveSettings {
 		Enabled:                s.config.ArchiveEnabled,
 		AfterDays:              s.config.ArchiveAfterDays,
 		PruneFindingsOnArchive: s.config.PruneFindingsOnArchive,
+		LastRunAt:              s.config.ArchiveLastRunAt,
+		LastFilesArchived:      s.config.ArchiveLastFilesArchived,
+		LastBytesArchived:      s.config.ArchiveLastBytesArchived,
+		LastFindingsPruned:     s.config.ArchiveLastFindingsPruned,
+		LastTriggeredBy:        s.config.ArchiveLastTriggeredBy,
 	}
+}
+
+// RecordArchiveRun persists telemetry for the most recent archive run.
+// triggeredBy should be the admin's display name/email for manual runs
+// or "scheduled" when the watch tick fired it. Dry runs must not call
+// this — the goal is to record only actual file movement.
+func (s *Store) RecordArchiveRun(filesArchived int, bytesArchived int64, findingsPruned int, triggeredBy string) {
+	s.mu.Lock()
+	s.config.ArchiveLastRunAt = time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
+	s.config.ArchiveLastFilesArchived = filesArchived
+	s.config.ArchiveLastBytesArchived = bytesArchived
+	s.config.ArchiveLastFindingsPruned = findingsPruned
+	s.config.ArchiveLastTriggeredBy = triggeredBy
+	if s.db != nil {
+		cfgJSON, _ := json.Marshal(s.config)
+		s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))
+	}
+	s.mu.Unlock()
 }
 
 func (s *Store) GetLastAnalysisFingerprint() string {
@@ -606,6 +636,31 @@ func (s *Store) ClearFindings() int {
 	}
 	s.saveFindings()
 	return n
+}
+
+// CountFindingsBefore returns how many findings PruneFindingsBefore would
+// drop for the same cutoff, without mutating state. Used by the dry-run
+// preview on Run Archive Now. Drop semantics must match
+// PruneFindingsBefore exactly so the preview tells the truth.
+func (s *Store) CountFindingsBefore(cutoff time.Time) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	dropped := 0
+	for _, f := range s.findings {
+		if f.Timestamp == "" {
+			dropped++
+			continue
+		}
+		t, err := time.Parse("2006-01-02 15:04:05", f.Timestamp)
+		if err != nil {
+			dropped++
+			continue
+		}
+		if t.Before(cutoff) {
+			dropped++
+		}
+	}
+	return dropped
 }
 
 // PruneFindingsBefore removes findings whose Timestamp parses to a time
