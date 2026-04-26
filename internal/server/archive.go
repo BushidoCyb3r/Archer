@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -80,6 +81,10 @@ func (s *Server) runArchive(afterDays int, pruneFindings bool) ArchiveResult {
 		return nil
 	})
 
+	if res.FilesArchived > 0 {
+		pruneEmptyDirs(s.logsDir)
+	}
+
 	if pruneFindings {
 		res.FindingsPruned = s.store.PruneFindingsBefore(cutoff)
 	}
@@ -87,6 +92,31 @@ func (s *Server) runArchive(afterDays int, pruneFindings bool) ArchiveResult {
 	log.Printf("archive: %d files (%d bytes) relocated, %d skipped, %d findings pruned",
 		res.FilesArchived, res.BytesArchived, res.Skipped, res.FindingsPruned)
 	return res
+}
+
+// pruneEmptyDirs removes empty subdirectories under root, working from
+// deepest paths upward so parent directories are reconsidered after their
+// children are gone. root itself is never removed. Best-effort — failures
+// are silent because the caller already considers the archive successful.
+func pruneEmptyDirs(root string) {
+	if root == "" {
+		return
+	}
+	var dirs []string
+	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || !info.IsDir() || path == root {
+			return nil
+		}
+		dirs = append(dirs, path)
+		return nil
+	})
+	sort.Slice(dirs, func(i, j int) bool {
+		return strings.Count(dirs[i], string(os.PathSeparator)) >
+			strings.Count(dirs[j], string(os.PathSeparator))
+	})
+	for _, d := range dirs {
+		_ = os.Remove(d) // succeeds only when the directory is empty
+	}
 }
 
 // moveFile relocates src → dst. Uses os.Rename on the same filesystem and

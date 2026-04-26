@@ -113,6 +113,111 @@ func TestRunArchive_MovesOldFilesPreservingLayout(t *testing.T) {
 	}
 }
 
+// TestRunArchive_PrunesEmptyDirsAfterMove confirms that subdirectories which
+// become empty as a result of archiving are cleaned up, while directories
+// that still hold a fresh file or a non-Zeek file are preserved. The dataset
+// root itself is preserved even when fully emptied so import scans can still
+// recognise it.
+func TestRunArchive_PrunesEmptyDirsAfterMove(t *testing.T) {
+	tmpLogs := t.TempDir()
+	tmpArchive := t.TempDir()
+
+	origArchiveDir := archiveDir
+	archiveDir = tmpArchive
+	defer func() { archiveDir = origArchiveDir }()
+
+	old := time.Now().Add(-40 * 24 * time.Hour)
+
+	// Dataset "drained" — a date subdirectory holding only old logs that
+	// will all migrate out, leaving the subdirectory empty.
+	drainedSub := filepath.Join(tmpLogs, "drained", "2026-01-01")
+	if err := os.MkdirAll(drainedSub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"conn.log", "dns.log"} {
+		p := filepath.Join(drainedSub, name)
+		if err := os.WriteFile(p, []byte("ancient"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Dataset "mixed" — old logs plus a fresh log; subdirectory must remain.
+	mixedSub := filepath.Join(tmpLogs, "mixed", "2026-04-01")
+	if err := os.MkdirAll(mixedSub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldP := filepath.Join(mixedSub, "conn.log")
+	if err := os.WriteFile(oldP, []byte("ancient"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(oldP, old, old); err != nil {
+		t.Fatal(err)
+	}
+	freshP := filepath.Join(mixedSub, "http.log")
+	if err := os.WriteFile(freshP, []byte("fresh"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Dataset "with-junk" — old log plus a non-Zeek file. Archive only
+	// touches the log; the directory should remain because notes.txt stays.
+	junkSub := filepath.Join(tmpLogs, "with-junk", "2026-01-15")
+	if err := os.MkdirAll(junkSub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	junkOld := filepath.Join(junkSub, "ssl.log")
+	if err := os.WriteFile(junkOld, []byte("ancient"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(junkOld, old, old); err != nil {
+		t.Fatal(err)
+	}
+	notes := filepath.Join(junkSub, "notes.txt")
+	if err := os.WriteFile(notes, []byte("hand-written"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &Server{logsDir: tmpLogs}
+	res := s.runArchive(30, false)
+
+	if res.Err != "" {
+		t.Fatalf("unexpected error: %s", res.Err)
+	}
+	if res.FilesArchived != 4 {
+		t.Errorf("expected 4 files archived, got %d", res.FilesArchived)
+	}
+
+	// Drained dataset: subdirectory and parent should both be gone, but the
+	// logs root stays.
+	if _, err := os.Stat(drainedSub); !os.IsNotExist(err) {
+		t.Errorf("drained subdirectory should be removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tmpLogs, "drained")); !os.IsNotExist(err) {
+		t.Errorf("drained dataset directory should be removed when empty: %v", err)
+	}
+	if _, err := os.Stat(tmpLogs); err != nil {
+		t.Errorf("logs root must always survive: %v", err)
+	}
+
+	// Mixed dataset: subdirectory must remain because http.log stayed.
+	if _, err := os.Stat(mixedSub); err != nil {
+		t.Errorf("mixed subdirectory should remain (still has fresh file): %v", err)
+	}
+	if _, err := os.Stat(freshP); err != nil {
+		t.Errorf("fresh http.log should remain: %v", err)
+	}
+
+	// With-junk dataset: subdirectory must remain because notes.txt stayed.
+	if _, err := os.Stat(junkSub); err != nil {
+		t.Errorf("with-junk subdirectory should remain (notes.txt holds it): %v", err)
+	}
+	if _, err := os.Stat(notes); err != nil {
+		t.Errorf("notes.txt should not be touched: %v", err)
+	}
+}
+
 // TestRunArchive_RejectsInvalidConfig confirms we don't silently succeed when
 // the caller passes a nonsensical retention value or an unconfigured logs dir.
 func TestRunArchive_RejectsInvalidConfig(t *testing.T) {
