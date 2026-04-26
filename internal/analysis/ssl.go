@@ -58,14 +58,15 @@ func (a *Analyzer) analyzeSSL(files []string) {
 							detail += " | SNI: " + sni
 						}
 						a.add(model.Finding{
-							Type:      "Malicious JA3",
-							Severity:  model.SevCritical,
-							Score:     95,
-							SrcIP:     src,
-							DstIP:     dst,
-							DstPort:   portStr,
-							Detail:    detail,
-							Timestamp: fmtTS(ts),
+							Type:       "Malicious JA3",
+							Severity:   model.SevCritical,
+							Score:      95,
+							SrcIP:      src,
+							DstIP:      dst,
+							DstPort:    portStr,
+							Detail:     detail,
+							Timestamp:  fmtTS(ts),
+							SourceFile: f,
 						})
 					}
 				}
@@ -77,14 +78,15 @@ func (a *Analyzer) analyzeSSL(files []string) {
 				if !seenWeakTLS[key] {
 					seenWeakTLS[key] = true
 					a.add(model.Finding{
-						Type:      "Weak TLS",
-						Severity:  model.SevLow,
-						Score:     48,
-						SrcIP:     src,
-						DstIP:     dst,
-						DstPort:   portStr,
-						Detail:    fmt.Sprintf("Deprecated TLS version: %s", version),
-						Timestamp: fmtTS(ts),
+						Type:       "Weak TLS",
+						Severity:   model.SevLow,
+						Score:      48,
+						SrcIP:      src,
+						DstIP:      dst,
+						DstPort:    portStr,
+						Detail:     fmt.Sprintf("Deprecated TLS version: %s", version),
+						Timestamp:  fmtTS(ts),
+						SourceFile: f,
 					})
 				}
 			}
@@ -97,25 +99,27 @@ func (a *Analyzer) analyzeSSL(files []string) {
 					seenNoSNI[key] = true
 					if isC2Port {
 						a.add(model.Finding{
-							Type:      "SSL No-SNI on C2 Port",
-							Severity:  model.SevHigh,
-							Score:     82,
-							SrcIP:     src,
-							DstIP:     dst,
-							DstPort:   portStr,
-							Detail:    fmt.Sprintf("Established TLS with no SNI on C2 port %d (%s)", dstPort, model.KnownC2Ports[dstPort]),
-							Timestamp: fmtTS(ts),
+							Type:       "SSL No-SNI on C2 Port",
+							Severity:   model.SevHigh,
+							Score:      82,
+							SrcIP:      src,
+							DstIP:      dst,
+							DstPort:    portStr,
+							Detail:     fmt.Sprintf("Established TLS with no SNI on C2 port %d (%s)", dstPort, model.KnownC2Ports[dstPort]),
+							Timestamp:  fmtTS(ts),
+							SourceFile: f,
 						})
 					} else {
 						a.add(model.Finding{
-							Type:      "SSL No-SNI",
-							Severity:  model.SevLow,
-							Score:     35,
-							SrcIP:     src,
-							DstIP:     dst,
-							DstPort:   portStr,
-							Detail:    fmt.Sprintf("Established TLS with no SNI on port %d", dstPort),
-							Timestamp: fmtTS(ts),
+							Type:       "SSL No-SNI",
+							Severity:   model.SevLow,
+							Score:      35,
+							SrcIP:      src,
+							DstIP:      dst,
+							DstPort:    portStr,
+							Detail:     fmt.Sprintf("Established TLS with no SNI on port %d", dstPort),
+							Timestamp:  fmtTS(ts),
+							SourceFile: f,
 						})
 					}
 				}

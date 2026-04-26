@@ -68,14 +68,15 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 					if !seenUA[key] {
 						seenUA[key] = true
 						a.add(model.Finding{
-							Type:      "Suspicious UA",
-							Severity:  model.SevLow,
-							Score:     30,
-							SrcIP:     src,
-							DstIP:     dst,
-							DstPort:   portStr,
-							Detail:    fmt.Sprintf("Scripting/automation UA: %q | Host: %s", ua, host),
-							Timestamp: fmtTS(ts),
+							Type:       "Suspicious UA",
+							Severity:   model.SevLow,
+							Score:      30,
+							SrcIP:      src,
+							DstIP:      dst,
+							DstPort:    portStr,
+							Detail:     fmt.Sprintf("Scripting/automation UA: %q | Host: %s", ua, host),
+							Timestamp:  fmtTS(ts),
+							SourceFile: f,
 						})
 					}
 					break
@@ -94,14 +95,15 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 					if !seenCS[key] {
 						seenCS[key] = true
 						a.add(model.Finding{
-							Type:      "Cobalt Strike URI",
-							Severity:  model.SevCritical,
-							Score:     93,
-							SrcIP:     src,
-							DstIP:     dst,
-							DstPort:   portStr,
-							Detail:    fmt.Sprintf("CS checksum8 match (%s) — URI: %s | Host: %s | Checksum=%d", variant, uri, host, cs8),
-							Timestamp: fmtTS(ts),
+							Type:       "Cobalt Strike URI",
+							Severity:   model.SevCritical,
+							Score:      93,
+							SrcIP:      src,
+							DstIP:      dst,
+							DstPort:    portStr,
+							Detail:     fmt.Sprintf("CS checksum8 match (%s) — URI: %s | Host: %s | Checksum=%d", variant, uri, host, cs8),
+							Timestamp:  fmtTS(ts),
+							SourceFile: f,
 						})
 					}
 				} else {
@@ -111,14 +113,15 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 							if !seenCS[key] {
 								seenCS[key] = true
 								a.add(model.Finding{
-									Type:      "C2 URI Pattern",
-									Severity:  model.SevCritical,
-									Score:     91,
-									SrcIP:     src,
-									DstIP:     dst,
-									DstPort:   portStr,
-									Detail:    fmt.Sprintf("%s — URI: %s | Host: %s | Method: %s", pat.Label, uri, host, method),
-									Timestamp: fmtTS(ts),
+									Type:       "C2 URI Pattern",
+									Severity:   model.SevCritical,
+									Score:      91,
+									SrcIP:      src,
+									DstIP:      dst,
+									DstPort:    portStr,
+									Detail:     fmt.Sprintf("%s — URI: %s | Host: %s | Method: %s", pat.Label, uri, host, method),
+									Timestamp:  fmtTS(ts),
+									SourceFile: f,
 								})
 							}
 							break
@@ -137,14 +140,15 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 					if !seenDF[key] {
 						seenDF[key] = true
 						a.add(model.Finding{
-							Type:      "Domain Fronting",
-							Severity:  model.SevCritical,
-							Score:     88,
-							SrcIP:     src,
-							DstIP:     dst,
-							DstPort:   portStr,
-							Detail:    fmt.Sprintf("SSL SNI: %q ≠ HTTP Host: %q — CDN-based domain fronting", ssl.serverName, host),
-							Timestamp: fmtTS(ts),
+							Type:       "Domain Fronting",
+							Severity:   model.SevCritical,
+							Score:      88,
+							SrcIP:      src,
+							DstIP:      dst,
+							DstPort:    portStr,
+							Detail:     fmt.Sprintf("SSL SNI: %q ≠ HTTP Host: %q — CDN-based domain fronting", ssl.serverName, host),
+							Timestamp:  fmtTS(ts),
+							SourceFile: f,
 						})
 					}
 				}
@@ -176,14 +180,15 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 				if !seenFile[key] {
 					seenFile[key] = true
 					a.add(model.Finding{
-						Type:      "Suspicious File Download",
-						Severity:  model.SevHigh,
-						Score:     72,
-						SrcIP:     src,
-						DstIP:     dst,
-						DstPort:   portStr,
-						Detail:    fmt.Sprintf("%s | URI: %s | Host: %s", suspReason, uri, host),
-						Timestamp: fmtTS(ts),
+						Type:       "Suspicious File Download",
+						Severity:   model.SevHigh,
+						Score:      72,
+						SrcIP:      src,
+						DstIP:      dst,
+						DstPort:    portStr,
+						Detail:     fmt.Sprintf("%s | URI: %s | Host: %s", suspReason, uri, host),
+						Timestamp:  fmtTS(ts),
+						SourceFile: f,
 					})
 				}
 			}

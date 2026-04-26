@@ -52,13 +52,14 @@ func (a *Analyzer) analyzeWeird(files []string) {
 			}
 
 			a.add(model.Finding{
-				Type:      "Protocol Anomaly",
-				Severity:  sev,
-				Score:     score,
-				SrcIP:     src,
-				DstIP:     dst,
-				Detail:    detail,
-				Timestamp: fmtTS(ts),
+				Type:       "Protocol Anomaly",
+				Severity:   sev,
+				Score:      score,
+				SrcIP:      src,
+				DstIP:      dst,
+				Detail:     detail,
+				Timestamp:  fmtTS(ts),
+				SourceFile: f,
 			})
 			return true
 		})
