@@ -20,6 +20,24 @@ type userSession struct {
 	ExpiresAt time.Time
 }
 
+// timingPadHash is a precomputed bcrypt hash used to equalize the latency
+// of registration code paths that abort before hashing the real password.
+// Without it, an attacker could distinguish "email already registered"
+// (fast) from "fresh registration" (~100 ms bcrypt) by timing alone — and
+// thereby enumerate valid accounts despite identical response content.
+var timingPadHash []byte
+
+func init() {
+	timingPadHash, _ = bcrypt.GenerateFromPassword([]byte("archer-timing-pad"), bcrypt.DefaultCost)
+}
+
+// EnumerationTimingPad runs a throwaway bcrypt comparison so callers that
+// bail out early in registration take roughly the same wall-clock time as
+// a real registration. Result is intentionally discarded.
+func (us *UserStore) EnumerationTimingPad(password string) {
+	_ = bcrypt.CompareHashAndPassword(timingPadHash, []byte(password))
+}
+
 // UserStore persists user accounts in a SQLite database at /data/archer.db.
 // Sessions are kept in memory only — they are intentionally ephemeral.
 type UserStore struct {
