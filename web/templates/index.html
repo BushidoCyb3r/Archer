@@ -114,8 +114,20 @@
       <button class="filter-btn" id="apply-filter-btn">Apply</button>
       <button class="filter-btn dim" id="reset-filter-btn">Reset</button>
       <span class="filter-spacer"></span>
-      <button class="filter-btn dim" id="export-csv-btn" title="Export current filter as CSV">⬇ CSV</button>
-      <button class="filter-btn dim" id="export-json-btn" title="Export current filter as JSON">⬇ JSON</button>
+      <div class="export-dropdown">
+        <button class="filter-btn dim" id="export-current-btn" title="Export this tab's findings (with current filters) as CSV or JSON">⬇ Export current tab ▾</button>
+        <ul class="export-menu hidden" id="export-current-menu">
+          <li data-format="csv">CSV</li>
+          <li data-format="json">JSON</li>
+        </ul>
+      </div>
+      <div class="export-dropdown">
+        <button class="filter-btn dim" id="export-all-btn" title="Export every finding in the database, ignoring the active tab and all filters">⬇ Export all ▾</button>
+        <ul class="export-menu hidden" id="export-all-menu">
+          <li data-format="csv">CSV</li>
+          <li data-format="json">JSON</li>
+        </ul>
+      </div>
     </div>
     <div id="filter-bar-advanced" style="display:none">
       <label>Src IP/CIDR <input class="filter-input" id="filter-src" type="text" placeholder="10.0.0.0/24"></label>
@@ -196,15 +208,15 @@
 
     <!-- ── Campaigns tab ─────────────────────────────────────────── -->
     <div class="tab-panel" id="tab-campaigns">
-      <div class="hint">Destinations contacted by ≥ 2 distinct source IPs (potential campaign / C2 infrastructure)</div>
+      <div class="hint">Destinations contacted by ≥ 2 distinct source IPs (potential campaign / C2 infrastructure). Use the filter bar's <strong>Export current tab ▾</strong> to download all campaigns; right-click any row for single-campaign exports.</div>
       <div class="table-wrap">
         <table id="campaigns-table">
           <thead>
             <tr>
+              <th style="width:80px">Max Score</th>
               <th style="width:180px">Destination</th>
               <th style="width:60px">Port</th>
               <th class="hosts" style="width:60px">Hosts</th>
-              <th style="width:80px">Max Score</th>
               <th>Source IPs</th>
             </tr>
           </thead>
@@ -215,7 +227,7 @@
 
     <!-- ── Hosts tab ─────────────────────────────────────────────── -->
     <div class="tab-panel" id="tab-hosts">
-      <div class="hint">Per-host composite risk score across all finding types</div>
+      <div class="hint">Per-host composite risk score across all finding types. Use the filter bar's <strong>Export current tab ▾</strong> to download.</div>
       <div class="table-wrap">
         <table id="hosts-table">
           <thead>
@@ -277,6 +289,15 @@
       <li id="ctx-abuseipdb">AbuseIPDB</li>
       <li id="ctx-shodan">Shodan</li>
       <li id="ctx-crowdsec">CrowdSec</li>
+    </ul>
+  </li>
+  <li class="ctx-separator ctx-campaign-only" style="display:none"></li>
+  <li id="ctx-export-campaign" class="ctx-submenu ctx-campaign-only" style="display:none">Export campaign
+    <ul class="ctx-submenu-panel" id="ctx-export-campaign-sub">
+      <li data-format="csv">CSV</li>
+      <li data-format="graphology-json">Graphology JSON</li>
+      <li data-format="gexf">GEXF</li>
+      <li data-format="graphml">GraphML</li>
     </ul>
   </li>
 </ul>
@@ -473,6 +494,13 @@
         <label>OTX Key<input class="dlg-input" id="cfg-otx-key" type="password" placeholder="optional"></label>
         <label>CrowdSec Key<input class="dlg-input" id="cfg-crowdsec-key" type="password" placeholder="optional"></label>
       </div>
+    </div>
+    <div class="settings-group">
+      <div class="settings-group-title">Organization Hosts</div>
+      <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
+        The Hosts tab automatically includes RFC 1918 (10/8, 172.16/12, 192.168/16), IPv4 link-local (169.254/16), IPv6 ULA (fc00::/7), and IPv6 link-local (fe80::/10). Add additional CIDRs or single IPs here to surface cloud-hosted servers, owned public blocks, or any non-private address you want monitored as &quot;your host.&quot; One per line.
+      </div>
+      <textarea class="dlg-input" id="cfg-org-cidrs" rows="4" placeholder="203.0.113.0/24&#10;198.51.100.42" style="width:100%;font-family:monospace;resize:vertical"></textarea>
     </div>
     <div class="settings-group">
       <div class="settings-group-title">Log Archive</div>

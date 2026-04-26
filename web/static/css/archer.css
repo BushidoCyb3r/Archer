@@ -764,6 +764,34 @@ tr.IOC_HIT td  { color: var(--ioc-color); }
 #status-msg { color: var(--fg-dim); }
 #findings-count { color: var(--fg-text); font-weight: 600; }
 
+/* ── Export dropdowns (filter bar) ──────────────────────────────────────── */
+.export-dropdown {
+  position: relative;
+  display: inline-block;
+}
+.export-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  list-style: none;
+  background: var(--bg-panel);
+  border: 1px solid var(--fg-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  padding: 4px 0;
+  min-width: 90px;
+  z-index: 9999;
+}
+.export-menu.hidden { display: none; }
+.export-menu li {
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.export-menu li:hover { background: var(--accent); color: #fff; }
+
 /* ── Context menu ────────────────────────────────────────────────────────── */
 .ctx-menu {
   position: fixed;

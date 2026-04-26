@@ -50,6 +50,14 @@ type Config struct {
 	// the /logs tree. When this matches, launchAnalysis can skip a redundant
 	// run (watch fires but no files changed). Internal; not user-editable.
 	LastAnalysisFingerprint string `json:"last_analysis_fingerprint"`
+
+	// OrgInternalCIDRs are admin-supplied CIDRs (or single IPs) that the
+	// Hosts tab should treat as belonging to the organisation, in addition
+	// to the built-in private ranges (RFC 1918, IPv4 link-local, IPv6 ULA,
+	// IPv6 link-local). Use this to surface cloud-hosted servers, owned
+	// public blocks, or any non-RFC-1918 address you want to monitor as
+	// "your host." Examples: "203.0.113.0/24", "198.51.100.42".
+	OrgInternalCIDRs []string `json:"org_internal_cidrs,omitempty"`
 }
 
 func Default() Config {
