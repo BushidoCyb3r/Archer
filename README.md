@@ -797,9 +797,9 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/api/archive` | Any | `{"enabled":bool,"after_days":N,"prune_findings_on_archive":bool}` |
-| `POST` | `/api/archive` | Admin | Update archive config with the same shape |
-| `POST` | `/api/archive/run` | Admin | Run the archive worker immediately against the saved config. Returns `{"files_archived":N,"bytes_archived":N,"findings_pruned":N,"skipped":N}` |
+| `GET` | `/api/archive` | Any | `{"enabled":bool,"after_days":N,"prune_findings_on_archive":bool,"last_run_at":"...","last_files_archived":N,"last_bytes_archived":N,"last_findings_pruned":N,"last_triggered_by":"..."}` — last_* fields are read-only telemetry omitted on a never-run instance |
+| `POST` | `/api/archive` | Admin | Update archive config. Accepts `{"enabled":bool,"after_days":N,"prune_findings_on_archive":bool}` — last_* fields are ignored if sent |
+| `POST` | `/api/archive/run` | Admin | Run the archive worker. Optional body `{"dry_run":true}` reports what would be moved/pruned without touching disk or the findings table; omit body or pass `{"dry_run":false}` to execute. Returns `{"files_archived":N,"bytes_archived":N,"findings_pruned":N,"skipped":N}` |
 
 ### Configuration
 

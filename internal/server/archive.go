@@ -29,7 +29,13 @@ type ArchiveResult struct {
 // runArchive moves files under logsDir whose mtime is older than `afterDays`
 // into archiveDir, preserving the directory layout. If pruneFindings is set,
 // findings with a Timestamp older than the cutoff are also removed.
-func (s *Server) runArchive(afterDays int, pruneFindings bool) ArchiveResult {
+//
+// dryRun reports what would be moved/pruned without touching anything on
+// disk or in the findings table — used to power the "preview before
+// confirm" flow on Run Archive Now. triggeredBy is recorded into the
+// last-run telemetry on a real run; it should be the admin's display
+// name for manual triggers or "scheduled" for the watch-tick auto path.
+func (s *Server) runArchive(afterDays int, pruneFindings, dryRun bool, triggeredBy string) ArchiveResult {
 	var res ArchiveResult
 	if afterDays <= 0 {
 		res.Err = "archive_after_days must be positive"
@@ -62,6 +68,16 @@ func (s *Server) runArchive(afterDays int, pruneFindings bool) ArchiveResult {
 			return nil
 		}
 		dst := filepath.Join(archiveDir, rel)
+		if dryRun {
+			// Don't create directories or stat the destination — preview must
+			// be a pure read. A naming collision would show up the same way
+			// (Skipped) but for now we treat all eligible files as movable;
+			// admins running back-to-back archives will see Skipped on the
+			// second real run if collisions actually occur.
+			res.FilesArchived++
+			res.BytesArchived += info.Size()
+			return nil
+		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			log.Printf("archive: mkdir %s: %v", filepath.Dir(dst), err)
 			res.Skipped++
@@ -81,16 +97,23 @@ func (s *Server) runArchive(afterDays int, pruneFindings bool) ArchiveResult {
 		return nil
 	})
 
-	if res.FilesArchived > 0 {
+	if !dryRun && res.FilesArchived > 0 {
 		pruneEmptyDirs(s.logsDir)
 	}
 
 	if pruneFindings {
-		res.FindingsPruned = s.store.PruneFindingsBefore(cutoff)
+		if dryRun {
+			res.FindingsPruned = s.store.CountFindingsBefore(cutoff)
+		} else {
+			res.FindingsPruned = s.store.PruneFindingsBefore(cutoff)
+		}
 	}
 
-	log.Printf("archive: %d files (%d bytes) relocated, %d skipped, %d findings pruned",
-		res.FilesArchived, res.BytesArchived, res.Skipped, res.FindingsPruned)
+	if !dryRun {
+		s.store.RecordArchiveRun(res.FilesArchived, res.BytesArchived, res.FindingsPruned, triggeredBy)
+		log.Printf("archive: %d files (%d bytes) relocated, %d skipped, %d findings pruned (by %s)",
+			res.FilesArchived, res.BytesArchived, res.Skipped, res.FindingsPruned, triggeredBy)
+	}
 	return res
 }
 

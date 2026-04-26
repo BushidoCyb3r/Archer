@@ -1008,16 +1008,68 @@
     if (runBtn) {
       runBtn.addEventListener('click', async () => {
         runBtn.disabled = true;
-        runStatus.textContent = 'Running…';
+        runStatus.textContent = 'Previewing…';
         runStatus.style.color = 'var(--fg-dim)';
+        // Phase 1: preview. Server reports what would be moved/pruned.
+        let preview;
         try {
-          const res = await api('/api/archive/run', {method: 'POST'});
+          preview = await api('/api/archive/run', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({dry_run: true}),
+          });
+        } catch (e) {
+          runStatus.textContent = 'Preview failed: ' + e;
+          runStatus.style.color = 'var(--sev-high, #c66)';
+          runBtn.disabled = false;
+          return;
+        }
+        if (preview && preview.error) {
+          runStatus.textContent = 'Error: ' + preview.error;
+          runStatus.style.color = 'var(--sev-high, #c66)';
+          runBtn.disabled = false;
+          return;
+        }
+        const files = preview.files_archived || 0;
+        const bytes = preview.bytes_archived || 0;
+        const pruned = preview.findings_pruned || 0;
+        if (files === 0 && pruned === 0) {
+          runStatus.textContent = 'Nothing to archive — no files older than the cutoff.';
+          runStatus.style.color = 'var(--fg-dim)';
+          runBtn.disabled = false;
+          return;
+        }
+        const lines = [
+          `Would move ${files} file(s) (${_humanBytes(bytes)}).`,
+        ];
+        if (pruned) lines.push(`Would prune ${pruned} finding(s) (destructive).`);
+        lines.push('', 'Continue?');
+        if (!window.confirm(lines.join('\n'))) {
+          runStatus.textContent = 'Cancelled.';
+          runStatus.style.color = 'var(--fg-dim)';
+          runBtn.disabled = false;
+          return;
+        }
+        // Phase 2: execute.
+        runStatus.textContent = 'Running…';
+        try {
+          const res = await api('/api/archive/run', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({dry_run: false}),
+          });
           if (res && res.error) {
             runStatus.textContent = 'Error: ' + res.error;
             runStatus.style.color = 'var(--sev-high, #c66)';
           } else {
             runStatus.textContent = `Archived ${res.files_archived||0} file(s), ${_humanBytes(res.bytes_archived||0)}${res.findings_pruned ? `, pruned ${res.findings_pruned} finding(s)` : ''}.`;
             runStatus.style.color = 'var(--accent)';
+            // Best-effort refresh of just the last-run line so it reflects
+            // the run we just did, without disturbing the success message.
+            try {
+              const fresh = await api('/api/archive');
+              _renderArchiveLastRun(fresh);
+            } catch (e) { /* ignore */ }
           }
         } catch (e) {
           runStatus.textContent = 'Error: ' + e;
@@ -1061,6 +1113,24 @@
     if (af) af.value = a.after_days || 30;
     if (pr) pr.checked = !!a.prune_findings_on_archive;
     if (rs) rs.textContent = '';
+    _renderArchiveLastRun(a);
+  }
+
+  function _renderArchiveLastRun(a) {
+    const lr = document.getElementById('archive-last-run');
+    if (!lr) return;
+    if (!a || !a.last_run_at) {
+      lr.textContent = 'Last run: never';
+      return;
+    }
+    const parts = [
+      `Last run: ${a.last_run_at}`,
+      `${a.last_files_archived || 0} file(s) moved`,
+      _humanBytes(a.last_bytes_archived || 0),
+    ];
+    if (a.last_findings_pruned) parts.push(`${a.last_findings_pruned} finding(s) pruned`);
+    if (a.last_triggered_by) parts.push(`by ${_esc(a.last_triggered_by)}`);
+    lr.textContent = parts.join(' — ');
   }
 
   function _collectSettings() {

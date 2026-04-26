@@ -36,6 +36,16 @@ type Config struct {
 	ArchiveAfterDays       int  `json:"archive_after_days"`
 	PruneFindingsOnArchive bool `json:"prune_findings_on_archive"`
 
+	// Last archive run telemetry — populated after every successful archive
+	// (manual button + watch-tick auto). Surfaced in Settings so admins on a
+	// shared deployment can see when archive last fired and what it moved
+	// without coordinating out-of-band. Empty on a fresh deployment.
+	ArchiveLastRunAt          string `json:"archive_last_run_at,omitempty"`
+	ArchiveLastFilesArchived  int    `json:"archive_last_files_archived,omitempty"`
+	ArchiveLastBytesArchived  int64  `json:"archive_last_bytes_archived,omitempty"`
+	ArchiveLastFindingsPruned int    `json:"archive_last_findings_pruned,omitempty"`
+	ArchiveLastTriggeredBy    string `json:"archive_last_triggered_by,omitempty"`
+
 	// Last successful analysis fingerprint — (relpath,size,mtime) SHA256 of
 	// the /logs tree. When this matches, launchAnalysis can skip a redundant
 	// run (watch fires but no files changed). Internal; not user-editable.

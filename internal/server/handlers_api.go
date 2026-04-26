@@ -737,7 +737,8 @@ func (s *Server) handleArchiveRun(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if u := userFromCtx(r); u.Role != model.RoleAdmin {
+	me := userFromCtx(r)
+	if me.Role != model.RoleAdmin {
 		jsonError(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -746,7 +747,22 @@ func (s *Server) handleArchiveRun(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "configure archive_after_days before running", http.StatusBadRequest)
 		return
 	}
-	res := s.runArchive(settings.AfterDays, settings.PruneFindingsOnArchive)
+
+	// Empty body = real run; {"dry_run": true} = preview. The body is
+	// optional so existing clients that just POST without a body keep
+	// working.
+	var req struct {
+		DryRun bool `json:"dry_run"`
+	}
+	if r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	triggeredBy := me.DisplayName()
+	if req.DryRun {
+		triggeredBy = "" // preview never gets recorded, but be explicit
+	}
+	res := s.runArchive(settings.AfterDays, settings.PruneFindingsOnArchive, req.DryRun, triggeredBy)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(res)
 }
