@@ -8,9 +8,16 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      background: #0d0d0f;
-      color: #c9cdd4;
-      font-family: 'Segoe UI', system-ui, sans-serif;
+      background:
+        radial-gradient(circle at 15% 0%, rgba(79, 140, 255, 0.06), transparent 50%),
+        radial-gradient(circle at 85% 100%, rgba(79, 140, 255, 0.04), transparent 55%),
+        #0a0e15;
+      color: #e6ecf2;
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI",
+                   "Helvetica Neue", Arial, sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -18,30 +25,44 @@
     }
 
     .card {
-      background: #14151a;
-      border: 1px solid #2a2d38;
+      background: #10161f;
+      border: 1px solid rgba(148, 163, 184, 0.14);
       border-radius: 10px;
-      padding: 40px 36px;
+      padding: 44px 40px 36px;
       width: 100%;
-      max-width: 400px;
+      max-width: 420px;
+      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
     }
 
     .brand {
       text-align: center;
       margin-bottom: 28px;
     }
+    .brand-mark {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: rgba(79, 140, 255, 0.08);
+      border: 1px solid rgba(79, 140, 255, 0.24);
+      color: #4f8cff;
+      margin-bottom: 14px;
+    }
     .brand-name {
-      font-size: 22px;
-      font-weight: 700;
-      color: #e2e4ea;
-      letter-spacing: 1px;
+      font-size: 18px;
+      font-weight: 600;
+      color: #e6ecf2;
+      letter-spacing: 0.18em;
     }
     .brand-sub {
-      font-size: 12px;
-      color: #5a6070;
-      margin-top: 4px;
-      letter-spacing: 2px;
+      font-size: 10px;
+      color: #6b7a8e;
+      margin-top: 6px;
+      letter-spacing: 0.22em;
       text-transform: uppercase;
+      font-weight: 500;
     }
 
     .form-group { margin-bottom: 16px; }
@@ -53,84 +74,105 @@
 
     label {
       display: block;
-      font-size: 12px;
-      color: #8891a4;
+      font-size: 10px;
+      color: #a3b1c2;
       margin-bottom: 6px;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.1em;
+      font-weight: 600;
     }
     .label-hint {
-      font-size: 11px;
-      color: #5a6070;
+      font-size: 10px;
+      color: #6b7a8e;
       font-style: italic;
       text-transform: none;
       letter-spacing: 0;
+      font-weight: 400;
     }
     input[type="text"],
     input[type="email"],
     input[type="password"] {
       width: 100%;
-      background: #0d0d0f;
-      border: 1px solid #2a2d38;
-      border-radius: 6px;
-      color: #e2e4ea;
-      font-size: 14px;
-      padding: 10px 12px;
-      outline: none;
-      transition: border-color 0.15s;
-    }
-    input:focus { border-color: #4a6fa5; }
-
-    .error {
-      background: #2a1215;
-      border: 1px solid #5a1d24;
-      border-radius: 6px;
-      color: #f0666e;
+      background: #0d121a;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 5px;
+      color: #e6ecf2;
       font-size: 13px;
       padding: 10px 12px;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      font-family: inherit;
+    }
+    input:focus {
+      border-color: #4f8cff;
+      box-shadow: 0 0 0 2px rgba(79, 140, 255, 0.16);
+    }
+    input::placeholder { color: #6b7a8e; opacity: 1; }
+
+    .error {
+      background: rgba(244, 63, 94, 0.08);
+      border: 1px solid rgba(244, 63, 94, 0.32);
+      border-radius: 5px;
+      color: #fb7185;
+      font-size: 12px;
+      padding: 10px 14px;
       margin-bottom: 18px;
+      line-height: 1.5;
     }
 
     .btn {
       width: 100%;
-      background: #4a6fa5;
-      border: none;
-      border-radius: 6px;
+      background: #4f8cff;
+      border: 1px solid transparent;
+      border-radius: 5px;
       color: #fff;
       cursor: pointer;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
+      letter-spacing: 0.02em;
       padding: 11px;
-      transition: background 0.15s;
-      margin-top: 4px;
+      transition: background 0.12s;
+      font-family: inherit;
+      margin-top: 6px;
     }
-    .btn:hover { background: #5a80b8; }
+    .btn:hover { background: #6ba1ff; }
+    .btn:active { background: #3b75e8; }
 
     .footer {
       text-align: center;
-      margin-top: 20px;
-      font-size: 13px;
-      color: #5a6070;
+      margin-top: 24px;
+      padding-top: 18px;
+      border-top: 1px solid rgba(148, 163, 184, 0.08);
+      font-size: 12px;
+      color: #6b7a8e;
     }
-    .footer a { color: #4a6fa5; text-decoration: none; }
-    .footer a:hover { text-decoration: underline; }
+    .footer a { color: #4f8cff; text-decoration: none; font-weight: 500; }
+    .footer a:hover { color: #6ba1ff; text-decoration: underline; }
 
     .pending {
-      background: #1f2a15;
-      border: 1px solid #3a4a20;
-      border-radius: 6px;
-      color: #c4d28a;
-      font-size: 13px;
-      line-height: 1.5;
+      background: rgba(34, 197, 94, 0.06);
+      border: 1px solid rgba(34, 197, 94, 0.30);
+      border-radius: 5px;
+      color: #86efac;
+      font-size: 12px;
+      line-height: 1.55;
       padding: 14px 16px;
       margin-bottom: 18px;
     }
-    .pending strong { color: #e2e4ea; display: block; margin-bottom: 6px; }
+    .pending strong { color: #e6ecf2; display: block; margin-bottom: 6px; font-weight: 600; }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="brand">
+      <div class="brand-mark">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <circle cx="11" cy="11" r="8.5" stroke="currentColor" stroke-width="1.5"/>
+          <circle cx="11" cy="11" r="1.75" fill="currentColor"/>
+          <path d="M11 1.5 L11 4.5 M11 17.5 L11 20.5 M1.5 11 L4.5 11 M17.5 11 L20.5 11"
+                stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
       <div class="brand-name">ARCHER</div>
       <div class="brand-sub">Silent Hunter</div>
     </div>
