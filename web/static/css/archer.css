@@ -733,7 +733,7 @@ td {
   max-width: 0;
   color: var(--fg-primary);
 }
-td.status-icon { text-align: center; width: 32px; color: var(--fg-muted); font-size: 12px; }
+td.status-icon { text-align: center; width: 32px; color: var(--fg-muted); font-size: 15px; line-height: 1; }
 td.status-icon .si-esc { color: var(--sev-critical); }
 td.status-icon .si-ack { color: var(--sev-low); }
 td.status-icon .si-new { color: var(--accent); }
@@ -1039,10 +1039,11 @@ dialog {
   color: var(--fg-primary);
   padding: 0;
   box-shadow: var(--shadow-lg);
-  resize: both;
+  /* Auto-size to content so every field is visible by default.
+     overflow:hidden keeps the rounded corners clean; .dlg-body has its own
+     overflow:auto for the rare case content exceeds 95vh. */
   overflow: hidden;
   min-width: 280px;
-  min-height: 100px;
   max-width: 95vw;
   max-height: 95vh;
 }

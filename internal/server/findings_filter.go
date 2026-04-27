@@ -130,12 +130,14 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 				continue
 			}
 		}
-		ioMatch := iocSet[f.DstIP] || iocSet[f.SrcIP]
-		if iocOnly {
-			isTI := f.Type == "Threat Intel Hit" || f.Type == "Suspicious URL"
-			if !ioMatch && !isTI {
-				continue
-			}
+		// "Threat Intel Hit" and "Suspicious URL" findings are produced by the
+		// automatic feeds (Feodo, URLhaus, AbuseIPDB, etc.) and are IOC matches
+		// by definition — flag them so the per-row status icon shows the IOC
+		// diamond rather than the generic "new finding" indicator.
+		isTI := f.Type == "Threat Intel Hit" || f.Type == "Suspicious URL"
+		ioMatch := iocSet[f.DstIP] || iocSet[f.SrcIP] || isTI
+		if iocOnly && !ioMatch {
+			continue
 		}
 		f.IOCMatch = ioMatch
 		result = append(result, *f)
