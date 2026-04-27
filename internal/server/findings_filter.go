@@ -30,7 +30,12 @@ import (
 // listing endpoint and the export endpoints so the exported CSV/JSON matches
 // exactly what the analyst sees on screen.
 func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.Finding {
-	search := strings.ToLower(q.Get("search"))
+	search := strings.ToLower(strings.TrimSpace(q.Get("search")))
+	// When the search box holds a complete IP, fall back to exact-match against
+	// the Src/Dst fields. Otherwise typing "10.18.61.3" would substring-match
+	// "10.18.61.37" and similar prefix collisions. CIDR/range searches use the
+	// dedicated Src IP/CIDR and Dst IP/CIDR filters in the advanced bar.
+	searchIsIP := search != "" && net.ParseIP(search) != nil
 	typeF := q.Get("type")
 	sevF := q.Get("severity")
 	minScore, _ := strconv.Atoi(q.Get("min_score"))
@@ -111,10 +116,16 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 			}
 		}
 		if search != "" {
-			hay := strings.ToLower(f.Type + " " + f.SrcIP + " " + f.DstIP + " " +
-				f.DstPort + " " + f.Detail + " " + f.Timestamp + " " + string(f.Severity))
-			if !strings.Contains(hay, search) {
-				continue
+			if searchIsIP {
+				if !strings.EqualFold(f.SrcIP, search) && !strings.EqualFold(f.DstIP, search) {
+					continue
+				}
+			} else {
+				hay := strings.ToLower(f.Type + " " + f.SrcIP + " " + f.DstIP + " " +
+					f.DstPort + " " + f.Detail + " " + f.Timestamp + " " + string(f.Severity))
+				if !strings.Contains(hay, search) {
+					continue
+				}
 			}
 		}
 		// Tab-aware filters. status="open" matches blank/empty status;
