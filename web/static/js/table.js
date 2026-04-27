@@ -12,10 +12,14 @@ const Table = (() => {
   const SEV_ORDER = {CRITICAL:0, HIGH:1, MEDIUM:2, LOW:3, INFO:4};
 
   function _statusIcon(f) {
+    // Precedence: analyst-action states (esc/ack) win because they show
+    // triage progress. Otherwise IOC match wins over "new" — an IOC hit is
+    // a persistent classification we want surfaced for the lifetime of the
+    // finding, not just on the first analysis run that produced it.
     if (f.status === 'escalated')    return '<span class="si-esc">▲</span>';
     if (f.status === 'acknowledged') return '<span class="si-ack">✓</span>';
-    if (f.is_new)    return '<span class="si-new">●</span>';
     if (f.ioc_match) return '<span class="si-ioc">◆</span>';
+    if (f.is_new)    return '<span class="si-new">●</span>';
     return '';
   }
 
