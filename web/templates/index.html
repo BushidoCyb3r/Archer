@@ -10,11 +10,26 @@
 
 <!-- ── Top bar ─────────────────────────────────────────────────── -->
 <div id="topbar">
-  <span class="app-title">🏹 Archer</span>
+  <span class="app-title">
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+      <circle cx="11" cy="11" r="8.5" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="11" cy="11" r="1.75" fill="currentColor"/>
+      <path d="M11 1.5 L11 4.5 M11 17.5 L11 20.5 M1.5 11 L4.5 11 M17.5 11 L20.5 11"
+            stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    Archer
+  </span>
   <span class="subtitle">Silent Hunter</span>
   <div class="spacer"></div>
   <div id="notif-wrap">
-    <button id="bell-btn" title="Notifications">🔔</button>
+    <button id="bell-btn" title="Notifications" aria-label="Notifications">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M8 1.5 C5.5 1.5 3.75 3.4 3.75 5.75 V8.25 L2.5 11 H13.5 L12.25 8.25 V5.75 C12.25 3.4 10.5 1.5 8 1.5 Z"
+              stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+        <path d="M6.25 12.5 C6.5 13.5 7.2 14 8 14 C8.8 14 9.5 13.5 9.75 12.5"
+              stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+    </button>
     <span id="notif-badge" class="badge hidden">0</span>
     <div id="notif-panel" class="notif-panel hidden">
       <div class="notif-header">
@@ -24,11 +39,16 @@
       <div id="notif-list"></div>
     </div>
   </div>
-  <button id="users-btn" style="display:none">👥 Users<span id="pending-badge" style="display:none"></span></button>
-  <button id="settings-btn">⚙ Settings</button>
+  <button id="users-btn" style="display:none">Users<span id="pending-badge" style="display:none"></span></button>
+  <button id="settings-btn">Settings</button>
   <div id="user-badge">
     <span id="user-display"></span>
-    <a href="/logout" id="logout-link" title="Sign out">⏻</a>
+    <a href="/logout" id="logout-link" title="Sign out" aria-label="Sign out">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+        <path d="M5.5 2 H2 V12 H5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M8.5 4.5 L11.5 7 L8.5 9.5 M11 7 H5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </a>
   </div>
 </div>
 
@@ -42,21 +62,21 @@
       Scanning <em id="logs-dir-path">/logs</em>
     </div>
     <div class="sidebar-btn-row">
-      <button class="sb-btn" id="import-logs-btn">📂 Import</button>
-      <button class="sb-btn dim" id="clear-files-btn">✕ Clear</button>
+      <button class="sb-btn" id="import-logs-btn">Import</button>
+      <button class="sb-btn dim" id="clear-files-btn">Clear</button>
     </div>
     <ul id="file-list"></ul>
 
     <div class="sidebar-divider"></div>
     <div class="sidebar-section-title">Analysis</div>
     <div class="sidebar-btn-row">
-      <button class="sb-btn" id="analyze-btn">▶ Analyze</button>
+      <button class="sb-btn" id="analyze-btn">Analyze</button>
     </div>
     <progress id="progress-bar" value="0" max="100"></progress>
     <span class="sidebar-status" id="analysis-status"></span>
     <div id="analysis-controls" style="display:none;gap:6px;margin-top:6px;display:none">
-      <button class="sb-btn sb-btn-stop"  id="stop-btn">⏹ Stop</button>
-      <button class="sb-btn sb-btn-pause" id="pause-btn">⏸ Pause</button>
+      <button class="sb-btn sb-btn-stop"  id="stop-btn">Stop</button>
+      <button class="sb-btn sb-btn-pause" id="pause-btn">Pause</button>
     </div>
 
     <div class="sidebar-divider"></div>
@@ -115,14 +135,14 @@
       <button class="filter-btn dim" id="reset-filter-btn">Reset</button>
       <span class="filter-spacer"></span>
       <div class="export-dropdown">
-        <button class="filter-btn dim" id="export-current-btn" title="Export this tab's findings (with current filters) as CSV or JSON">⬇ Export current tab ▾</button>
+        <button class="filter-btn dim" id="export-current-btn" title="Export this tab's findings (with current filters) as CSV or JSON">Export current tab ▾</button>
         <ul class="export-menu hidden" id="export-current-menu">
           <li data-format="csv">CSV</li>
           <li data-format="json">JSON</li>
         </ul>
       </div>
       <div class="export-dropdown">
-        <button class="filter-btn dim" id="export-all-btn" title="Export every finding in the database, ignoring the active tab and all filters">⬇ Export all ▾</button>
+        <button class="filter-btn dim" id="export-all-btn" title="Export every finding in the database, ignoring the active tab and all filters">Export all ▾</button>
         <ul class="export-menu hidden" id="export-all-menu">
           <li data-format="csv">CSV</li>
           <li data-format="json">JSON</li>
@@ -143,20 +163,20 @@
 
     <!-- Delta bar -->
     <div id="delta-bar">
-      <button class="delta-btn" id="delta-btn">🆕 New Only</button>
-      <button class="delta-btn" id="show-all-btn">Show All</button>
+      <button class="delta-btn" id="delta-btn">New only</button>
+      <button class="delta-btn" id="show-all-btn">Show all</button>
     </div>
 
     <div id="info-line"></div>
 
     <!-- Tabs -->
     <div id="tabs">
-      <button class="tab-btn active" data-tab="findings">🔍 Findings</button>
-      <button class="tab-btn" data-tab="ack">✓ Acknowledged</button>
-      <button class="tab-btn" data-tab="esc">⚠ Escalated</button>
-      <button class="tab-btn" data-tab="ioc">⚡ IOC Hits</button>
-      <button class="tab-btn" data-tab="campaigns">🕸 Campaigns</button>
-      <button class="tab-btn" data-tab="hosts">🖥 Hosts</button>
+      <button class="tab-btn active" data-tab="findings">Findings</button>
+      <button class="tab-btn" data-tab="ack">Acknowledged</button>
+      <button class="tab-btn" data-tab="esc">Escalated</button>
+      <button class="tab-btn" data-tab="ioc">IOC Hits</button>
+      <button class="tab-btn" data-tab="campaigns">Campaigns</button>
+      <button class="tab-btn" data-tab="hosts">Hosts</button>
     </div>
 
     <!-- ── Findings / Acknowledged / Escalated share this panel ── -->
@@ -184,19 +204,19 @@
 
       <!-- Detail pane — always visible when any findings-type tab is active -->
       <div id="detail-pane">
-        <div id="detail-header">SELECT A FINDING</div>
+        <div id="detail-header">Select a finding</div>
         <div id="detail-text"></div>
         <div id="detail-actions">
-          <button class="action-btn ack" id="ack-btn" disabled>✓ Acknowledge</button>
-          <button class="action-btn esc" id="esc-btn" disabled>⚠ Escalate</button>
-          <button class="action-btn chart" id="chart-btn" disabled>📈 Beacon Chart</button>
-          <button class="action-btn pcap" id="pcap-btn" disabled>📋 PCAP Filter</button>
-          <button class="action-btn raw" id="raw-btn" disabled>🔍 Source Records</button>
-          <button class="action-btn supp" id="supp-btn" disabled>⏱ Suppress</button>
+          <button class="action-btn ack" id="ack-btn" disabled>Acknowledge</button>
+          <button class="action-btn esc" id="esc-btn" disabled>Escalate</button>
+          <button class="action-btn chart" id="chart-btn" disabled>Beacon Chart</button>
+          <button class="action-btn pcap" id="pcap-btn" disabled>PCAP Filter</button>
+          <button class="action-btn raw" id="raw-btn" disabled>Source Records</button>
+          <button class="action-btn supp" id="supp-btn" disabled>Suppress</button>
           <span id="analyst-rec"></span>
         </div>
         <div id="notes-section" style="display:none">
-          <div id="notes-header">ANALYST NOTES</div>
+          <div id="notes-header">Analyst Notes</div>
           <div id="notes-list"></div>
           <div id="add-note-row">
             <textarea id="inline-note-input" placeholder="Add a note…" rows="2"></textarea>
@@ -428,11 +448,11 @@
       <label style="display:flex;align-items:center;gap:6px;margin:0;color:var(--fg-dim)">
         Search range
         <select id="raw-dlg-window" class="dlg-select" style="width:auto;padding:2px 6px">
-          <option value="6">±6 hours (default)</option>
+          <option value="6">±6 hours</option>
           <option value="24">±24 hours</option>
           <option value="168">±1 week</option>
           <option value="720">±30 days</option>
-          <option value="0">All time</option>
+          <option value="0" selected>All time (default)</option>
         </select>
       </label>
       <span id="raw-dlg-status" style="color:var(--fg-dim);flex:1"></span>

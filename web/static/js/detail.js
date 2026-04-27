@@ -79,7 +79,7 @@ const Detail = (() => {
       rawBtn.dataset.findingId = f.id;
     }
 
-    ackBtn.textContent = f.status === 'acknowledged' ? '✓ Acknowledged' : '✓ Acknowledge';
+    ackBtn.textContent = f.status === 'acknowledged' ? 'Acknowledged' : 'Acknowledge';
 
     // Notes
     _renderNotes(f);

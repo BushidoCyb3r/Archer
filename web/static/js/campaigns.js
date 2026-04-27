@@ -23,9 +23,15 @@ const Campaigns = (() => {
   function _buildCampaigns(findings) {
     const map = new Map(); // dst_ip:dst_port → {srcs, maxScore, type}
     findings.forEach(f => {
-      const key = `${f.dst_ip || f.domain || ''}:${f.dst_port || ''}`;
+      const dst = f.dst_ip || f.domain || '';
+      // "(network)" is a synthetic destination the analyzer uses for findings
+      // that target the network as a whole (e.g., NXDOMAIN flood, lateral
+      // sweeps). It's expected that many hosts "talk to" the network, so it
+      // would otherwise dominate the campaigns view with a non-actionable row.
+      if (dst === '(network)') return;
+      const key = `${dst}:${f.dst_port || ''}`;
       if (!key.startsWith(':')) {
-        if (!map.has(key)) map.set(key, {dst: f.dst_ip || f.domain || '', port: f.dst_port || '', srcs: new Set(), maxScore: 0, types: new Set()});
+        if (!map.has(key)) map.set(key, {dst: dst, port: f.dst_port || '', srcs: new Set(), maxScore: 0, types: new Set()});
         const e = map.get(key);
         if (f.src_ip) e.srcs.add(f.src_ip);
         if (f.score > e.maxScore) e.maxScore = f.score;

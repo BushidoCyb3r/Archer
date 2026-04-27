@@ -12,10 +12,10 @@ const Table = (() => {
   const SEV_ORDER = {CRITICAL:0, HIGH:1, MEDIUM:2, LOW:3, INFO:4};
 
   function _statusIcon(f) {
-    if (f.status === 'escalated')    return '⚠';
-    if (f.status === 'acknowledged') return '✓';
-    if (f.is_new)    return '🆕';
-    if (f.ioc_match) return '⚡';
+    if (f.status === 'escalated')    return '<span class="si-esc">▲</span>';
+    if (f.status === 'acknowledged') return '<span class="si-ack">✓</span>';
+    if (f.is_new)    return '<span class="si-new">●</span>';
+    if (f.ioc_match) return '<span class="si-ioc">◆</span>';
     return '';
   }
 

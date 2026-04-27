@@ -29,6 +29,38 @@
     t._timer = setTimeout(() => t.style.display = 'none', duration);
   }
 
+  // navigator.clipboard is only available in secure contexts (HTTPS or
+  // localhost). When the UI is reached over plain HTTP on a remote host
+  // (common for on-prem deployments), the API is undefined and any direct
+  // call throws synchronously — the .catch on the (never-returned) Promise
+  // can't swallow it. Try the modern API first, fall back to a hidden
+  // textarea + execCommand which works in non-secure contexts.
+  function copyToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).catch(() => _legacyCopy(text));
+      return true;
+    }
+    return _legacyCopy(text);
+  }
+
+  function _legacyCopy(text) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '0';
+      ta.style.left = '0';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, text.length);
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch (_) { return false; }
+  }
+
   function api(url, opts = {}) {
     return fetch(url, opts).then(r => {
       if (!r.ok) {
@@ -670,7 +702,7 @@
     document.getElementById('analysis-controls').style.display = active ? 'flex' : 'none';
     if (!active) {
       _paused = false;
-      document.getElementById('pause-btn').textContent = '⏸ Pause';
+      document.getElementById('pause-btn').textContent = 'Pause';
     }
   }
 
@@ -681,7 +713,7 @@
         _setAnalyzing(true);
         if (s.paused) {
           _paused = true;
-          document.getElementById('pause-btn').textContent = '▶ Resume';
+          document.getElementById('pause-btn').textContent = 'Resume';
           setStatus('Analysis paused — click Resume to continue');
         } else {
           setStatus('Analysis in progress…');
@@ -725,12 +757,12 @@
         if (_paused) {
           await api('/api/analyze/resume', {method: 'POST'});
           _paused = false;
-          document.getElementById('pause-btn').textContent = '⏸ Pause';
+          document.getElementById('pause-btn').textContent = 'Pause';
           setStatus('Analysis resumed…');
         } else {
           await api('/api/analyze/pause', {method: 'POST'});
           _paused = true;
-          document.getElementById('pause-btn').textContent = '▶ Resume';
+          document.getElementById('pause-btn').textContent = 'Resume';
           setStatus('Analysis paused — click Resume to continue');
         }
       } catch (_) {}
@@ -1174,8 +1206,8 @@
     if (!f.src_ip || !f.dst_ip) return;
     let filter = `host ${f.src_ip} and host ${f.dst_ip}`;
     if (f.dst_port) filter += ` and tcp port ${f.dst_port}`;
-    navigator.clipboard.writeText(filter).catch(() => {});
-    showToast('Copied: ' + filter);
+    const ok = copyToClipboard(filter);
+    showToast((ok ? 'Copied: ' : 'Filter: ') + filter);
   }
 
   // ── Suppress dialog ────────────────────────────────────────────────────────
@@ -1614,10 +1646,9 @@
     document.getElementById('ctx-copy-row').addEventListener('click', () => {
       if (!_ctxFinding) return;
       const f = _ctxFinding;
-      navigator.clipboard.writeText(
-        [f.score, f.severity, f.type, f.src_ip, f.dst_ip, f.dst_port, f.timestamp].join('\t')
-      ).catch(() => {});
-      showToast('Row copied');
+      const row = [f.score, f.severity, f.type, f.src_ip, f.dst_ip, f.dst_port, f.timestamp].join('\t');
+      const ok = copyToClipboard(row);
+      showToast(ok ? 'Row copied' : 'Copy failed');
     });
     document.getElementById('ctx-ack').addEventListener('click', () => {
       if (_ctxFinding) document.getElementById('ack-btn').click();
