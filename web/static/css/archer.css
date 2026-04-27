@@ -572,22 +572,39 @@ button, input, select, textarea {
   padding: 0 18px 6px;
 }
 .delta-btn {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--fg-muted);
-  padding: 4px 12px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-strong);
+  color: var(--fg-secondary);
+  padding: 5px 14px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  transition: background .12s, color .12s, border-color .12s;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  transition: background .12s, color .12s, border-color .12s, box-shadow .12s;
 }
-.delta-btn:hover { background: var(--bg-elev-3); color: var(--fg-primary); border-color: var(--border-strong); }
+.delta-btn::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--fg-faint);
+  transition: background .12s, box-shadow .12s;
+}
+/* "New only" dot uses the same accent as the new-finding row indicator —
+   matches the visual language of the status-icon column. */
+#delta-btn::before { background: var(--accent); }
+.delta-btn:hover { background: var(--bg-elev-3); color: var(--fg-primary); border-color: var(--accent); }
 .delta-btn.active {
   background: var(--accent-soft);
   border-color: var(--accent);
   color: var(--accent-hover);
+  box-shadow: 0 0 0 1px var(--accent-soft);
 }
+.delta-btn.active::before { background: var(--accent); box-shadow: 0 0 6px var(--accent-glow); }
 
 #info-line {
   padding: 0 18px 4px;
