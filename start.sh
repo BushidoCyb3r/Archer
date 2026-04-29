@@ -8,10 +8,31 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
 ACTION="${1:-up}"
 
-# ── Compute 80% of host CPU and RAM ─────────────────────────────────────────
+# ── Compute 80% of effective Docker capacity ────────────────────────────────
+#
+# The host kernel may report more CPUs/RAM than the Docker daemon will grant
+# to a container (e.g. Docker Desktop's VM, daemon CPU/memory limits, or
+# nested virtualisation). Asking for more than the daemon allows surfaces as
+# "range of CPUs is from 0.01 to N.00" at container-create time. Prefer
+# Docker's own view when available; fall back to the host view otherwise.
 
-TOTAL_CPUS=$(nproc)
-TOTAL_MEM_MB=$(awk '/MemTotal/ { printf "%.0f", $2 / 1024 }' /proc/meminfo)
+HOST_CPUS=$(nproc)
+HOST_MEM_MB=$(awk '/MemTotal/ { printf "%.0f", $2 / 1024 }' /proc/meminfo)
+
+DOCKER_CPUS=$(sudo docker info --format '{{.NCPU}}' 2>/dev/null || echo 0)
+DOCKER_MEM_BYTES=$(sudo docker info --format '{{.MemTotal}}' 2>/dev/null || echo 0)
+DOCKER_MEM_MB=$(awk -v b="$DOCKER_MEM_BYTES" 'BEGIN { printf "%.0f", b / 1048576 }')
+
+# Use the lower of (host, docker) for each resource — that's what the daemon
+# will actually accept. If docker info failed (returns 0), fall back to host.
+TOTAL_CPUS="$HOST_CPUS"
+if [[ "$DOCKER_CPUS" =~ ^[0-9]+$ ]] && (( DOCKER_CPUS > 0 && DOCKER_CPUS < HOST_CPUS )); then
+  TOTAL_CPUS="$DOCKER_CPUS"
+fi
+TOTAL_MEM_MB="$HOST_MEM_MB"
+if [[ "$DOCKER_MEM_MB" =~ ^[0-9]+$ ]] && (( DOCKER_MEM_MB > 0 && DOCKER_MEM_MB < HOST_MEM_MB )); then
+  TOTAL_MEM_MB="$DOCKER_MEM_MB"
+fi
 
 ARCHER_CPUS=$(awk "BEGIN { v = $TOTAL_CPUS * 0.8; printf (v < 0.5 ? \"0.5\" : \"%.1f\"), v }")
 ARCHER_MEM_MB=$(awk "BEGIN { v = int($TOTAL_MEM_MB * 0.8); print (v < 512 ? 512 : v) }")
@@ -25,7 +46,10 @@ EOF
 
 # ── Print summary ────────────────────────────────────────────────────────────
 
-echo "Host resources:   ${TOTAL_CPUS} CPUs  |  ${TOTAL_MEM_MB} MB RAM"
+echo "Host resources:   ${HOST_CPUS} CPUs  |  ${HOST_MEM_MB} MB RAM"
+if [[ "$DOCKER_CPUS" =~ ^[0-9]+$ ]] && (( DOCKER_CPUS > 0 )); then
+  echo "Docker capacity:  ${DOCKER_CPUS} CPUs  |  ${DOCKER_MEM_MB} MB RAM"
+fi
 echo "Archer limits:    ${ARCHER_CPUS} CPUs  |  ${ARCHER_MEMORY} RAM  (80%)"
 echo ""
 
