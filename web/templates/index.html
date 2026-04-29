@@ -312,6 +312,7 @@
     </ul>
   </li>
   <li class="ctx-separator ctx-campaign-only" style="display:none"></li>
+  <li id="ctx-graph-campaign" class="ctx-campaign-only" style="display:none">View campaign in Graph</li>
   <li id="ctx-export-campaign" class="ctx-submenu ctx-campaign-only" style="display:none">Export campaign
     <ul class="ctx-submenu-panel" id="ctx-export-campaign-sub">
       <li data-format="csv">CSV</li>
@@ -441,6 +442,24 @@
   </div>
 </dialog>
 
+<dialog id="graph-dialog">
+  <div class="dlg-header">
+    Network Graph<span id="graph-dlg-subtitle" style="font-weight:400;color:var(--fg-muted);margin-left:10px;font-size:12px"></span>
+  </div>
+  <div class="dlg-body" style="padding:0;display:flex;flex-direction:column">
+    <div id="graph-toolbar">
+      <button class="dlg-btn secondary" id="graph-fit">Fit to view</button>
+      <button class="dlg-btn secondary" id="graph-relayout">Re-layout</button>
+      <span id="graph-info"></span>
+    </div>
+    <div id="graph-canvas"></div>
+    <div id="graph-loading">Loading graph engine…</div>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="graph-dlg-close">Close</button>
+  </div>
+</dialog>
+
 <dialog id="raw-dialog">
   <div class="dlg-header" id="raw-dlg-title">Source Records</div>
   <div class="dlg-body">
@@ -460,6 +479,7 @@
     <div id="raw-dlg-table" style="max-height:60vh;overflow:auto;font-family:monospace;font-size:11px"></div>
   </div>
   <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="raw-dlg-export" disabled>Export CSV</button>
     <button class="dlg-btn secondary" id="raw-dlg-close">Close</button>
   </div>
 </dialog>
@@ -592,6 +612,7 @@
 <script src="/static/js/campaigns.js"></script>
 <script src="/static/js/resize.js"></script>
 <script src="/static/js/dialog.js"></script>
+<script src="/static/js/graph.js"></script>
 <script src="/static/js/app.js"></script>
 </body>
 </html>
