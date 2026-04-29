@@ -750,6 +750,14 @@ td {
   max-width: 0;
   color: var(--fg-primary);
 }
+/* Pin findings-table row height. Virtual scrolling math depends on every row
+   being exactly the same height — drift between rendered and computed height
+   produces a scroll/render feedback loop. Aria-hidden spacer rows are excluded
+   because their <td> uses an inline height attribute to fake the scrollbar. */
+#findings-tbody > tr:not([aria-hidden]) {
+  height: 32px;
+  box-sizing: border-box;
+}
 td.status-icon { text-align: center; width: 32px; color: var(--fg-muted); font-size: 15px; line-height: 1; }
 td.status-icon .si-esc { color: var(--sev-critical); }
 td.status-icon .si-ack { color: var(--sev-low); }
@@ -1105,6 +1113,45 @@ dialog::backdrop {
   border-bottom-right-radius: var(--radius-lg);
 }
 .dlg-resize-handle:hover { opacity: 1; }
+
+/* ============================================================================
+   Graph dialog (Cytoscape.js)
+============================================================================ */
+#graph-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev-1);
+  flex-shrink: 0;
+}
+#graph-info {
+  color: var(--fg-muted);
+  font-size: 11px;
+  flex: 1;
+  text-align: right;
+  font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+}
+#graph-canvas {
+  width: 80vw;
+  height: 65vh;
+  background: var(--bg-base);
+  position: relative;
+}
+#graph-loading {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-muted);
+  font-size: 12px;
+  background: var(--bg-base);
+  pointer-events: none;
+  z-index: 2;
+}
+#graph-loading.visible { display: flex; }
 
 .dlg-header {
   font-size: 13px;

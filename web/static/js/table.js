@@ -1,13 +1,29 @@
-// table.js — findings table renderer and sorting
+// table.js — findings table renderer with virtual scrolling
+//
+// Only the rows currently in the viewport (plus a small buffer) are inserted
+// into the DOM. Total scroll height is faked with a top/bottom spacer <tr>, so
+// the scrollbar reflects the full dataset size. This removes the previous
+// 1000-row cap — the table stays smooth at 50k+ rows.
 'use strict';
 
 const Table = (() => {
   let _findings = [];
-  let _sortCol = 'score';
-  let _sortDir = -1; // -1=desc, 1=asc
+  let _sorted   = [];
+  let _sortCol  = 'score';
+  let _sortDir  = -1; // -1=desc, 1=asc
   let _selected = null;
   let _onSelect = null;
-  let _onCtx = null;
+  let _onCtx    = null;
+
+  // Row height is pinned in archer.css (#findings-tbody > tr:not([aria-hidden])
+  // { height: 32px }). Using a constant here — and a CSS rule there — keeps
+  // the spacer math identical to actual rendered geometry so we never drift
+  // into a scroll/render feedback loop.
+  const ROW_H     = 32;
+  const BUFFER    = 8;     // rows of overscan above/below the visible window
+  const COL_COUNT = 11;    // matches thead column count for spacer colspan
+  let _lastStart = -1;     // remember last window so we can skip no-op renders
+  let _lastEnd   = -1;
 
   const SEV_ORDER = {CRITICAL:0, HIGH:1, MEDIUM:2, LOW:3, INFO:4};
 
@@ -42,67 +58,137 @@ const Table = (() => {
     return _sortDir * (av - bv);
   }
 
-  const ROW_CAP = 1000;
+  // Rows are emitted as HTML strings rather than DOM nodes — the visible
+  // window can swap on every scroll event, so building thousands of <tr>s
+  // up-front and then discarding them is wasteful. Escape user-controlled
+  // fields so log content can't break out of attribute values.
+  function _esc(s) {
+    return (s == null ? '' : String(s))
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
 
-  function _render() {
-    const tbody  = document.getElementById('findings-tbody');
-    const sorted = [..._findings].sort(_cmp);
-    const capped = sorted.length > ROW_CAP;
-    const visible = capped ? sorted.slice(0, ROW_CAP) : sorted;
+  function _rowHTML(f, isSel) {
+    const detailRaw = f.detail || '';
+    const detail = detailRaw.slice(0, 60) + (detailRaw.length > 60 ? '…' : '');
+    const sev = f.severity || '';
+    const cls = sev + (isSel ? ' selected' : '');
+    return '<tr class="' + cls + '" data-id="' + f.id + '">' +
+      '<td class="status-icon">' + _statusIcon(f) + '</td>' +
+      '<td class="score">' + _esc(f.score) + '</td>' +
+      '<td class="severity">' + _esc(sev) + '</td>' +
+      '<td title="' + _esc(f.type) + '">' + _esc(f.type) + '</td>' +
+      '<td title="' + _esc(f.src_ip) + '" style="font-family:monospace;font-size:11px">' + _esc(f.src_ip) + '</td>' +
+      '<td title="' + _esc(f.dst_ip) + '" style="font-family:monospace;font-size:11px">' + _esc(f.dst_ip) + '</td>' +
+      '<td class="port">' + _esc(f.dst_port) + '</td>' +
+      '<td title="' + _esc(f.timestamp) + '">' + _esc((f.timestamp || '').slice(0, 16)) + '</td>' +
+      '<td>' + _statusLabel(f.status) + '</td>' +
+      '<td style="font-size:11px;color:var(--fg-dim)" title="' + _esc(f.dataset) + '">' + _esc(f.dataset) + '</td>' +
+      '<td title="' + _esc(detailRaw) + '" style="color:var(--fg-dim);font-size:11px">' + _esc(detail) + '</td>' +
+      '</tr>';
+  }
 
-    const frag = document.createDocumentFragment();
-    visible.forEach(f => {
-      const tr = document.createElement('tr');
-      tr.className = f.severity || '';
-      tr.dataset.id = f.id;
-      if (_selected && f.id === _selected.id) tr.classList.add('selected');
-      const detail = (f.detail || '').slice(0, 60) + ((f.detail || '').length > 60 ? '…' : '');
-      tr.innerHTML = `
-        <td class="status-icon">${_statusIcon(f)}</td>
-        <td class="score">${f.score}</td>
-        <td class="severity">${f.severity || ''}</td>
-        <td title="${f.type || ''}">${f.type || ''}</td>
-        <td title="${f.src_ip || ''}" style="font-family:monospace;font-size:11px">${f.src_ip || ''}</td>
-        <td title="${f.dst_ip || ''}" style="font-family:monospace;font-size:11px">${f.dst_ip || ''}</td>
-        <td class="port">${f.dst_port || ''}</td>
-        <td title="${f.timestamp || ''}">${(f.timestamp || '').slice(0, 16)}</td>
-        <td>${_statusLabel(f.status)}</td>
-        <td style="font-size:11px;color:var(--fg-dim)" title="${f.dataset || ''}">${f.dataset || ''}</td>
-        <td title="${f.detail || ''}" style="color:var(--fg-dim);font-size:11px">${detail}</td>`;
-      tr.addEventListener('click', () => _select(f));
-      tr.addEventListener('contextmenu', e => {
-        e.preventDefault();
-        _select(f);
-        if (_onCtx) _onCtx(e, f);
-      });
-      frag.appendChild(tr);
-    });
+  function _spacer(px) {
+    return '<tr aria-hidden="true"><td colspan="' + COL_COUNT +
+      '" style="height:' + px + 'px;padding:0;border:0;background:transparent"></td></tr>';
+  }
 
-    if (capped) {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td colspan="11" style="text-align:center;color:var(--fg-dim);padding:6px;font-style:italic">… ${sorted.length - ROW_CAP} more — use filters to narrow results</td>`;
-      frag.appendChild(tr);
+  // Compute which rows are currently visible from scrollTop and rebuild only
+  // those rows. Top/bottom spacer <tr>s preserve the scrollbar size.
+  function _renderWindow() {
+    const tbody = document.getElementById('findings-tbody');
+    if (!tbody) return;
+    const wrap = tbody.closest('.table-wrap');
+    if (!wrap) return;
+
+    const total = _sorted.length;
+    if (total === 0) {
+      tbody.innerHTML = '';
+      _lastStart = _lastEnd = -1;
+      return;
     }
 
-    tbody.innerHTML = '';
-    tbody.appendChild(frag);
+    const viewportH = wrap.clientHeight || 600;
+    const scrollTop = wrap.scrollTop;
+    const visCount  = Math.ceil(viewportH / ROW_H);
+    const start = Math.max(0, Math.floor(scrollTop / ROW_H) - BUFFER);
+    const end   = Math.min(total, start + visCount + BUFFER * 2);
 
+    // Bail if the visible window hasn't shifted — keeps a scroll/layout
+    // feedback loop from re-rendering identical content every frame.
+    if (start === _lastStart && end === _lastEnd) return;
+    _lastStart = start;
+    _lastEnd   = end;
+
+    const topPad = start * ROW_H;
+    const botPad = (total - end) * ROW_H;
+
+    const selId = _selected ? _selected.id : null;
+    const parts = [];
+    if (topPad > 0) parts.push(_spacer(topPad));
+    for (let i = start; i < end; i++) {
+      const f = _sorted[i];
+      parts.push(_rowHTML(f, f.id === selId));
+    }
+    if (botPad > 0) parts.push(_spacer(botPad));
+    tbody.innerHTML = parts.join('');
+  }
+
+  function _render() {
+    _sorted = [..._findings].sort(_cmp);
+    // Reset the window cache so _renderWindow definitely runs (sort/load
+    // changes the underlying data even if start/end happen to match).
+    _lastStart = _lastEnd = -1;
+    _renderWindow();
     document.getElementById('findings-count').textContent =
-      `${sorted.length} finding${sorted.length !== 1 ? 's' : ''}`;
+      `${_sorted.length} finding${_sorted.length !== 1 ? 's' : ''}`;
   }
 
   function _select(f) {
     _selected = f;
     if (_onSelect) _onSelect(f);
     document.querySelectorAll('#findings-tbody tr').forEach(tr => {
-      tr.classList.toggle('selected', parseInt(tr.dataset.id, 10) === f.id);
+      const id = parseInt(tr.dataset.id, 10);
+      tr.classList.toggle('selected', !isNaN(id) && id === f.id);
     });
+  }
+
+  function _findById(id) {
+    return _findings.find(f => f.id === id);
+  }
+
+  // Event delegation — one click + one contextmenu listener on tbody rather
+  // than per-row handlers. Rows are recycled on every scroll, so per-row
+  // listeners would have to be re-attached constantly.
+  function _onTbodyClick(e) {
+    const tr = e.target.closest('tr[data-id]');
+    if (!tr) return;
+    const id = parseInt(tr.dataset.id, 10);
+    const f = _findById(id);
+    if (f) _select(f);
+  }
+
+  function _onTbodyCtx(e) {
+    const tr = e.target.closest('tr[data-id]');
+    if (!tr) return;
+    e.preventDefault();
+    const id = parseInt(tr.dataset.id, 10);
+    const f = _findById(id);
+    if (f) {
+      _select(f);
+      if (_onCtx) _onCtx(e, f);
+    }
   }
 
   function _sortBy(col) {
     if (_sortCol === col) _sortDir *= -1;
     else { _sortCol = col; _sortDir = -1; }
     _updateSortHeaders();
+    // After a sort, the user expects to see the new top of the list — keeping
+    // their previous scrollTop would land them in arbitrary middle data.
+    const tbody = document.getElementById('findings-tbody');
+    const wrap  = tbody && tbody.closest('.table-wrap');
+    if (wrap) wrap.scrollTop = 0;
     _render();
   }
 
@@ -117,6 +203,9 @@ const Table = (() => {
 
   function load(findings) {
     _findings = findings || [];
+    const tbody = document.getElementById('findings-tbody');
+    const wrap  = tbody && tbody.closest('.table-wrap');
+    if (wrap) wrap.scrollTop = 0;
     _render();
   }
 
@@ -130,13 +219,17 @@ const Table = (() => {
   function getSelected() { return _selected; }
 
   function jumpTo(id) {
-    const f = _findings.find(f => f.id === id);
-    if (f) {
-      _select(f);
-      // Scroll into view
-      const tr = document.querySelector(`#findings-tbody tr[data-id="${id}"]`);
-      if (tr) tr.scrollIntoView({block: 'nearest'});
-    }
+    const idx = _sorted.findIndex(f => f.id === id);
+    if (idx < 0) return;
+    const f = _sorted[idx];
+    const tbody = document.getElementById('findings-tbody');
+    const wrap  = tbody && tbody.closest('.table-wrap');
+    if (!wrap) { _select(f); return; }
+    // Centre the target row in the viewport when possible.
+    const target = idx * ROW_H - wrap.clientHeight / 2 + ROW_H / 2;
+    wrap.scrollTop = Math.max(0, target);
+    _renderWindow();
+    _select(f);
   }
 
   function init(onSelect, onCtx) {
@@ -146,6 +239,24 @@ const Table = (() => {
       th.addEventListener('click', () => _sortBy(th.dataset.col));
     });
     _updateSortHeaders();
+
+    const tbody = document.getElementById('findings-tbody');
+    if (tbody) {
+      tbody.addEventListener('click',       _onTbodyClick);
+      tbody.addEventListener('contextmenu', _onTbodyCtx);
+      // One rAF gate covers both scroll and resize. Re-renders are idempotent
+      // once the visible window settles (the _lastStart/_lastEnd guard in
+      // _renderWindow returns early), so coalescing keeps us at one render
+      // per animation frame regardless of how many events fire.
+      let raf = 0;
+      const schedule = () => {
+        if (raf) return;
+        raf = requestAnimationFrame(() => { raf = 0; _renderWindow(); });
+      };
+      const wrap = tbody.closest('.table-wrap');
+      if (wrap) wrap.addEventListener('scroll', schedule, {passive: true});
+      window.addEventListener('resize', schedule);
+    }
   }
 
   function populateTypeFilter(findings) {

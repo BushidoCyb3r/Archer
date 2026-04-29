@@ -927,6 +927,11 @@
   };
   const RAW_COL_WIDTH_DEFAULT = 120;
 
+  // The currently-loaded raw records, kept in scope so the Export CSV button
+  // can serialize them without re-fetching. Reset on every new fetch.
+  let _lastRawRecords = [];
+  let _lastRawFindingId = null;
+
   async function _showRawRecords(f) {
     const dlg    = document.getElementById('raw-dialog');
     const title  = document.getElementById('raw-dlg-title');
@@ -935,17 +940,23 @@
     const winSel = document.getElementById('raw-dlg-window');
     title.textContent = `Source Records — ${f.type} — ${f.src_ip} → ${f.dst_ip}`;
     dlg.dataset.findingId = f.id;
-    await _fetchRawRecords(f.id);
+    // Open the dialog before fetching so its in-body "Scanning logs…" status
+    // is visible immediately during the scan.
     dlg.showModal();
+    await _fetchRawRecords(f.id);
   }
 
   async function _fetchRawRecords(findingId) {
     const status = document.getElementById('raw-dlg-status');
     const body   = document.getElementById('raw-dlg-table');
     const winSel = document.getElementById('raw-dlg-window');
+    const exportBtn = document.getElementById('raw-dlg-export');
     const window_hours = winSel ? winSel.value : '6';
     status.textContent = 'Scanning logs…';
     body.innerHTML = '';
+    _lastRawRecords = [];
+    _lastRawFindingId = findingId;
+    if (exportBtn) exportBtn.disabled = true;
     try {
       const resp = await api(`/api/findings/${findingId}/raw?limit=500&window_hours=${encodeURIComponent(window_hours)}`);
       const records  = resp.records || [];
@@ -954,6 +965,8 @@
         status.textContent = `No matching records in ${logTypes.join(', ')} logs. Source files may have been archived or rotated.`;
         return;
       }
+      _lastRawRecords = records;
+      if (exportBtn) exportBtn.disabled = false;
       // Group records by log type so the table stays aligned per section
       const byType = {};
       records.forEach(r => {
@@ -976,6 +989,45 @@
     } catch (e) {
       status.textContent = 'Error fetching records: ' + e;
     }
+  }
+
+  // Flatten all currently-loaded raw records to a single CSV. Different log
+  // types have different column sets, so we use the union of every key seen
+  // and prepend _log_type so analysts can split the result back out per
+  // log type in their tool of choice. RAW_COLUMNS supplies a stable column
+  // order per log type — we walk records in their existing grouping so the
+  // CSV preserves that ordering naturally.
+  function _exportRawRecordsCSV() {
+    if (!_lastRawRecords || _lastRawRecords.length === 0) return;
+    const seen = new Set();
+    const cols = ['_log_type'];
+    seen.add('_log_type');
+    // Preserve canonical Zeek column order per log type before falling back
+    // to whatever else the records contain. Keeps ts/uid/id.* in their usual
+    // positions instead of an arbitrary first-seen order.
+    const types = new Set(_lastRawRecords.map(r => r._log_type || 'unknown'));
+    types.forEach(t => {
+      const canon = RAW_COLUMNS[t] || RAW_DEFAULT_COLS;
+      canon.forEach(c => { if (!seen.has(c)) { seen.add(c); cols.push(c); } });
+    });
+    _lastRawRecords.forEach(r => {
+      Object.keys(r).forEach(k => { if (!seen.has(k)) { seen.add(k); cols.push(k); } });
+    });
+
+    let csv = _csvRow(cols);
+    _lastRawRecords.forEach(r => {
+      const row = cols.map(c => {
+        if (c === '_log_type') return r._log_type || '';
+        const v = r[c];
+        // Zeek records can carry array fields (e.g. answers, TTLs); join those
+        // with comma to keep the cell single-valued.
+        if (Array.isArray(v)) return v.join(',');
+        return v;
+      });
+      csv += _csvRow(row);
+    });
+    const fname = `archer_source_records_${_lastRawFindingId || 'unknown'}_${_ts()}.csv`;
+    _downloadBlob(fname, 'text/csv', csv);
   }
 
   // _buildRawTable renders one log-type section of the Source Records dialog.
@@ -1067,6 +1119,10 @@
         const id = document.getElementById('raw-dialog').dataset.findingId;
         if (id) _fetchRawRecords(parseInt(id, 10));
       });
+    }
+    const rawExport = document.getElementById('raw-dlg-export');
+    if (rawExport) {
+      rawExport.addEventListener('click', () => _exportRawRecordsCSV());
     }
 
     document.getElementById('ack-btn').addEventListener('click', async () => {
@@ -1727,6 +1783,22 @@
       });
     });
 
+    // Open a campaign in the in-app graph. The findings list is filtered down
+    // to those participating in this campaign so node/edge severities reflect
+    // the real data rather than a synthesised default.
+    document.getElementById('ctx-graph-campaign').addEventListener('click', () => {
+      if (!_ctxFinding || !_ctxFinding._campaign) return;
+      const c = _ctxFinding._campaign;
+      const srcs = c.srcs instanceof Set ? c.srcs : new Set(c.srcs || []);
+      const port = String(c.port || '');
+      const findings = _allFindings.filter(f =>
+        f.dst_ip === c.dst &&
+        String(f.dst_port || '') === port &&
+        srcs.has(f.src_ip)
+      );
+      Graph.showFindings(findings, `${c.dst}:${c.port} · ${srcs.size} hosts`);
+    });
+
     return showMenu;
   }
 
@@ -1935,6 +2007,19 @@
     );
 
     Campaigns.init((e, pseudo) => showMenu(e, pseudo), _isOrgIP);
+
+    // Clicking a graph node looks up the first finding involving that IP and
+    // jumps the table to it — so the graph doubles as a navigation surface.
+    Graph.init({
+      onNodeClick: ip => {
+        const f = _allFindings.find(x => x.src_ip === ip || x.dst_ip === ip);
+        if (f) {
+          _selectedFinding = f;
+          Detail.render(f);
+          Table.jumpTo(f.id);
+        }
+      },
+    });
 
     Notifications.init(findingId => {
       const f = _allFindings.find(x => x.id === findingId);
