@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# start.sh — launch Archer with resource limits set to 80% of host capacity.
+# start.sh — launch Archer with CPU set to 80% and RAM set to 70% of capacity.
+# RAM is the more conservative cap because memory overshoot can OOM-kill the
+# container, while CPU spikes only slow analysis down.
 # Usage: ./start.sh [up|down|restart|logs|status]
 set -euo pipefail
 
@@ -8,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
 ACTION="${1:-up}"
 
-# ── Compute 80% of effective Docker capacity ────────────────────────────────
+# ── Compute resource budget from effective Docker capacity ──────────────────
 #
 # The host kernel may report more CPUs/RAM than the Docker daemon will grant
 # to a container (e.g. Docker Desktop's VM, daemon CPU/memory limits, or
@@ -34,8 +36,12 @@ if [[ "$DOCKER_MEM_MB" =~ ^[0-9]+$ ]] && (( DOCKER_MEM_MB > 0 && DOCKER_MEM_MB <
   TOTAL_MEM_MB="$DOCKER_MEM_MB"
 fi
 
+# CPU at 80% — burst CPU spikes don't crash the container, the worst case is
+# slower analysis. Memory at 70% — overshoot here can OOM-kill the container,
+# so leave a wider absorption margin for kernel/journal/docker daemon spikes
+# that don't show up in Go's GOMEMLIMIT accounting.
 ARCHER_CPUS=$(awk "BEGIN { v = $TOTAL_CPUS * 0.8; printf (v < 0.5 ? \"0.5\" : \"%.1f\"), v }")
-ARCHER_MEM_MB=$(awk "BEGIN { v = int($TOTAL_MEM_MB * 0.8); print (v < 512 ? 512 : v) }")
+ARCHER_MEM_MB=$(awk "BEGIN { v = int($TOTAL_MEM_MB * 0.7); print (v < 512 ? 512 : v) }")
 ARCHER_MEMORY="${ARCHER_MEM_MB}m"
 
 # Write .env so 'docker compose' picks up the values even without this script
@@ -50,7 +56,7 @@ echo "Host resources:   ${HOST_CPUS} CPUs  |  ${HOST_MEM_MB} MB RAM"
 if [[ "$DOCKER_CPUS" =~ ^[0-9]+$ ]] && (( DOCKER_CPUS > 0 )); then
   echo "Docker capacity:  ${DOCKER_CPUS} CPUs  |  ${DOCKER_MEM_MB} MB RAM"
 fi
-echo "Archer limits:    ${ARCHER_CPUS} CPUs  |  ${ARCHER_MEMORY} RAM  (80%)"
+echo "Archer limits:    ${ARCHER_CPUS} CPUs  |  ${ARCHER_MEMORY} RAM  (CPU 80% / RAM 70%)"
 echo ""
 
 # ── Dispatch ─────────────────────────────────────────────────────────────────

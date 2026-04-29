@@ -48,7 +48,7 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 - **Analyst workbench** — acknowledge, escalate, suppress, add notes, and copy tcpdump/Suricata filter strings directly from the UI
 - **Watch mode** — admin-configurable daily schedule that automatically re-analyzes the logs directory at a set UTC time
 - **Campaign & host views** — see which destinations are contacted by multiple internal hosts and view per-host composite risk scores
-- **Resource-aware deployment** — `start.sh` automatically allocates 80% of host CPU and RAM to the container; the container entrypoint then wires the Go runtime memory limit to 90% of whatever budget it gets
+- **Resource-aware deployment** — `start.sh` automatically allocates 80% of host CPU and 70% of host RAM to the container; RAM is held to a tighter cap so burst spikes have absorption headroom before they could OOM-kill the container. The entrypoint then wires the Go runtime memory limit to 90% of whatever budget it gets
 
 ---
 
@@ -494,11 +494,11 @@ One command. No configuration required.
 sudo ./start.sh up
 ```
 
-`start.sh` measures the host, allocates 80% of available CPU and RAM to the container, builds the image, and starts Archer on port 8080. Drop the tool on a 16 GB laptop and it scales down; drop it on a 256 GB analysis box and it scales up. No env vars to set, no memory values to guess.
+`start.sh` measures the host (and the Docker daemon's view, in case it's smaller), allocates 80% of available CPU and 70% of available RAM to the container, builds the image, and starts Archer on port 8080. Drop the tool on a 16 GB laptop and it scales down; drop it on a 256 GB analysis box and it scales up. No env vars to set, no memory values to guess.
 
 ```
 Host resources:   16 CPUs  |  32768 MB RAM
-Archer limits:    12.8 CPUs  |  26214m RAM  (80%)
+Archer limits:    12.8 CPUs  |  22937m RAM  (CPU 80% / RAM 70%)
 
 Archer is running at http://localhost:8080
 ```
