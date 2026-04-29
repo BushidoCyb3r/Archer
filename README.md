@@ -34,8 +34,10 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 - **Bounded memory detection** — beacon analyzers use streaming aggregates and reservoir sampling so peak memory is a function of unique pair count, not total record count; Docker entrypoint auto-derives `GOMEMLIMIT` from the container's cgroup so the Go runtime applies back-pressure before OOM
 - **Persistent findings** — findings survive restarts, rebuilds, and re-analyses; analyst annotations (status, notes, assignee) are carried over by fingerprint match; findings are preserved even when the logs that produced them are later archived, and are only removed when an admin explicitly prunes them
 - **Delta detection** — new findings are flagged so analysts can focus on what changed since the last run
-- **Raw-log pivot** — clicking a finding opens a Source Records dialog that scans the original Zeek logs (plus the archive) for matching records and renders the full standard schema with resizable, horizontally-scrollable columns
+- **Raw-log pivot** — clicking a finding opens a Source Records dialog that scans the original Zeek logs (plus the archive) for matching records and renders the full standard schema with resizable, horizontally-scrollable columns; one-click **Export CSV** flattens every loaded record (with a leading `_log_type` column) for offline analysis
+- **In-app campaign graph** — right-click any campaign and pick **View campaign in Graph** to render a force-directed network graph of the involved hosts and destination, severity-coloured and sized by finding volume; clicking a node jumps the findings table to that IP
 - **Advanced filtering** — in addition to search/severity/type/min-score, filters include Src IP/CIDR, Dst IP/CIDR, dataset, and a time range; all filters are server-side
+- **Virtualized findings table** — the table renders only what's on screen, so result sets of any size stay smooth without truncation
 - **Per-tab exports** — every tab has its own CSV and JSON export. Findings/Acknowledged/Escalated/IOC Hits export only the visible subset (server-side, honoring all active filters). Campaigns and Hosts export their aggregations directly. A separate "All" export grabs every finding in the database. Right-click any single campaign row to export just that one campaign — useful for loading into a graphical viewer for stakeholder presentations.
 - **Log archive & retention** — admin-configurable: files older than N days automatically move from `/logs` to `/data/archive` after each watch analysis; findings are preserved by default (or optionally pruned past the same cutoff)
 - **Dataset fingerprint skip** — watch-mode re-analyses short-circuit when the set of files + their sizes + mtimes is unchanged from the last successful run; nightly runs over a static dataset return in milliseconds
@@ -169,9 +171,11 @@ archer/
             ├── app.js          # Main application state machine
             ├── sse.js          # SSE connection manager with auto-reconnect
             ├── detail.js       # Finding detail pane renderer
-            ├── table.js        # Findings table with sort/filter
+            ├── table.js        # Findings table — virtual scrolling, sort
             ├── chart.js        # Beacon inter-arrival time chart
             ├── campaigns.js    # Campaign aggregation view
+            ├── graph.js        # In-app campaign graph (Cytoscape wrapper)
+            ├── cytoscape.min.js # Vendored Cytoscape.js (MIT, lazy-loaded)
             ├── notifications.js
             ├── dialog.js       # Modal dialog helpers
             └── resize.js       # Pane resize drag handle
@@ -709,6 +713,7 @@ Columns: **Score**, **Severity**, **Type**, **Src IP**, **Dst IP**, **Port**, **
   - **Graphology JSON** — [Graphology serialization](https://graphology.github.io/serialization.html) format (`{attributes, nodes, edges}`)
   - **GEXF** — Gephi's native XML format, the most reliable choice for [Gephi Lite](https://gephi.org/gephi-lite/) and desktop Gephi
   - **GraphML** — XML format consumed by Cytoscape Desktop, yEd, and most desktop graph tools (note: Cytoscape Web does not accept GraphML — use the CSV export for it)
+- **In-app graph view** — right-click any campaign row and pick **View campaign in Graph** to open the network inline. Uses an embedded Cytoscape.js renderer (lazy-loaded on first open) with severity-coloured nodes/edges, node sizes that scale with finding count, force-directed `cose` layout, fit-to-view and re-layout controls. Clicking a node jumps the findings table to a finding involving that IP — the graph doubles as a navigation surface.
 
 Filter-bar dropdowns produce server-streamed downloads for findings tabs and client-side Blob downloads for Campaigns/Hosts; right-click campaign exports are always client-side.
 
@@ -723,7 +728,7 @@ Selecting a finding opens the detail pane, which shows:
 - **Escalate** — opens the TI escalation dialog
 - **Beacon Chart** — visualises inter-arrival times and connection timestamps (beaconing findings only)
 - **PCAP Filter** — copies a ready-to-use `tcpdump` or Suricata filter string to the clipboard
-- **Source Records** — scans the original Zeek logs (and `/data/archive`) for records matching the finding's (src, dst) pair, then opens a dialog with the full standard schema for the relevant log types. Columns are resizable; the table scrolls on both axes. A **Search range** dropdown (±6h default, up to All time) broadens the scan when needed.
+- **Source Records** — scans the original Zeek logs (and `/data/archive`) for records matching the finding's (src, dst) pair, then opens a dialog with the full standard schema for the relevant log types. Columns are resizable; the table scrolls on both axes. A **Search range** dropdown (±6h default, up to All time) broadens the scan when needed. **Export CSV** flattens every loaded record into a single CSV with a leading `_log_type` column and canonical Zeek field ordering per type.
 - **Suppress** — suppresses alerts for the source or destination IP for a configurable duration; suppressed findings are hidden from all tabs until the suppression expires or is manually removed
 - **Analyst Recommendation** — auto-generated investigative guidance based on the finding type and score
 - **Notes** — chronological thread of analyst annotations; new notes can be added inline
