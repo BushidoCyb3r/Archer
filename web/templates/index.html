@@ -450,6 +450,15 @@
     <div id="graph-toolbar">
       <button class="dlg-btn secondary" id="graph-fit">Fit to view</button>
       <button class="dlg-btn secondary" id="graph-relayout">Re-layout</button>
+      <div class="export-dropdown">
+        <button class="dlg-btn secondary" id="graph-export-btn" title="Export this graph as an image">Export graph ▾</button>
+        <ul class="export-menu hidden" id="graph-export-menu">
+          <li data-format="png-view">PNG · Current view</li>
+          <li data-format="png-full">PNG · Full graph</li>
+          <li data-format="jpeg-view">JPEG · Current view</li>
+          <li data-format="jpeg-full">JPEG · Full graph</li>
+        </ul>
+      </div>
       <span id="graph-info"></span>
     </div>
     <div id="graph-canvas"></div>
