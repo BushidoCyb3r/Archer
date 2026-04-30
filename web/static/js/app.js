@@ -349,6 +349,45 @@
     return String(s || 'campaign').replace(/[^A-Za-z0-9._-]/g, '_');
   }
 
+  // Export the currently-rendered campaign graph as PNG or JPEG. Format
+  // strings come from the dropdown's data-format attributes:
+  //   "png-view"  | "png-full"  | "jpeg-view" | "jpeg-full"
+  // The two halves drive cy.png()/cy.jpg() options independently:
+  //   type  → png vs jpg method (and quality knob, only meaningful for jpg)
+  //   scope → full:true exports the entire graph regardless of pan/zoom,
+  //           full:false captures only what's currently visible in the viewport
+  function _exportGraphImage(format) {
+    const cy = (typeof Graph !== 'undefined') ? Graph.getCy() : null;
+    if (!cy) return;
+    const [type, scope] = String(format).split('-');
+    const isJpeg = type === 'jpeg';
+    const ext = isJpeg ? 'jpg' : 'png';
+    const opts = {
+      output: 'blob',
+      // bg is mandatory for JPEG (no alpha channel) and matches the dialog
+      // canvas for PNG so transparent regions don't read as washed-out white.
+      bg: '#0a0e15',
+      full: scope === 'full',
+      // 2x scale produces a retina-quality export without bloating the file
+      // beyond what's reasonable for the typical campaign graph size.
+      scale: 2,
+    };
+    if (isJpeg) opts.quality = 0.95;
+    const blob = isJpeg ? cy.jpg(opts) : cy.png(opts);
+    const dst = (typeof Graph !== 'undefined' && Graph.getDstHint()) || 'graph';
+    const filename = `archer_graph_${_safeFilenamePart(dst)}_campaign_${_ts()}.${ext}`;
+    // Sidestep _downloadBlob — it's tuned for text payloads and appends
+    // ;charset=utf-8 to the MIME, which is wrong for image bytes.
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   function _downloadCampaignEdgesCSV(campaign) {
     const types = [...campaign.types].join(' ');
     const header = ['Source', 'Target', 'Port', 'MaxScore', 'FindingTypes'];
@@ -1796,7 +1835,7 @@
         String(f.dst_port || '') === port &&
         srcs.has(f.src_ip)
       );
-      Graph.showFindings(findings, `${c.dst}:${c.port} · ${srcs.size} hosts`);
+      Graph.showFindings(findings, `${c.dst}:${c.port} · ${srcs.size} hosts`, c.dst);
     });
 
     return showMenu;
@@ -2020,6 +2059,12 @@
         }
       },
     });
+
+    // Graph image export dropdown — PNG or JPEG, current viewport or whole
+    // graph. Cytoscape returns a real Blob from cy.png/jpg; bypass the
+    // text-oriented _downloadBlob so we don't pollute the image MIME with a
+    // ;charset=utf-8 suffix.
+    _initExportDropdown('graph-export-btn', 'graph-export-menu', _exportGraphImage);
 
     Notifications.init(findingId => {
       const f = _allFindings.find(x => x.id === findingId);

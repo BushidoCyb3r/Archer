@@ -18,6 +18,7 @@ const Graph = (() => {
   let _cy = null;
   let _onNodeClick = null;
   let _onEdgeClick = null;
+  let _lastDstHint = '';
 
   // Load /static/js/cytoscape.min.js exactly once. Concurrent calls share the
   // same in-flight promise so we don't issue duplicate requests.
@@ -210,9 +211,16 @@ const Graph = (() => {
     }
   }
 
-  function showFindings(findings, subtitle) {
+  function showFindings(findings, subtitle, dstHint) {
+    _lastDstHint = dstHint || '';
     _open(findings || [], subtitle);
   }
+
+  // Exposed so the dropdown wiring in app.js can drive PNG/JPEG export.
+  // Returning the live cy lets the caller pick its own scale, full-vs-view,
+  // and quality without us re-implementing those knobs here.
+  function getCy() { return _cy; }
+  function getDstHint() { return _lastDstHint; }
 
   function init(opts) {
     opts = opts || {};
@@ -233,5 +241,5 @@ const Graph = (() => {
     });
   }
 
-  return { init, showFindings };
+  return { init, showFindings, getCy, getDstHint };
 })();
