@@ -453,10 +453,8 @@
       <div class="export-dropdown">
         <button class="dlg-btn secondary" id="graph-export-btn" title="Export this graph as an image">Export graph ▾</button>
         <ul class="export-menu hidden" id="graph-export-menu">
-          <li data-format="png-view">PNG · Current view</li>
-          <li data-format="png-full">PNG · Full graph</li>
-          <li data-format="jpeg-view">JPEG · Current view</li>
-          <li data-format="jpeg-full">JPEG · Full graph</li>
+          <li data-format="png">PNG</li>
+          <li data-format="jpeg">JPEG</li>
         </ul>
       </div>
       <span id="graph-info"></span>
@@ -466,6 +464,18 @@
   </div>
   <div class="dlg-footer">
     <button class="dlg-btn secondary" id="graph-dlg-close">Close</button>
+  </div>
+</dialog>
+
+<dialog id="graph-export-scope-dlg">
+  <div class="dlg-header">Export scope</div>
+  <div class="dlg-body" style="padding:18px 22px;min-width:340px">
+    <p style="color:var(--fg-secondary);margin-bottom:16px">Which portion of the graph should be exported?</p>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="dlg-btn secondary" id="graph-export-scope-cancel">Cancel</button>
+      <button class="dlg-btn secondary" id="graph-export-scope-view">Current view</button>
+      <button class="dlg-btn primary"   id="graph-export-scope-full">Full graph</button>
+    </div>
   </div>
 </dialog>
 
