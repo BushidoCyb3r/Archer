@@ -349,17 +349,26 @@
     return String(s || 'campaign').replace(/[^A-Za-z0-9._-]/g, '_');
   }
 
-  // Export the currently-rendered campaign graph as PNG or JPEG. Format
-  // strings come from the dropdown's data-format attributes:
-  //   "png-view"  | "png-full"  | "jpeg-view" | "jpeg-full"
-  // The two halves drive cy.png()/cy.jpg() options independently:
-  //   type  → png vs jpg method (and quality knob, only meaningful for jpg)
-  //   scope → full:true exports the entire graph regardless of pan/zoom,
-  //           full:false captures only what's currently visible in the viewport
+  // Two-step graph export. The dropdown picks the format ("png" | "jpeg")
+  // and stashes it; a follow-up scope dialog asks current-viewport vs full
+  // graph and only then runs the actual cy.png/jpg + download. Splitting it
+  // keeps the dropdown menu short and the scope choice deliberate.
+  let _pendingGraphExportFormat = null;
+
   function _exportGraphImage(format) {
     const cy = (typeof Graph !== 'undefined') ? Graph.getCy() : null;
     if (!cy) return;
-    const [type, scope] = String(format).split('-');
+    _pendingGraphExportFormat = format;
+    document.getElementById('graph-export-scope-dlg').showModal();
+  }
+
+  function _commitGraphExport(full) {
+    const dlg = document.getElementById('graph-export-scope-dlg');
+    if (dlg && dlg.open) dlg.close();
+    const cy = (typeof Graph !== 'undefined') ? Graph.getCy() : null;
+    const type = _pendingGraphExportFormat;
+    _pendingGraphExportFormat = null;
+    if (!cy || !type) return;
     const isJpeg = type === 'jpeg';
     const ext = isJpeg ? 'jpg' : 'png';
     const opts = {
@@ -367,7 +376,7 @@
       // bg is mandatory for JPEG (no alpha channel) and matches the dialog
       // canvas for PNG so transparent regions don't read as washed-out white.
       bg: '#0a0e15',
-      full: scope === 'full',
+      full: !!full,
       // 2x scale produces a retina-quality export without bloating the file
       // beyond what's reasonable for the typical campaign graph size.
       scale: 2,
@@ -2060,11 +2069,21 @@
       },
     });
 
-    // Graph image export dropdown — PNG or JPEG, current viewport or whole
-    // graph. Cytoscape returns a real Blob from cy.png/jpg; bypass the
-    // text-oriented _downloadBlob so we don't pollute the image MIME with a
-    // ;charset=utf-8 suffix.
+    // Graph image export dropdown — PNG or JPEG. After the format is
+    // picked, the scope dialog asks current-viewport vs full graph before
+    // running the actual export. Cytoscape returns a real Blob from
+    // cy.png/jpg; bypass the text-oriented _downloadBlob so we don't pollute
+    // the image MIME with a ;charset=utf-8 suffix.
     _initExportDropdown('graph-export-btn', 'graph-export-menu', _exportGraphImage);
+    const _scopeView   = document.getElementById('graph-export-scope-view');
+    const _scopeFull   = document.getElementById('graph-export-scope-full');
+    const _scopeCancel = document.getElementById('graph-export-scope-cancel');
+    if (_scopeView)   _scopeView.addEventListener('click', () => _commitGraphExport(false));
+    if (_scopeFull)   _scopeFull.addEventListener('click', () => _commitGraphExport(true));
+    if (_scopeCancel) _scopeCancel.addEventListener('click', () => {
+      _pendingGraphExportFormat = null;
+      document.getElementById('graph-export-scope-dlg').close();
+    });
 
     Notifications.init(findingId => {
       const f = _allFindings.find(x => x.id === findingId);
