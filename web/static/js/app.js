@@ -161,7 +161,7 @@
   function initFilterBar() {
     document.getElementById('apply-filter-btn').addEventListener('click', applyFilter);
     document.getElementById('reset-filter-btn').addEventListener('click', () => {
-      ['filter-search','filter-src','filter-dst','filter-from','filter-to'].forEach(id => {
+      ['filter-search','filter-src','filter-dst','filter-port','filter-from','filter-to'].forEach(id => {
         const el = document.getElementById(id); if (el) el.value = '';
       });
       document.getElementById('filter-sev').value = '';
@@ -170,7 +170,7 @@
       document.getElementById('filter-score').value = '0';
       _applyTabFilter();
     });
-    ['filter-search','filter-src','filter-dst','filter-from','filter-to'].forEach(id => {
+    ['filter-search','filter-src','filter-dst','filter-port','filter-from','filter-to'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') applyFilter(); });
     });
@@ -232,6 +232,7 @@
     if (score > 0) params.min_score = score;
     const src = g('filter-src').trim(); if (src) params.src_ip = src;
     const dst = g('filter-dst').trim(); if (dst) params.dst_ip = dst;
+    const port = g('filter-port').trim(); if (port) params.dst_port = port;
     const ds  = g('filter-dataset');    if (ds)  params.dataset = ds;
     const from = g('filter-from');      if (from) params.from = from;
     const to   = g('filter-to');        if (to)   params.to   = to;
