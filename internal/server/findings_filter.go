@@ -46,6 +46,7 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 
 	srcMatcher := parseIPMatcher(q.Get("src_ip"))
 	dstMatcher := parseIPMatcher(q.Get("dst_ip"))
+	portSet := parsePortSet(q.Get("dst_port"))
 
 	var from, to time.Time
 	var haveFrom, haveTo bool
@@ -60,16 +61,8 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 		}
 	}
 
-	allowlist := s.store.GetAllowlist()
-	alSet := make(map[string]bool, len(allowlist))
-	for _, e := range allowlist {
-		alSet[e] = true
-	}
-	iocList := s.store.GetIOCList()
-	iocSet := make(map[string]bool, len(iocList))
-	for _, e := range iocList {
-		iocSet[e] = true
-	}
+	alM := compileListMatcher(s.store.GetAllowlist())
+	iocM := compileListMatcher(s.store.GetIOCList())
 
 	result := make([]model.Finding, 0, len(findings))
 	for i := range findings {
@@ -83,7 +76,7 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 		if f.Score < minScore {
 			continue
 		}
-		if alSet[f.DstIP] || alSet[f.SrcIP] {
+		if alM.matches(f.SrcIP) || alM.matches(f.DstIP) {
 			continue
 		}
 		if s.store.IsSuppressed(f.SrcIP) || s.store.IsSuppressed(f.DstIP) {
@@ -99,6 +92,9 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 			continue
 		}
 		if dstMatcher != nil && !dstMatcher(f.DstIP) {
+			continue
+		}
+		if portSet != nil && !portSet[f.DstPort] {
 			continue
 		}
 		if haveFrom || haveTo {
@@ -146,7 +142,7 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 		// by definition — flag them so the per-row status icon shows the IOC
 		// diamond rather than the generic "new finding" indicator.
 		isTI := f.Type == "Threat Intel Hit" || f.Type == "Suspicious URL"
-		ioMatch := iocSet[f.DstIP] || iocSet[f.SrcIP] || isTI
+		ioMatch := iocM.matches(f.DstIP) || iocM.matches(f.SrcIP) || isTI
 		if iocOnly && !ioMatch {
 			continue
 		}
@@ -154,6 +150,83 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 		result = append(result, *f)
 	}
 	return result
+}
+
+// listMatcher holds a compiled view of an allowlist or IOC list. Exact
+// entries (IPs, domains, any free-form string) live in `exact` so existing
+// behavior — including domain matches like "apple.com" against findings
+// whose DstIP is an apex domain — is preserved. CIDR entries are parsed
+// into ipnets and matched against IP-shaped candidates. Domain candidates
+// never reach the CIDR walk (they don't parse as IPs), so a CIDR like
+// "10.0.0.0/8" can't accidentally match a hostname.
+type listMatcher struct {
+	exact map[string]bool
+	cidrs []*net.IPNet
+}
+
+func compileListMatcher(entries []string) *listMatcher {
+	m := &listMatcher{exact: make(map[string]bool, len(entries))}
+	for _, raw := range entries {
+		e := strings.TrimSpace(raw)
+		if e == "" {
+			continue
+		}
+		if _, ipnet, err := net.ParseCIDR(e); err == nil {
+			m.cidrs = append(m.cidrs, ipnet)
+			continue
+		}
+		m.exact[e] = true
+	}
+	return m
+}
+
+// matches reports whether the candidate (a Src/Dst value from a finding)
+// is covered by any entry in the list. Empty candidates never match.
+func (m *listMatcher) matches(candidate string) bool {
+	if m == nil || candidate == "" {
+		return false
+	}
+	if m.exact[candidate] {
+		return true
+	}
+	if len(m.cidrs) == 0 {
+		return false
+	}
+	ip := net.ParseIP(candidate)
+	if ip == nil {
+		return false
+	}
+	for _, n := range m.cidrs {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// parsePortSet accepts a single port ("443") or a comma-separated list
+// ("80,443,8080"). Returns a set keyed by the canonical port string, or
+// nil when the input is empty / parses to nothing usable. Non-numeric
+// tokens are silently skipped so a stray comma can't blank the filter.
+func parsePortSet(s string) map[string]bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, tok := range strings.Split(s, ",") {
+		tok = strings.TrimSpace(tok)
+		if tok == "" {
+			continue
+		}
+		if n, err := strconv.Atoi(tok); err == nil && n >= 0 && n <= 65535 {
+			out[strconv.Itoa(n)] = true
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // parseIPMatcher accepts an IP, a CIDR, or the empty string. Returns a
