@@ -87,11 +87,15 @@
     <div class="sidebar-section-title">Watch Mode</div>
     <div class="sidebar-label" id="watch-status-label">Disabled</div>
     <div id="watch-admin-controls" style="display:none">
-      <div class="sidebar-label">Daily analysis time (UTC)</div>
+      <div class="sidebar-label">Daily analysis time</div>
       <div class="sidebar-row">
         <input class="sidebar-input" id="watch-time" type="time" value="02:00" style="flex:1">
         <button class="sidebar-small-btn" id="watch-btn">Enable</button>
       </div>
+      <div class="sidebar-label" style="margin-top:6px">Timezone</div>
+      <input class="sidebar-input" id="watch-tz" type="text" list="watch-tz-list"
+             placeholder="UTC" autocomplete="off" style="width:100%">
+      <datalist id="watch-tz-list"></datalist>
     </div>
 
     <div class="sidebar-divider"></div>

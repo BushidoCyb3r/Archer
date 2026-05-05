@@ -25,6 +25,7 @@ func (s *Server) startWatch() {
 	if !enabled || watchTime == "" {
 		return
 	}
+	tz := s.store.GetWatchTimezone()
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -35,7 +36,7 @@ func (s *Server) startWatch() {
 	s.watchCancel = cancel
 	s.watchMu.Unlock()
 
-	go s.runWatchLoop(ctx, watchTime)
+	go s.runWatchLoop(ctx, watchTime, tz)
 }
 
 // stopWatch cancels the running watch loop, if any.
@@ -48,10 +49,14 @@ func (s *Server) stopWatch() {
 	s.watchMu.Unlock()
 }
 
-// runWatchLoop sleeps until the next UTC occurrence of hhmm, triggers analysis, then repeats.
-func (s *Server) runWatchLoop(ctx context.Context, hhmm string) {
+// runWatchLoop sleeps until the next occurrence of hhmm in the configured
+// timezone, triggers analysis, then repeats. Exits on cancellation or when
+// the configured time/TZ/enabled state changes — startWatch will spin up a
+// fresh loop with the new values.
+func (s *Server) runWatchLoop(ctx context.Context, hhmm, tzName string) {
 	for {
-		next, err := nextUTCOccurrence(hhmm)
+		loc := loadLocationOrUTC(tzName)
+		next, err := nextOccurrence(hhmm, loc)
 		if err != nil {
 			return
 		}
@@ -59,9 +64,9 @@ func (s *Server) runWatchLoop(ctx context.Context, hhmm string) {
 		case <-ctx.Done():
 			return
 		case <-time.After(time.Until(next)):
-			// Re-check config in case watch was disabled while we were sleeping
 			currentTime, enabled := s.store.GetWatch()
-			if !enabled || currentTime != hhmm {
+			currentTZ := s.store.GetWatchTimezone()
+			if !enabled || currentTime != hhmm || currentTZ != tzName {
 				return
 			}
 			s.triggerWatchAnalysis()
@@ -69,15 +74,28 @@ func (s *Server) runWatchLoop(ctx context.Context, hhmm string) {
 	}
 }
 
-// nextUTCOccurrence returns the next wall-clock time (UTC) when HH:MM will occur.
-// If that time has already passed today, it returns tomorrow's occurrence.
-func nextUTCOccurrence(hhmm string) (time.Time, error) {
+// loadLocationOrUTC resolves an IANA timezone name, falling back to UTC for
+// empty or unparseable input. A bad TZ shouldn't break the watch loop —
+// firing in UTC is preferable to not firing at all.
+func loadLocationOrUTC(name string) *time.Location {
+	if name == "" {
+		return time.UTC
+	}
+	if loc, err := time.LoadLocation(name); err == nil {
+		return loc
+	}
+	return time.UTC
+}
+
+// nextOccurrence returns the next wall-clock time in loc when HH:MM will
+// occur. If that time has already passed today (in loc), returns tomorrow.
+func nextOccurrence(hhmm string, loc *time.Location) (time.Time, error) {
 	var h, m int
 	if _, err := parseHHMM(hhmm, &h, &m); err != nil {
 		return time.Time{}, err
 	}
-	now := time.Now().UTC()
-	next := time.Date(now.Year(), now.Month(), now.Day(), h, m, 0, 0, time.UTC)
+	now := time.Now().In(loc)
+	next := time.Date(now.Year(), now.Month(), now.Day(), h, m, 0, 0, loc)
 	if !next.After(now) {
 		next = next.Add(24 * time.Hour)
 	}

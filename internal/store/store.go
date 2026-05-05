@@ -526,9 +526,10 @@ func (s *Store) AppendUploadedFile(path string) {
 	s.mu.Unlock()
 }
 
-func (s *Store) SetWatch(watchTime string, enabled bool) {
+func (s *Store) SetWatch(watchTime, timezone string, enabled bool) {
 	s.mu.Lock()
 	s.config.WatchTime = watchTime
+	s.config.WatchTimezone = timezone
 	s.config.WatchEnabled = enabled
 	if s.db != nil {
 		cfgJSON, _ := json.Marshal(s.config)
@@ -541,6 +542,14 @@ func (s *Store) GetWatch() (watchTime string, enabled bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.config.WatchTime, s.config.WatchEnabled
+}
+
+// GetWatchTimezone returns the IANA name configured for the watch schedule,
+// or "" when none is set. Callers should treat "" as UTC.
+func (s *Store) GetWatchTimezone() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.config.WatchTimezone
 }
 
 // ArchiveSettings is the admin-editable archive config plus read-only

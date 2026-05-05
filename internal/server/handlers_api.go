@@ -658,13 +658,20 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		watchTime, enabled := s.store.GetWatch()
+		tz := s.store.GetWatchTimezone()
 		resp := map[string]any{
-			"time":    watchTime,
-			"enabled": enabled,
+			"time":     watchTime,
+			"enabled":  enabled,
+			"timezone": tz,
 		}
 		if enabled && watchTime != "" {
-			if next, err := nextUTCOccurrence(watchTime); err == nil {
-				resp["next_run"] = next.UTC().Format("2006-01-02 15:04 UTC")
+			loc := loadLocationOrUTC(tz)
+			if next, err := nextOccurrence(watchTime, loc); err == nil {
+				label := tz
+				if label == "" {
+					label = "UTC"
+				}
+				resp["next_run"] = next.In(loc).Format("2006-01-02 15:04 ") + label
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -676,8 +683,9 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req struct {
-			Time    string `json:"time"`
-			Enabled bool   `json:"enabled"`
+			Time     string `json:"time"`
+			Enabled  bool   `json:"enabled"`
+			Timezone string `json:"timezone"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonError(w, "invalid JSON", http.StatusBadRequest)
@@ -687,11 +695,18 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 		if req.Enabled {
 			var h, m int
 			if ok, _ := parseHHMM(req.Time, &h, &m); !ok {
-				jsonError(w, "time must be HH:MM in 24-hour UTC format", http.StatusBadRequest)
+				jsonError(w, "time must be HH:MM in 24-hour format", http.StatusBadRequest)
 				return
 			}
 		}
-		s.store.SetWatch(req.Time, req.Enabled)
+		// Validate IANA timezone name. Empty is allowed and means UTC.
+		if req.Timezone != "" {
+			if _, err := time.LoadLocation(req.Timezone); err != nil {
+				jsonError(w, `invalid timezone — use an IANA name like "America/New_York"`, http.StatusBadRequest)
+				return
+			}
+		}
+		s.store.SetWatch(req.Time, req.Timezone, req.Enabled)
 		if req.Enabled {
 			s.startWatch()
 		} else {
