@@ -22,7 +22,7 @@ import (
 //	delta       — "true" restricts to IsNew findings
 //	src_ip      — IP or CIDR; matches finding.SrcIP
 //	dst_ip      — IP or CIDR; matches finding.DstIP
-//	dataset     — exact dataset match
+//	sensor      — exact sensor match
 //	from, to    — inclusive Timestamp window; either "2006-01-02 15:04:05" or RFC3339
 //
 // Allowlisted and currently-suppressed findings are always excluded —
@@ -40,7 +40,7 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 	sevF := q.Get("severity")
 	minScore, _ := strconv.Atoi(q.Get("min_score"))
 	delta := q.Get("delta") == "true"
-	datasetF := q.Get("dataset")
+	sensorF := q.Get("sensor")
 	statusF := q.Get("status")     // "open" | "acknowledged" | "escalated"
 	iocOnly := q.Get("ioc_only") == "true"
 
@@ -85,7 +85,7 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 		if delta && !f.IsNew {
 			continue
 		}
-		if datasetF != "" && f.Dataset != datasetF {
+		if sensorF != "" && f.Sensor != sensorF {
 			continue
 		}
 		if srcMatcher != nil && !srcMatcher(f.SrcIP) {

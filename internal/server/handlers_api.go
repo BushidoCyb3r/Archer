@@ -16,16 +16,18 @@ import (
 	"github.com/BushidoCyb3r/Archer/internal/store"
 )
 
-// datasetFromPath returns the first path component under logsDir.
-// e.g. logsDir=/logs  path=/logs/apt29/2024-01-01/conn.log  →  "apt29"
-func datasetFromPath(logsDir, filePath string) string {
+// sensorFromPath returns the first path component under logsDir, which is
+// the sensor name in a Quiver-fed deployment. Pre-Quiver / manual uploads
+// dropped logs into top-level subdirectories that served the same role —
+// the field's logical meaning is the same, only the source has changed.
+// e.g. logsDir=/logs  path=/logs/zeek-01/2024-01-01/conn.log  →  "zeek-01"
+func sensorFromPath(logsDir, filePath string) string {
 	logsDir = filepath.Clean(logsDir)
 	filePath = filepath.Clean(filePath)
 	rel, err := filepath.Rel(logsDir, filePath)
 	if err != nil || rel == "." {
 		return ""
 	}
-	// First component of the relative path is the dataset name
 	parts := strings.SplitN(rel, string(filepath.Separator), 2)
 	if len(parts) > 0 && parts[0] != "." {
 		return parts[0]
@@ -823,11 +825,11 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="archer_%s.csv"`, time.Now().Format("20060102_150405")))
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"score", "severity", "type", "src_ip", "dst_ip", "dst_port", "timestamp", "detail", "source_file", "dataset", "status", "analyst", "analyst_note"})
+	_ = cw.Write([]string{"score", "severity", "type", "src_ip", "dst_ip", "dst_port", "timestamp", "detail", "source_file", "sensor", "status", "analyst", "analyst_note"})
 	for _, f := range findings {
 		_ = cw.Write([]string{
 			strconv.Itoa(f.Score), string(f.Severity), f.Type,
-			f.SrcIP, f.DstIP, f.DstPort, f.Timestamp, f.Detail, f.SourceFile, f.Dataset,
+			f.SrcIP, f.DstIP, f.DstPort, f.Timestamp, f.Detail, f.SourceFile, f.Sensor,
 			string(f.Status), f.Analyst, f.AnalystNote,
 		})
 	}

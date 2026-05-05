@@ -322,23 +322,23 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) {
 		findings := az.Analyze(files)
 
 		if logsDir != "" {
-			datasetSet := make(map[string]struct{})
+			sensorSet := make(map[string]struct{})
 			for _, fp := range files {
-				if ds := datasetFromPath(logsDir, fp); ds != "" {
-					datasetSet[ds] = struct{}{}
+				if s := sensorFromPath(logsDir, fp); s != "" {
+					sensorSet[s] = struct{}{}
 				}
 			}
-			if len(datasetSet) == 1 {
-				var singleDS string
-				for ds := range datasetSet {
-					singleDS = ds
+			if len(sensorSet) == 1 {
+				var single string
+				for s := range sensorSet {
+					single = s
 				}
 				for i := range findings {
-					findings[i].Dataset = singleDS
+					findings[i].Sensor = single
 				}
 			} else {
 				for i := range findings {
-					findings[i].Dataset = datasetFromPath(logsDir, findings[i].SourceFile)
+					findings[i].Sensor = sensorFromPath(logsDir, findings[i].SourceFile)
 				}
 			}
 		}

@@ -70,12 +70,18 @@ func (s *Store) InitDB(db *sql.DB) {
 		status_ts    TEXT,
 		ioc_match    INTEGER DEFAULT 0,
 		is_new       INTEGER DEFAULT 0,
-		dataset      TEXT,
+		sensor       TEXT,
 		intervals    TEXT,
 		ts_data      TEXT,
 		notes        TEXT
 	)`); err != nil {
 		log.Printf("store: cannot create findings table: %v", err)
+	}
+	// Migration: pre-Quiver schemas had this column named "dataset". The rename
+	// is one-way; once renamed the ALTER becomes a no-op (column already named
+	// "sensor"), and the duplicate-column error is the all-clear signal.
+	if _, err := db.Exec(`ALTER TABLE findings RENAME COLUMN dataset TO sensor`); err == nil {
+		log.Printf("store: migrated findings.dataset → findings.sensor")
 	}
 
 	load := func(tbl string, dst map[string]bool) {
@@ -162,7 +168,7 @@ func (s *Store) loadFindings() {
 	if s.db == nil {
 		return
 	}
-	rows, err := s.db.Query(`SELECT id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, dataset, intervals, ts_data, notes FROM findings ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes FROM findings ORDER BY id`)
 	if err != nil {
 		log.Printf("store: load findings: %v", err)
 		return
@@ -172,7 +178,7 @@ func (s *Store) loadFindings() {
 		var f model.Finding
 		var iocMatch, isNew int
 		var intervals, tsData, notes string
-		if err := rows.Scan(&f.ID, &f.Type, &f.Severity, &f.Score, &f.SrcIP, &f.DstIP, &f.DstPort, &f.Detail, &f.Timestamp, &f.SourceFile, &f.Status, &f.Analyst, &f.AnalystNote, &f.StatusTS, &iocMatch, &isNew, &f.Dataset, &intervals, &tsData, &notes); err != nil {
+		if err := rows.Scan(&f.ID, &f.Type, &f.Severity, &f.Score, &f.SrcIP, &f.DstIP, &f.DstPort, &f.Detail, &f.Timestamp, &f.SourceFile, &f.Status, &f.Analyst, &f.AnalystNote, &f.StatusTS, &iocMatch, &isNew, &f.Sensor, &intervals, &tsData, &notes); err != nil {
 			log.Printf("store: scan finding: %v", err)
 			continue
 		}
@@ -225,9 +231,9 @@ func (s *Store) saveFindings() {
 			isNew = 1
 		}
 		_, err := tx.Exec(
-			`INSERT INTO findings (id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, dataset, intervals, ts_data, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT INTO findings (id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			f.ID, f.Type, string(f.Severity), f.Score, f.SrcIP, f.DstIP, f.DstPort, f.Detail, f.Timestamp, f.SourceFile,
-			string(f.Status), f.Analyst, f.AnalystNote, f.StatusTS, iocMatch, isNew, f.Dataset,
+			string(f.Status), f.Analyst, f.AnalystNote, f.StatusTS, iocMatch, isNew, f.Sensor,
 			string(intervals), string(tsData), string(notes),
 		)
 		if err != nil {
