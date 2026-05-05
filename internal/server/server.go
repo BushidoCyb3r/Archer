@@ -26,6 +26,7 @@ type Server struct {
 	activeAnalyzer *analysis.Analyzer
 	watchMu        sync.Mutex
 	watchCancel    context.CancelFunc
+	tlsFingerprint string
 }
 
 // New creates and wires all routes, then starts the watch loop if configured.
@@ -38,6 +39,29 @@ func New(st *store.Store, us *store.UserStore, broker *Broker, webDir, logsDir s
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
+}
+
+// SetTLSFingerprint stores the public-key SHA256 of Archer's TLS cert so
+// the Quiver enrollment one-liner can pin against it via curl --pinnedpubkey.
+func (s *Server) SetTLSFingerprint(fp string) { s.tlsFingerprint = fp }
+
+// TLSFingerprint returns the value previously set by SetTLSFingerprint.
+// Empty when TLS bootstrap was skipped (e.g. plain-HTTP-only dev runs).
+func (s *Server) TLSFingerprint() string { return s.tlsFingerprint }
+
+// SensorFacingHost returns the hostname/IP an admin should embed into
+// sensor enrollment commands. The admin-supplied override in settings
+// wins; otherwise we fall back to the Host header on the request that
+// generated the install one-liner — which is what the admin's browser
+// itself is using to reach Archer, almost always the right answer.
+func (s *Server) SensorFacingHost(r *http.Request) string {
+	if h := s.store.GetSensorFacingHost(); h != "" {
+		return h
+	}
+	if r != nil && r.Host != "" {
+		return r.Host
+	}
+	return "archer:8443"
 }
 
 func (s *Server) routes() {

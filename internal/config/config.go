@@ -59,6 +59,13 @@ type Config struct {
 	// public blocks, or any non-RFC-1918 address you want to monitor as
 	// "your host." Examples: "203.0.113.0/24", "198.51.100.42".
 	OrgInternalCIDRs []string `json:"org_internal_cidrs,omitempty"`
+
+	// SensorFacingHost is the hostname/IP (and optional :port) that Quiver
+	// install one-liners should target. Empty = derive from the Host header
+	// on the admin's enrollment request. Set this when Archer is reached at
+	// different addresses internally vs. from the sensor network — e.g. the
+	// admin uses an internal DNS name but sensors come in via a public IP.
+	SensorFacingHost string `json:"sensor_facing_host,omitempty"`
 }
 
 func Default() Config {
