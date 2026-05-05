@@ -1690,24 +1690,42 @@
       const timeInput = document.getElementById('watch-time');
       if (timeInput) timeInput.value = cfg.time;
     }
+    const tzInput = document.getElementById('watch-tz');
+    if (tzInput) tzInput.value = cfg.timezone || '';
   }
 
   function initWatch() {
+    // Populate the IANA list from the browser's own zoneinfo. Modern Chromium
+    // and Firefox expose ~600 zones via Intl.supportedValuesOf; fallback is a
+    // free-text input — server validates with time.LoadLocation either way.
+    const dl = document.getElementById('watch-tz-list');
+    if (dl && typeof Intl.supportedValuesOf === 'function') {
+      try {
+        Intl.supportedValuesOf('timeZone').forEach(z => {
+          const opt = document.createElement('option');
+          opt.value = z;
+          dl.appendChild(opt);
+        });
+      } catch (e) {}
+    }
+
     const btn = document.getElementById('watch-btn');
     if (btn) {
       btn.addEventListener('click', async () => {
         const timeVal = (document.getElementById('watch-time').value || '').trim();
+        const tzVal   = (document.getElementById('watch-tz').value   || '').trim();
         const enabling = !_watchActive;
         if (enabling && !timeVal) { setStatus('Enter a time for the daily analysis'); return; }
         try {
           await api('/api/watch', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({time: timeVal, enabled: enabling}),
+            body: JSON.stringify({time: timeVal, timezone: tzVal, enabled: enabling}),
           });
           const cfg = await api('/api/watch');
           _updateWatchUI(cfg);
-          setStatus(enabling ? `Watch enabled — daily analysis at ${timeVal} UTC` : 'Watch disabled');
+          const tzLabel = tzVal || 'UTC';
+          setStatus(enabling ? `Watch enabled — daily analysis at ${timeVal} ${tzLabel}` : 'Watch disabled');
         } catch(e) { setStatus('Watch error: ' + e); }
       });
     }

@@ -27,8 +27,9 @@ type Config struct {
 	CrowdSecAPIKey        string  `json:"crowdsec_api_key"`
 
 	// Watch mode — daily scheduled analysis
-	WatchTime    string `json:"watch_time"`    // HH:MM in UTC, e.g. "02:00"
-	WatchEnabled bool   `json:"watch_enabled"`
+	WatchTime     string `json:"watch_time"`               // HH:MM in WatchTimezone, e.g. "02:00"
+	WatchEnabled  bool   `json:"watch_enabled"`
+	WatchTimezone string `json:"watch_timezone,omitempty"` // IANA name, e.g. "America/New_York". Empty = UTC.
 
 	// Archive mode — moves log files older than a cutoff out of the scan
 	// directory. Findings remain in the database by default.
