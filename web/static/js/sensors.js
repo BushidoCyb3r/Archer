@@ -12,6 +12,7 @@
 const Sensors = (() => {
   let _isAdmin = false;
   let _info = null; // {tls_fingerprint, sensor_facing_host, effective_host}
+  let _tz   = '';   // IANA name from the watch config; '' = UTC
 
   // ── helpers ───────────────────────────────────────────────────────────
 
@@ -39,11 +40,66 @@ const Sensors = (() => {
   function _fmtTS(ts) {
     if (!ts) return '—';
     const d = new Date(ts * 1000);
-    return d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+    return d.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
   }
 
   function _fmtSlot(h, m) {
     return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  }
+
+  // _tzName returns whatever IANA name we render times in. Empty config
+  // means "use UTC", which the formatters below pass straight through.
+  function _tzName() { return _tz || 'UTC'; }
+
+  // _fmtSlotLocal renders the hourly push slot. Under hourly mode the
+  // slot is just a minute-of-hour and timezone-independent (every hour
+  // at :MM is the same in every timezone), so we drop the abbrev and
+  // show ":MM hourly" to make the cadence explicit.
+  function _fmtSlotLocal(_h, m) {
+    const mm = String(m || 0).padStart(2, '0');
+    return `:${mm} hourly`;
+  }
+
+  // _fmtTSLocal renders an epoch in the watch-mode timezone using the
+  // same YYYY-MM-DD HH:MM:SS TZ shape the rest of the modal uses.
+  function _fmtTSLocal(ts) {
+    if (!ts) return '—';
+    const d = new Date(ts * 1000);
+    try {
+      const fmt = new Intl.DateTimeFormat('en-US', {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+        timeZone: _tzName(),
+        timeZoneName: 'short',
+      });
+      const parts = fmt.formatToParts(d).reduce((a, p) => (a[p.type] = p.value, a), {});
+      return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second} ${parts.timeZoneName}`;
+    } catch (e) {
+      return _fmtTS(ts);
+    }
+  }
+
+  // _slotHealth classifies whether the sensor hit its most recent
+  // hourly slot. Under hourly mode the cadence is simple: a healthy
+  // sensor checks in at least once per hour. Anything past 1h + 30min
+  // grace without a checkin is "missed."
+  //   ✓ on time — last_seen_at within the last hour
+  //   pending   — within grace window of the most recent slot tick
+  //   ⚠ missed  — > 1h + grace since last checkin
+  //   never     — sensor has never been seen
+  // Disenrolled / disenrolling sensors return em-dash.
+  function _slotHealth(sn, nowEpoch) {
+    if (sn.status !== 'enrolled') return '<span style="color:var(--fg-dim)">—</span>';
+    if (!sn.last_seen_at) return '<span style="color:var(--fg-dim);font-size:11px">never</span>';
+    const ageSec = nowEpoch - sn.last_seen_at;
+    const grace = 1800; // 30 minutes
+    if (ageSec <= 3600) {
+      return '<span style="color:var(--sev-low);font-size:11px;font-weight:600">✓ on time</span>';
+    }
+    if (ageSec <= 3600 + grace) {
+      return '<span style="color:var(--fg-dim);font-size:11px">pending</span>';
+    }
+    return '<span style="color:var(--sev-medium);font-size:11px;font-weight:600">⚠ missed</span>';
   }
 
   function _statusBadge(status) {
@@ -77,21 +133,32 @@ const Sensors = (() => {
     try { _info = await _api('/api/sensors/info'); } catch (e) { _info = null; }
   }
 
+  // _loadWatchTZ pulls the analyst-configured timezone from the watch
+  // endpoint (any authenticated user can hit it). Used for the Slot and
+  // Last seen columns so analysts read times in their own timezone.
+  async function _loadWatchTZ() {
+    try {
+      const w = await _api('/api/watch');
+      _tz = (w && w.timezone) || '';
+    } catch (e) { _tz = ''; }
+  }
+
   // ── render ────────────────────────────────────────────────────────────
 
   function _renderSensors(sensors) {
     const tbody = document.getElementById('sensors-tbody');
     if (!tbody) return;
     if (!sensors || sensors.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" style="font-style:italic;color:var(--fg-dim);text-align:center;padding:12px">No sensors enrolled yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="font-style:italic;color:var(--fg-dim);text-align:center;padding:12px">No sensors enrolled yet.</td></tr>';
       return;
     }
+    const now = Math.floor(Date.now() / 1000);
     tbody.innerHTML = sensors.map(sn => {
       let actions = '';
       if (_isAdmin) {
         if (sn.status === 'enrolled') {
           actions = `<button class="dlg-btn secondary" data-act="schedule" data-id="${sn.id}">Slot</button>
-                     <button class="dlg-btn secondary" data-act="disenroll" data-id="${sn.id}" data-name="${_esc(sn.name)}">Disenroll</button>`;
+                     <button class="dlg-btn danger" data-act="disenroll" data-id="${sn.id}" data-name="${_esc(sn.name)}">Disenroll</button>`;
         } else if (sn.status === 'disenrolled') {
           actions = `<button class="dlg-btn danger" data-act="purge" data-id="${sn.id}" data-name="${_esc(sn.name)}">Purge data</button>`;
         }
@@ -100,8 +167,9 @@ const Sensors = (() => {
         <td style="font-family:monospace">${_esc(sn.name)}</td>
         <td style="font-size:11px;color:var(--fg-dim)">${_esc(sn.host || '—')}</td>
         <td>${_statusBadge(sn.status)}</td>
-        <td style="font-family:monospace">${_fmtSlot(sn.schedule_hour, sn.schedule_minute)}</td>
-        <td style="font-size:11px">${_fmtTS(sn.last_seen_at)}</td>
+        <td style="font-family:monospace;white-space:nowrap">${_fmtSlotLocal(sn.schedule_hour, sn.schedule_minute)}</td>
+        <td style="font-size:11px;white-space:nowrap">${_fmtTSLocal(sn.last_seen_at)}</td>
+        <td>${_slotHealth(sn, now)}</td>
         <td style="text-align:right">${actions}</td>
       </tr>`;
     }).join('');
@@ -110,25 +178,28 @@ const Sensors = (() => {
   function _renderTokens(tokens) {
     const tbody = document.getElementById('sensors-tokens-tbody');
     if (!tbody) return;
-    if (!tokens || tokens.length === 0) {
+    // "Pending Tokens" is for tokens awaiting enrollment or revocation.
+    // Once a token's been consumed it shows up as a row in the Enrolled
+    // Sensors table — surfacing it here too just clutters the actionable
+    // list.
+    const pending = (tokens || []).filter(t => !t.used_at);
+    if (pending.length === 0) {
       tbody.innerHTML = '<tr><td colspan="6" style="font-style:italic;color:var(--fg-dim);text-align:center;padding:12px">No outstanding tokens.</td></tr>';
       return;
     }
     const now = Math.floor(Date.now() / 1000);
-    tbody.innerHTML = tokens.map(t => {
+    tbody.innerHTML = pending.map(t => {
       let status, color;
-      if (t.used_at) { status = 'used'; color = 'var(--fg-dim)'; }
-      else if (t.expires_at <= now) { status = 'expired'; color = 'var(--sev-medium)'; }
+      if (t.expires_at <= now) { status = 'expired'; color = 'var(--sev-medium)'; }
       else { status = 'fresh'; color = 'var(--accent)'; }
-      const trunc = t.token.length > 18 ? t.token.slice(0, 16) + '…' : t.token;
-      const actions = (_isAdmin && status !== 'used')
+      const actions = _isAdmin
         ? `<button class="dlg-btn secondary" data-act="revoke-token" data-id="${t.id}">Revoke</button>`
         : '';
       return `<tr>
-        <td style="font-family:monospace;font-size:11px" title="${_esc(t.token)}">${_esc(trunc)}</td>
+        <td style="font-family:monospace;font-size:11px;white-space:nowrap">${_esc(t.token)}</td>
         <td>${_esc(t.override_name || '—')}</td>
-        <td style="font-size:11px">${_fmtTS(t.created_at)}</td>
-        <td style="font-size:11px">${_fmtTS(t.expires_at)}</td>
+        <td style="font-size:11px;white-space:nowrap">${_fmtTS(t.created_at)}</td>
+        <td style="font-size:11px;white-space:nowrap">${_fmtTS(t.expires_at)}</td>
         <td><span style="color:${color};font-size:11px">${status}</span></td>
         <td style="text-align:right">${actions}</td>
       </tr>`;
@@ -150,8 +221,8 @@ const Sensors = (() => {
       return `<tr>
         <td style="font-family:monospace">${_esc(a.name)}</td>
         <td style="font-family:monospace;font-size:11px">${_esc(a.source_ip)}</td>
-        <td style="font-size:11px">${_fmtTS(a.first_seen)}</td>
-        <td style="font-size:11px">${_fmtTS(a.last_seen)}</td>
+        <td style="font-size:11px;white-space:nowrap">${_fmtTS(a.first_seen)}</td>
+        <td style="font-size:11px;white-space:nowrap">${_fmtTS(a.last_seen)}</td>
         <td>${a.attempt_count}</td>
         <td style="text-align:right">${actions}</td>
       </tr>`;
@@ -208,10 +279,29 @@ const Sensors = (() => {
       const line = _oneLiner(t.token, _info);
       document.getElementById('sensors-token-oneliner').value = line;
       document.getElementById('sensors-token-result').style.display = '';
+      _setTokenStatus('waiting');
       refresh();
     } catch (e) {
       errEl.textContent = (e && e.message) || String(e);
       errEl.style.display = '';
+    }
+  }
+
+  // _setTokenStatus drives the small status line under the curl command.
+  // 'waiting' is the initial state shown while the admin runs the install
+  // on the sensor; 'enrolled' swaps in the confirmation tick when the
+  // sensor_enrolled SSE event fires.
+  function _setTokenStatus(state, sensor) {
+    const el = document.getElementById('sensors-token-status');
+    if (!el) return;
+    if (state === 'waiting') {
+      el.innerHTML = '<span class="pulse-dot"></span> Waiting for sensor to run the install command…';
+      el.style.color = 'var(--fg-dim)';
+    } else if (state === 'enrolled' && sensor) {
+      el.innerHTML = `<span style="color:var(--sev-low);font-weight:700;font-size:14px">✓</span> Enrolled as <code>${_esc(sensor.name)}</code>`;
+      el.style.color = 'var(--fg-primary)';
+    } else {
+      el.innerHTML = '';
     }
   }
 
@@ -272,19 +362,19 @@ const Sensors = (() => {
 
   function _openScheduleDialog(id) {
     const dlg = document.getElementById('sensors-schedule-dlg');
-    const hourEl = document.getElementById('sensors-sched-hour');
-    const minEl  = document.getElementById('sensors-sched-minute');
-    hourEl.value = '';
-    minEl.value  = '';
+    const minEl = document.getElementById('sensors-sched-minute');
+    minEl.value = '';
     const onSave = async () => {
-      const h = parseInt(hourEl.value, 10);
       const m = parseInt(minEl.value, 10);
-      if (isNaN(h) || isNaN(m)) { return; }
+      if (isNaN(m)) { return; }
       try {
+        // Hour is always 0 under hourly mode; the server keeps the
+        // column for legacy daily-mode sensors but the cron line is
+        // built without it.
         await _api('/api/sensors/schedule', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({id, hour: h, minute: m}),
+          body: JSON.stringify({id, hour: 0, minute: m}),
         });
         cleanup();
         refresh();
@@ -318,7 +408,7 @@ const Sensors = (() => {
 
     const dlg = document.getElementById('sensors-dialog');
     btn.addEventListener('click', async () => {
-      await _loadInfo();
+      await Promise.all([_loadInfo(), _loadWatchTZ()]);
       await refresh();
       dlg.showModal();
     });
@@ -331,10 +421,15 @@ const Sensors = (() => {
         document.getElementById('sensors-token-override').value = '';
         document.getElementById('sensors-token-result').style.display = 'none';
         document.getElementById('sensors-token-error').style.display = 'none';
+        _setTokenStatus(null);
         tokenDlg.showModal();
       });
     }
     document.getElementById('sensors-token-close').addEventListener('click', () => tokenDlg.close());
+    // Refresh the parent Sensors table whenever the enroll dialog closes
+    // (button, ESC, anything) so the analyst sees the new sensor row
+    // without manually reopening the modal.
+    tokenDlg.addEventListener('close', () => { refresh(); });
     document.getElementById('sensors-token-generate').addEventListener('click', _generateToken);
     document.getElementById('sensors-token-copy').addEventListener('click', _copyToken);
 
@@ -349,6 +444,13 @@ const Sensors = (() => {
     if (typeof SSE !== 'undefined' && SSE.on) {
       SSE.on('unauthorized_attempt', () => {
         if (dlg.open) refresh();
+      });
+      // When a sensor finishes enrollment: refresh the parent table so
+      // the new row appears, and if the enroll dialog is still open
+      // swap its "waiting" line for the confirmation tick.
+      SSE.on('sensor_enrolled', sensor => {
+        if (dlg.open) refresh();
+        if (tokenDlg.open) _setTokenStatus('enrolled', sensor);
       });
     }
   }

@@ -16,6 +16,14 @@ FROM alpine:3.20
 # tzdata are kept from the original image for outbound TLS calls.
 RUN apk add --no-cache ca-certificates tzdata openssh-server tini rsync rrsync \
     && adduser -D -h /home/quiver -s /bin/sh quiver \
+    # adduser -D leaves /etc/shadow with `quiver:!:...` which marks the
+    # account locked. Alpine's openssh is built without PAM (UsePAM is a
+    # no-op), so its allowed_user check refuses locked accounts even with
+    # PubkeyAuthentication=yes — sshd logs "invalid user quiver" and the
+    # rsync push fails with Permission denied. `*` means "no usable
+    # password" without locking the account; PasswordAuthentication=no
+    # in sshd_config keeps password auth shut regardless.
+    && sed -i 's/^quiver:!:/quiver:*:/' /etc/shadow \
     && mkdir -p /home/quiver/.ssh /etc/ssh/keys /run/sshd \
     && touch /home/quiver/.ssh/authorized_keys \
     && chown -R quiver:quiver /home/quiver \

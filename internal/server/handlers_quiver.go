@@ -13,8 +13,11 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/store"
@@ -124,10 +127,25 @@ func (s *Server) handleQuiverEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hour, minute := randomDailySlot()
+	// Hourly cadence: pick a random minute-of-hour per sensor so 20
+	// sensors don't all hit Archer at HH:00. ScheduleHour is preserved
+	// in the row schema for backward-compat with daily-mode sensors but
+	// is no longer consulted by the cron line install.sh writes.
+	hour := 0
+	minute := randomMinute()
 	authLine := BuildAuthKeyLine(finalName, req.Pubkey)
 	if err := AppendAuthKey(s.authKeysPath, authLine); err != nil {
 		jsonError(w, "could not write authorized_keys: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// rrsync chroots into /logs/<name>/ on the first push; if the dir
+	// doesn't exist its lock_or_die opens a missing path and the rsync
+	// connection drops with FileNotFoundError. Create it here, owned by
+	// the same uid that runs rrsync (the user sshd drops to, derived
+	// from the authorized_keys parent dir's owner).
+	if err := s.ensureSensorLogDir(finalName); err != nil {
+		_ = RemoveAuthKey(s.authKeysPath, authLine)
+		jsonError(w, "could not create sensor logs dir: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -151,6 +169,13 @@ func (s *Server) handleQuiverEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sensor.ID = id
+
+	// Live event for the Sensors modal: the parent table can refresh
+	// in place, and the still-open enrollment dialog can swap its
+	// "waiting" status for a confirmation tick without polling.
+	if data, err := json.Marshal(sensor); err == nil {
+		s.broker.Publish(SSEEvent{Type: "sensor_enrolled", Data: string(data)})
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
@@ -211,17 +236,15 @@ func (s *Server) handleQuiverCheckin(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"status": "unknown"})
 }
 
-// randomDailySlot picks a uniformly random (hour, minute) within a day,
-// using crypto/rand because the schedule is the moment a sensor leaks
-// its presence to the network — predictable seeding wouldn't be a
-// security flaw here, but using the same RNG everywhere is one less
-// thing to remember.
-func randomDailySlot() (hour, minute int) {
-	var b [2]byte
+// randomMinute picks a uniformly random minute-of-hour for an enrolled
+// sensor's hourly push. Using crypto/rand keeps every random source in
+// this codebase consistent; predictable seeding wouldn't be a security
+// flaw here, but the schedule is when the sensor's presence becomes
+// observable to the network so randomness is still desirable.
+func randomMinute() int {
+	var b [1]byte
 	_, _ = rand.Read(b[:])
-	hour = int(b[0]) % 24
-	minute = int(b[1]) % 60
-	return
+	return int(b[0]) % 60
 }
 
 // sourceIP returns the client IP for an incoming request, stripping the
@@ -237,6 +260,30 @@ func sourceIP(r *http.Request) string {
 		ip = h
 	}
 	return ip
+}
+
+// ensureSensorLogDir creates /logs/<name>/ for an enrolling sensor and
+// chowns it to whoever owns the authorized_keys parent directory. That
+// parent is /home/quiver/.ssh in the bundled image, which means the new
+// dir ends up writable by the same uid sshd's privilege-separated
+// process drops to before exec'ing rrsync. Without this step rrsync's
+// chroot setup fails on first push with FileNotFoundError.
+func (s *Server) ensureSensorLogDir(name string) error {
+	dir := filepath.Join(s.logsDir, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if s.authKeysPath == "" {
+		return nil
+	}
+	fi, err := os.Stat(filepath.Dir(s.authKeysPath))
+	if err != nil {
+		return nil
+	}
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		_ = os.Chown(dir, int(st.Uid), int(st.Gid))
+	}
+	return nil
 }
 
 // b64Random returns n random bytes encoded as a URL-safe base64 string.

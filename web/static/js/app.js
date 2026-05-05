@@ -1730,6 +1730,30 @@
       });
     }
 
+    // Persist the timezone independently of the Enable/Disable toggle.
+    // The watch endpoint is single-write (time + enabled + timezone in
+    // one POST), so we re-send the current time + enabled state with
+    // the new TZ. Without this, an admin who changes the TZ but never
+    // toggles watch mode would lose the value on the next page load —
+    // which also breaks the Sensors modal that renders timestamps in
+    // whatever TZ this widget reports. Findings stay UTC; only modal
+    // and sensor-facing UI follow the configured zone.
+    const tzInputEl = document.getElementById('watch-tz');
+    if (tzInputEl) {
+      tzInputEl.addEventListener('change', async () => {
+        const tzVal   = (tzInputEl.value || '').trim();
+        const timeVal = (document.getElementById('watch-time').value || '').trim();
+        try {
+          await api('/api/watch', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({time: timeVal, timezone: tzVal, enabled: _watchActive}),
+          });
+          setStatus(tzVal ? `Timezone saved: ${tzVal}` : 'Timezone saved (UTC)');
+        } catch (e) { setStatus('Timezone error: ' + e); }
+      });
+    }
+
     api('/api/watch').then(cfg => _updateWatchUI(cfg)).catch(() => {});
   }
 

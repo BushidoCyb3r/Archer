@@ -59,13 +59,20 @@ fi
 echo "Archer limits:    ${ARCHER_CPUS} CPUs  |  ${ARCHER_MEMORY} RAM  (CPU 80% / RAM 70%)"
 echo ""
 
+# Pick the IP a remote analyst would use to reach this host. `ip route get`
+# returns the source address chosen for the default route, which is what
+# matters when LAN browsers point at us — falling back to localhost only
+# when no route is detectable (host with no network up).
+HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="src") { print $(i+1); exit }}')
+HOST_IP="${HOST_IP:-localhost}"
+
 # ── Dispatch ─────────────────────────────────────────────────────────────────
 
 case "$ACTION" in
   up)
     $COMPOSE up -d --build
     echo ""
-    echo "Archer is running at http://localhost:8080"
+    echo "Archer is running at http://${HOST_IP}:8080"
     ;;
   down)
     $COMPOSE down
@@ -74,7 +81,7 @@ case "$ACTION" in
     $COMPOSE down
     $COMPOSE up -d
     echo ""
-    echo "Archer is running at http://localhost:8080"
+    echo "Archer is running at http://${HOST_IP}:8080"
     ;;
   logs)
     $COMPOSE logs -f

@@ -172,8 +172,9 @@ button, input, select, textarea {
 }
 .badge.hidden { display: none; }
 
-/* Top-bar buttons (Settings, Users) */
+/* Top-bar buttons (Settings, Sensors, Users) */
 #settings-btn,
+#sensors-btn,
 #users-btn {
   background: transparent;
   border: 1px solid var(--border);
@@ -187,7 +188,9 @@ button, input, select, textarea {
   transition: background .12s, color .12s, border-color .12s;
 }
 #settings-btn:hover,
+#sensors-btn:hover,
 #users-btn:hover { background: var(--bg-elev-3); color: var(--fg-primary); border-color: var(--border-strong); }
+#sensors-btn,
 #users-btn { margin-right: 2px; }
 
 #pending-badge {
@@ -1202,6 +1205,28 @@ dialog::backdrop {
   font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
   line-height: 1.5;
 }
+/* Render number-input spinner arrows in the dark color scheme so they
+   show up as light/white-ish glyphs against the dark input background.
+   Without this hint the browser draws them using the system light scheme
+   and they're nearly invisible. */
+.dlg-input[type="number"] { color-scheme: dark; }
+
+/* Subtle pulsing dot used as a "waiting on something" indicator next
+   to the enrollment dialog's status line. */
+.pulse-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 6px;
+  vertical-align: middle;
+  animation: pulse-fade 1.4s ease-in-out infinite;
+}
+@keyframes pulse-fade {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 1; }
+}
 .dlg-footer {
   display: flex;
   justify-content: flex-end;
@@ -1229,6 +1254,12 @@ dialog::backdrop {
   border-color: var(--border);
 }
 .dlg-btn.secondary:hover { background: var(--bg-elev-3); color: var(--fg-primary); border-color: var(--border-strong); }
+.dlg-btn.danger {
+  background: var(--sev-critical);
+  color: #fff;
+  border-color: var(--sev-critical);
+}
+.dlg-btn.danger:hover { filter: brightness(1.1); }
 
 /* Suppress preset buttons */
 .preset-row { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
@@ -1270,6 +1301,8 @@ dialog::backdrop {
 #suppress-dialog              { width: 380px; }
 #allowlist-dialog,
 #ioc-dialog                   { width: 480px; }
+#sensors-token-dlg            { width: min(95vw, 1250px); }
+#sensors-dialog               { width: min(95vw, 1100px); }
 #settings-dialog              { width: 600px; }
 #users-dialog                 { width: 720px; }
 #chart-dialog                 { width: 880px; }

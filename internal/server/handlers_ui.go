@@ -29,7 +29,11 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		"ScoreExplanations": template.JS(scoreJSON),
 	}
 
+	// Like /static/, the index page is served no-store so a UI redeploy
+	// doesn't leave the browser holding a template from before new modal
+	// sections (e.g. Pending Tokens) were added.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
 	_ = tmpl.Execute(w, data)
 }
 
