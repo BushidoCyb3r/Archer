@@ -341,6 +341,16 @@ const Sensors = (() => {
     document.getElementById('sensors-tbody').addEventListener('click', _onSensorsTbodyClick);
     document.getElementById('sensors-tokens-tbody').addEventListener('click', _onTokensTbodyClick);
     document.getElementById('sensors-unauth-tbody').addEventListener('click', _onUnauthTbodyClick);
+
+    // Live update the Unauthorized Attempts table whenever the server
+    // observes a fresh checkin from a name we don't recognize. We only
+    // refresh when the modal is open — refreshing a hidden modal would
+    // burn cycles on data the analyst can't see.
+    if (typeof SSE !== 'undefined' && SSE.on) {
+      SSE.on('unauthorized_attempt', () => {
+        if (dlg.open) refresh();
+      });
+    }
   }
 
   return { init, refresh };

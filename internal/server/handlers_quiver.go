@@ -202,7 +202,12 @@ func (s *Server) handleQuiverCheckin(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"status": "disenrolled"})
 		return
 	}
-	s.store.RecordUnauthorizedAttempt(req.Name, sourceIP(r), time.Now().Unix())
+	attempt := s.store.RecordUnauthorizedAttempt(req.Name, sourceIP(r), time.Now().Unix())
+	// Push a live event so the Sensors modal updates the moment a fresh
+	// unauthorized name shows up, without the analyst having to refresh.
+	if data, err := json.Marshal(attempt); err == nil {
+		s.broker.Publish(SSEEvent{Type: "unauthorized_attempt", Data: string(data)})
+	}
 	json.NewEncoder(w).Encode(map[string]any{"status": "unknown"})
 }
 
