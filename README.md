@@ -19,6 +19,7 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 - [Log File Layout](#log-file-layout)
 - [Configuration](#configuration)
 - [Threat Intelligence](#threat-intelligence)
+- [Quiver Sensors](#quiver-sensors)
 - [User Roles](#user-roles)
 - [Web Interface](#web-interface)
 - [API Reference](#api-reference)
@@ -36,7 +37,7 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 - **Delta detection** — new findings are flagged so analysts can focus on what changed since the last run
 - **Raw-log pivot** — clicking a finding opens a Source Records dialog that scans the original Zeek logs (plus the archive) for matching records and renders the full standard schema with resizable, horizontally-scrollable columns; one-click **Export CSV** flattens every loaded record (with a leading `_log_type` column) for offline analysis
 - **In-app campaign graph** — right-click any campaign and pick **View campaign in Graph** to render a force-directed network graph of the involved hosts and destination, severity-coloured and sized by finding volume; clicking a node jumps the findings table to that IP
-- **Advanced filtering** — in addition to search/severity/type/min-score, filters include Src IP/CIDR, Dst IP/CIDR, dataset, and a time range; all filters are server-side
+- **Advanced filtering** — in addition to search/severity/type/min-score, filters include Src IP/CIDR, Dst IP/CIDR, sensor, and a time range; all filters are server-side
 - **Virtualized findings table** — the table renders only what's on screen, so result sets of any size stay smooth without truncation
 - **Per-tab exports** — every tab has its own CSV and JSON export. Findings/Acknowledged/Escalated/IOC Hits export only the visible subset (server-side, honoring all active filters). Campaigns and Hosts export their aggregations directly. A separate "All" export grabs every finding in the database. Right-click any single campaign row to export just that one campaign — useful for loading into a graphical viewer for stakeholder presentations.
 - **Log archive & retention** — admin-configurable: files older than N days automatically move from `/logs` to `/data/archive` after each watch analysis; findings are preserved by default (or optionally pruned past the same cutoff)
@@ -46,7 +47,8 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 - **Automatic free TI feeds** — Feodo Tracker C2 IPs and URLhaus malware hosts are fetched and cross-referenced during every analysis run without requiring API keys
 - **Role-based access control** — admin, analyst, and viewer roles with per-endpoint enforcement
 - **Analyst workbench** — acknowledge, escalate, suppress, add notes, and copy tcpdump/Suricata filter strings directly from the UI
-- **Watch mode** — admin-configurable daily schedule that automatically re-analyzes the logs directory at a set UTC time
+- **Watch mode** — admin-configurable daily schedule that automatically re-analyzes the logs directory at a set time in any IANA timezone (timezone selection persists independently of enable/disable)
+- **Quiver sensors** — optional companion agent that ships Zeek logs from any Linux sensor host into Archer over rsync-on-ssh. Enrollment is one curl one-liner per sensor (TLS-pinned), pubkey-pinned per-sensor authorized_keys, hourly randomized push window, live Sensors modal showing health/missed-slot status, single-step disenroll + log-tree purge. Auto-installs prerequisites on Debian/Ubuntu/RHEL/Oracle/Rocky/Alma/SLES/Alpine. See [docs/QUIVER.md](docs/QUIVER.md) for the full operator guide.
 - **Campaign & host views** — see which destinations are contacted by multiple internal hosts and view per-host composite risk scores
 - **Resource-aware deployment** — `start.sh` automatically allocates 80% of host CPU and 70% of host RAM to the container; RAM is held to a tighter cap so burst spikes have absorption headroom before they could OOM-kill the container. The entrypoint then wires the Go runtime memory limit to 90% of whatever budget it gets
 
@@ -153,16 +155,25 @@ archer/
 │   ├── server/
 │   │   ├── server.go           # Route registration
 │   │   ├── handlers_api.go     # All REST API handlers
+│   │   ├── handlers_ui.go      # Index template renderer (no-store)
+│   │   ├── handlers_quiver.go  # Sensor-facing endpoints: install.sh, enroll, checkin
+│   │   ├── handlers_sensors.go # Admin Sensors modal endpoints (list, tokens, disenroll, purge, schedule)
+│   │   ├── authorized_keys.go  # Per-sensor authorized_keys management with parent-owner chown
+│   │   ├── tls.go              # Self-signed ed25519 cert bootstrap + pinned-pubkey fingerprint
 │   │   ├── findings_filter.go  # Shared query-param filter used by list + exports
 │   │   ├── findings_raw.go     # Raw-log pivot: finds source records for a finding
 │   │   ├── archive.go          # Aged-log archive worker + finding prune
 │   │   ├── watch.go            # Watch mode scheduler, dataset fingerprint skip, preflight check, launchAnalysis
 │   │   ├── auth.go             # Session management, role middleware
 │   │   ├── upload.go           # Log file ingestion
-│   │   └── sse_broker.go       # Server-Sent Events fan-out
+│   │   ├── sse_broker.go       # Server-Sent Events fan-out
+│   │   └── quiver_assets/      # Embedded sensor scripts (install.sh, quiver.sh, quiver-uninstall.sh)
 │   └── store/
 │       ├── store.go            # Findings, allowlist, IOC list, suppressions, config — SQLite persistence
+│       ├── sensors.go          # Sensors, enrollment_tokens, unauthorized_attempts — SQLite persistence
 │       └── userstore.go        # User accounts, sessions — SQLite persistence
+├── entrypoint.sh               # sshd host-key bootstrap, /home/quiver/.ssh perms, GOMEMLIMIT, exec archer
+├── sshd_config                 # Sensor-facing sshd config — pubkey-only, AllowUsers quiver
 └── web/
     ├── templates/index.html    # Single-page application shell
     └── static/
@@ -174,6 +185,7 @@ archer/
             ├── table.js        # Findings table — virtual scrolling, sort
             ├── chart.js        # Beacon inter-arrival time chart
             ├── campaigns.js    # Campaign aggregation view
+            ├── sensors.js      # Sensors modal — enrolled, tokens, unauthorized, health
             ├── graph.js        # In-app campaign graph (Cytoscape wrapper)
             ├── cytoscape.min.js # Vendored Cytoscape.js (MIT, lazy-loaded)
             ├── notifications.js
@@ -484,7 +496,7 @@ Archer expects logs in the `logs/` directory **inside the cloned repository fold
         └── dns.log.gz
 ```
 
-Each subdirectory under `logs/` is treated as a distinct **dataset** or campaign and is labeled as such throughout the UI. Files can be uncompressed (`.log`) or gzip-compressed (`.log.gz`, `.gz`).
+Each subdirectory under `logs/` is treated as a distinct **sensor** (or, for hand-imported datasets, the directory name is the sensor label) and is shown as such throughout the UI. Files can be uncompressed (`.log`) or gzip-compressed (`.log.gz`, `.gz`). Quiver-enrolled sensors automatically populate `logs/<sensor-name>/YYYY-MM-DD/...` via rsync — see [Quiver Sensors](#quiver-sensors).
 
 ### 3. Start Archer
 
@@ -494,14 +506,24 @@ One command. No configuration required.
 sudo ./start.sh up
 ```
 
-`start.sh` measures the host (and the Docker daemon's view, in case it's smaller), allocates 80% of available CPU and 70% of available RAM to the container, builds the image, and starts Archer on port 8080. Drop the tool on a 16 GB laptop and it scales down; drop it on a 256 GB analysis box and it scales up. No env vars to set, no memory values to guess.
+`start.sh` measures the host (and the Docker daemon's view, in case it's smaller), allocates 80% of available CPU and 70% of available RAM to the container, builds the image, and starts Archer. Drop the tool on a 16 GB laptop and it scales down; drop it on a 256 GB analysis box and it scales up. No env vars to set, no memory values to guess. The summary at the end prints the host's actual reachable IP (from the default-route source address) so the URL is paste-ready for analysts on the same LAN.
 
 ```
 Host resources:   16 CPUs  |  32768 MB RAM
 Archer limits:    12.8 CPUs  |  22937m RAM  (CPU 80% / RAM 70%)
 
-Archer is running at http://localhost:8080
+Archer is running at http://10.0.0.17:8080
 ```
+
+Three ports are exposed:
+
+| Host port | Container port | Purpose |
+|---|---|---|
+| 8080 | 8080 | Analyst UI (HTTP, LAN-side) |
+| 8443 | 8443 | Quiver sensor checkin + install.sh (HTTPS, pinned-pubkey at enrollment) |
+| 2222 | 22 | Quiver sensor rsync-over-ssh (mapped off port 22 so a host-side sshd isn't disturbed) |
+
+Ports 8443 and 2222 only matter if you're using Quiver to ship logs from sensors. If you're hand-importing logs into `./logs`, ignore them.
 
 **Everyday operations** — same script:
 
@@ -546,10 +568,10 @@ Navigate to `http://localhost:8080`. The first user to register automatically re
 
 Archer reads Zeek-format logs. Files may be uncompressed (`.log`) or gzip-compressed (`.log.gz`, `.gz`). Both TSV (tab-separated with `#fields` header) and JSON/NDJSON formats are supported.
 
-The directory immediately under the configured logs root is used as the **dataset name** displayed throughout the UI. Deeper nesting is allowed but only the first level is used as the label:
+The directory immediately under the configured logs root is used as the **sensor name** displayed throughout the UI. Deeper nesting is allowed but only the first level is used as the label:
 
 ```
-/logs/<dataset-name>/[subdirs/]<file>.log
+/logs/<sensor-name>/[subdirs/]<file>.log
 ```
 
 Supported log filenames: `conn`, `dns`, `http`, `ssl`, `x509`, `files`, `weird`, `notice` (with or without `.log` suffix, with or without `.gz`).
@@ -646,6 +668,37 @@ Results are classified as `[HIT]` (threat confirmed) or `[CLEAN]` (no threats fo
 
 ---
 
+## Quiver Sensors
+
+Quiver is the optional sensor-side companion that ships Zeek logs from any Linux host into Archer. Each enrolled sensor pushes hourly via rsync-on-ssh; Archer treats every sensor as its own per-sensor log tree at `/logs/<sensor-name>/`, so analyzers, campaigns, and the host risk model keep per-sensor scope automatically.
+
+**Quick enrollment.** As an Archer admin, open the **Sensors** modal in the header → **+ Enroll new sensor** → **Generate token**. Copy the curl one-liner; on the sensor (as root):
+
+```sh
+sudo curl -fsSL -k --pinnedpubkey "sha256//<fingerprint>" \
+    https://<archer-host>:8443/quiver/install.sh | sudo bash -s -- <TOKEN>
+```
+
+The script auto-installs missing dependencies (rsync, openssh-client, cronie/cron, sudo, util-linux), creates a `quiver` system user, generates an ed25519 keypair, registers with Archer, drops `/etc/cron.d/quiver`, and runs a full first-sync. The Archer dialog flips from "Waiting…" to "✓ Enrolled as `<name>`" the moment the server records the enrollment.
+
+**Supported distros.** Debian, Ubuntu, Kali, RHEL/Oracle/Rocky/Alma 7+, Fedora, openSUSE/SLES, and Alpine. SELinux contexts are restored on RHEL-family hosts so cron can exec the daily script under enforcing mode.
+
+**Cadence.** Sensors push every hour at a server-assigned random minute-of-hour. Each push ships only the last 24 hours of completed `.gz` files (rsync mtime-skips already-shipped files). The first install-time push backfills everything.
+
+**Sensors modal.** Three tables visible to all authenticated users; admin-only writes:
+
+- **Enrolled Sensors** — name, host, status, slot, last seen (in your watch-mode timezone), Health (`✓ on time` / `pending` / `⚠ missed` / `never`), and admin actions (Slot reassign, Disenroll, Purge after disenroll).
+- **Pending Tokens** — outstanding tokens awaiting use or revocation. Used tokens are filtered out automatically (they show up as Enrolled Sensors). Admin can Revoke before use.
+- **Unauthorized Attempts** — checkins from sensor names Archer doesn't recognize, with source IP, attempt count, and first/last-seen timestamps. Auto-prunes after 30 days unless pinned. From here an admin can **Enroll this** (pre-fills the override name) or **Dismiss**.
+
+**Architecture summary.** Two separate channels: HTTPS on port 8443 with TLS-pinned curl for enrollment + daily checkins (pull-control), and rsync-over-ssh on host port 2222 with per-sensor `authorized_keys` lines pinning each session to `command="rrsync -wo /logs/<name>/"` (push). Disenrollment works without a sensor-side daemon — the next hourly checkin returns `{"status":"disenrolled"}` and the script self-cleans.
+
+**Persistence.** Sensor rows, tokens, unauthorized attempts, the SSL fingerprint, sshd host keys, and the per-sensor `authorized_keys` lines all live in named volumes (`archer-data`, `archer-sshd`, `archer-quiver`) and the host bind `./logs/`. `./start.sh up` rebuilds the image but never loses sensor state.
+
+For the full operator guide — architecture diagrams, sensor-side artifact layout, distro-specific notes, troubleshooting, and the sensor-facing endpoint reference — see **[docs/QUIVER.md](docs/QUIVER.md)**.
+
+---
+
 ## User Roles
 
 The first user to register automatically becomes an **admin** and is signed in immediately. Subsequent registrations create a **pending** account with the **viewer** role; the new user cannot sign in until an administrator approves them from the **Users** dialog. Approved viewers can be promoted to **analyst** or **admin** by an admin via the same dialog.
@@ -664,6 +717,12 @@ The first user to register automatically becomes an **admin** and is signed in i
 | Update analysis thresholds | ✓ | — | — |
 | Manage API keys | ✓ | — | — |
 | Configure watch mode | ✓ | — | — |
+| View Sensors modal (read-only tables) | ✓ | ✓ | — |
+| Enroll / disenroll / purge sensors | ✓ | — | — |
+| Generate / revoke enrollment tokens | ✓ | — | — |
+| Reassign sensor push slot | ✓ | — | — |
+| Dismiss unauthorized-attempt rows | ✓ | — | — |
+| Set sensor-facing host override | ✓ | — | — |
 | Create / delete users | ✓ | — | — |
 | Promote / demote user roles | ✓ | — | — |
 
@@ -677,10 +736,10 @@ Sessions are stored in SQLite with a 24-hour expiry, httpOnly cookies, and `Same
 
 | Section | Controls |
 |---|---|
-| **Zeek Logs** | Shows the current log directory; **Import** scans for new files; **Clear** removes the file list. The file list is grouped by dataset name with a file count. |
+| **Zeek Logs** | Shows the current log directory; **Import** scans for new files; **Clear** removes the file list. The file list is grouped by sensor (top-level subdirectory under `/logs`) with a file count. |
 | **Analysis** | **Analyze** starts the detection pipeline. A progress bar and step indicator update in real time via SSE. **Pause** and **Stop** are available during a run. |
 | **Threat Intel** | Displays a count of TI hits found in the last analysis. |
-| **Watch Mode** | All users can see whether watch mode is enabled and when the next run is scheduled. Admins can set a daily UTC time and enable or disable automatic analysis. |
+| **Watch Mode** | All users can see whether watch mode is enabled and when the next run is scheduled. Admins can set a daily time, pick an IANA timezone (e.g. `America/New_York`), and enable or disable automatic analysis. The timezone field auto-saves on change and persists independently of the enable/disable toggle — handy for setting timezone first then enabling later. |
 | **Allowlist** | Edit the list of IPs and domains to exclude from all findings. One entry per line. Findings matching an allowlisted IP are hidden across all tabs immediately after saving. |
 | **IOC List** | Edit the list of known-bad IPs and domains. Findings with a src/dst IP matching this list are tagged and appear in the IOC Hits tab. |
 | **Suppressions** | View all active suppressions with their target, context, and expiry time. Individual suppressions can be removed here; expired suppressions are pruned automatically. |
@@ -698,11 +757,11 @@ Sessions are stored in SQLite with a 24-hour expiry, httpOnly cookies, and `Same
 
 ### Findings Table
 
-Columns: **Score**, **Severity**, **Type**, **Src IP**, **Dst IP**, **Port**, **Timestamp**, **Dataset**, **Detail**, **Status**. All columns are sortable.
+Columns: **Score**, **Severity**, **Type**, **Source** (IP + port), **Destination**, **Port**, **Time (UTC)**, **Status**, **Sensor**, **Detail**. All columns are sortable. Findings timestamps are always rendered in UTC for consistency across analysts in different time zones.
 
 **Basic filters** (always visible): free-text search across IP addresses, domain names, types, and detail strings; severity level; detection type; minimum score.
 
-**Advanced filters** (collapsible panel, state remembered): **Src IP/CIDR**, **Dst IP/CIDR**, **Dataset**, **From**, and **To** (time-range pickers). All filters are server-side and compose freely.
+**Advanced filters** (collapsible panel, state remembered): **Src IP/CIDR**, **Dst IP/CIDR**, **Dst Port**, **Sensor**, **From**, and **To** (time-range pickers). All filters are server-side and compose freely.
 
 **Exports**: every tab has its own CSV and JSON download.
 
@@ -732,6 +791,16 @@ Selecting a finding opens the detail pane, which shows:
 - **Suppress** — suppresses alerts for the source or destination IP for a configurable duration; suppressed findings are hidden from all tabs until the suppression expires or is manually removed
 - **Analyst Recommendation** — auto-generated investigative guidance based on the finding type and score
 - **Notes** — chronological thread of analyst annotations; new notes can be added inline
+
+### Sensors Modal
+
+Header **Sensors** button (admin + analyst). Three tables:
+
+- **Enrolled Sensors** — read-only for analysts; admins also see Slot, Disenroll (red), and Purge data buttons. Slot and Last seen render in the watch-mode timezone with abbrev (e.g. `:30 hourly`, `2026-05-05 14:30:08 EDT`). Health column shows `✓ on time` (within 1h), `pending` (within 1.5h), `⚠ missed` (>1.5h since last checkin), or `never`.
+- **Pending Tokens** — outstanding enrollment tokens (24h TTL, single-use). Admins see the full token, override name, created/expires timestamps, and a Revoke button. Used tokens disappear from this list — they become rows in Enrolled Sensors. Live SSE updates: when a sensor finishes enrollment, the in-flight enrollment dialog flips to "✓ Enrolled as `<name>`" and the parent table refreshes automatically.
+- **Unauthorized Attempts** — checkins from sensor names Archer doesn't know about. Auto-prunes after 30 days unless an admin pins a row. Admin actions: **Enroll this** (pre-fills override name in the token dialog) or **Dismiss**. Live SSE updates the list when a fresh unrecognized checkin arrives.
+
+Admin-only "+ Enroll new sensor" dialog: optional override name, **Generate token**, then a 1200px-wide dialog showing the full curl one-liner with **Copy**, plus a status row that flips from "Waiting for sensor to run the install command…" (pulsing accent dot) to "✓ Enrolled as `<name>`" (green check) the moment the server records the enrollment. Closing the dialog refreshes the parent Sensors table.
 
 ### Settings Dialog (Admin only)
 
@@ -794,7 +863,7 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/api/findings` | Any | List findings. Query params: `search`, `type`, `severity`, `min_score`, `delta`, `src_ip` (IP or CIDR), `dst_ip` (IP or CIDR), `dataset`, `from`, `to` (both accept `YYYY-MM-DD HH:MM:SS` UTC or RFC3339), `status` (`open` / `acknowledged` / `escalated`), `ioc_only` (`true`), `sort`, `dir` |
+| `GET` | `/api/findings` | Any | List findings. Query params: `search`, `type`, `severity`, `min_score`, `delta`, `src_ip` (IP or CIDR), `dst_ip` (IP or CIDR), `dst_port`, `sensor`, `from`, `to` (both accept `YYYY-MM-DD HH:MM:SS` UTC or RFC3339), `status` (`open` / `acknowledged` / `escalated`), `ioc_only` (`true`), `sort`, `dir` |
 | `GET` | `/api/findings/{id}` | Any | Single finding detail |
 | `GET` | `/api/findings/{id}/raw` | Any | Raw-log pivot. Returns source Zeek records matching the finding's (src, dst) pair. Query params: `limit` (default 500, max 5000), `window_hours` (default 6; `0` means no time filter — scan every matching file) |
 | `PATCH` | `/api/findings/{id}` | Analyst+ | Update status: `{"status":"acknowledged"\|"escalated","analyst":"...","note":"..."}` |
@@ -851,8 +920,8 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/api/watch` | Any | `{"time":"HH:MM","enabled":bool,"next_run":"2026-04-25 02:00 UTC"}` |
-| `POST` | `/api/watch` | Admin | `{"time":"HH:MM","enabled":bool}` |
+| `GET` | `/api/watch` | Any | `{"time":"HH:MM","enabled":bool,"timezone":"America/New_York","next_run":"2026-04-25 02:00 EDT"}` |
+| `POST` | `/api/watch` | Admin | `{"time":"HH:MM","enabled":bool,"timezone":"America/New_York"}` — empty `timezone` means UTC. Server validates the IANA name with `time.LoadLocation`; bad names return 400. |
 
 ### Threat Intelligence
 
@@ -860,11 +929,41 @@ All API endpoints require authentication. Role requirements are noted where appl
 |---|---|---|---|
 | `GET` | `/api/ti/services` | Any | `{"vt":bool,"crowdsec":bool,"otx":bool,"abuseipdb":bool}` — true means API key is configured |
 
+### Sensors (Admin UI)
+
+Endpoints powering the Sensors modal. Read endpoints are open to admin + analyst; write endpoints are admin-only and enforce the role inside the handler.
+
+| Method | Path | Role | Description |
+|---|---|---|---|
+| `GET` | `/api/sensors` | Analyst+ | List every sensor row (any status), most recent enrollment first |
+| `GET` | `/api/sensors/info` | Admin | `{"tls_fingerprint":"...","sensor_facing_host":"...","effective_host":"..."}` for rendering install one-liners |
+| `PUT` | `/api/sensors/host` | Admin | `{"host":"10.0.0.17"}` (or `"host:port"`); set the sensor-facing override that install one-liners target |
+| `GET` | `/api/sensors/tokens` | Admin | List enrollment tokens (used + unused) |
+| `POST` | `/api/sensors/tokens` | Admin | `{"override_name":"..."}` mints a new single-use 24h token; returns `{token, override_name, created_at, expires_at, ...}` |
+| `POST` | `/api/sensors/tokens/revoke` | Admin | `{"id":N}` deletes an outstanding token row |
+| `POST` | `/api/sensors/disenroll` | Admin | `{"id":N}` flips the row to `disenrolling`, removes the authorized_keys line; the sensor self-cleans on its next checkin |
+| `POST` | `/api/sensors/purge` | Admin | `{"id":N}` archives `/logs/<name>/`, retags findings, drops the sensor row (only allowed once status is `disenrolled`) |
+| `POST` | `/api/sensors/schedule` | Admin | `{"id":N,"hour":0,"minute":N}` reassigns the push minute (hour is unused under hourly mode but accepted for backward compat) |
+| `GET` | `/api/sensors/unauthorized` | Analyst+ | List recent unrecognized checkin attempts |
+| `POST` | `/api/sensors/unauthorized/dismiss` | Admin | `{"id":N}` removes an unauthorized-attempt row |
+
+### Quiver (sensor-facing, no session auth)
+
+These endpoints are served on the TLS listener (`:8443`) and authenticated by single-use enrollment tokens (HTTPS) or per-sensor ed25519 keys (rsync sshd, host port `:2222`). They have no session cookies.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/quiver/install.sh` | Renders the install bash for the requesting host. Embeds the TLS fingerprint, host, ports, and base64-encoded daily + uninstall scripts so the install runs without a second network hop. |
+| `POST` | `/api/quiver/enroll` | Body `{token, name, host, pubkey}`. Validates the token, creates `/logs/<name>/`, writes the per-sensor `authorized_keys` line, persists the sensor row. Returns `{name, schedule_hour:0, schedule_minute:N}`. |
+| `POST` | `/api/quiver/checkin` | Body `{name}`. Returns `{"status":"enrolled","schedule":{"hour":0,"minute":N}}`, `{"status":"disenrolled"}`, or `{"status":"unknown"}`. Unknown checkins create `unauthorized_attempts` rows and push an SSE event. |
+
+See [docs/QUIVER.md](docs/QUIVER.md) for the full Quiver protocol description.
+
 ### Real-Time Events
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/events` | Any | SSE stream. Event types: `progress` `{"pct":N,"step":"..."}`, `status` `{"msg":"..."}`, `done` `{"count":N,"new_count":N,"cancelled":bool}`, `notification` (finding alert), `ti_result` `{"finding_id":N,"source":"...","detail":"...","hit":bool}`, `ti_done` `{"finding_id":N,"hits":N}` |
+| `GET` | `/events` | Any | SSE stream. Event types: `progress` `{"pct":N,"step":"..."}`, `status` `{"msg":"..."}`, `done` `{"count":N,"new_count":N,"cancelled":bool}`, `notification` (finding alert), `ti_result` `{"finding_id":N,"source":"...","detail":"...","hit":bool}`, `ti_done` `{"finding_id":N,"hits":N}`, `unauthorized_attempt` (full unauthorized-attempt row when an unknown sensor name checks in), `sensor_enrolled` (full sensor row when a fresh enrollment completes — drives the in-flight enrollment dialog's confirmation tick and the parent Sensors table refresh) |
 
 ---
 
@@ -874,7 +973,7 @@ Two paths, depending on scope.
 
 **Soft reset — clear findings only.** From the Settings dialog, **Danger Zone → Discard findings & re-analyze** drops every finding in the database and relaunches analysis against the current log set. User accounts, allowlists, IOC lists, suppressions, threshold config, and API keys are preserved. Useful after threshold changes when you want a clean finding baseline without losing operator state.
 
-**Hard reset — wipe the database volume.** `reset.sh` stops Archer, removes the entire SQLite volume (users, findings, suppressions, archive config — everything), and starts a fresh instance. Log files in `./logs` are not affected.
+**Hard reset — wipe the database volumes.** `reset.sh` stops Archer, removes the named Docker volumes (`archer-data`, `archer-sshd`, `archer-quiver` — i.e. SQLite DB, TLS material, sshd host keys, sensor `authorized_keys`), and starts a fresh instance. Log files in `./logs` are not affected. **Note:** wiping `archer-quiver` invalidates every enrolled sensor's pubkey — you'll need to re-enroll them. Wiping `archer-sshd` rotates the sshd host keys, so existing sensors' `known_hosts` will see a host-key mismatch on next push and need to re-pin (re-enrollment is the simplest path).
 
 ```bash
 sudo ./reset.sh

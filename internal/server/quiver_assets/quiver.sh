@@ -10,10 +10,15 @@ set -eu
 . /etc/quiver/config
 
 # Single-instance lock — overlapping rsyncs would fight for the same
-# files and the same sshd connection slot.
-LOCK=/var/lock/quiver.lock
-exec 200>"$LOCK"
-if ! flock -n 200; then
+# files and the same sshd connection slot. Single-digit fd is required;
+# dash (Debian/Ubuntu /bin/sh) parses multi-digit fds in `exec N>FILE`
+# as a command named N, which fails with "exec: 200: not found".
+# /var/lock is root:0755 on RHEL/Oracle — not quiver-writable. Use the
+# install-created /var/lib/quiver instead, which is owned by the quiver
+# user on every distro.
+LOCK=/var/lib/quiver/quiver.lock
+exec 9>"$LOCK"
+if ! flock -n 9; then
     echo "quiver: another run already in progress" >&2
     exit 0
 fi
@@ -29,19 +34,15 @@ status=$(echo "$resp" | sed -n 's/.*"status":"\([^"]*\)".*/\1/p')
 
 case "$status" in
     enrolled)
-        # Honor any schedule reassignment the admin made via the
-        # Sensors modal. Rewriting the cron file is what makes the
-        # change take effect on the next tick.
-        new_h=$(echo "$resp" | sed -n 's/.*"hour":\([0-9]\+\).*/\1/p')
+        # Honor any minute-of-hour reassignment the admin made via the
+        # Sensors modal. Hourly mode: the hour field stays '*' in cron
+        # regardless of whatever schedule_hour the server reports.
         new_m=$(echo "$resp" | sed -n 's/.*"minute":\([0-9]\+\).*/\1/p')
-        if [ -n "${new_h:-}" ] && [ -n "${new_m:-}" ] \
-            && { [ "$new_h" != "$SCHEDULE_HOUR" ] || [ "$new_m" != "$SCHEDULE_MINUTE" ]; }; then
-            sed -i "s/^SCHEDULE_HOUR=.*/SCHEDULE_HOUR=${new_h}/" /etc/quiver/config
+        if [ -n "${new_m:-}" ] && [ "$new_m" != "$SCHEDULE_MINUTE" ]; then
             sed -i "s/^SCHEDULE_MINUTE=.*/SCHEDULE_MINUTE=${new_m}/" /etc/quiver/config
-            echo "${new_m} ${new_h} * * * quiver /usr/local/bin/quiver.sh >/dev/null 2>&1" \
+            echo "${new_m} * * * * quiver /usr/local/bin/quiver.sh >/dev/null 2>&1" \
                 > /etc/cron.d/quiver
-            echo "quiver: schedule reassigned to $(printf '%02d:%02d' "$new_h" "$new_m") UTC" >&2
-            SCHEDULE_HOUR=$new_h
+            echo "quiver: schedule reassigned to :$(printf '%02d' "$new_m") (every hour)" >&2
             SCHEDULE_MINUTE=$new_m
         fi
         ;;
@@ -79,7 +80,15 @@ cd "$LOCAL_LOGS_DIR"
 # out so we don't waste bandwidth on logs Archer can't use.
 LOG_TYPES_REGEX='(conn|dns|http|ssl|x509|known_certs|capture_loss|notice|stats|weird|files)'
 
-files=$(find . -type f -mtime -3 -iname '*.gz' \
+# FIRST_SYNC=1 (set by install.sh's first invocation) ships the entire
+# log tree. Recurring runs drop everything older than 24 hours so we
+# stop re-shipping yesterday's files every tick.
+if [ "${FIRST_SYNC:-0}" = "1" ]; then
+    MTIME_FILTER=""
+else
+    MTIME_FILTER="-mtime -1"
+fi
+files=$(find . -type f $MTIME_FILTER -iname '*.gz' \
         | grep -E "$LOG_TYPES_REGEX" \
         | grep -v '/\.' \
         | sort -u)

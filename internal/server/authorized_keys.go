@@ -15,7 +15,28 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
+
+// matchParentOwner chowns path to whoever owns its parent directory.
+// Archer typically runs as root inside the Quiver container while sshd's
+// privilege-separated check reads authorized_keys as the target user
+// (e.g. uid 1000 'quiver'). Without this, a temp-file+rename or first-time
+// create in RemoveAuthKey/AppendAuthKey leaves the file root-owned 0600 and
+// sshd logs "Could not open user authorized keys: Permission denied."
+// Chown failures (e.g. running unprivileged) are ignored — they only matter
+// when we're root and writing for a different user.
+func matchParentOwner(path string) {
+	fi, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		return
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return
+	}
+	_ = os.Chown(path, int(st.Uid), int(st.Gid))
+}
 
 // BuildAuthKeyLine assembles the authorized_keys line for a sensor. The
 // pubkey argument is the public key blob the sensor sent at enrollment
@@ -63,6 +84,7 @@ func AppendAuthKey(path, line string) error {
 	if _, err := f.WriteString(line); err != nil {
 		return fmt.Errorf("authkeys: write: %w", err)
 	}
+	matchParentOwner(path)
 	return nil
 }
 
@@ -95,5 +117,6 @@ func RemoveAuthKey(path, line string) error {
 	if err := os.Rename(tmp, path); err != nil {
 		return fmt.Errorf("authkeys: rename: %w", err)
 	}
+	matchParentOwner(path)
 	return nil
 }

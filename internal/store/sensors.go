@@ -148,7 +148,17 @@ func (s *Store) GetSensors() []Sensor {
 	if s.db == nil {
 		return nil
 	}
-	rows, err := s.db.Query(`SELECT id, name, host, source_ip, enrolled_at, enrolled_by, status, pubkey_fp, authkey_line, schedule_hour, schedule_minute, last_seen_at, last_files, last_bytes
+	// COALESCE the nullable text columns — see ListEnrollmentTokens for
+	// the same trap (NULL → Scan into *string fails silently → row dropped).
+	rows, err := s.db.Query(`SELECT id, name,
+	                                COALESCE(host,'')         AS host,
+	                                COALESCE(source_ip,'')    AS source_ip,
+	                                enrolled_at,
+	                                COALESCE(enrolled_by,'')  AS enrolled_by,
+	                                status,
+	                                COALESCE(pubkey_fp,'')    AS pubkey_fp,
+	                                COALESCE(authkey_line,'') AS authkey_line,
+	                                schedule_hour, schedule_minute, last_seen_at, last_files, last_bytes
 	                         FROM sensors ORDER BY enrolled_at DESC, id DESC`)
 	if err != nil {
 		log.Printf("store: GetSensors: %v", err)
@@ -174,7 +184,15 @@ func (s *Store) GetActiveSensorByName(name string) (Sensor, bool) {
 	if s.db == nil {
 		return Sensor{}, false
 	}
-	row := s.db.QueryRow(`SELECT id, name, host, source_ip, enrolled_at, enrolled_by, status, pubkey_fp, authkey_line, schedule_hour, schedule_minute, last_seen_at, last_files, last_bytes
+	row := s.db.QueryRow(`SELECT id, name,
+	                             COALESCE(host,'')         AS host,
+	                             COALESCE(source_ip,'')    AS source_ip,
+	                             enrolled_at,
+	                             COALESCE(enrolled_by,'')  AS enrolled_by,
+	                             status,
+	                             COALESCE(pubkey_fp,'')    AS pubkey_fp,
+	                             COALESCE(authkey_line,'') AS authkey_line,
+	                             schedule_hour, schedule_minute, last_seen_at, last_files, last_bytes
 	                      FROM sensors WHERE name=? AND status IN ('enrolled','disenrolling') ORDER BY id DESC LIMIT 1`, name)
 	var sn Sensor
 	if err := row.Scan(&sn.ID, &sn.Name, &sn.Host, &sn.SourceIP, &sn.EnrolledAt, &sn.EnrolledBy, &sn.Status, &sn.PubkeyFP, &sn.AuthKeyLine, &sn.ScheduleHour, &sn.ScheduleMinute, &sn.LastSeenAt, &sn.LastFiles, &sn.LastBytes); err != nil {
@@ -280,7 +298,15 @@ func (s *Store) ListEnrollmentTokens() []EnrollmentToken {
 	if s.db == nil {
 		return nil
 	}
-	rows, err := s.db.Query(`SELECT id, token, override_name, created_at, expires_at, used_at, created_by, consumed_by
+	// COALESCE the nullable text columns: override_name / created_by /
+	// consumed_by are stored as NULL when blank, and database/sql refuses
+	// to scan NULL into a plain Go string. Without the coalesce every Scan
+	// here errors silently and the JSON response collapses to `null`.
+	rows, err := s.db.Query(`SELECT id, token,
+	                                COALESCE(override_name,'') AS override_name,
+	                                created_at, expires_at, used_at,
+	                                COALESCE(created_by,'')   AS created_by,
+	                                COALESCE(consumed_by,'')  AS consumed_by
 	                         FROM enrollment_tokens ORDER BY created_at DESC, id DESC`)
 	if err != nil {
 		log.Printf("store: ListEnrollmentTokens: %v", err)
@@ -306,7 +332,11 @@ func (s *Store) ConsumeEnrollmentToken(token string, sensorName string, now int6
 		return EnrollmentToken{}, false
 	}
 	var t EnrollmentToken
-	row := s.db.QueryRow(`SELECT id, token, override_name, created_at, expires_at, used_at, created_by, consumed_by
+	row := s.db.QueryRow(`SELECT id, token,
+	                              COALESCE(override_name,'') AS override_name,
+	                              created_at, expires_at, used_at,
+	                              COALESCE(created_by,'')   AS created_by,
+	                              COALESCE(consumed_by,'')  AS consumed_by
 	                       FROM enrollment_tokens WHERE token=?`, token)
 	if err := row.Scan(&t.ID, &t.Token, &t.OverrideName, &t.CreatedAt, &t.ExpiresAt, &t.UsedAt, &t.CreatedBy, &t.ConsumedBy); err != nil {
 		return EnrollmentToken{}, false
