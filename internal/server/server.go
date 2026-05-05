@@ -5,11 +5,18 @@ import (
 	"net/http"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/analysis"
 	model "github.com/BushidoCyb3r/Archer/internal/model"
 	"github.com/BushidoCyb3r/Archer/internal/store"
 )
+
+// unauthorizedAttemptRetention bounds how long unpinned unauthorized
+// attempt rows stick around. 30 days matches how long an analyst is
+// realistically going to investigate a stale row before forgetting; the
+// pinned flag opts a row out of the auto-prune.
+const unauthorizedAttemptRetention = 30 * 24 * time.Hour
 
 // scoreExplanationsMap is a package-level copy for template/JS use.
 var scoreExplanationsMap = model.ScoreExplanations
@@ -39,7 +46,24 @@ func New(st *store.Store, us *store.UserStore, broker *Broker, webDir, logsDir, 
 	}
 	s.routes()
 	s.startWatch() // no-op if watch is disabled or unconfigured
+	s.startUnauthorizedPruneLoop()
 	return s
+}
+
+// startUnauthorizedPruneLoop drops unpinned unauthorized_attempts rows
+// older than unauthorizedAttemptRetention, hourly. Runs once at startup
+// so a long-lived deployment with a stale backlog doesn't have to wait
+// the full hour. Goroutine outlives the function — process shutdown is
+// the only termination, which matches the watch loop's pattern.
+func (s *Server) startUnauthorizedPruneLoop() {
+	go func() {
+		s.store.PruneUnauthorizedAttempts(unauthorizedAttemptRetention)
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for range t.C {
+			s.store.PruneUnauthorizedAttempts(unauthorizedAttemptRetention)
+		}
+	}()
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

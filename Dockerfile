@@ -14,7 +14,7 @@ FROM alpine:3.20
 # Archer exits. openssh-server + rsync are the sensor-facing transport
 # (Quiver sensors push their daily logs over ssh). ca-certificates and
 # tzdata are kept from the original image for outbound TLS calls.
-RUN apk add --no-cache ca-certificates tzdata openssh-server tini rsync \
+RUN apk add --no-cache ca-certificates tzdata openssh-server tini rsync rrsync \
     && adduser -D -h /home/quiver -s /bin/sh quiver \
     && mkdir -p /home/quiver/.ssh /etc/ssh/keys /run/sshd \
     && touch /home/quiver/.ssh/authorized_keys \
@@ -22,6 +22,22 @@ RUN apk add --no-cache ca-certificates tzdata openssh-server tini rsync \
     && chmod 700 /home/quiver/.ssh \
     && chmod 600 /home/quiver/.ssh/authorized_keys \
     && chmod 700 /run/sshd
+
+# rrsync ships in Alpine's rsync package but the canonical path varies
+# between 3.x point releases (3.18 dropped it under /usr/bin, some prior
+# versions used /usr/share/rsync). The per-sensor authorized_keys lines
+# bake in `command="rrsync -wo /logs/<name>/"`, so an unresolvable path
+# would silently break every sensor's rsync push. Pin /usr/bin/rrsync
+# unconditionally and fail the build if the rsync package didn't ship
+# rrsync at all — the operator deserves a build-time error, not a
+# runtime mystery.
+RUN if [ ! -x /usr/bin/rrsync ]; then \
+        for cand in /usr/share/rsync/rrsync /usr/lib/rsync/rrsync /usr/local/bin/rrsync; do \
+            if [ -x "$cand" ]; then ln -sf "$cand" /usr/bin/rrsync; break; fi; \
+        done; \
+    fi \
+    && test -x /usr/bin/rrsync \
+    || { echo "rrsync not found in rsync package — Alpine layout changed?" >&2; exit 1; }
 
 WORKDIR /app
 COPY --from=builder /archer ./archer

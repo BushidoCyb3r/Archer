@@ -15,7 +15,7 @@ const SSE = (() => {
   }
 
   function _attachListeners(es) {
-    ['progress', 'done', 'notification', 'status', 'ti_result', 'ti_done'].forEach(type => {
+    ['progress', 'done', 'notification', 'status', 'ti_result', 'ti_done', 'unauthorized_attempt'].forEach(type => {
       es.addEventListener(type, e => {
         try { _emit(type, JSON.parse(e.data)); } catch(err) { console.error('SSE parse error:', type, err); }
       });
