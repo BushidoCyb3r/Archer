@@ -1,6 +1,33 @@
 #!/bin/sh
 set -eu
 
+# ── sshd bootstrap ────────────────────────────────────────────────────────
+# Host keys live in /etc/ssh/keys (a persistent volume in the docker-compose
+# layout) so sensors don't trip host-key-mismatch warnings after a container
+# rebuild. ssh-keygen is idempotent on existing keys; the -q quiets the
+# "key generated" stdout that would otherwise duplicate every restart.
+mkdir -p /etc/ssh/keys
+[ -f /etc/ssh/keys/ssh_host_ed25519_key ] || \
+    ssh-keygen -t ed25519 -f /etc/ssh/keys/ssh_host_ed25519_key -N '' -q
+[ -f /etc/ssh/keys/ssh_host_rsa_key ] || \
+    ssh-keygen -t rsa -b 4096 -f /etc/ssh/keys/ssh_host_rsa_key -N '' -q
+chmod 600 /etc/ssh/keys/ssh_host_*_key
+chmod 644 /etc/ssh/keys/ssh_host_*_key.pub
+
+# /home/quiver/.ssh is a named volume; on first run it shadows whatever the
+# image baked in, so re-initialize the authorized_keys file and perms here.
+# Idempotent: existing contents are left alone.
+mkdir -p /home/quiver/.ssh
+[ -f /home/quiver/.ssh/authorized_keys ] || touch /home/quiver/.ssh/authorized_keys
+chown -R quiver:quiver /home/quiver/.ssh
+chmod 700 /home/quiver/.ssh
+chmod 600 /home/quiver/.ssh/authorized_keys
+
+# Start sshd in the foreground of a background subshell. tini (PID 1) reaps
+# this when Archer exits, so we don't have to chase signals manually.
+/usr/sbin/sshd -D -e &
+
+# ── GOMEMLIMIT ────────────────────────────────────────────────────────────
 # Derive GOMEMLIMIT from the cgroup memory cap so Go's GC applies backpressure
 # before the kernel OOM-kills us. cgroup v2 first, fall back to v1, then host.
 detect_mem_bytes() {
