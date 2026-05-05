@@ -83,7 +83,7 @@ const Table = (() => {
       '<td class="port">' + _esc(f.dst_port) + '</td>' +
       '<td title="' + _esc(f.timestamp) + '">' + _esc((f.timestamp || '').slice(0, 16)) + '</td>' +
       '<td>' + _statusLabel(f.status) + '</td>' +
-      '<td style="font-size:11px;color:var(--fg-dim)" title="' + _esc(f.dataset) + '">' + _esc(f.dataset) + '</td>' +
+      '<td style="font-size:11px;color:var(--fg-dim)" title="' + _esc(f.sensor) + '">' + _esc(f.sensor) + '</td>' +
       '<td title="' + _esc(detailRaw) + '" style="color:var(--fg-dim);font-size:11px">' + _esc(detail) + '</td>' +
       '</tr>';
   }

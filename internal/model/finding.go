@@ -37,7 +37,7 @@ type Finding struct {
 	StatusTS     string     `json:"status_ts"`
 	IOCMatch     bool         `json:"ioc_match"`
 	IsNew        bool         `json:"is_new"`
-	Dataset      string       `json:"dataset,omitempty"`
+	Sensor       string       `json:"sensor,omitempty"`
 	Intervals    []float64    `json:"intervals,omitempty"`
 	TSData       [][3]float64 `json:"ts_data,omitempty"`
 	Notes        []Note       `json:"notes,omitempty"`

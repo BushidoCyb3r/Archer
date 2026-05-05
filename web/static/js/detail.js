@@ -20,8 +20,8 @@ const Detail = (() => {
     const text   = document.getElementById('detail-text');
     const rec    = document.getElementById('analyst-rec');
 
-    const dst     = f.dst_ip || '—';
-    const dataset = f.dataset || '';
+    const dst    = f.dst_ip || '—';
+    const sensor = f.sensor || '';
     header.textContent = `${f.type}  [${f.severity}  score ${f.score}]  ${f.src_ip || '—'} → ${dst}${f.dst_port ? ':' + f.dst_port : ''}`;
     header.style.color = _sevColor(f.severity);
 
@@ -29,7 +29,7 @@ const Detail = (() => {
     lines.push(`Type       : ${f.type}`);
     lines.push(`Severity   : ${f.severity}   Score: ${f.score}`);
     lines.push(`Status     : ${_statusLabel(f.status)}`);
-    if (dataset) lines.push(`Dataset    : ${dataset}`);
+    if (sensor) lines.push(`Sensor     : ${sensor}`);
     lines.push(`Timestamp  : ${f.timestamp || '—'}`);
     lines.push(`Source     : ${f.source_file || '—'}`);
     lines.push('');

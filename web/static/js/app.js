@@ -81,7 +81,7 @@
     const data = await api('/api/findings' + (qs ? '?' + qs : ''));
     _allFindings = Array.isArray(data) ? data : [];
     Table.populateTypeFilter(_allFindings);
-    _updateDatasetFilter(_allFindings);
+    _updateSensorFilter(_allFindings);
     Campaigns.build(_allFindings);
     _applyTabFilter();
   }
@@ -166,7 +166,7 @@
       });
       document.getElementById('filter-sev').value = '';
       document.getElementById('filter-type').value = '';
-      document.getElementById('filter-dataset').value = '';
+      document.getElementById('filter-sensor').value = '';
       document.getElementById('filter-score').value = '0';
       _applyTabFilter();
     });
@@ -233,7 +233,7 @@
     const src = g('filter-src').trim(); if (src) params.src_ip = src;
     const dst = g('filter-dst').trim(); if (dst) params.dst_ip = dst;
     const port = g('filter-port').trim(); if (port) params.dst_port = port;
-    const ds  = g('filter-dataset');    if (ds)  params.dataset = ds;
+    const sn  = g('filter-sensor');     if (sn)  params.sensor = sn;
     const from = g('filter-from');      if (from) params.from = from;
     const to   = g('filter-to');        if (to)   params.to   = to;
     return params;
@@ -631,20 +631,20 @@
     loadFindings(_currentFilterParams());
   }
 
-  // Populate the Dataset filter dropdown from the distinct datasets present
+  // Populate the Sensor filter dropdown from the distinct sensors present
   // in the current findings list.
-  function _updateDatasetFilter(findings) {
-    const sel = document.getElementById('filter-dataset');
+  function _updateSensorFilter(findings) {
+    const sel = document.getElementById('filter-sensor');
     if (!sel) return;
     const current = sel.value;
-    const datasets = [...new Set((findings || []).map(f => f.dataset).filter(Boolean))].sort();
+    const sensors = [...new Set((findings || []).map(f => f.sensor).filter(Boolean))].sort();
     while (sel.options.length > 1) sel.remove(1);
-    datasets.forEach(d => {
+    sensors.forEach(s => {
       const o = document.createElement('option');
-      o.value = d; o.textContent = d;
+      o.value = s; o.textContent = s;
       sel.appendChild(o);
     });
-    if (datasets.includes(current)) sel.value = current;
+    if (sensors.includes(current)) sel.value = current;
   }
 
   // ── Delta mode ─────────────────────────────────────────────────────────────
@@ -704,17 +704,17 @@
     const files = Array.isArray(data) ? data : [];
 
     const dirParts = _logsDir.replace(/\\/g, '/').split('/').filter(Boolean);
-    const byDataset = new Map();
+    const bySensor = new Map();
     files.forEach(p => {
       const parts    = p.replace(/\\/g, '/').split('/').filter(Boolean);
       const relParts = parts.slice(dirParts.length);
-      const dataset  = relParts.length >= 2 ? relParts[0] : '(root)';
+      const sensor   = relParts.length >= 2 ? relParts[0] : '(root)';
       const name     = parts[parts.length - 1];
-      if (!byDataset.has(dataset)) byDataset.set(dataset, []);
-      byDataset.get(dataset).push({name, path: p});
+      if (!bySensor.has(sensor)) bySensor.set(sensor, []);
+      bySensor.get(sensor).push({name, path: p});
     });
 
-    if (byDataset.size === 0) {
+    if (bySensor.size === 0) {
       const li = document.createElement('li');
       li.textContent = 'No files — click Import';
       li.style.fontStyle = 'italic';
@@ -722,9 +722,9 @@
       return;
     }
 
-    byDataset.forEach((entries, dataset) => {
+    bySensor.forEach((entries, sensor) => {
       const hdr = document.createElement('li');
-      hdr.textContent = `📁 ${dataset} (${entries.length})`;
+      hdr.textContent = `📁 ${sensor} (${entries.length})`;
       hdr.style.cssText = 'color:var(--fg-text);font-weight:600;margin-top:4px;font-size:10px';
       ul.appendChild(hdr);
     });
