@@ -7,9 +7,12 @@ services:
     ports:
       - "8080:8080"   # analyst UI (plain HTTP, LAN-side)
       - "8443:8443"   # Quiver sensor traffic (TLS, pinned-pubkey at enrollment)
+      - "2222:22"     # Quiver sensor rsync (mapped to 2222 so we don't fight a host sshd on 22)
     volumes:
-      - ./logs:/logs      # one subdir per sensor: logs/<sensor-name>/... — writable so the archive worker can relocate aged files
-      - archer-data:/data # holds /data/archer.db plus /data/tls/ (auto-generated TLS material)
+      - ./logs:/logs              # one subdir per sensor: logs/<sensor-name>/... — writable so the archive worker can relocate aged files
+      - archer-data:/data         # /data/archer.db plus /data/tls/ (auto-generated TLS material)
+      - archer-sshd:/etc/ssh/keys # sshd host keys; persisted so sensors don't see host-key changes after a rebuild
+      - archer-quiver:/home/quiver/.ssh # authorized_keys; rewritten by Archer on enroll/disenroll
     environment:
       - TZ=UTC
       - GOMAXPROCS=0
@@ -22,3 +25,5 @@ services:
 
 volumes:
   archer-data:
+  archer-sshd:
+  archer-quiver:
