@@ -8,9 +8,9 @@ package server
 
 import (
 	"crypto/rand"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net"
 	"net/http"
 	"regexp"
@@ -20,22 +20,50 @@ import (
 	"github.com/BushidoCyb3r/Archer/internal/store"
 )
 
+//go:embed quiver_assets/install.sh
+var quiverInstallTemplate string
+
+//go:embed quiver_assets/quiver.sh
+var quiverDailyScript string
+
+//go:embed quiver_assets/quiver-uninstall.sh
+var quiverUninstallScript string
+
 // validSensorName mirrors the regex the install script enforces on the
 // sensor side. Filesystem-safe so the name can serve as a /logs/<name>/
 // directory; capped at 52 chars to leave headroom.
 var validSensorName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,51}$`)
 
-// handleQuiverInstallScript serves the bash bootstrap that an admin's
-// enrollment one-liner downloads on the sensor. The full installer body
-// lives in step 6; for now we serve a stub so the route exists and the
-// build/deploy story doesn't drift between commits.
+// handleQuiverInstallScript serves the bash bootstrap an admin's
+// enrollment one-liner downloads on the sensor. The template lives in
+// quiver_assets/ and is embedded at build time; we substitute the
+// deployment-specific values (host, ports, cert fingerprint) and inline
+// the daily script + uninstall helper as base64-encoded blobs so the
+// sensor's install runs without a second network hop.
 func (s *Server) handleQuiverInstallScript(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	fmt.Fprintln(w, "#!/bin/sh")
-	fmt.Fprintln(w, "# Quiver installer — body filled in by a later commit.")
-	fmt.Fprintln(w, "echo 'quiver: installer not yet shipped on this Archer release' >&2")
-	fmt.Fprintln(w, "exit 1")
+
+	// Strip the port off the sensor-facing host — we provide HTTPS_PORT
+	// and SSH_PORT separately so the script can construct each URL with
+	// the right port. Bracketed IPv6 hosts are left intact.
+	host := s.SensorFacingHost(r)
+	if !strings.HasPrefix(host, "[") {
+		if i := strings.LastIndex(host, ":"); i >= 0 {
+			host = host[:i]
+		}
+	}
+
+	body := strings.NewReplacer(
+		"{{ARCHER_HOST}}", host,
+		"{{HTTPS_PORT}}", "8443",
+		"{{SSH_PORT}}", "2222",
+		"{{TLS_FP}}", s.TLSFingerprint(),
+		"{{QUIVER_SH_B64}}", base64.StdEncoding.EncodeToString([]byte(quiverDailyScript)),
+		"{{UNINSTALL_SH_B64}}", base64.StdEncoding.EncodeToString([]byte(quiverUninstallScript)),
+	).Replace(quiverInstallTemplate)
+
+	_, _ = w.Write([]byte(body))
 }
 
 // handleQuiverEnroll is what the sensor POSTs to during the install
