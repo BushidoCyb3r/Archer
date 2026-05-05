@@ -5,14 +5,15 @@ services:
     container_name: archer
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "8080:8080"   # analyst UI (plain HTTP, LAN-side)
+      - "8443:8443"   # Quiver sensor traffic (TLS, pinned-pubkey at enrollment)
     volumes:
-      - ./logs:/logs      # drop datasets here: logs/<dataset-name>/*.log — writable so the archive worker can relocate aged files
-      - archer-data:/data
+      - ./logs:/logs      # one subdir per sensor: logs/<sensor-name>/... — writable so the archive worker can relocate aged files
+      - archer-data:/data # holds /data/archer.db plus /data/tls/ (auto-generated TLS material)
     environment:
       - TZ=UTC
       - GOMAXPROCS=0
-    command: ["--addr=:8080", "--logs-dir=/logs"]
+    command: ["--addr=:8080", "--tls-addr=:8443", "--logs-dir=/logs"]
     deploy:
       resources:
         limits:

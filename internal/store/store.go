@@ -558,6 +558,26 @@ func (s *Store) GetWatchTimezone() string {
 	return s.config.WatchTimezone
 }
 
+// GetSensorFacingHost returns the admin-overridden hostname/IP that Quiver
+// install one-liners should target, or "" when unset (caller falls back to
+// the request Host header).
+func (s *Store) GetSensorFacingHost() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.config.SensorFacingHost
+}
+
+// SetSensorFacingHost persists the admin-supplied sensor-facing hostname.
+func (s *Store) SetSensorFacingHost(host string) {
+	s.mu.Lock()
+	s.config.SensorFacingHost = host
+	if s.db != nil {
+		cfgJSON, _ := json.Marshal(s.config)
+		s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))
+	}
+	s.mu.Unlock()
+}
+
 // ArchiveSettings is the admin-editable archive config plus read-only
 // telemetry from the most recent run. The last_* fields are only ever
 // written by RecordArchiveRun — SetArchive ignores them.
