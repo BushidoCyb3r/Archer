@@ -131,6 +131,7 @@ func (s *Store) InitDB(db *sql.DB) {
 		}
 	}
 
+	s.InitSensorTables(db)
 	s.loadFindings()
 }
 

@@ -1,0 +1,491 @@
+package store
+
+// Persistent state for Quiver: enrolled sensors, outstanding enrollment
+// tokens, and unauthorized checkin attempts. Each table is created lazily
+// via InitSensorTables (called from InitDB) so existing deployments pick
+// the new schema up on next boot without a manual migration step.
+//
+// The tables don't carry any cross-references with the existing findings
+// table; the link is purely by sensor name (Finding.Sensor matches
+// sensors.name). Decoupling means a sensor row can be deleted without
+// dragging finding rows with it — that decision is the admin's, made
+// through the explicit Purge action.
+
+import (
+	"crypto/sha256"
+	"database/sql"
+	"encoding/base64"
+	"log"
+	"strings"
+	"time"
+)
+
+// Sensor is a Quiver-enrolled (or formerly enrolled) endpoint.
+type Sensor struct {
+	ID             int64  `json:"id"`
+	Name           string `json:"name"`
+	Host           string `json:"host"`
+	SourceIP       string `json:"source_ip"`
+	EnrolledAt     int64  `json:"enrolled_at"`
+	EnrolledBy     string `json:"enrolled_by"`
+	Status         string `json:"status"` // enrolled | disenrolling | disenrolled
+	PubkeyFP       string `json:"pubkey_fp"`
+	AuthKeyLine    string `json:"-"`               // exact authorized_keys line we wrote; used to remove on disenroll
+	ScheduleHour   int    `json:"schedule_hour"`
+	ScheduleMinute int    `json:"schedule_minute"`
+	LastSeenAt     int64  `json:"last_seen_at"`
+	LastFiles      int64  `json:"last_files"`
+	LastBytes      int64  `json:"last_bytes"`
+}
+
+// EnrollmentToken is a single-use, time-bounded token that authorizes a
+// sensor to enroll. OverrideName, when set, locks the sensor's name to
+// the admin's chosen value; otherwise the sensor's hostname is used.
+type EnrollmentToken struct {
+	ID           int64  `json:"id"`
+	Token        string `json:"token"`
+	OverrideName string `json:"override_name,omitempty"`
+	CreatedAt    int64  `json:"created_at"`
+	ExpiresAt    int64  `json:"expires_at"`
+	UsedAt       int64  `json:"used_at,omitempty"`
+	CreatedBy    string `json:"created_by"`
+	ConsumedBy   string `json:"consumed_by,omitempty"`
+}
+
+// UnauthorizedAttempt records a checkin from a name we don't recognise.
+// Surfaced in the Sensors modal so admins can investigate before either
+// dismissing the row or minting an enrollment token for it.
+type UnauthorizedAttempt struct {
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	SourceIP     string `json:"source_ip"`
+	FirstSeen    int64  `json:"first_seen"`
+	LastSeen     int64  `json:"last_seen"`
+	AttemptCount int64  `json:"attempt_count"`
+	Pinned       bool   `json:"pinned"`
+}
+
+// InitSensorTables creates the three Quiver-related tables if they don't
+// exist. Idempotent — safe to call on every boot.
+func (s *Store) InitSensorTables(db *sql.DB) {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS sensors (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			name            TEXT NOT NULL,
+			host            TEXT,
+			source_ip       TEXT,
+			enrolled_at     INTEGER NOT NULL,
+			enrolled_by     TEXT,
+			status          TEXT NOT NULL DEFAULT 'enrolled',
+			pubkey_fp       TEXT,
+			authkey_line    TEXT,
+			schedule_hour   INTEGER NOT NULL DEFAULT 2,
+			schedule_minute INTEGER NOT NULL DEFAULT 0,
+			last_seen_at    INTEGER DEFAULT 0,
+			last_files      INTEGER DEFAULT 0,
+			last_bytes      INTEGER DEFAULT 0
+		)`,
+		// Partial unique index: only one currently-active sensor per name.
+		// Disenrolled rows can share a name with a freshly-enrolled one,
+		// matching the "treat re-enrollment as a new sensor" rule.
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_sensors_active_name
+			ON sensors(name) WHERE status IN ('enrolled','disenrolling')`,
+		`CREATE TABLE IF NOT EXISTS enrollment_tokens (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			token         TEXT NOT NULL UNIQUE,
+			override_name TEXT,
+			created_at    INTEGER NOT NULL,
+			expires_at    INTEGER NOT NULL,
+			used_at       INTEGER DEFAULT 0,
+			created_by    TEXT,
+			consumed_by   TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS unauthorized_attempts (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			name          TEXT NOT NULL,
+			source_ip     TEXT NOT NULL,
+			first_seen    INTEGER NOT NULL,
+			last_seen     INTEGER NOT NULL,
+			attempt_count INTEGER NOT NULL DEFAULT 1,
+			pinned        INTEGER NOT NULL DEFAULT 0,
+			UNIQUE(name, source_ip)
+		)`,
+	}
+	for _, q := range stmts {
+		if _, err := db.Exec(q); err != nil {
+			log.Printf("store: sensor schema init failed: %v", err)
+		}
+	}
+}
+
+// ── Sensors CRUD ──────────────────────────────────────────────────────────
+
+// CreateSensor inserts a new active sensor row. Caller must have already
+// verified the name is free; SQLite will enforce that with the partial
+// unique index.
+func (s *Store) CreateSensor(sn Sensor) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return 0, nil
+	}
+	res, err := s.db.Exec(
+		`INSERT INTO sensors(name, host, source_ip, enrolled_at, enrolled_by, status, pubkey_fp, authkey_line, schedule_hour, schedule_minute)
+		 VALUES (?,?,?,?,?,'enrolled',?,?,?,?)`,
+		sn.Name, sn.Host, sn.SourceIP, sn.EnrolledAt, sn.EnrolledBy,
+		sn.PubkeyFP, sn.AuthKeyLine, sn.ScheduleHour, sn.ScheduleMinute,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// GetSensors returns every sensor row (any status), most recent first.
+func (s *Store) GetSensors() []Sensor {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.db == nil {
+		return nil
+	}
+	rows, err := s.db.Query(`SELECT id, name, host, source_ip, enrolled_at, enrolled_by, status, pubkey_fp, authkey_line, schedule_hour, schedule_minute, last_seen_at, last_files, last_bytes
+	                         FROM sensors ORDER BY enrolled_at DESC, id DESC`)
+	if err != nil {
+		log.Printf("store: GetSensors: %v", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []Sensor
+	for rows.Next() {
+		var sn Sensor
+		if err := rows.Scan(&sn.ID, &sn.Name, &sn.Host, &sn.SourceIP, &sn.EnrolledAt, &sn.EnrolledBy, &sn.Status, &sn.PubkeyFP, &sn.AuthKeyLine, &sn.ScheduleHour, &sn.ScheduleMinute, &sn.LastSeenAt, &sn.LastFiles, &sn.LastBytes); err == nil {
+			out = append(out, sn)
+		}
+	}
+	return out
+}
+
+// GetActiveSensorByName returns the currently-enrolled sensor with this
+// name, or (Sensor{}, false). Used by the checkin endpoint to decide
+// enrolled / disenrolled / unknown.
+func (s *Store) GetActiveSensorByName(name string) (Sensor, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.db == nil {
+		return Sensor{}, false
+	}
+	row := s.db.QueryRow(`SELECT id, name, host, source_ip, enrolled_at, enrolled_by, status, pubkey_fp, authkey_line, schedule_hour, schedule_minute, last_seen_at, last_files, last_bytes
+	                      FROM sensors WHERE name=? AND status IN ('enrolled','disenrolling') ORDER BY id DESC LIMIT 1`, name)
+	var sn Sensor
+	if err := row.Scan(&sn.ID, &sn.Name, &sn.Host, &sn.SourceIP, &sn.EnrolledAt, &sn.EnrolledBy, &sn.Status, &sn.PubkeyFP, &sn.AuthKeyLine, &sn.ScheduleHour, &sn.ScheduleMinute, &sn.LastSeenAt, &sn.LastFiles, &sn.LastBytes); err != nil {
+		return Sensor{}, false
+	}
+	return sn, true
+}
+
+// HasMostRecentDisenrolled reports whether the most recent row for `name`
+// is in disenrolled state. Used so the checkin endpoint can return a
+// "disenrolled" verdict to a sensor whose authorized_keys line was already
+// pulled but whose cron is still firing.
+func (s *Store) HasMostRecentDisenrolled(name string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.db == nil {
+		return false
+	}
+	var status string
+	err := s.db.QueryRow(`SELECT status FROM sensors WHERE name=? ORDER BY id DESC LIMIT 1`, name).Scan(&status)
+	if err != nil {
+		return false
+	}
+	return status == "disenrolled" || status == "disenrolling"
+}
+
+// SetSensorStatus moves a sensor row through the lifecycle.
+func (s *Store) SetSensorStatus(id int64, status string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
+	_, err := s.db.Exec(`UPDATE sensors SET status=? WHERE id=?`, status, id)
+	return err
+}
+
+// UpdateSensorSchedule rewrites the daily slot a sensor uses. The change
+// propagates to the sensor on its next checkin.
+func (s *Store) UpdateSensorSchedule(id int64, hour, minute int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
+	_, err := s.db.Exec(`UPDATE sensors SET schedule_hour=?, schedule_minute=? WHERE id=?`, hour, minute, id)
+	return err
+}
+
+// TouchSensor records the most recent successful interaction with a sensor.
+// Files/bytes are optional — pass 0 when only the timestamp is known.
+func (s *Store) TouchSensor(id int64, ts int64, files, bytes int64, srcIP string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
+	_, err := s.db.Exec(`UPDATE sensors SET last_seen_at=?, last_files=?, last_bytes=?, source_ip=? WHERE id=?`,
+		ts, files, bytes, srcIP, id)
+	return err
+}
+
+// DeleteSensor removes the sensor row entirely. Used by the Purge action;
+// callers are responsible for already having archived/deleted the on-disk
+// logs and re-tagged or removed the related findings.
+func (s *Store) DeleteSensor(id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
+	_, err := s.db.Exec(`DELETE FROM sensors WHERE id=?`, id)
+	return err
+}
+
+// ── Enrollment tokens ─────────────────────────────────────────────────────
+
+// CreateEnrollmentToken inserts a new token row. The caller supplies the
+// random material; we don't generate it here so the same call site can
+// also return it to the UI without an extra round-trip.
+func (s *Store) CreateEnrollmentToken(t EnrollmentToken) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return 0, nil
+	}
+	res, err := s.db.Exec(
+		`INSERT INTO enrollment_tokens(token, override_name, created_at, expires_at, created_by) VALUES (?,?,?,?,?)`,
+		t.Token, t.OverrideName, t.CreatedAt, t.ExpiresAt, t.CreatedBy,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// ListEnrollmentTokens returns all tokens — used and unused, expired and
+// fresh — most recent first. The UI is responsible for hiding consumed
+// tokens by default.
+func (s *Store) ListEnrollmentTokens() []EnrollmentToken {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.db == nil {
+		return nil
+	}
+	rows, err := s.db.Query(`SELECT id, token, override_name, created_at, expires_at, used_at, created_by, consumed_by
+	                         FROM enrollment_tokens ORDER BY created_at DESC, id DESC`)
+	if err != nil {
+		log.Printf("store: ListEnrollmentTokens: %v", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []EnrollmentToken
+	for rows.Next() {
+		var t EnrollmentToken
+		if err := rows.Scan(&t.ID, &t.Token, &t.OverrideName, &t.CreatedAt, &t.ExpiresAt, &t.UsedAt, &t.CreatedBy, &t.ConsumedBy); err == nil {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// ConsumeEnrollmentToken validates the token (exists, not used, not expired)
+// and atomically marks it consumed. Returns the token row on success.
+func (s *Store) ConsumeEnrollmentToken(token string, sensorName string, now int64) (EnrollmentToken, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return EnrollmentToken{}, false
+	}
+	var t EnrollmentToken
+	row := s.db.QueryRow(`SELECT id, token, override_name, created_at, expires_at, used_at, created_by, consumed_by
+	                       FROM enrollment_tokens WHERE token=?`, token)
+	if err := row.Scan(&t.ID, &t.Token, &t.OverrideName, &t.CreatedAt, &t.ExpiresAt, &t.UsedAt, &t.CreatedBy, &t.ConsumedBy); err != nil {
+		return EnrollmentToken{}, false
+	}
+	if t.UsedAt != 0 || t.ExpiresAt <= now {
+		return EnrollmentToken{}, false
+	}
+	if _, err := s.db.Exec(`UPDATE enrollment_tokens SET used_at=?, consumed_by=? WHERE id=?`, now, sensorName, t.ID); err != nil {
+		return EnrollmentToken{}, false
+	}
+	t.UsedAt = now
+	t.ConsumedBy = sensorName
+	return t, true
+}
+
+// DeleteEnrollmentToken removes a token row by id. Used to revoke an
+// outstanding (unused) token from the admin UI.
+func (s *Store) DeleteEnrollmentToken(id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
+	_, err := s.db.Exec(`DELETE FROM enrollment_tokens WHERE id=?`, id)
+	return err
+}
+
+// ── Unauthorized attempts ─────────────────────────────────────────────────
+
+// RecordUnauthorizedAttempt upserts an attempt row keyed by (name, ip).
+// Returns the resulting row so the caller can publish it as an SSE event
+// without an extra read.
+func (s *Store) RecordUnauthorizedAttempt(name, ip string, now int64) UnauthorizedAttempt {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := UnauthorizedAttempt{Name: name, SourceIP: ip, FirstSeen: now, LastSeen: now, AttemptCount: 1}
+	if s.db == nil {
+		return out
+	}
+	// Try update first; if no row was touched, insert.
+	res, err := s.db.Exec(
+		`UPDATE unauthorized_attempts SET last_seen=?, attempt_count=attempt_count+1 WHERE name=? AND source_ip=?`,
+		now, name, ip,
+	)
+	if err == nil {
+		if n, _ := res.RowsAffected(); n > 0 {
+			row := s.db.QueryRow(`SELECT id, name, source_ip, first_seen, last_seen, attempt_count, pinned FROM unauthorized_attempts WHERE name=? AND source_ip=?`, name, ip)
+			var pinned int
+			if err := row.Scan(&out.ID, &out.Name, &out.SourceIP, &out.FirstSeen, &out.LastSeen, &out.AttemptCount, &pinned); err == nil {
+				out.Pinned = pinned == 1
+			}
+			return out
+		}
+	}
+	res, err = s.db.Exec(
+		`INSERT INTO unauthorized_attempts(name, source_ip, first_seen, last_seen) VALUES (?,?,?,?)`,
+		name, ip, now, now,
+	)
+	if err == nil {
+		out.ID, _ = res.LastInsertId()
+	}
+	return out
+}
+
+// ListUnauthorizedAttempts returns all attempts, most recent first. Pruning
+// of stale (unpinned, >30 days) rows happens in PruneUnauthorizedAttempts.
+func (s *Store) ListUnauthorizedAttempts() []UnauthorizedAttempt {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.db == nil {
+		return nil
+	}
+	rows, err := s.db.Query(`SELECT id, name, source_ip, first_seen, last_seen, attempt_count, pinned FROM unauthorized_attempts ORDER BY last_seen DESC`)
+	if err != nil {
+		log.Printf("store: ListUnauthorizedAttempts: %v", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []UnauthorizedAttempt
+	for rows.Next() {
+		var a UnauthorizedAttempt
+		var pinned int
+		if err := rows.Scan(&a.ID, &a.Name, &a.SourceIP, &a.FirstSeen, &a.LastSeen, &a.AttemptCount, &pinned); err == nil {
+			a.Pinned = pinned == 1
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// DeleteUnauthorizedAttempt removes a row by id. Pinned rows protect
+// against the auto-prune; deleting them is explicit.
+func (s *Store) DeleteUnauthorizedAttempt(id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
+	_, err := s.db.Exec(`DELETE FROM unauthorized_attempts WHERE id=?`, id)
+	return err
+}
+
+// PruneUnauthorizedAttempts deletes unpinned rows whose last_seen is more
+// than retention old. Called from a background ticker; idempotent.
+func (s *Store) PruneUnauthorizedAttempts(retention time.Duration) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return 0
+	}
+	cutoff := time.Now().Add(-retention).Unix()
+	res, err := s.db.Exec(`DELETE FROM unauthorized_attempts WHERE pinned=0 AND last_seen < ?`, cutoff)
+	if err != nil {
+		log.Printf("store: PruneUnauthorizedAttempts: %v", err)
+		return 0
+	}
+	n, _ := res.RowsAffected()
+	return n
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+// RetagFindings rewrites the sensor field on every finding currently
+// matching oldName. Called from disenroll so a future re-enrollment with
+// the same name doesn't conflate two distinct sensor lifecycles.
+func (s *Store) RetagFindings(oldName, newName string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return
+	}
+	if _, err := s.db.Exec(`UPDATE findings SET sensor=? WHERE sensor=?`, newName, oldName); err != nil {
+		log.Printf("store: RetagFindings: %v", err)
+		return
+	}
+	// Mirror the change in the in-memory slice so the UI reflects it
+	// without a reload-from-DB round-trip.
+	for i := range s.findings {
+		if s.findings[i].Sensor == oldName {
+			s.findings[i].Sensor = newName
+		}
+	}
+}
+
+// DeleteFindingsBySensorPrefix removes every finding whose sensor field
+// starts with the given prefix. Used by Purge to drop the disenrolled
+// findings that share a "<name>:disenrolled-..." marker.
+func (s *Store) DeleteFindingsBySensorPrefix(prefix string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return
+	}
+	if _, err := s.db.Exec(`DELETE FROM findings WHERE sensor LIKE ?`, prefix+"%"); err != nil {
+		log.Printf("store: DeleteFindingsBySensorPrefix: %v", err)
+		return
+	}
+	out := s.findings[:0]
+	for _, f := range s.findings {
+		if !strings.HasPrefix(f.Sensor, prefix) {
+			out = append(out, f)
+		}
+	}
+	s.findings = out
+}
+
+// FingerprintSSHPubkey returns the SHA256 of the base64-encoded key blob
+// portion of an SSH public key line, in the colon-separated hex form that
+// `ssh-keygen -lf` produces. We expose it so handlers can show admins the
+// same fingerprint they'd see from a manual ssh-keygen run.
+func FingerprintSSHPubkey(line string) string {
+	parts := strings.Fields(strings.TrimSpace(line))
+	if len(parts) < 2 {
+		return ""
+	}
+	blob, err := base64.StdEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(blob)
+	return base64.StdEncoding.EncodeToString(sum[:])
+}
