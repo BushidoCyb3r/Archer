@@ -512,7 +512,7 @@ sudo ./start.sh up
 Host resources:   16 CPUs  |  32768 MB RAM
 Archer limits:    12.8 CPUs  |  22937m RAM  (CPU 80% / RAM 70%)
 
-Archer is running at http://10.0.0.17:8080
+Archer is running at http://192.0.2.10:8080
 ```
 
 Three ports are exposed:
@@ -937,7 +937,7 @@ Endpoints powering the Sensors modal. Read endpoints are open to admin + analyst
 |---|---|---|---|
 | `GET` | `/api/sensors` | Analyst+ | List every sensor row (any status), most recent enrollment first |
 | `GET` | `/api/sensors/info` | Admin | `{"tls_fingerprint":"...","sensor_facing_host":"...","effective_host":"..."}` for rendering install one-liners |
-| `PUT` | `/api/sensors/host` | Admin | `{"host":"10.0.0.17"}` (or `"host:port"`); set the sensor-facing override that install one-liners target |
+| `PUT` | `/api/sensors/host` | Admin | `{"host":"192.0.2.10"}` (or `"host:port"`); set the sensor-facing override that install one-liners target |
 | `GET` | `/api/sensors/tokens` | Admin | List enrollment tokens (used + unused) |
 | `POST` | `/api/sensors/tokens` | Admin | `{"override_name":"..."}` mints a new single-use 24h token; returns `{token, override_name, created_at, expires_at, ...}` |
 | `POST` | `/api/sensors/tokens/revoke` | Admin | `{"id":N}` deletes an outstanding token row |

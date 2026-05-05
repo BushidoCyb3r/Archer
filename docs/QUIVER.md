@@ -57,7 +57,7 @@ All steps below assume you're an Archer admin (only admins can enroll, disenroll
 4. Click **Copy** and paste on the sensor as root. Example:
    ```sh
    sudo curl -fsSL -k --pinnedpubkey "sha256//VyoSm6ub..." \
-       https://10.0.0.17:8443/quiver/install.sh | sudo bash -s -- TOKEN
+       https://192.0.2.10:8443/quiver/install.sh | sudo bash -s -- TOKEN
    ```
 5. The sensor's install runs autonomously (~10–30 seconds): installs missing dependencies, creates the `quiver` system user, generates an ed25519 keypair, enrolls with Archer, drops the daily script and cron entry, and runs a full first-sync of available logs.
 6. The dialog flips to "✓ Enrolled as `<name>`" the instant Archer records the enrollment. Close the dialog — the parent Sensors table refreshes and the new row appears.
