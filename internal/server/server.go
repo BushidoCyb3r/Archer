@@ -21,6 +21,7 @@ type Server struct {
 	broker         *Broker
 	webDir         string
 	logsDir        string
+	authKeysPath   string
 	mux            *http.ServeMux
 	analyzerMu     sync.Mutex
 	activeAnalyzer *analysis.Analyzer
@@ -30,8 +31,12 @@ type Server struct {
 }
 
 // New creates and wires all routes, then starts the watch loop if configured.
-func New(st *store.Store, us *store.UserStore, broker *Broker, webDir, logsDir string) *Server {
-	s := &Server{store: st, users: us, broker: broker, webDir: webDir, logsDir: logsDir, mux: http.NewServeMux()}
+func New(st *store.Store, us *store.UserStore, broker *Broker, webDir, logsDir, authKeysPath string) *Server {
+	s := &Server{
+		store: st, users: us, broker: broker,
+		webDir: webDir, logsDir: logsDir, authKeysPath: authKeysPath,
+		mux: http.NewServeMux(),
+	}
 	s.routes()
 	s.startWatch() // no-op if watch is disabled or unconfigured
 	return s
@@ -133,6 +138,26 @@ func (s *Server) routes() {
 
 	// Threat intel — read=any
 	s.mux.Handle("/api/ti/services", any(s.handleTIServices))
+
+	// Quiver sensor-facing — no session auth, served over the TLS listener.
+	// install.sh is the curl-able installer body; enroll/checkin are the
+	// only two endpoints a sensor ever calls.
+	s.mux.HandleFunc("/quiver/install.sh", s.handleQuiverInstallScript)
+	s.mux.HandleFunc("/api/quiver/enroll", s.handleQuiverEnroll)
+	s.mux.HandleFunc("/api/quiver/checkin", s.handleQuiverCheckin)
+
+	// Sensors modal — read=any authenticated; admin-only writes enforced
+	// inside each handler.
+	s.mux.Handle("/api/sensors", any(s.handleSensorsList))
+	s.mux.Handle("/api/sensors/info", any(s.handleSensorsInfo))
+	s.mux.Handle("/api/sensors/host", any(s.handleSensorsHost))
+	s.mux.Handle("/api/sensors/tokens", any(s.handleSensorsTokens))
+	s.mux.Handle("/api/sensors/tokens/revoke", any(s.handleSensorsTokenRevoke))
+	s.mux.Handle("/api/sensors/disenroll", any(s.handleSensorDisenroll))
+	s.mux.Handle("/api/sensors/purge", any(s.handleSensorPurge))
+	s.mux.Handle("/api/sensors/schedule", any(s.handleSensorSchedule))
+	s.mux.Handle("/api/sensors/unauthorized", any(s.handleUnauthorizedList))
+	s.mux.Handle("/api/sensors/unauthorized/dismiss", any(s.handleUnauthorizedDismiss))
 
 	// Export / Import — analyst+
 	s.mux.Handle("/api/export/json", any(s.handleExportJSON))
