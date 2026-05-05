@@ -2130,6 +2130,11 @@
         if (wac) wac.style.display = '';
         _refreshPendingBadge();
       }
+      // Sensors menu is visible to admin + analyst; only admins get the
+      // enroll/disenroll/purge buttons (Sensors.init takes the gate).
+      if (u.role === 'admin' || u.role === 'analyst') {
+        Sensors.init(u.role === 'admin');
+      }
       // Hide write-only controls for viewers
       if (u.role === 'viewer') {
         ['import-logs-btn','clear-files-btn','analyze-btn','allowlist-btn','ioc-btn','suppressions-btn',
