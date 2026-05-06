@@ -2046,9 +2046,15 @@
   // English (cadence + anchor + timezone + next-run) so the user doesn't
   // have to mentally combine three fields. Always reflects what the
   // server reported, never what the form currently holds.
+  //
+  // For sub-daily cadences a second line surfaces the two-tier behavior:
+  // the next tick is tagged "full pipeline" or "incremental TI", and when
+  // it's incremental we show when the next full pipeline pass will fire
+  // so the analyst knows when statistical detectors will refresh next.
   function _renderWatchSchedulePreview(cfg) {
     const el = document.getElementById('watch-schedule-preview');
     if (!el) return;
+    el.innerHTML = '';
     if (!cfg || !cfg.enabled) { el.textContent = ''; return; }
     const interval = (cfg.interval_hours === 24) ? 0 : (cfg.interval_hours || 0);
     const tzLabel  = cfg.timezone || 'UTC';
@@ -2059,7 +2065,32 @@
     else if (interval === 0)  head = `Daily at ${time}`;
     else                      head = `Every ${interval}h starting ${time}`;
     const next = cfg.next_run ? ` — next ${cfg.next_run}` : '';
-    el.textContent = `${head} ${tzLabel}${next}`;
+
+    const line1 = document.createElement('div');
+    line1.textContent = `${head} ${tzLabel}${next}`;
+    el.appendChild(line1);
+
+    // Daily cadence (interval=0) — every tick is a full pipeline pass, so
+    // there's no two-tier distinction to surface.
+    if (interval === 0) return;
+
+    // Sub-daily cadence — annotate the next tick as full vs incremental,
+    // and (when incremental) show when the next full one will fire.
+    const kind = cfg.next_run_kind || '';
+    const line2 = document.createElement('div');
+    line2.style.fontSize = '11px';
+    line2.style.color = 'var(--fg-dim)';
+    line2.style.marginTop = '2px';
+    if (kind === 'full') {
+      line2.textContent = '↳ next tick: full pipeline (all detectors)';
+    } else if (kind === 'incremental') {
+      const nf = cfg.next_full_run ? ` — next full pipeline at ${cfg.next_full_run}` : '';
+      line2.textContent = `↳ next tick: incremental TI / IOC${nf}`;
+    } else {
+      // Defensive: server didn't report kind. Don't speculate.
+      return;
+    }
+    el.appendChild(line2);
   }
 
   function initWatch() {

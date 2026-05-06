@@ -862,6 +862,45 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 					label = "UTC"
 				}
 				resp["next_run"] = next.In(loc).Format("2006-01-02 15:04 ") + label
+
+				// Two-tier cadence: derive next_run_kind and next_full_run so
+				// the sidebar can tell the analyst whether the upcoming tick
+				// is the daily full-pipeline pass or an incremental TI-only
+				// pass — matters for "is my beacon detection going to refresh
+				// at the next tick?" mental modelling. Mirrors the decision
+				// logic in triggerWatchAnalysis (see watch.go).
+				lastFull := s.store.GetLastFullAnalysisTime()
+				isFullTick := func(t time.Time) bool {
+					if lastFull.IsZero() {
+						return true
+					}
+					utc := t.UTC()
+					lf := lastFull.UTC()
+					return utc.Year() != lf.Year() || utc.YearDay() != lf.YearDay()
+				}
+				nextIsFull := isFullTick(next)
+				if nextIsFull {
+					resp["next_run_kind"] = "full"
+					resp["next_full_run"] = resp["next_run"]
+				} else {
+					resp["next_run_kind"] = "incremental"
+					// Walk forward in the cadence until we land on a tick
+					// whose UTC date differs from the last full run's date.
+					// Bounded search: at hourly cadence the next-day boundary
+					// is at most 25 hops away; at 12h cadence at most 3.
+					step := time.Duration(intervalHours) * time.Hour
+					if intervalHours == 0 || intervalHours == 24 {
+						step = 24 * time.Hour
+					}
+					candidate := next
+					for i := 0; i < 30; i++ {
+						candidate = candidate.Add(step)
+						if isFullTick(candidate) {
+							resp["next_full_run"] = candidate.In(loc).Format("2006-01-02 15:04 ") + label
+							break
+						}
+					}
+				}
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
