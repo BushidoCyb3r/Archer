@@ -1,10 +1,39 @@
 #!/bin/sh
-# /usr/local/bin/quiver.sh — daily Zeek log push to Archer.
+# /usr/local/bin/quiver.sh — recurring Zeek log push to Archer.
 #
-# Cron-driven, runs as the quiver user. Each tick checks in with Archer
-# over HTTPS first; the response decides whether to push, self-clean,
-# or exit silently. Schedule changes from the admin propagate through
-# the same checkin response and rewrite cron in place.
+# Lifecycle (each cron tick):
+#   1. Acquire flock on /var/lib/quiver/quiver.lock; bail if a previous
+#      run is still going.
+#   2. Read /etc/quiver/config for server host/port/fingerprint, sensor
+#      name, schedule minute, and SSH key path. Optional LOCAL_LOGS_DIR
+#      override; otherwise auto-detect.
+#   3. POST {name} to /api/quiver/checkin over pinned-pubkey TLS. The
+#      server's response branches:
+#        enrolled     → maybe rewrite cron with a new minute, then push
+#        disenrolled  → invoke uninstall script, exit
+#        unknown/err  → silently exit (admin probably purged the row,
+#                       or transient network blip — try again next tick)
+#   4. Locate the local Zeek log tree (LOCAL_LOGS_DIR or autodetect
+#      across /opt/zeek/logs, /usr/local/zeek/logs, /nsm/zeek/logs,
+#      and a few legacy Bro paths).
+#   5. Filter to log types Archer's analyzers actually consume; first
+#      run after install ships everything (FIRST_SYNC=1), recurring
+#      runs ship only the last 24h (-mtime -1).
+#   6. rsync over ssh to quiver@archer:.  rrsync chroots us into
+#      /logs/<sensor-name>/ on the server side, so the trailing colon
+#      means "the root of the chroot." -avR preserves the date-tree
+#      directory structure. nice/ionice yield CPU+IO.
+#
+# Source files are NEVER deleted from this sensor — rsync runs without
+# --remove-source-files, so every .gz Archer ingests is a copy. Local
+# rotation/retention on the sensor is your problem to manage.
+#
+# Operator overrides (edit /etc/quiver/config):
+#   LOCAL_LOGS_DIR=/path/to/zeek/logs   # bypass the autodetect list
+#   ARCHER_SSH_PORT=2222                # if you remap on the server
+#
+# Logs land in syslog (cron's stdout/stderr capture varies by distro).
+# To debug a tick interactively: sudo -u quiver /usr/local/bin/quiver.sh
 set -eu
 
 . /etc/quiver/config

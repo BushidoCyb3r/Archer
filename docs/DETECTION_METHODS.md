@@ -463,13 +463,175 @@ severity High.
 
 ## 12. Threat Intel Hits
 
-**Where.** `internal/analysis/ti.go`.
+**Where.** `internal/analysis/ti.go`. Cross-annotation in
+`internal/server/ti_crossnote.go`.
 
-In Phase 0 of analysis, Archer pre-fetches Feodo Tracker (botnet C2 IPs) and
-URLhaus (malware distribution IPs and hosts). During the conn pass, any
-connection whose `dst` is in those feeds becomes a `Threat Intel Hit` finding.
-Pure list match — no scoring math, just a high-confidence severity assigned by
-the feed's own classification.
+### 12.1 Pipeline placement
+
+Phase 0 (`prefetchFeeds`) runs concurrently with the rest of analysis startup
+and pulls two open feeds into memory: Feodo Tracker (botnet C2 IPs) and
+URLhaus (malware distribution IPs + hosts; the `csv_online` slice — currently
+active URLs only). Phase 3 (`checkTI`) then matches the cached feed sets,
+plus optional OTX and AbuseIPDB lookups, against destinations observed in the
+current log set.
+
+The TI phase is also reachable on its own via `Analyzer.AnalyzeTIOnly` —
+runs Phase 0 + Phase 3 (and `checkSuspiciousURLs`) without any of the
+statistical phases. Used by the archive IOC re-scan and by the watch
+loop's incremental ticks (see section 12.9 below).
+
+### 12.2 Sources of destinations
+
+`checkTI` builds a per-destination → per-source observation map from four
+sources, in this order:
+
+1. **`conn.log`** — every external (non-private) `id.resp_h`, with the
+   `id.orig_h` that contacted it, the responder port, and `ts`. This is the
+   critical-path source: a one-shot connection to a Feodo C2 may not trip
+   any other detector (no beacon score, no suspicious port), so the dst set
+   has to come from the raw conn pass, not from already-generated findings.
+2. **`dns.log`** — every queried name (skipping records whose query is itself
+   an IP), with `id.orig_h` (the host that issued the query) and `qtype_name`
+   (A/AAAA/TXT/...).
+3. **`http.log`** — every `host` header, with `id.orig_h`, `id.resp_p`, and
+   the request `uri`. Hostnames that are bare IPs are routed to the IP map
+   instead of the domain map.
+4. **Existing findings** — any non-synthetic `DstIP` from findings already
+   produced by earlier phases. Pulls the finding's `SrcIP` along when it's a
+   real IP (skipping the `(TI)`, `(network)`, `(escalation)`, `(cert)`
+   placeholders). This catches dsts the log scans above might miss — for
+   example, a `Lateral Movement` finding whose dst was synthesised from a
+   reassembled session.
+
+Each `(dst, src)` pair stores one observation (port, ts, proto, qtype, uri,
+count). Repeated contacts from the same src bump count but never allocate
+a new entry, bounding memory under pathological volumes and giving
+`count` as a useful signal in the resulting Detail string.
+
+### 12.3 Feed matching
+
+| Feed                | Match against         | Score | Severity                         | Auth                   |
+|---------------------|-----------------------|-------|----------------------------------|------------------------|
+| FeodoTracker        | dst IPs               | 99    | CRITICAL                         | none (public)          |
+| URLhaus IPs         | dst IPs               | 97    | CRITICAL                         | none (public)          |
+| URLhaus hosts       | dst domains           | 97    | CRITICAL                         | none (public)          |
+| OTX (AlienVault)    | dst IPs (cap 20/run)  | `min(70 + pulses*3, 99)` | HIGH; CRITICAL if pulses ≥ 7   | API key                |
+| AbuseIPDB           | dst IPs (cap 10/run)  | `min(50 + score/5, 99)`  | HIGH; CRITICAL if confidence ≥ 80 | API key             |
+
+OTX/AbuseIPDB are rate-capped per analysis run because both have free-tier
+quotas an analyst's box can chew through quickly on a busy day. Feodo and
+URLhaus are bulk file fetches, so cap doesn't apply.
+
+### 12.4 Per-source fan-out
+
+A single feed match emits **one `Threat Intel Hit` finding per distinct
+internal source** that contacted the bad dst:
+
+- `SrcIP` = the real internal host (`id.orig_h` from conn/dns/http)
+- `DstIP` = the matched IP or domain
+- `DstPort` = observed responder port for IP hits; `53` for DNS-sourced
+  domain hits; `80` for HTTP-sourced domain hits
+- `Timestamp` = first observed contact time (Zeek `ts`), not analyzer
+  wall-clock — so the row sorts naturally next to the actual traffic
+- `SourceFile` = feed name (`FeodoTracker` / `URLhaus` / `OTX` / `AbuseIPDB`)
+- `Detail` = the feed's verdict line plus an evidence suffix:
+  - `… — observed via conn on port 443 (12 session(s))`
+  - `… — observed via HTTP on port 80 (3 request(s))`
+  - `… — DNS A query (5 lookup(s))`
+  - `… — HTTP request to /malware.exe (1 request(s))`
+
+This turns what was previously a dead-end `(TI) → 1.2.3.4` row into a
+triagable per-host record an analyst can ack/escalate/pivot from. The raw-log
+lookup (`/api/findings/{id}/raw`) also starts working for TI hits, since the
+`(src, dst)` pair now matches real records on disk.
+
+### 12.5 Fallback to `(TI)` placeholder
+
+When `checkTI` can't attribute a src to a matched dst — typically when the
+dst was pulled from a synthetic finding in Source 4 and no fresh log
+evidence supports it — the emit step keeps the legacy single-row form with
+`SrcIP = "(TI)"` and the original feed verdict in Detail. This is the "I
+know this dst is bad but can't tell you who talked to it" case; without it,
+the hit would be silently dropped.
+
+### 12.6 Split-horizon DNS caveat
+
+In environments where workstations send DNS to an internal resolver
+(BIND/Pi-hole/Windows DNS/AD DC/corporate DoH proxy) and the Zeek sensor
+sees only resolver→upstream traffic, every `dns.log` record's `id.orig_h`
+is the resolver's IP, not the workstation that triggered the lookup.
+Attribution still lands on "the host that did the lookup Zeek observed,"
+which is one hop short of the workstation but better than no attribution.
+Zeek can't bridge this gap from the wire alone — the analyst needs the
+resolver's own query log to find the originating workstation. The same
+shadowing applies to `http.log` when the sensor sits behind an HTTP proxy.
+
+### 12.7 Cross-annotation onto sibling findings
+
+After the analyzer's results are merged into the store, the server walks
+every newly-detected `Threat Intel Hit` (`IsNew && Type == "Threat Intel
+Hit"`) and appends a `TI Enrichment` system note to every other finding
+whose `DstIP` or `SrcIP` matches the hit's IP. So an analyst opening (say)
+a beacon finding for `10.0.0.5 → 1.2.3.4` automatically sees a
+`FeodoTracker` annotation inline, instead of having to notice a separate
+`Threat Intel Hit` row.
+
+The cross-note loop dedupes per `(dst, source)` so the per-source fan-out
+doesn't write N copies of the same enrichment note onto each related
+finding. The `IsNew` filter also prevents re-runs from piling on duplicate
+notes for the same hit — once a fingerprint has been seen, `SetFindings`
+carries it forward as `IsNew=false` and the cross-annotation loop skips
+it.
+
+### 12.8 Notification suppression
+
+`Threat Intel Hit` notifications still fire for new hits, but `Host Risk
+Score` (the per-host roll-up emitted by Phase 4) is excluded from the bell
+on purpose — that's an aggregate, not a discrete event, and the underlying
+network detections that pushed the host's score over the line have
+already generated their own notifications. See section 14 for the
+roll-up's scoring algorithm.
+
+### 12.9 Two-tier watch cadence
+
+Statistical detectors (Beaconing, HTTP analysis, DNS NXDOMAIN flood,
+etc.) need the full temporal window of Zeek logs to spot patterns —
+beaconing math operates on hours/days of `(src, dst, port)` interval
+arrays. TI matching has no such requirement: each connection-to-bad-IP
+is independently meaningful regardless of what came before it.
+
+The watch loop exploits that asymmetry. On any UTC calendar day:
+
+- **First tick → full pipeline.** All phases run, all detectors get a
+  fresh refresh against the entire `/logs` tree.
+- **Subsequent same-day ticks → incremental TI pass.** Calls
+  `AnalyzeTIOnly` against the file subset whose mtime is newer than
+  `LastAnalysisUnix - 5 min` (the 5-minute overlap absorbs files
+  rotated right at the boundary). Statistical detectors don't run.
+
+Two persisted timestamps in the settings table drive the decision:
+
+- `LastFullAnalysisUnix` — set on every full-pipeline completion (watch
+  tick, manual "Discard & re-analyze", or the manual analyze button).
+  Compared against `time.Now().UTC().YearDay()` to gate full-vs-incremental.
+- `LastAnalysisUnix` — set on every successful run of either kind.
+  Used as the mtime cutoff for the next incremental tick's file filter.
+
+Manual full-pipeline runs (the analyze button or "Discard &
+re-analyze") flow through the same code path and reset both timestamps,
+so the two-tier cycle restarts cleanly from a manual baseline.
+
+Watch ticks emit a `done` SSE event with `incremental: true` for the
+short-pass case so the UI can distinguish them from full-pipeline
+completions. Incremental runs that find no modified files since the
+last run skip silently with a status event ("Incremental tick: no new
+logs since last run.") instead of producing a no-op `done` event.
+
+**Detection latency.** TI hits surface within one tick interval (e.g.
+hourly). Statistical detectors get a 24h refresh — a beacon that starts
+between daily runs is detected on the next day's first tick. Real-time
+beacon detection from a single hour of logs is mathematically
+impossible, so this is the floor any honest design hits.
 
 ---
 

@@ -70,60 +70,108 @@ func (a *Analyzer) checkSuspiciousURLs(files []string) {
 	}
 }
 
+// tiIPObs records a single (dst-ip, src) observation for TI hit fan-out.
+// One entry per distinct src per dst; repeated contacts from the same src
+// bump count but don't allocate (bounds memory under pathological volumes
+// and gives count as a useful signal in the finding's Detail).
+type tiIPObs struct {
+	port  string
+	ts    float64
+	proto string // "conn" | "http" | "ssl" | "finding"
+	count int
+}
+
+// tiDomainObs is the domain-keyed analogue of tiIPObs. uri is captured for
+// HTTP-sourced observations so the resulting finding can show the analyst
+// the exact path that triggered the hit, not just the host.
+type tiDomainObs struct {
+	ts    float64
+	proto string // "dns" | "http" | "finding"
+	qtype string // dns only
+	uri   string // http only — first URI we saw this src request from this host
+	count int
+}
+
 func (a *Analyzer) checkTI(files []string) {
 	// Use pre-fetched feeds from prefetchFeeds step
 	feodoIPs     := a.feodoIPs
 	urlhausIPs   := a.urlhausIPs
 	urlhausHosts := a.urlhausHosts
 
-	dstIPs     := make(map[string]bool)
-	dstDomains := make(map[string]bool)
+	// Two-phase design. Phase A is a cheap dst-only sweep (one bool per
+	// distinct external IP/domain) used purely to feed the feed-match
+	// loops and the OTX/AbuseIPDB rate-capped lookups. Phase B is a
+	// targeted per-source sweep that ONLY allocates per-(dst, src)
+	// observation entries for dsts that actually matched a feed (the
+	// "winners"). Without this split, Phase B's allocations were the
+	// dominant memory cost on large datasets — millions of map entries
+	// for dsts that never matched anything, GC-thrashing against
+	// GOMEMLIMIT. With the split, the heavy structures are bounded by
+	// the feed-hit count, which is small for any sane dataset.
+	//
+	// Both phases parallelize file scans across the analyzer's worker
+	// pool (parallelEach handles bounding by CPU count and memory budget).
 
-	// Source 1: scan conn.log directly for every external destination IP.
-	// This is the critical path — Feodo/URLhaus C2s may not trigger any other
-	// detector (no beaconing score, no suspicious port), so we must check all
-	// observed IPs, not just ones that already appear in findings.
-	for _, f := range filterFiles(files, "conn") {
-		_ = parser.ParseLog(f, func(rec map[string]any) bool {
+	conns := filterFiles(files, "conn")
+	dnsLogs := filterFiles(files, "dns")
+	httpLogs := filterFiles(files, "http")
+
+	// ── Phase A: dst-only collection ───────────────────────────────────────
+	dstIPSet := make(map[string]bool)
+	dstDomainSet := make(map[string]bool)
+	var muA sync.Mutex
+	addDstIP := func(ip string) {
+		muA.Lock()
+		dstIPSet[ip] = true
+		muA.Unlock()
+	}
+	addDstDomain := func(d string) {
+		muA.Lock()
+		dstDomainSet[d] = true
+		muA.Unlock()
+	}
+
+	a.parallelEach(conns, func(path string) {
+		_ = parser.ParseLog(path, func(rec map[string]any) bool {
 			dst := parser.GetStr(rec, "id.resp_h")
 			if dst != "" && !isPrivateIP(dst) && isIPAddr(dst) {
-				dstIPs[dst] = true
+				addDstIP(dst)
 			}
 			return true
 		})
-	}
-
-	// Source 2: DNS queries — catch URLhaus domains resolved by internal hosts.
-	for _, f := range filterFiles(files, "dns") {
-		_ = parser.ParseLog(f, func(rec map[string]any) bool {
+	})
+	a.parallelEach(dnsLogs, func(path string) {
+		_ = parser.ParseLog(path, func(rec map[string]any) bool {
 			q := parser.GetStr(rec, "query")
 			if q != "" && !isIPAddr(q) {
-				dstDomains[q] = true
+				addDstDomain(q)
 			}
 			return true
 		})
-	}
-
-	// Source 3: HTTP Host headers — URLhaus tracks URLs by hostname.
-	for _, f := range filterFiles(files, "http") {
-		_ = parser.ParseLog(f, func(rec map[string]any) bool {
+	})
+	a.parallelEach(httpLogs, func(path string) {
+		_ = parser.ParseLog(path, func(rec map[string]any) bool {
 			host := parser.GetStr(rec, "host")
 			if host == "" {
 				return true
 			}
-			// Strip port if present
 			if i := strings.LastIndex(host, ":"); i >= 0 && strings.Count(host, ":") == 1 {
 				host = host[:i]
 			}
-			if host != "" && !isIPAddr(host) {
-				dstDomains[host] = true
+			if host == "" {
+				return true
+			}
+			if isIPAddr(host) {
+				addDstIP(host)
+			} else {
+				addDstDomain(host)
 			}
 			return true
 		})
-	}
+	})
 
-	// Source 4: IPs/domains from findings already generated — catches anything
-	// the log scans above might miss (e.g. synthetic DstIP values).
+	// Source 4 (existing findings) into the dst-only set. Synthetic dsts
+	// don't appear in the log scans above but can still match feeds.
 	a.mu.RLock()
 	for _, f := range a.findings {
 		dst := f.DstIP
@@ -132,13 +180,14 @@ func (a *Analyzer) checkTI(files []string) {
 			continue
 		}
 		if isIPAddr(dst) {
-			dstIPs[dst] = true
+			dstIPSet[dst] = true
 		} else {
-			dstDomains[dst] = true
+			dstDomainSet[dst] = true
 		}
 	}
 	a.mu.RUnlock()
 
+	// ── Feed matching → winners ────────────────────────────────────────────
 	type tiHit struct {
 		dst    string
 		source string
@@ -149,7 +198,7 @@ func (a *Analyzer) checkTI(files []string) {
 	var hits []tiHit
 
 	// Match against FeodoTracker
-	for ip := range dstIPs {
+	for ip := range dstIPSet {
 		if feodoIPs[ip] {
 			hits = append(hits, tiHit{
 				dst:    ip,
@@ -162,7 +211,7 @@ func (a *Analyzer) checkTI(files []string) {
 	}
 
 	// Match against URLhaus
-	for ip := range dstIPs {
+	for ip := range dstIPSet {
 		if urlhausIPs[ip] {
 			hits = append(hits, tiHit{
 				dst:    ip,
@@ -173,7 +222,7 @@ func (a *Analyzer) checkTI(files []string) {
 			})
 		}
 	}
-	for host := range dstDomains {
+	for host := range dstDomainSet {
 		if urlhausHosts[host] {
 			hits = append(hits, tiHit{
 				dst:    host,
@@ -189,9 +238,8 @@ func (a *Analyzer) checkTI(files []string) {
 	client := &http.Client{Timeout: time.Duration(a.cfg.TITimeoutSec) * time.Second}
 
 	// OTX — cap at 20 IPs
-	if a.cfg.OTXAPIKey != "" && len(dstIPs) > 0 {
-		ipList := mapKeys(dstIPs, 20)
-		for _, ip := range ipList {
+	if a.cfg.OTXAPIKey != "" && len(dstIPSet) > 0 {
+		for _, ip := range pickN(dstIPSet, 20) {
 			detail, score := checkOTX(client, ip, a.cfg.OTXAPIKey)
 			if detail != "" {
 				sev := model.SevHigh
@@ -209,9 +257,8 @@ func (a *Analyzer) checkTI(files []string) {
 	}
 
 	// AbuseIPDB — cap at 10 IPs
-	if a.cfg.AbuseIPDBAPIKey != "" && len(dstIPs) > 0 {
-		ipList := mapKeys(dstIPs, 10)
-		for _, ip := range ipList {
+	if a.cfg.AbuseIPDBAPIKey != "" && len(dstIPSet) > 0 {
+		for _, ip := range pickN(dstIPSet, 10) {
 			detail, score := checkAbuseIPDB(client, ip, a.cfg.AbuseIPDBAPIKey)
 			if detail != "" {
 				sev := model.SevHigh
@@ -228,18 +275,309 @@ func (a *Analyzer) checkTI(files []string) {
 		}
 	}
 
-	for _, h := range hits {
-		a.add(model.Finding{
-			Type:      "Threat Intel Hit",
-			Severity:  h.sev,
-			Score:     h.score,
-			SrcIP:     "(TI)",
-			DstIP:     h.dst,
-			Detail:    h.detail,
-			Timestamp: time.Now().UTC().Format("2006-01-02 15:04:05"),
-			SourceFile: h.source,
-		})
+	// No hits → no Phase B work, no findings to emit. Early exit means
+	// we don't allocate any of the per-source bookkeeping at all on the
+	// (very common) "clean dataset" path.
+	if len(hits) == 0 {
+		return
 	}
+
+	// Build the winners filter set — small, bounded by len(hits).
+	winnerIPs := make(map[string]bool)
+	winnerDomains := make(map[string]bool)
+	for _, h := range hits {
+		if isIPAddr(h.dst) {
+			winnerIPs[h.dst] = true
+		} else {
+			winnerDomains[h.dst] = true
+		}
+	}
+
+	// ── Phase B: targeted per-source collection ────────────────────────────
+	// Allocates per-(dst, src) entries ONLY when the dst is in the winner
+	// set. The fast-path check happens before any other parser.GetXxx
+	// calls so non-matching records pay almost nothing per record.
+	dstIPs := make(map[string]map[string]*tiIPObs)
+	dstDomains := make(map[string]map[string]*tiDomainObs)
+	var muB sync.Mutex
+
+	addIPObs := func(dst, src, port, proto string, ts float64) {
+		if !winnerIPs[dst] || src == "" {
+			return
+		}
+		muB.Lock()
+		defer muB.Unlock()
+		bySrc, ok := dstIPs[dst]
+		if !ok {
+			bySrc = make(map[string]*tiIPObs)
+			dstIPs[dst] = bySrc
+		}
+		if cur, ok := bySrc[src]; ok {
+			cur.count++
+			if ts > 0 && (cur.ts == 0 || ts < cur.ts) {
+				cur.ts = ts
+			}
+			return
+		}
+		bySrc[src] = &tiIPObs{port: port, ts: ts, proto: proto, count: 1}
+	}
+
+	addDomainObs := func(dst, src, qtype, proto, uri string, ts float64) {
+		if !winnerDomains[dst] || src == "" {
+			return
+		}
+		muB.Lock()
+		defer muB.Unlock()
+		bySrc, ok := dstDomains[dst]
+		if !ok {
+			bySrc = make(map[string]*tiDomainObs)
+			dstDomains[dst] = bySrc
+		}
+		if cur, ok := bySrc[src]; ok {
+			cur.count++
+			if ts > 0 && (cur.ts == 0 || ts < cur.ts) {
+				cur.ts = ts
+			}
+			if cur.uri == "" && uri != "" {
+				cur.uri = uri
+			}
+			return
+		}
+		bySrc[src] = &tiDomainObs{ts: ts, proto: proto, qtype: qtype, uri: uri, count: 1}
+	}
+
+	// Source 1 (targeted): conn.log, only for winning dsts.
+	a.parallelEach(conns, func(path string) {
+		_ = parser.ParseLog(path, func(rec map[string]any) bool {
+			dst := parser.GetStr(rec, "id.resp_h")
+			if !winnerIPs[dst] {
+				return true
+			}
+			src := parser.GetStr(rec, "id.orig_h")
+			port := fmt.Sprint(parser.GetInt(rec, "id.resp_p"))
+			ts := parser.GetFloat(rec, "ts")
+			addIPObs(dst, src, port, "conn", ts)
+			return true
+		})
+	})
+
+	// Source 2 (targeted): dns.log, only for winning domains.
+	// id.orig_h is the host that issued the query. NOTE: in environments
+	// with an internal DNS forwarder/resolver, this will be the resolver's
+	// IP, not the workstation that triggered the lookup — Zeek can't see
+	// past the resolver from the wire alone. Attribution still lands on
+	// "the host that did the lookup Zeek observed", which is at least one
+	// hop short of the workstation but better than no attribution.
+	a.parallelEach(dnsLogs, func(path string) {
+		_ = parser.ParseLog(path, func(rec map[string]any) bool {
+			q := parser.GetStr(rec, "query")
+			if !winnerDomains[q] {
+				return true
+			}
+			src := parser.GetStr(rec, "id.orig_h")
+			qtype := parser.GetStr(rec, "qtype_name")
+			ts := parser.GetFloat(rec, "ts")
+			addDomainObs(q, src, qtype, "dns", "", ts)
+			return true
+		})
+	})
+
+	// Source 3 (targeted): http.log. Both winnerIPs (Host header is a
+	// bare IP) and winnerDomains (Host header is a name) are checked.
+	a.parallelEach(httpLogs, func(path string) {
+		_ = parser.ParseLog(path, func(rec map[string]any) bool {
+			host := parser.GetStr(rec, "host")
+			if host == "" {
+				return true
+			}
+			if i := strings.LastIndex(host, ":"); i >= 0 && strings.Count(host, ":") == 1 {
+				host = host[:i]
+			}
+			if host == "" {
+				return true
+			}
+			if isIPAddr(host) {
+				if !winnerIPs[host] {
+					return true
+				}
+				src := parser.GetStr(rec, "id.orig_h")
+				port := fmt.Sprint(parser.GetInt(rec, "id.resp_p"))
+				ts := parser.GetFloat(rec, "ts")
+				addIPObs(host, src, port, "http", ts)
+			} else {
+				if !winnerDomains[host] {
+					return true
+				}
+				src := parser.GetStr(rec, "id.orig_h")
+				uri := parser.GetStr(rec, "uri")
+				ts := parser.GetFloat(rec, "ts")
+				addDomainObs(host, src, "", "http", uri, ts)
+			}
+			return true
+		})
+	})
+
+	// Source 4 (targeted): existing findings, attribution-only — pull the
+	// finding's SrcIP if the dst happens to be a winner. Catches dsts
+	// reported by detectors that don't read from conn/dns/http directly,
+	// or that produce a synthetic dst the log scans above can't see.
+	a.mu.RLock()
+	for _, f := range a.findings {
+		dst := f.DstIP
+		if dst == "" {
+			continue
+		}
+		isIP := isIPAddr(dst)
+		if isIP && !winnerIPs[dst] {
+			continue
+		}
+		if !isIP && !winnerDomains[dst] {
+			continue
+		}
+		src := f.SrcIP
+		switch src {
+		case "(TI)", "(network)", "(escalation)", "(cert)":
+			src = ""
+		}
+		if src == "" {
+			continue
+		}
+		if isIP {
+			addIPObs(dst, src, f.DstPort, "finding", 0)
+		} else {
+			addDomainObs(dst, src, "", "finding", "", 0)
+		}
+	}
+	a.mu.RUnlock()
+
+	// ── Per-source fan-out emit ────────────────────────────────────────────
+	// Emit one Threat Intel Hit per distinct src that contacted the bad
+	// dst, with real port/timestamp/URI/qtype context in the Detail. Only
+	// when no src attribution is available do we fall back to the
+	// SrcIP="(TI)" placeholder — that's the "I know this dst is bad but
+	// can't tell you who talked to it" case (e.g. dst pulled from a
+	// synthetic finding with no per-host scope).
+	nowTS := time.Now().UTC().Format("2006-01-02 15:04:05")
+	for _, h := range hits {
+		isIP := isIPAddr(h.dst)
+		var srcCount int
+		if isIP {
+			srcCount = len(dstIPs[h.dst])
+		} else {
+			srcCount = len(dstDomains[h.dst])
+		}
+
+		if srcCount == 0 {
+			a.add(model.Finding{
+				Type:       "Threat Intel Hit",
+				Severity:   h.sev,
+				Score:      h.score,
+				SrcIP:      "(TI)",
+				DstIP:      h.dst,
+				Detail:     h.detail,
+				Timestamp:  nowTS,
+				SourceFile: h.source,
+			})
+			continue
+		}
+
+		if isIP {
+			for src, obs := range dstIPs[h.dst] {
+				detail := h.detail + tiIPEvidence(obs.proto, obs.port, obs.count)
+				ts := nowTS
+				if obs.ts > 0 {
+					ts = fmtTS(obs.ts)
+				}
+				a.add(model.Finding{
+					Type:       "Threat Intel Hit",
+					Severity:   h.sev,
+					Score:      h.score,
+					SrcIP:      src,
+					DstIP:      h.dst,
+					DstPort:    obs.port,
+					Detail:     detail,
+					Timestamp:  ts,
+					SourceFile: h.source,
+				})
+			}
+		} else {
+			for src, obs := range dstDomains[h.dst] {
+				detail := h.detail + tiDomainEvidence(obs.proto, obs.qtype, obs.uri, obs.count)
+				port := ""
+				switch obs.proto {
+				case "dns":
+					port = "53"
+				case "http":
+					port = "80"
+				}
+				ts := nowTS
+				if obs.ts > 0 {
+					ts = fmtTS(obs.ts)
+				}
+				a.add(model.Finding{
+					Type:       "Threat Intel Hit",
+					Severity:   h.sev,
+					Score:      h.score,
+					SrcIP:      src,
+					DstIP:      h.dst,
+					DstPort:    port,
+					Detail:     detail,
+					Timestamp:  ts,
+					SourceFile: h.source,
+				})
+			}
+		}
+	}
+}
+
+// tiIPEvidence formats the per-source observation context appended to a
+// Threat Intel Hit's Detail field for IP-based matches.
+func tiIPEvidence(proto, port string, count int) string {
+	switch proto {
+	case "conn":
+		return fmt.Sprintf(" — observed via conn on port %s (%d session(s))", port, count)
+	case "http":
+		return fmt.Sprintf(" — observed via HTTP on port %s (%d request(s))", port, count)
+	case "ssl":
+		return fmt.Sprintf(" — observed via TLS on port %s (%d session(s))", port, count)
+	case "finding":
+		return " — pulled from a prior detection's destination context (no fresh log evidence in this run)"
+	}
+	return ""
+}
+
+// tiDomainEvidence formats the per-source observation context appended to
+// a Threat Intel Hit's Detail field for domain-based matches.
+func tiDomainEvidence(proto, qtype, uri string, count int) string {
+	switch proto {
+	case "dns":
+		if qtype == "" {
+			qtype = "DNS"
+		}
+		return fmt.Sprintf(" — DNS %s query (%d lookup(s))", qtype, count)
+	case "http":
+		if uri == "" {
+			return fmt.Sprintf(" — HTTP Host header (%d request(s))", count)
+		}
+		return fmt.Sprintf(" — HTTP request to %s (%d request(s))", uri, count)
+	case "finding":
+		return " — pulled from a prior detection's destination context (no fresh log evidence in this run)"
+	}
+	return ""
+}
+
+// pickN returns up to limit keys from a string-keyed set. Used to rate-cap
+// the OTX/AbuseIPDB API loops: those services have free-tier quotas a
+// single analysis run can chew through, so we sample rather than enumerate.
+func pickN(m map[string]bool, limit int) []string {
+	out := make([]string, 0, limit)
+	for k := range m {
+		out = append(out, k)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
 }
 
 func fetchFeodo(client *http.Client) map[string]bool {
@@ -350,17 +688,6 @@ func isIPAddr(s string) bool {
 	dots := strings.Count(s, ".")
 	colons := strings.Count(s, ":")
 	return dots == 3 || colons >= 2
-}
-
-func mapKeys(m map[string]bool, limit int) []string {
-	out := make([]string, 0, limit)
-	for k := range m {
-		out = append(out, k)
-		if len(out) >= limit {
-			break
-		}
-	}
-	return out
 }
 
 func extractHost(rawURL string) string {

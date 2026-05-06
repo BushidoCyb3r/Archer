@@ -1,9 +1,42 @@
 #!/bin/sh
-# Quiver enrollment bootstrap. Archer renders this template with
-# deployment-specific values substituted at request time. The token is
-# the only runtime argument; everything else (host, ports, fingerprint,
-# the daily script body, the uninstall helper) was baked in by the
-# server when this body was served.
+# Quiver enrollment bootstrap.
+#
+# What this does:
+#   1. Detects the local package manager and installs missing deps
+#      (curl, rsync, openssh-client, util-linux flock, sudo, cron daemon).
+#   2. Creates a system user 'quiver' with home /var/lib/quiver.
+#   3. Generates a fresh ed25519 SSH keypair under /etc/quiver/keys/.
+#   4. POSTs {token, hostname, pubkey} to Archer's /api/quiver/enroll
+#      over HTTPS — TLS is pinned to the fingerprint baked into this
+#      script, so no CA chain or known_hosts trust is required.
+#   5. Writes /etc/quiver/config (server host/ports, sensor name,
+#      assigned cron minute, key path) and /etc/quiver/known_hosts.
+#   6. Drops /usr/local/bin/quiver.sh (the recurring push script) and
+#      /usr/local/bin/quiver-uninstall.sh (self-clean helper).
+#   7. Drops /etc/cron.d/quiver — runs hourly at the server-assigned
+#      minute, so 20 sensors don't synchronize at HH:00.
+#   8. Drops /etc/sudoers.d/quiver — narrowly authorizes the quiver
+#      user to invoke ONLY the uninstall script via sudo.
+#   9. Restores SELinux contexts on the dropped files (no-op off RHEL).
+#  10. Runs the first push immediately (FIRST_SYNC=1 ships the entire
+#      Zeek log tree; recurring runs only ship the last 24h).
+#
+# Filesystem footprint left behind:
+#   /etc/quiver/                  config, ssh key, known_hosts
+#   /var/lib/quiver/              quiver user home + flock file
+#   /usr/local/bin/quiver.sh      recurring push script
+#   /usr/local/bin/quiver-uninstall.sh
+#   /etc/cron.d/quiver
+#   /etc/sudoers.d/quiver
+#
+# Removal: `sudo /usr/local/bin/quiver-uninstall.sh` reverses items 5-8.
+# (The 'quiver' user is intentionally preserved — see uninstall script.)
+#
+# Archer renders this template with deployment-specific values
+# substituted at request time. The token is the only runtime argument;
+# everything else (host, ports, fingerprint, the recurring script body,
+# the uninstall helper) was baked in by the server when this body was
+# served.
 set -eu
 
 TOKEN="${1:-}"
@@ -272,3 +305,21 @@ echo "quiver: install complete."
 echo "       sensor name : ${SRV}"
 echo "       hourly slot : :$(printf '%02d' "$M") (every hour)"
 echo "       runs as     : user 'quiver'"
+echo ""
+echo "quiver: where things live on this sensor:"
+echo "       config      : /etc/quiver/config       (edit LOCAL_LOGS_DIR= to override Zeek dir auto-detect)"
+echo "       ssh key     : /etc/quiver/keys/        (regenerated on every re-enrollment)"
+echo "       cron entry  : /etc/cron.d/quiver       (hourly, minute :$(printf '%02d' "$M"))"
+echo "       push script : /usr/local/bin/quiver.sh"
+echo "       lock file   : /var/lib/quiver/quiver.lock (single-instance guard)"
+echo ""
+echo "quiver: verify it's working from THIS host:"
+echo "       sudo -u quiver /usr/local/bin/quiver.sh   # run a push manually right now"
+echo "       grep CRON /var/log/syslog | grep quiver  # confirm cron is firing (path varies by distro)"
+echo ""
+echo "quiver: verify it's landing on the Archer server:"
+echo "       Archer UI → Sensors → look for '${SRV}' with a recent 'last seen' timestamp"
+echo "       server-side logs land at /logs/${SRV}/<YYYY-MM-DD>/<file>.log.gz"
+echo ""
+echo "quiver: removal (also runs automatically if the Archer admin disenrolls this sensor):"
+echo "       sudo /usr/local/bin/quiver-uninstall.sh"

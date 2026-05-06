@@ -64,6 +64,16 @@ type Config struct {
 	// run (watch fires but no files changed). Internal; not user-editable.
 	LastAnalysisFingerprint string `json:"last_analysis_fingerprint"`
 
+	// Two-tier watch cadence telemetry. The first watch tick of each UTC
+	// calendar day is a full statistical run (Beaconing, HTTP analysis, all
+	// detectors); subsequent same-day ticks are incremental TI-only runs
+	// over logs modified since the last run. These two timestamps drive
+	// that decision and the incremental file-mtime filter respectively.
+	// Both are also set after manual "Discard findings & re-analyze" so
+	// the cycle resets cleanly. Internal; not user-editable.
+	LastFullAnalysisUnix int64 `json:"last_full_analysis_unix,omitempty"` // when most recent full run completed; gates "did we already do a full today?"
+	LastAnalysisUnix     int64 `json:"last_analysis_unix,omitempty"`     // when ANY run (full or incremental) completed; mtime filter cutoff for next incremental
+
 	// OrgInternalCIDRs are admin-supplied CIDRs (or single IPs) that the
 	// Hosts tab should treat as belonging to the organisation, in addition
 	// to the built-in private ranges (RFC 1918, IPv4 link-local, IPv6 ULA,

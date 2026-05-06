@@ -167,10 +167,26 @@ func parseIntRange(s string, min, max int, out *int) (bool, error) {
 	return true, nil
 }
 
-// triggerWatchAnalysis scans logsDir and starts a full analysis run. Watch
-// runs are unattended, so they honor the dataset-fingerprint skip: if nothing
-// on disk has changed since the last successful run, this returns without
-// burning CPU to produce identical findings.
+// triggerWatchAnalysis scans logsDir and starts the appropriate analysis
+// run for this watch tick. Two-tier cadence:
+//
+//   - The first watch tick of each UTC calendar day runs the full pipeline
+//     (Beaconing, HTTP analysis, all detectors). Statistical detectors
+//     need the long temporal window to spot patterns — beaconing math
+//     operates on hours/days of (src, dst, port) intervals, not the last
+//     hour in isolation.
+//   - Subsequent same-day ticks run an incremental TI/IOC pass over only
+//     the log files modified since the last run. New bad-IP contacts get
+//     surfaced within one tick interval, but the expensive statistical
+//     phases skip until tomorrow's first tick refreshes them.
+//
+// On a fresh deployment (no prior full run on record), the first tick
+// always does a full run to establish a baseline before incremental
+// ticks have anything to be incremental against.
+//
+// Watch runs are unattended; the full-run path honors the dataset
+// fingerprint skip so we don't burn CPU re-producing identical findings
+// when nothing on disk has changed.
 func (s *Server) triggerWatchAnalysis() {
 	if s.store.IsAnalyzing() {
 		return
@@ -179,8 +195,136 @@ func (s *Server) triggerWatchAnalysis() {
 	if len(files) == 0 {
 		return
 	}
-	s.store.SetUploadedFiles(files)
-	s.launchAnalysisWithOptions(files, false)
+
+	now := time.Now().UTC()
+	lastFull := s.store.GetLastFullAnalysisTime()
+	needFull := lastFull.IsZero() ||
+		lastFull.Year() != now.Year() ||
+		lastFull.YearDay() != now.YearDay()
+
+	if needFull {
+		s.store.SetUploadedFiles(files)
+		s.launchAnalysisWithOptions(files, false)
+		return
+	}
+
+	// Same UTC day: incremental tick. Filter the file set to anything
+	// modified since the last run, with a 5-minute overlap buffer so a
+	// log rotated right at the boundary gets picked up next time instead
+	// of silently missed.
+	lastRun := s.store.GetLastAnalysisTime()
+	if lastRun.IsZero() {
+		// Defensive: shouldn't happen if lastFull is set, but if it does
+		// fall through to a full run rather than silently skipping.
+		s.store.SetUploadedFiles(files)
+		s.launchAnalysisWithOptions(files, false)
+		return
+	}
+	cutoff := lastRun.Add(-5 * time.Minute)
+	newFiles := make([]string, 0, len(files))
+	for _, f := range files {
+		info, err := os.Stat(f)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		if info.ModTime().After(cutoff) {
+			newFiles = append(newFiles, f)
+		}
+	}
+	if len(newFiles) == 0 {
+		// No new log evidence since the last run — skip without burning
+		// CPU. Watch will try again at the next tick; tomorrow's first
+		// tick will refresh statistical detectors regardless.
+		s.broker.Publish(SSEEvent{Type: "status", Data: `{"msg":"Incremental tick: no new logs since last run."}`})
+		return
+	}
+	s.launchIncrementalAnalysis(newFiles)
+}
+
+// launchIncrementalAnalysis runs Phase 0 (feed prefetch) + Phase 3 (TI
+// matching with per-source fan-out) over the supplied file subset — no
+// statistical detectors, no host-risk aggregation. Used by the watch
+// loop on same-day ticks where the expensive analysis already ran
+// earlier in the day. The TI phase is stateless per record (each
+// connection is independently meaningful), so a small file subset is
+// safe — unlike Beaconing or HTTP analysis which need the long window.
+func (s *Server) launchIncrementalAnalysis(files []string) {
+	cfg := s.store.GetConfig()
+	s.store.SetAnalyzing(true)
+	progressCh := make(chan analysis.ProgressEvent, 32)
+	statusCh := make(chan string, 32)
+
+	go func() {
+		for evt := range progressCh {
+			data, _ := json.Marshal(evt)
+			s.broker.Publish(SSEEvent{Type: "progress", Data: string(data)})
+		}
+	}()
+	go func() {
+		for msg := range statusCh {
+			data, _ := json.Marshal(map[string]string{"msg": msg})
+			s.broker.Publish(SSEEvent{Type: "status", Data: string(data)})
+		}
+	}()
+
+	announce, _ := json.Marshal(map[string]string{
+		"msg": fmt.Sprintf("Incremental TI pass over %d new file(s) since last run.", len(files)),
+	})
+	s.broker.Publish(SSEEvent{Type: "status", Data: string(announce)})
+
+	logsDir := s.logsDir
+	go func() {
+		az := analysis.New(cfg, progressCh, statusCh)
+
+		s.analyzerMu.Lock()
+		s.activeAnalyzer = az
+		s.analyzerMu.Unlock()
+
+		defer func() {
+			s.analyzerMu.Lock()
+			s.activeAnalyzer = nil
+			s.analyzerMu.Unlock()
+			close(progressCh)
+			close(statusCh)
+		}()
+
+		findings := az.AnalyzeTIOnly(files)
+
+		if logsDir != "" {
+			for i := range findings {
+				findings[i].Sensor = sensorFromPath(logsDir, findings[i].SourceFile)
+			}
+		}
+
+		newNotifs := s.store.SetFindings(findings)
+		s.crossAnnotateNewTIHits(findings)
+		for _, n := range newNotifs {
+			nData, _ := json.Marshal(n)
+			s.broker.Publish(SSEEvent{Type: "notification", Data: string(nData)})
+		}
+
+		wasCancelled := az.Ctx().Err() != nil
+		if !wasCancelled {
+			// Incremental updates the "any run" timestamp only — does NOT
+			// touch the full-run timestamp, so tomorrow's first tick still
+			// triggers a full pass.
+			s.store.SetLastAnalysisTime(time.Now().UTC())
+		}
+
+		newCount := 0
+		for _, f := range findings {
+			if f.IsNew {
+				newCount++
+			}
+		}
+		data, _ := json.Marshal(map[string]any{
+			"count":       len(findings),
+			"new_count":   newCount,
+			"cancelled":   wasCancelled,
+			"incremental": true,
+		})
+		s.broker.Publish(SSEEvent{Type: "done", Data: string(data)})
+	}()
 }
 
 // preflightMemoryWarning estimates peak analysis memory from total log size
@@ -386,6 +530,16 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) {
 		wasCancelled := az.Ctx().Err() != nil
 		if !wasCancelled {
 			s.store.SetLastAnalysisFingerprint(s.datasetFingerprint(files))
+			// Mark both the "full run" and "any run" timestamps. The full
+			// stamp gates the next watch tick's full-vs-incremental
+			// decision; the any stamp is the mtime cutoff for the next
+			// incremental's file filter. Manual "Discard & re-analyze"
+			// also flows through here, so a manual reset cleanly resets
+			// both — tomorrow's incremental ticks will work off a fresh
+			// baseline established by the manual run.
+			now := time.Now().UTC()
+			s.store.SetLastFullAnalysisTime(now)
+			s.store.SetLastAnalysisTime(now)
 			// The post-analysis archive only fires for the automated daily
 			// watch tick (force=false). Manual analyses — including the
 			// "Discard findings & re-analyze" reset — must not silently move
