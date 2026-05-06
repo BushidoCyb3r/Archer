@@ -145,6 +145,8 @@ Each push:
 
 The first push (run during install) is special: `FIRST_SYNC=1` is set in the environment, the mtime filter is dropped, and the entire log tree is shipped. After that, every recurring push is the last 24 hours' worth of completed `.gz` files. rsync's `--ignore-existing`-equivalent behavior (size + mtime check) means re-shipping an already-pushed file is a no-op.
 
+**rsync copies, never moves.** Quiver invokes `rsync -avRq` with no `--remove-source-files` flag, so every `.gz` Archer ingests is a copy — the original stays in place under the sensor's local Zeek log directory. Whatever retention policy Zeek (or the sensor's filesystem) enforces is unaffected by Quiver. If a sensor disk fills up, that's a sensor-side rotation/retention issue, not an Archer-side one. The only data Archer ever deletes from a sensor is via its own admin-triggered `Purge data` action against `/logs/<name>/` on the Archer host — and even that just moves the tree to `/logs/_archived/<name>-<timestamp>/`, never reaches back to the sensor.
+
 ---
 
 ## Health monitoring

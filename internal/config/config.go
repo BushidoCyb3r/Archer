@@ -25,11 +25,23 @@ type Config struct {
 	AbuseIPDBAPIKey       string  `json:"abuseipdb_api_key"`
 	VirusTotalAPIKey      string  `json:"virustotal_api_key"`
 	CrowdSecAPIKey        string  `json:"crowdsec_api_key"`
+	// GreyNoise Community API works unauthenticated (rate-limited to ~50/h).
+	// A free Community-tier key bumps the limit; the field is optional and
+	// the GreyNoise lookup runs regardless.
+	GreyNoiseAPIKey       string  `json:"greynoise_api_key"`
+	// Censys uses HTTP Basic with an ID + Secret pair. Both are required for
+	// the lookup to fire; without them the service stays hidden in the UI.
+	CensysAPIID           string  `json:"censys_api_id"`
+	CensysAPISecret       string  `json:"censys_api_secret"`
 
-	// Watch mode — daily scheduled analysis
-	WatchTime     string `json:"watch_time"`               // HH:MM in WatchTimezone, e.g. "02:00"
-	WatchEnabled  bool   `json:"watch_enabled"`
-	WatchTimezone string `json:"watch_timezone,omitempty"` // IANA name, e.g. "America/New_York". Empty = UTC.
+	// Watch mode — scheduled analysis. WatchTime is the anchor (HH:MM in
+	// WatchTimezone) and WatchIntervalHours controls cadence: 0 or 24 = once
+	// daily at HH:MM (the legacy default), 12/6/4/1 = sub-daily ticks at the
+	// same minute past every Nth hour aligned to the anchor's hour-offset.
+	WatchTime          string `json:"watch_time"`                     // HH:MM in WatchTimezone, e.g. "02:00"
+	WatchEnabled       bool   `json:"watch_enabled"`
+	WatchTimezone      string `json:"watch_timezone,omitempty"`       // IANA name, e.g. "America/New_York". Empty = UTC.
+	WatchIntervalHours int    `json:"watch_interval_hours,omitempty"` // 0 (default) or 24 = daily; 12/6/4/1 = sub-daily.
 
 	// Archive mode — moves log files older than a cutoff out of the scan
 	// directory. Findings remain in the database by default.

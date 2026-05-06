@@ -533,11 +533,16 @@ func (s *Store) AppendUploadedFile(path string) {
 	s.mu.Unlock()
 }
 
-func (s *Store) SetWatch(watchTime, timezone string, enabled bool) {
+// SetWatch persists watch state — note the new intervalHours parameter:
+// 0 (or 24) means daily-at-HH:MM (legacy behavior), 1/4/6/12 turn the
+// watch loop into a sub-daily ticker so analysis catches up with hourly
+// Quiver shipments without waiting for the once-a-day window.
+func (s *Store) SetWatch(watchTime, timezone string, enabled bool, intervalHours int) {
 	s.mu.Lock()
 	s.config.WatchTime = watchTime
 	s.config.WatchTimezone = timezone
 	s.config.WatchEnabled = enabled
+	s.config.WatchIntervalHours = intervalHours
 	if s.db != nil {
 		cfgJSON, _ := json.Marshal(s.config)
 		s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))
@@ -557,6 +562,15 @@ func (s *Store) GetWatchTimezone() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.config.WatchTimezone
+}
+
+// GetWatchInterval returns the configured cadence in hours: 0 (default)
+// means once-daily-at-HH:MM. Callers normalise 24 → 0 for the same
+// effect.
+func (s *Store) GetWatchInterval() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.config.WatchIntervalHours
 }
 
 // GetSensorFacingHost returns the admin-overridden hostname/IP that Quiver

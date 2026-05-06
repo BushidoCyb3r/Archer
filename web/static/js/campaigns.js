@@ -53,7 +53,7 @@ const Campaigns = (() => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td style="color:${_scoreColor(e.maxScore)};font-weight:700;text-align:center">${e.maxScore}</td>
-        <td title="${e.dst}">${e.dst}</td>
+        <td class="dst-ip" title="${e.dst}">${e.dst}</td>
         <td>${e.port}</td>
         <td class="hosts">${e.srcs.size}</td>
         <td style="font-family:monospace;font-size:11px;word-break:break-all">${[...e.srcs].join(', ')}</td>`;
@@ -102,7 +102,7 @@ const Campaigns = (() => {
     _hosts.forEach(e => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td style="font-family:monospace">${e.ip}</td>
+        <td class="src-ip dst-ip" style="font-family:monospace">${e.ip}</td>
         <td class="score" style="color:${_scoreColor(e.score)}">${e.score}</td>
         <td style="text-align:center">${e.count}</td>
         <td style="color:${_sevColor(e.topSev)};font-weight:700">${e.topSev}</td>

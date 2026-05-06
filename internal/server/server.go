@@ -35,6 +35,12 @@ type Server struct {
 	watchMu        sync.Mutex
 	watchCancel    context.CancelFunc
 	tlsFingerprint string
+	// Disk-usage cache: walking /logs and /data/archive can take seconds
+	// on large deployments, so memoize the result and refresh on a short
+	// TTL. The cache is invalidated implicitly by the timestamp check.
+	diskCacheMu   sync.Mutex
+	diskCacheAt   time.Time
+	diskCacheData []byte
 }
 
 // New creates and wires all routes, then starts the watch loop if configured.
@@ -154,6 +160,8 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/watch", any(s.handleWatch))           // GET=any; POST enforced as admin inside handler
 	s.mux.Handle("/api/archive", any(s.handleArchive))       // GET=any; POST enforced as admin inside handler
 	s.mux.Handle("/api/archive/run", any(s.handleArchiveRun))
+	s.mux.Handle("/api/archive/scan", any(s.handleArchiveScan)) // admin enforced inside handler — IOC/TI scan over /data/archive
+	s.mux.Handle("/api/disk-usage", any(s.handleDiskUsage))   // any authenticated; /logs+archive sizes & free space
 
 	// User / auth API
 	s.mux.Handle("/api/me", any(s.handleMe))

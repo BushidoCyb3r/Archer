@@ -78,8 +78,8 @@ const Table = (() => {
       '<td class="score">' + _esc(f.score) + '</td>' +
       '<td class="severity">' + _esc(sev) + '</td>' +
       '<td title="' + _esc(f.type) + '">' + _esc(f.type) + '</td>' +
-      '<td title="' + _esc(f.src_ip) + '" style="font-family:monospace;font-size:11px">' + _esc(f.src_ip) + '</td>' +
-      '<td title="' + _esc(f.dst_ip) + '" style="font-family:monospace;font-size:11px">' + _esc(f.dst_ip) + '</td>' +
+      '<td class="src-ip" title="' + _esc(f.src_ip) + '" style="font-family:monospace;font-size:11px">' + _esc(f.src_ip) + '</td>' +
+      '<td class="dst-ip" title="' + _esc(f.dst_ip) + '" style="font-family:monospace;font-size:11px">' + _esc(f.dst_ip) + '</td>' +
       '<td class="port">' + _esc(f.dst_port) + '</td>' +
       '<td title="' + _esc(f.timestamp) + '">' + _esc((f.timestamp || '').slice(0, 16)) + '</td>' +
       '<td>' + _statusLabel(f.status) + '</td>' +
