@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BushidoCyb3r/Archer/internal/analysis"
 	"github.com/BushidoCyb3r/Archer/internal/model"
 	"github.com/BushidoCyb3r/Archer/internal/store"
 )
@@ -288,7 +289,9 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleTIServices reports which TI services have API keys configured,
-// without exposing the keys themselves.
+// without exposing the keys themselves. GreyNoise reports true
+// unconditionally — its Community API works without a key (rate-limited),
+// so the service is always available regardless of config state.
 func (s *Server) handleTIServices(w http.ResponseWriter, r *http.Request) {
 	cfg := s.store.GetConfig()
 	w.Header().Set("Content-Type", "application/json")
@@ -297,6 +300,8 @@ func (s *Server) handleTIServices(w http.ResponseWriter, r *http.Request) {
 		"crowdsec":  cfg.CrowdSecAPIKey != "",
 		"otx":       cfg.OTXAPIKey != "",
 		"abuseipdb": cfg.AbuseIPDBAPIKey != "",
+		"greynoise": true,
+		"censys":    cfg.CensysAPIID != "" && cfg.CensysAPISecret != "",
 	})
 }
 
@@ -360,6 +365,13 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 	ts := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 	hitCount := 0
 
+	// Per-IP grouping buffer. Every publishHit/publishClean call appends a
+	// line here; once the full IP×service loop finishes we write one
+	// consolidated note instead of N small ones (the previous design left
+	// the notes thread cluttered with one row per service per IP).
+	type lineEntry struct{ ip, text string; hit bool }
+	var lines []lineEntry
+
 	doReq := func(req *http.Request) ([]byte, bool) {
 		resp, err := client.Do(req)
 		if err != nil {
@@ -370,29 +382,25 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 		return body, true
 	}
 
-	// publishHit saves a note and fires an SSE toast for a confirmed threat.
+	// currentIP is set by the per-IP loop below so publishHit/publishClean
+	// know which IP a result belongs to without threading it through every
+	// call site. Cleaner than passing dst through every nested closure.
+	var currentIP string
+
+	// publishHit appends a hit line and fires an SSE toast immediately
+	// (live UI feedback) — the persistent note is written once at the end.
 	publishHit := func(source, detail string, sev model.Severity) {
 		hitCount++
-		s.store.AddNote(f.ID, model.Note{
-			Text:        fmt.Sprintf("[%s] %s", source, detail),
-			Author:      source + " (TI Enrichment)",
-			AuthorEmail: "system",
-			Timestamp:   ts,
-		})
+		lines = append(lines, lineEntry{ip: currentIP, text: fmt.Sprintf("⚠ [%s] %s", source, detail), hit: true})
 		evtData, _ := json.Marshal(map[string]any{
 			"finding_id": f.ID, "source": source, "severity": string(sev), "detail": detail, "hit": true,
 		})
 		s.broker.Publish(SSEEvent{Type: "ti_result", Data: string(evtData)})
 	}
 
-	// publishClean saves a note and fires an SSE toast for a clean (no threat) result.
+	// publishClean appends a clean line and fires an SSE toast.
 	publishClean := func(source, detail string) {
-		s.store.AddNote(f.ID, model.Note{
-			Text:        fmt.Sprintf("[%s] %s", source, detail),
-			Author:      source + " (TI Enrichment)",
-			AuthorEmail: "system",
-			Timestamp:   ts,
-		})
+		lines = append(lines, lineEntry{ip: currentIP, text: fmt.Sprintf("✓ [%s] %s", source, detail), hit: false})
 		evtData, _ := json.Marshal(map[string]any{
 			"finding_id": f.ID, "source": source, "severity": string(model.SevInfo), "detail": detail, "hit": false,
 		})
@@ -403,6 +411,7 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 		if dst == "" || dst == "—" || dst == "(network)" {
 			continue
 		}
+		currentIP = dst
 		isIP := strings.Count(dst, ".") == 3
 
 		if svcs["crowdsec"] && cfg.CrowdSecAPIKey != "" && isIP {
@@ -514,6 +523,126 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 				}
 			}
 		}
+
+		// GreyNoise Community API — IP-only, returns the noise/riot/classification
+		// triple. The big triage signal is `noise:true` ("this is internet
+		// background scanning, not someone targeting you"); a `classification:
+		// malicious` is the rare hit. Works unauthenticated; an optional key
+		// raises the rate limit but isn't required.
+		if svcs["greynoise"] && isIP {
+			if req, err := http.NewRequest("GET", fmt.Sprintf("https://api.greynoise.io/v3/community/%s", dst), nil); err == nil {
+				if cfg.GreyNoiseAPIKey != "" {
+					req.Header.Set("key", cfg.GreyNoiseAPIKey)
+				}
+				if body, ok := doReq(req); ok {
+					var data struct {
+						Noise          bool   `json:"noise"`
+						Riot           bool   `json:"riot"`
+						Classification string `json:"classification"`
+						Name           string `json:"name"`
+						Message        string `json:"message"`
+					}
+					if json.Unmarshal(body, &data) == nil {
+						switch {
+						case data.Classification == "malicious":
+							sev := model.SevHigh
+							if data.Noise {
+								sev = model.SevCritical // both flagged AND scanning
+							}
+							publishHit("GreyNoise", fmt.Sprintf("%s classified malicious (%s)", dst, data.Name), sev)
+						case data.Riot:
+							publishClean("GreyNoise", fmt.Sprintf("%s known benign service: %s", dst, data.Name))
+						case data.Noise:
+							publishClean("GreyNoise", fmt.Sprintf("%s background internet scanner (%s) — likely not targeted", dst, data.Name))
+						case data.Message == "IP not observed scanning the internet or contained in RIOT data set.":
+							publishClean("GreyNoise", fmt.Sprintf("%s - no record found", dst))
+						default:
+							publishClean("GreyNoise", fmt.Sprintf("%s - %s", dst, data.Classification))
+						}
+					} else {
+						publishClean("GreyNoise", fmt.Sprintf("%s - lookup failed", dst))
+					}
+				} else {
+					publishClean("GreyNoise", fmt.Sprintf("%s - request failed", dst))
+				}
+			}
+		}
+
+		// Censys Hosts API — IP-only, requires Basic auth (API ID + Secret).
+		// Censys doesn't classify malicious vs benign directly, so this is
+		// always informational: which services are running and when the host
+		// was last observed. Useful context to attach to the finding without
+		// generating a hit/clean verdict on its own.
+		if svcs["censys"] && cfg.CensysAPIID != "" && cfg.CensysAPISecret != "" && isIP {
+			if req, err := http.NewRequest("GET", fmt.Sprintf("https://search.censys.io/api/v2/hosts/%s", dst), nil); err == nil {
+				req.SetBasicAuth(cfg.CensysAPIID, cfg.CensysAPISecret)
+				req.Header.Set("Accept", "application/json")
+				if body, ok := doReq(req); ok {
+					var data struct {
+						Result struct {
+							Services []struct {
+								ServiceName string `json:"service_name"`
+								Port        int    `json:"port"`
+							} `json:"services"`
+							LastUpdatedAt string `json:"last_updated_at"`
+							Location      struct {
+								Country string `json:"country"`
+							} `json:"location"`
+						} `json:"result"`
+					}
+					if json.Unmarshal(body, &data) == nil {
+						svcCount := len(data.Result.Services)
+						if svcCount > 0 {
+							// Surface up to three port:service summaries so the
+							// note is grep-able without dumping the full payload.
+							sample := make([]string, 0, 3)
+							for i, s := range data.Result.Services {
+								if i >= 3 { break }
+								sample = append(sample, fmt.Sprintf("%d/%s", s.Port, s.ServiceName))
+							}
+							loc := data.Result.Location.Country
+							if loc == "" { loc = "unknown" }
+							publishClean("Censys", fmt.Sprintf("%s - %d services [%s] (location: %s, last seen %s)",
+								dst, svcCount, strings.Join(sample, ", "), loc, data.Result.LastUpdatedAt))
+						} else {
+							publishClean("Censys", fmt.Sprintf("%s - no record found", dst))
+						}
+					} else {
+						publishClean("Censys", fmt.Sprintf("%s - lookup failed", dst))
+					}
+				} else {
+					publishClean("Censys", fmt.Sprintf("%s - request failed", dst))
+				}
+			}
+		}
+	}
+
+	// Write the consolidated note. Group results per IP so the analyst can
+	// scan top-down: header → IP block → service lines. Empty buffer means
+	// no service ran (e.g. all IPs filtered, no services selected) — skip
+	// the note entirely so the thread doesn't gain a useless empty entry.
+	if len(lines) > 0 {
+		var b strings.Builder
+		fmt.Fprintf(&b, "TI Enrichment Results — %d IP(s), %d hit(s)\n", len(ips), hitCount)
+		seen := make(map[string]bool)
+		for _, ip := range ips {
+			if ip == "" || ip == "—" || ip == "(network)" || seen[ip] {
+				continue
+			}
+			seen[ip] = true
+			fmt.Fprintf(&b, "\n[%s]\n", ip)
+			for _, ln := range lines {
+				if ln.ip == ip {
+					fmt.Fprintf(&b, "  %s\n", ln.text)
+				}
+			}
+		}
+		s.store.AddNote(f.ID, model.Note{
+			Text:        strings.TrimRight(b.String(), "\n"),
+			Author:      "TI Enrichment",
+			AuthorEmail: "system",
+			Timestamp:   ts,
+		})
 	}
 
 	doneData, _ := json.Marshal(map[string]any{
@@ -661,14 +790,16 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		watchTime, enabled := s.store.GetWatch()
 		tz := s.store.GetWatchTimezone()
+		intervalHours := s.store.GetWatchInterval()
 		resp := map[string]any{
-			"time":     watchTime,
-			"enabled":  enabled,
-			"timezone": tz,
+			"time":           watchTime,
+			"enabled":        enabled,
+			"timezone":       tz,
+			"interval_hours": intervalHours,
 		}
 		if enabled && watchTime != "" {
 			loc := loadLocationOrUTC(tz)
-			if next, err := nextOccurrence(watchTime, loc); err == nil {
+			if next, err := nextOccurrenceInterval(watchTime, intervalHours, loc); err == nil {
 				label := tz
 				if label == "" {
 					label = "UTC"
@@ -685,9 +816,10 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req struct {
-			Time     string `json:"time"`
-			Enabled  bool   `json:"enabled"`
-			Timezone string `json:"timezone"`
+			Time          string `json:"time"`
+			Enabled       bool   `json:"enabled"`
+			Timezone      string `json:"timezone"`
+			IntervalHours int    `json:"interval_hours"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonError(w, "invalid JSON", http.StatusBadRequest)
@@ -708,7 +840,16 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		s.store.SetWatch(req.Time, req.Timezone, req.Enabled)
+		// Validate interval. 0 (or 24) means daily; otherwise must be one of
+		// the supported sub-daily cadences. Anything else gets clamped to 0
+		// rather than rejected — the UI is the source of truth here.
+		switch req.IntervalHours {
+		case 0, 1, 4, 6, 12, 24:
+			// ok
+		default:
+			req.IntervalHours = 0
+		}
+		s.store.SetWatch(req.Time, req.Timezone, req.Enabled, req.IntervalHours)
 		if req.Enabled {
 			s.startWatch()
 		} else {
@@ -782,6 +923,104 @@ func (s *Server) handleArchiveRun(w http.ResponseWriter, r *http.Request) {
 	res := s.runArchive(settings.AfterDays, settings.PruneFindingsOnArchive, req.DryRun, triggeredBy)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(res)
+}
+
+// handleArchiveScan walks /data/archive and runs an IOC + TI-feed
+// scan over its contents. Findings merge with the regular finding set
+// — the SetFindings fingerprint logic preserves analyst state on any
+// hits that were already known. Admin-only, mutually exclusive with a
+// regular analysis run.
+func (s *Server) handleArchiveScan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if u := userFromCtx(r); u.Role != model.RoleAdmin {
+		jsonError(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if s.store.IsAnalyzing() {
+		jsonError(w, "another analysis is already in progress", http.StatusConflict)
+		return
+	}
+	files := s.scanArchiveDir()
+	if len(files) == 0 {
+		jsonError(w, "no archived logs to scan", http.StatusBadRequest)
+		return
+	}
+	s.launchTIOnly(files)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"status": "started", "files": len(files)})
+}
+
+// launchTIOnly is the archive-scan analogue of launchAnalysisWithOptions.
+// It runs only the IOC/TI phases of the analyzer, preserves all live
+// findings via SetFindings's fingerprint merge, and reuses the regular
+// progress/status/done/notification SSE events so the existing UI shows
+// the run without any frontend changes.
+func (s *Server) launchTIOnly(files []string) {
+	cfg := s.store.GetConfig()
+	s.store.SetAnalyzing(true)
+	progressCh := make(chan analysis.ProgressEvent, 32)
+	statusCh := make(chan string, 32)
+
+	go func() {
+		for evt := range progressCh {
+			data, _ := json.Marshal(evt)
+			s.broker.Publish(SSEEvent{Type: "progress", Data: string(data)})
+		}
+	}()
+	go func() {
+		for msg := range statusCh {
+			data, _ := json.Marshal(map[string]string{"msg": msg})
+			s.broker.Publish(SSEEvent{Type: "status", Data: string(data)})
+		}
+	}()
+
+	go func() {
+		az := analysis.New(cfg, progressCh, statusCh)
+
+		s.analyzerMu.Lock()
+		s.activeAnalyzer = az
+		s.analyzerMu.Unlock()
+
+		defer func() {
+			s.analyzerMu.Lock()
+			s.activeAnalyzer = nil
+			s.analyzerMu.Unlock()
+			close(progressCh)
+			close(statusCh)
+		}()
+
+		findings := az.AnalyzeTIOnly(files)
+
+		// Sensor attribution. Archive preserves the /logs/<sensor>/...
+		// layout, so resolving against archiveDir yields the same sensor
+		// name that the live tree would have used for these files.
+		for i := range findings {
+			findings[i].Sensor = sensorFromPath(archiveDir, findings[i].SourceFile)
+		}
+
+		newNotifs := s.store.SetFindings(findings)
+		for _, n := range newNotifs {
+			nData, _ := json.Marshal(n)
+			s.broker.Publish(SSEEvent{Type: "notification", Data: string(nData)})
+		}
+
+		wasCancelled := az.Ctx().Err() != nil
+		newCount := 0
+		for _, f := range findings {
+			if f.IsNew {
+				newCount++
+			}
+		}
+		data, _ := json.Marshal(map[string]any{
+			"count":     len(findings),
+			"new_count": newCount,
+			"cancelled": wasCancelled,
+		})
+		s.broker.Publish(SSEEvent{Type: "done", Data: string(data)})
+	}()
 }
 
 // Exports honor the same query-string filters as /api/findings. Passing no

@@ -13,6 +13,7 @@ const Sensors = (() => {
   let _isAdmin = false;
   let _info = null; // {tls_fingerprint, sensor_facing_host, effective_host}
   let _tz   = '';   // IANA name from the watch config; '' = UTC
+  let _diskBySensor = {}; // populated from /api/disk-usage; {<name>: bytes}
 
   // ── helpers ───────────────────────────────────────────────────────────
 
@@ -143,13 +144,37 @@ const Sensors = (() => {
     } catch (e) { _tz = ''; }
   }
 
+  // _loadDiskUsage pulls per-sensor sizes from the server-side disk-usage
+  // cache so the Sensors modal can render a Size column without each row
+  // running its own walk. Failures fall through to an empty map; cells
+  // render as "—".
+  async function _loadDiskUsage() {
+    try {
+      const d = await _api('/api/disk-usage');
+      const map = {};
+      if (d && Array.isArray(d.by_sensor)) {
+        d.by_sensor.forEach(s => { if (s && s.name) map[s.name] = s.bytes || 0; });
+      }
+      _diskBySensor = map;
+    } catch (e) { _diskBySensor = {}; }
+  }
+
+  // _humanBytes — local copy so this module doesn't depend on app.js's.
+  function _humanBytes(n) {
+    if (!n) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0, v = n;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
+  }
+
   // ── render ────────────────────────────────────────────────────────────
 
   function _renderSensors(sensors) {
     const tbody = document.getElementById('sensors-tbody');
     if (!tbody) return;
     if (!sensors || sensors.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" style="font-style:italic;color:var(--fg-dim);text-align:center;padding:12px">No sensors enrolled yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="font-style:italic;color:var(--fg-dim);text-align:center;padding:12px">No sensors enrolled yet.</td></tr>';
       return;
     }
     const now = Math.floor(Date.now() / 1000);
@@ -163,6 +188,10 @@ const Sensors = (() => {
           actions = `<button class="dlg-btn danger" data-act="purge" data-id="${sn.id}" data-name="${_esc(sn.name)}">Purge data</button>`;
         }
       }
+      const sizeBytes = _diskBySensor[sn.name];
+      const sizeCell = (sizeBytes != null)
+        ? `<td style="font-size:11px;color:var(--fg-dim);font-family:ui-monospace,monospace;white-space:nowrap">${_humanBytes(sizeBytes)}</td>`
+        : `<td style="font-size:11px;color:var(--fg-dim)">—</td>`;
       return `<tr>
         <td style="font-family:monospace">${_esc(sn.name)}</td>
         <td style="font-size:11px;color:var(--fg-dim)">${_esc(sn.host || '—')}</td>
@@ -170,6 +199,7 @@ const Sensors = (() => {
         <td style="font-family:monospace;white-space:nowrap">${_fmtSlotLocal(sn.schedule_hour, sn.schedule_minute)}</td>
         <td style="font-size:11px;white-space:nowrap">${_fmtTSLocal(sn.last_seen_at)}</td>
         <td>${_slotHealth(sn, now)}</td>
+        ${sizeCell}
         <td style="text-align:right">${actions}</td>
       </tr>`;
     }).join('');
@@ -408,7 +438,7 @@ const Sensors = (() => {
 
     const dlg = document.getElementById('sensors-dialog');
     btn.addEventListener('click', async () => {
-      await Promise.all([_loadInfo(), _loadWatchTZ()]);
+      await Promise.all([_loadInfo(), _loadWatchTZ(), _loadDiskUsage()]);
       await refresh();
       dlg.showModal();
     });

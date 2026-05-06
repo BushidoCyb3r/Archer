@@ -12,6 +12,7 @@
   let _tabMode         = 'findings'; // 'findings' | 'ack' | 'esc' | 'ioc' (drives findings-table filter)
   let _activeTab       = 'findings'; // 'findings' | 'ack' | 'esc' | 'ioc' | 'campaigns' | 'hosts' (which panel is visible)
   let _iocSet          = new Set();  // live cache of IOC list IPs for instant tab overlay
+  let _allowSet        = new Set();  // live cache of allowlist entries — used by the right-click menu's state-aware items
   let _logsDir         = '/logs';
   let _currentUser     = null;
   let _orgCIDRs        = []; // admin-supplied CIDRs that augment the built-in private ranges for the Hosts tab
@@ -129,6 +130,16 @@
       _iocSet = new Set(Array.isArray(data) ? data : []);
       if (_tabMode === 'ioc') _applyTabFilter();
       updateInfoLine();
+    } catch (_) {}
+  }
+
+  // Fetch allowlist into _allowSet. Unlike _iocSet which drives a tab
+  // filter, _allowSet exists purely so the right-click menu can grey out
+  // "Add <IP> to Allowlist" when the target's already on the list.
+  async function _loadAllowSet() {
+    try {
+      const data = await api('/api/allowlist');
+      _allowSet = new Set(Array.isArray(data) ? data : []);
     } catch (_) {}
   }
 
@@ -1224,7 +1235,7 @@
       let svcs = {};
       try { svcs = await api('/api/ti/services'); } catch (_) {}
 
-      const hasService = svcs.vt || svcs.crowdsec || svcs.otx || svcs.abuseipdb;
+      const hasService = svcs.vt || svcs.crowdsec || svcs.otx || svcs.abuseipdb || svcs.greynoise || svcs.censys;
 
       // Artifact checkboxes
       _escIPOpts.innerHTML = '';
@@ -1237,6 +1248,8 @@
       if (svcs.crowdsec)  _escSvcOpts.appendChild(_mkCheck('esc-svc-crowdsec',  'CrowdSec',   true));
       if (svcs.otx)       _escSvcOpts.appendChild(_mkCheck('esc-svc-otx',       'OTX',        true));
       if (svcs.abuseipdb) _escSvcOpts.appendChild(_mkCheck('esc-svc-abuseipdb', 'AbuseIPDB',  true));
+      if (svcs.greynoise) _escSvcOpts.appendChild(_mkCheck('esc-svc-greynoise', 'GreyNoise',  true));
+      if (svcs.censys)    _escSvcOpts.appendChild(_mkCheck('esc-svc-censys',    'Censys',     true));
 
       _escTISection.style.display = hasService ? '' : 'none';
       _escNote.value = '';
@@ -1253,6 +1266,8 @@
         if (_checked('esc-svc-crowdsec'))  services.push('crowdsec');
         if (_checked('esc-svc-otx'))       services.push('otx');
         if (_checked('esc-svc-abuseipdb')) services.push('abuseipdb');
+        if (_checked('esc-svc-greynoise')) services.push('greynoise');
+        if (_checked('esc-svc-censys'))    services.push('censys');
         _escDlg.close();
         try {
           await api(`/api/findings/${f.id}/escalate`, {
@@ -1305,6 +1320,58 @@
     document.getElementById('supp-btn').addEventListener('click', () => {
       if (_selectedFinding) openSuppressDialog(_selectedFinding);
     });
+
+    // Export the selected finding's notes as a plain-text file. Pure
+    // client-side: notes are already loaded with the finding payload, so
+    // no extra round trip and no new endpoint to authenticate.
+    const exportBtn = document.getElementById('export-notes-btn');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', () => {
+        if (!_selectedFinding) return;
+        _downloadNotesText(_selectedFinding);
+      });
+    }
+  }
+
+  // _downloadNotesText builds a self-contained text file: a finding-context
+  // header (so the file is readable on its own without the Archer UI) plus
+  // the full notes thread in chronological order.
+  function _downloadNotesText(f) {
+    const sep = '────────────────────────────────────────────────────────────';
+    const dst = f.dst_ip ? (f.dst_ip + (f.dst_port ? ':' + f.dst_port : '')) : '';
+    const lines = [
+      `Archer Finding #${f.id} — Notes Export`,
+      sep,
+      `Type:        ${f.type || ''}`,
+      `Severity:    ${f.severity || ''}`,
+      `Score:       ${f.score == null ? '' : f.score}`,
+      `Source:      ${f.src_ip || ''}`,
+      `Destination: ${dst}`,
+      `Timestamp:   ${f.timestamp || ''} UTC`,
+      `Status:      ${f.status || 'open'}`,
+      `Sensor:      ${f.sensor || ''}`,
+      sep,
+      '',
+    ];
+    const notes = Array.isArray(f.notes) ? f.notes : [];
+    if (notes.length === 0) {
+      lines.push('(no notes)');
+    } else {
+      notes.forEach((n, i) => {
+        lines.push(`Note ${i + 1} — ${n.author || 'unknown'} • ${n.timestamp || ''}`);
+        lines.push(n.text || '');
+        lines.push('');
+      });
+    }
+    const blob = new Blob([lines.join('\n')], {type: 'text/plain;charset=utf-8'});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `archer-finding-${f.id}-notes.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   function copyPCAP(f) {
@@ -1414,6 +1481,7 @@
       setStatus('Allowlist saved');
       alDlg.close();
       loadFindings();
+      _loadAllowSet();
     });
 
     const iocDlg = document.getElementById('ioc-dialog');
@@ -1447,6 +1515,7 @@
       ]);
       _populateSettings(cfg);
       _populateArchive(archive);
+      _refreshDiskUsage(); // populates the Disk Usage row and the warning banner
       dlg.showModal();
     });
     document.getElementById('settings-cancel').addEventListener('click', () => dlg.close());
@@ -1579,6 +1648,53 @@
         runBtn.disabled = false;
       });
     }
+
+    // ── Scan archive for IOCs ───────────────────────────────────────────
+    // Triggers /api/archive/scan, which runs only the IOC + TI-feed phases
+    // over /data/archive. Findings flow through the regular SetFindings
+    // merge path so analyst state on existing findings is preserved.
+    const scanBtn = document.getElementById('archive-scan-btn');
+    if (scanBtn) {
+      scanBtn.addEventListener('click', async () => {
+        // Surface a quick summary of what's about to be scanned. The disk-
+        // usage cache already knows the archive size, so the operator sees
+        // a credible estimate before kicking off a long-running pass.
+        const archiveBytes = (_diskUsage && _diskUsage.archive_total_bytes) || 0;
+        const archiveLine = archiveBytes
+          ? `Archive contains ~${_humanBytes(archiveBytes)} of logs.`
+          : 'Archive size unknown.';
+        const msg = [
+          archiveLine,
+          'Scan will check every archived log against the current IOC list,',
+          'Feodo Tracker, URLhaus, and the Suspicious URL list.',
+          'Heavy phases (beacon, exfil, lateral, etc.) are skipped.',
+          '',
+          'Continue?',
+        ].join('\n');
+        if (!window.confirm(msg)) return;
+
+        scanBtn.disabled = true;
+        runStatus.textContent = 'Starting archive scan…';
+        runStatus.style.color = 'var(--fg-dim)';
+        try {
+          const res = await api('/api/archive/scan', {method: 'POST'});
+          if (res && res.error) {
+            runStatus.textContent = 'Scan error: ' + res.error;
+            runStatus.style.color = 'var(--sev-high, #c66)';
+          } else {
+            runStatus.textContent = `Scanning ${res.files || 0} archived file(s) — progress shown in the analysis status row.`;
+            runStatus.style.color = 'var(--accent)';
+          }
+        } catch (e) {
+          runStatus.textContent = 'Scan error: ' + e;
+          runStatus.style.color = 'var(--sev-high, #c66)';
+        }
+        // The scan runs in the background; the existing SSE flow handles
+        // progress + done. We re-enable the button immediately so the
+        // operator can close Settings and watch the regular UI for results.
+        scanBtn.disabled = false;
+      });
+    }
   }
 
   function _humanBytes(n) {
@@ -1587,6 +1703,133 @@
     let i = 0, v = n;
     while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
     return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
+  }
+
+  // ── Disk usage ────────────────────────────────────────────────────────────
+  // _diskUsage caches the most recent /api/disk-usage response so the
+  // Sensors modal and the warning banner can read it without re-fetching.
+  let _diskUsage = null;
+
+  // _refreshDiskUsage hits /api/disk-usage, updates the cache, repaints the
+  // Settings disk-usage block, and reasserts the low-disk banner. Safe to
+  // call from any UI surface that wants fresh numbers.
+  async function _refreshDiskUsage() {
+    try {
+      const data = await api('/api/disk-usage');
+      _diskUsage = data || null;
+    } catch (_) { _diskUsage = null; }
+    _renderDiskUsageBlock();
+    _renderDiskWarning();
+  }
+
+  function _renderDiskUsageBlock() {
+    const el = document.getElementById('disk-usage-content');
+    if (!el) return;
+    if (!_diskUsage) { el.textContent = 'Disk usage unavailable'; el.style.fontFamily = ''; return; }
+    const d = _diskUsage;
+    // Use a real DOM tree instead of a flat string so we get proper
+    // alignment (name left / size right), section headers, and a section
+    // for every sensor without truncation. Inline styles keep this self-
+    // contained — the block lives inside the Settings dialog and we don't
+    // want to bleed CSS rules elsewhere.
+    el.style.fontFamily = '';
+    el.innerHTML = '';
+
+    const sectionTitle = txt => {
+      const h = document.createElement('div');
+      h.style.cssText = 'font-size:11px;color:var(--fg-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-top:10px;margin-bottom:4px';
+      h.textContent = txt;
+      return h;
+    };
+    const row = (name, value, opts) => {
+      opts = opts || {};
+      const r = document.createElement('div');
+      // Sizes sit right next to their label with a fixed gap — left-
+      // aligned, not pushed to the far right of the panel. Names render
+      // in their natural width so the whole row stays compact.
+      r.style.cssText = 'display:flex;justify-content:flex-start;align-items:baseline;gap:10px;padding:1px 0;font-size:11px';
+      const left  = document.createElement('span');
+      left.textContent = name;
+      left.style.cssText = (opts.indent ? 'padding-left:14px;' : '') +
+                           (opts.muted  ? 'color:var(--fg-dim);'  : 'color:var(--fg-primary);') +
+                           'font-family:ui-monospace,monospace;white-space:nowrap';
+      const right = document.createElement('span');
+      right.textContent = value;
+      right.style.cssText = 'font-family:ui-monospace,monospace;color:var(--fg-primary);white-space:nowrap';
+      r.appendChild(left);
+      r.appendChild(right);
+      return r;
+    };
+
+    // ── /logs section: total + every enrolled sensor's tree size ────────
+    const logsCount = (d.by_sensor && d.by_sensor.length) || 0;
+    el.appendChild(sectionTitle(`/logs  (${logsCount} sensor${logsCount === 1 ? '' : 's'})`));
+    el.appendChild(row('Total', _humanBytes(d.logs_total_bytes)));
+    if (d.by_sensor && d.by_sensor.length) {
+      d.by_sensor.forEach(s => {
+        el.appendChild(row(s.name, _humanBytes(s.bytes), {indent: true, muted: true}));
+      });
+    } else {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'padding-left:14px;font-size:11px;color:var(--fg-dim);font-style:italic';
+      empty.textContent = '(no sensor directories found)';
+      el.appendChild(empty);
+    }
+
+    // ── /data/archive total ─────────────────────────────────────────────
+    el.appendChild(sectionTitle('Archive'));
+    el.appendChild(row('/data/archive total', _humanBytes(d.archive_total_bytes)));
+
+    // ── Volume free space — combined when /data and /logs share a disk ──
+    el.appendChild(sectionTitle('Volumes'));
+    const sameVolume = d.logs_volume && d.data_volume &&
+                       d.logs_volume.total_bytes === d.data_volume.total_bytes &&
+                       d.logs_volume.free_bytes  === d.data_volume.free_bytes;
+    const volRow = (label, v) => {
+      if (!v || !v.total_bytes) return null;
+      const pct = ((v.free_bytes / v.total_bytes) * 100).toFixed(1);
+      return row(label, `${_humanBytes(v.free_bytes)} free / ${_humanBytes(v.total_bytes)} (${pct}%)`);
+    };
+    if (sameVolume) {
+      const r = volRow('/data and /logs (same volume)', d.data_volume);
+      if (r) el.appendChild(r);
+    } else {
+      const dr = volRow('/data volume', d.data_volume); if (dr) el.appendChild(dr);
+      const lr = volRow('/logs volume', d.logs_volume); if (lr) el.appendChild(lr);
+    }
+
+    // Generation timestamp — small footer so a stale cache is obvious.
+    if (d.generated_at) {
+      const f = document.createElement('div');
+      f.style.cssText = 'margin-top:10px;font-size:10px;color:var(--fg-dim);font-style:italic';
+      f.textContent = `Generated ${d.generated_at}`;
+      el.appendChild(f);
+    }
+  }
+
+  // _renderDiskWarning surfaces a top-of-page banner when free space on
+  // the data or logs volume drops below 10%. It clears itself when the
+  // condition resolves so the operator gets immediate feedback after
+  // running an archive sweep.
+  function _renderDiskWarning() {
+    const el = document.getElementById('disk-warning-banner');
+    if (!el) return;
+    if (!_diskUsage) { el.style.display = 'none'; return; }
+    const threshold = 0.10;
+    const lows = [];
+    const data = _diskUsage.data_volume;
+    if (data && data.total_bytes && (data.free_bytes / data.total_bytes) < threshold) {
+      lows.push(`/data has only ${_humanBytes(data.free_bytes)} free`);
+    }
+    const logs = _diskUsage.logs_volume;
+    // Avoid double-counting when /logs and /data sit on the same volume.
+    if (logs && logs.total_bytes && (!data || logs.total_bytes !== data.total_bytes)
+        && (logs.free_bytes / logs.total_bytes) < threshold) {
+      lows.push(`/logs has only ${_humanBytes(logs.free_bytes)} free`);
+    }
+    if (!lows.length) { el.style.display = 'none'; el.textContent = ''; return; }
+    el.textContent = '⚠ Low disk space — ' + lows.join('; ') + '. Consider running archive or moving the archive to cold storage.';
+    el.style.display = '';
   }
 
   function _populateSettings(cfg) {
@@ -1602,6 +1845,14 @@
     set('cfg-abuse-key',      cfg.abuseipdb_api_key);
     set('cfg-otx-key',        cfg.otx_api_key);
     set('cfg-crowdsec-key',   cfg.crowdsec_api_key);
+    set('cfg-greynoise-key',  cfg.greynoise_api_key);
+    // Censys's two halves render as a single split-field control: the ID
+    // half is plaintext (it's an identifier, not a credential by itself)
+    // and the secret half is masked. Backend persistence stays as two
+    // separate fields so HTTP Basic auth can call SetBasicAuth(id, secret)
+    // without parsing on every lookup.
+    set('cfg-censys-id',      cfg.censys_api_id);
+    set('cfg-censys-secret',  cfg.censys_api_secret);
     const cidrEl = document.getElementById('cfg-org-cidrs');
     if (cidrEl) cidrEl.value = Array.isArray(cfg.org_internal_cidrs) ? cfg.org_internal_cidrs.join('\n') : '';
   }
@@ -1654,6 +1905,9 @@
       abuseipdb_api_key:        g('cfg-abuse-key'),
       otx_api_key:              g('cfg-otx-key'),
       crowdsec_api_key:         g('cfg-crowdsec-key'),
+      greynoise_api_key:        g('cfg-greynoise-key'),
+      censys_api_id:            g('cfg-censys-id').trim(),
+      censys_api_secret:        g('cfg-censys-secret').trim(),
       org_internal_cidrs:       cidrs,
     };
   }
@@ -1677,8 +1931,7 @@
     if (!cfg) return;
     _watchActive = !!cfg.enabled;
     if (cfg.enabled) {
-      const next = cfg.next_run || '';
-      statusEl.textContent = next ? `Enabled — next run ${next}` : 'Enabled';
+      statusEl.textContent = 'Enabled';
       statusEl.style.color = 'var(--accent)';
       if (btn) btn.textContent = 'Disable';
     } else {
@@ -1686,12 +1939,73 @@
       statusEl.style.color = 'var(--fg-dim)';
       if (btn) btn.textContent = 'Enable';
     }
-    if (btn && cfg.time) {
-      const timeInput = document.getElementById('watch-time');
-      if (timeInput) timeInput.value = cfg.time;
-    }
+
     const tzInput = document.getElementById('watch-tz');
     if (tzInput) tzInput.value = cfg.timezone || '';
+    const intervalInput = document.getElementById('watch-interval');
+    if (intervalInput) {
+      // Server reports interval_hours; 0 (or 24) means daily.
+      const v = (cfg.interval_hours === 24) ? 0 : (cfg.interval_hours || 0);
+      intervalInput.value = String(v);
+    }
+
+    // Reflect the saved HH:MM into whichever control matches the cadence.
+    const timeInput = document.getElementById('watch-time');
+    const minInput  = document.getElementById('watch-minute');
+    if (cfg.time && timeInput) timeInput.value = cfg.time;
+    if (cfg.time && minInput) {
+      const mm = cfg.time.split(':')[1];
+      const m  = parseInt(mm, 10);
+      minInput.value = isNaN(m) ? 0 : m;
+    }
+
+    _renderWatchTimeControl();
+    _renderWatchSchedulePreview(cfg);
+  }
+
+  // _renderWatchTimeControl swaps the visible input and updates the label
+  // to match the current cadence. Hourly hides the H half (it's ignored
+  // server-side); every other cadence keeps the full HH:MM picker.
+  function _renderWatchTimeControl() {
+    const interval  = parseInt((document.getElementById('watch-interval') || {}).value, 10) || 0;
+    const labelEl   = document.getElementById('watch-time-label');
+    const timeInput = document.getElementById('watch-time');
+    const minInput  = document.getElementById('watch-minute');
+    if (!labelEl || !timeInput || !minInput) return;
+
+    if (interval === 1) {
+      labelEl.textContent = 'Minute of hour';
+      timeInput.style.display = 'none';
+      minInput.style.display  = '';
+    } else if (interval === 0) {
+      labelEl.textContent = 'Run at';
+      timeInput.style.display = '';
+      minInput.style.display  = 'none';
+    } else {
+      labelEl.textContent = 'First run at';
+      timeInput.style.display = '';
+      minInput.style.display  = 'none';
+    }
+  }
+
+  // _renderWatchSchedulePreview shows the resulting schedule in plain
+  // English (cadence + anchor + timezone + next-run) so the user doesn't
+  // have to mentally combine three fields. Always reflects what the
+  // server reported, never what the form currently holds.
+  function _renderWatchSchedulePreview(cfg) {
+    const el = document.getElementById('watch-schedule-preview');
+    if (!el) return;
+    if (!cfg || !cfg.enabled) { el.textContent = ''; return; }
+    const interval = (cfg.interval_hours === 24) ? 0 : (cfg.interval_hours || 0);
+    const tzLabel  = cfg.timezone || 'UTC';
+    const time     = cfg.time || '';
+    const mm       = time.split(':')[1] || '00';
+    let head;
+    if (interval === 1)       head = `Hourly at :${mm}`;
+    else if (interval === 0)  head = `Daily at ${time}`;
+    else                      head = `Every ${interval}h starting ${time}`;
+    const next = cfg.next_run ? ` — next ${cfg.next_run}` : '';
+    el.textContent = `${head} ${tzLabel}${next}`;
   }
 
   function initWatch() {
@@ -1712,23 +2026,72 @@
     const btn = document.getElementById('watch-btn');
     if (btn) {
       btn.addEventListener('click', async () => {
-        const timeVal = (document.getElementById('watch-time').value || '').trim();
-        const tzVal   = (document.getElementById('watch-tz').value   || '').trim();
-        const enabling = !_watchActive;
-        if (enabling && !timeVal) { setStatus('Enter a time for the daily analysis'); return; }
+        const tzVal       = (document.getElementById('watch-tz').value       || '').trim();
+        const intervalVal = parseInt(document.getElementById('watch-interval').value, 10) || 0;
+        const timeVal     = _readWatchTimeForCadence(intervalVal);
+        const enabling    = !_watchActive;
+        if (enabling && !timeVal) { setStatus('Enter a time for the analysis schedule'); return; }
         try {
           await api('/api/watch', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({time: timeVal, timezone: tzVal, enabled: enabling}),
+            body: JSON.stringify({time: timeVal, timezone: tzVal, enabled: enabling, interval_hours: intervalVal}),
           });
           const cfg = await api('/api/watch');
           _updateWatchUI(cfg);
-          const tzLabel = tzVal || 'UTC';
-          setStatus(enabling ? `Watch enabled — daily analysis at ${timeVal} ${tzLabel}` : 'Watch disabled');
+          const tzLabel  = tzVal || 'UTC';
+          const cadence  = _watchCadenceLabel(intervalVal);
+          setStatus(enabling ? `Watch enabled — ${cadence} at minute :${timeVal.split(':')[1] || '00'} ${tzLabel}` : 'Watch disabled');
         } catch(e) { setStatus('Watch error: ' + e); }
       });
     }
+
+    // Cadence dropdown auto-saves the same way the timezone field does —
+    // no need to toggle Enable/Disable to commit a new interval. Also
+    // re-renders the time control because the active input depends on it.
+    const intervalEl = document.getElementById('watch-interval');
+    if (intervalEl) {
+      intervalEl.addEventListener('change', async () => {
+        const tzVal       = (document.getElementById('watch-tz').value   || '').trim();
+        const intervalVal = parseInt(intervalEl.value, 10) || 0;
+        _renderWatchTimeControl();
+        const timeVal = _readWatchTimeForCadence(intervalVal);
+        try {
+          await api('/api/watch', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({time: timeVal, timezone: tzVal, enabled: _watchActive, interval_hours: intervalVal}),
+          });
+          // Re-fetch so the next-run preview updates immediately.
+          const cfg = await api('/api/watch');
+          _updateWatchUI(cfg);
+          setStatus(`Cadence saved: ${_watchCadenceLabel(intervalVal)}`);
+        } catch (e) { setStatus('Cadence error: ' + e); }
+      });
+    }
+
+    // Time + minute inputs auto-save on change so the schedule preview
+    // stays truthful and a typed-in value isn't lost if the user never
+    // toggles Enable/Disable. Server treats the post as a full replace.
+    ['watch-time', 'watch-minute'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', async () => {
+        const tzVal       = (document.getElementById('watch-tz').value || '').trim();
+        const intervalVal = parseInt(document.getElementById('watch-interval').value, 10) || 0;
+        const timeVal     = _readWatchTimeForCadence(intervalVal);
+        if (!timeVal) return;
+        try {
+          await api('/api/watch', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({time: timeVal, timezone: tzVal, enabled: _watchActive, interval_hours: intervalVal}),
+          });
+          const cfg = await api('/api/watch');
+          _updateWatchUI(cfg);
+        } catch (e) { setStatus('Watch error: ' + e); }
+      });
+    });
 
     // Persist the timezone independently of the Enable/Disable toggle.
     // The watch endpoint is single-write (time + enabled + timezone in
@@ -1741,13 +2104,14 @@
     const tzInputEl = document.getElementById('watch-tz');
     if (tzInputEl) {
       tzInputEl.addEventListener('change', async () => {
-        const tzVal   = (tzInputEl.value || '').trim();
-        const timeVal = (document.getElementById('watch-time').value || '').trim();
+        const tzVal       = (tzInputEl.value || '').trim();
+        const timeVal     = (document.getElementById('watch-time').value || '').trim();
+        const intervalVal = parseInt(document.getElementById('watch-interval').value, 10) || 0;
         try {
           await api('/api/watch', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({time: timeVal, timezone: tzVal, enabled: _watchActive}),
+            body: JSON.stringify({time: timeVal, timezone: tzVal, enabled: _watchActive, interval_hours: intervalVal}),
           });
           setStatus(tzVal ? `Timezone saved: ${tzVal}` : 'Timezone saved (UTC)');
         } catch (e) { setStatus('Timezone error: ' + e); }
@@ -1757,19 +2121,126 @@
     api('/api/watch').then(cfg => _updateWatchUI(cfg)).catch(() => {});
   }
 
+  // _watchCadenceLabel renders the interval dropdown's value as a short
+  // human label for status toasts.
+  function _watchCadenceLabel(h) {
+    if (!h || h === 24) return 'daily';
+    if (h === 1) return 'hourly';
+    return `every ${h} hours`;
+  }
+
+  // _readWatchTimeForCadence reads HH:MM from the active control: the
+  // minute-only input under Hourly (server only uses MM there), the full
+  // HH:MM picker otherwise. Returns "" when the relevant input is empty.
+  function _readWatchTimeForCadence(interval) {
+    if (interval === 1) {
+      const m = parseInt((document.getElementById('watch-minute') || {}).value, 10);
+      if (isNaN(m) || m < 0 || m > 59) return '';
+      return '00:' + String(m).padStart(2, '0');
+    }
+    return ((document.getElementById('watch-time') || {}).value || '').trim();
+  }
+
   // ── Context menu ───────────────────────────────────────────────────────────
   function initContextMenu() {
     const menu = document.getElementById('ctx-menu');
+    let _ctxTarget = '';      // resolved IP for the right-clicked column (Src or Dst), or '' on neutral cells
+    let _ctxTargetCol = null; // 'src' | 'dst' | null — drives label text and visibility
+
+    // _disable applies the muted "this action doesn't apply right now"
+    // treatment to a menu item. Used by state-aware logic so e.g. an
+    // already-acknowledged finding doesn't offer Acknowledge as a no-op.
+    function _disable(id, on, why) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.classList.toggle('ctx-disabled', !!on);
+      if (on && why) el.title = why; else el.removeAttribute('title');
+    }
 
     function showMenu(e, f) {
       _ctxFinding = f;
-      // Campaign-only items reveal themselves when the trigger row attached
-      // a _campaign payload (set by campaigns.js). Hidden for plain finding
-      // rows where they don't apply.
+
+      // Resolve the column under the cursor. table.js / campaigns.js mark
+      // the Src/Dst cells with `class="src-ip"` / `class="dst-ip"` so we
+      // can tell which IP the analyst is acting on without parsing text.
+      const td = e.target && e.target.closest && e.target.closest('td');
+      _ctxTargetCol = null;
+      _ctxTarget = '';
+      if (td) {
+        if (td.classList.contains('src-ip')) {
+          _ctxTargetCol = 'src';
+          _ctxTarget = (f && f.src_ip) || '';
+        } else if (td.classList.contains('dst-ip')) {
+          _ctxTargetCol = 'dst';
+          _ctxTarget = (f && f.dst_ip) || '';
+        }
+      }
+
+      // Header — names the right-clicked finding so item labels read
+      // unambiguously even when a campaign row aggregates many findings.
+      const hdr = document.getElementById('ctx-header');
+      if (hdr) {
+        const sev  = (f && f.severity) || '';
+        const type = (f && f.type) || '';
+        const src  = (f && f.src_ip) || '';
+        const dst  = (f && f.dst_ip) || '';
+        const port = (f && f.dst_port) ? `:${f.dst_port}` : '';
+        const sevPart = sev ? `[${sev}] ` : '';
+        const arrow   = (src && dst) ? `${src} → ${dst}${port}` : (src || dst || '');
+        hdr.textContent = `${sevPart}${type}${type && arrow ? ' — ' : ''}${arrow}`;
+      }
+
+      // Column-aware section: hide entirely on cells that aren't Src or Dst.
+      // The user explicitly asked for non-IP cells to show only row-level
+      // actions, so Pivot / Allowlist / IOC / Lookup all collapse here.
+      const showColAware = !!_ctxTarget;
+      document.querySelectorAll('.ctx-target-aware').forEach(el => {
+        el.style.display = showColAware ? '' : 'none';
+      });
+
+      // Update labels with the resolved IP so the menu reads as a sentence.
+      if (showColAware) {
+        document.getElementById('ctx-pivot').textContent     = `Pivot to ${_ctxTarget}`;
+        document.getElementById('ctx-allowlist').firstChild.nodeValue = `Add ${_ctxTarget} to Allowlist`;
+        document.getElementById('ctx-ioc-add').firstChild.nodeValue   = `Add ${_ctxTarget} to IOC List`;
+        document.getElementById('ctx-lookup').firstChild.nodeValue    = `Lookup ${_ctxTarget} ↗ `;
+      }
+
+      // Role gate: viewers can't perform any write action, so hide them
+      // entirely instead of letting the user click into a 403.
+      const role = (_currentUser && _currentUser.role) || 'viewer';
+      const isViewer = role === 'viewer';
+      document.querySelectorAll('.ctx-write').forEach(el => {
+        // Only hide for viewers; analyst+ keeps the items, possibly disabled by state-aware logic below.
+        if (isViewer) el.style.display = 'none';
+        else if (!el.classList.contains('ctx-target-aware') || showColAware) el.style.display = '';
+      });
+
+      // State-aware: don't offer actions that no longer apply.
+      const status = (f && f.status) || 'open';
+      _disable('ctx-ack',
+        status === 'acknowledged' || status === 'escalated',
+        status === 'escalated' ? 'Already escalated' : 'Already acknowledged');
+      _disable('ctx-escalate',
+        status === 'escalated',
+        'Already escalated');
+      if (showColAware) {
+        _disable('ctx-allowlist', _allowSet.has(_ctxTarget), 'Already on allowlist');
+        _disable('ctx-ioc-add',   _iocSet.has(_ctxTarget),   'Already on IOC list');
+      }
+
+      // Beacon Chart only matters for findings carrying timeseries data.
+      // The detail-pane button uses the same gate (see chart-btn enable logic).
+      const chartItem = document.getElementById('ctx-chart');
+      const hasChart = !!(f && Array.isArray(f.ts_data) && f.ts_data.length > 0);
+      if (chartItem) chartItem.style.display = hasChart ? '' : 'none';
+
+      // Campaign-only items: revealed when campaigns.js attached _campaign.
       const showCampaign = !!(f && f._campaign);
       document.querySelectorAll('.ctx-campaign-only').forEach(el => {
         el.style.display = showCampaign ? '' : 'none';
       });
+
       menu.style.left = Math.min(e.clientX, window.innerWidth - 220) + 'px';
       menu.style.top  = Math.min(e.clientY, window.innerHeight - 200) + 'px';
       menu.classList.remove('hidden');
@@ -1777,16 +2248,23 @@
 
     document.addEventListener('click', () => menu.classList.add('hidden'));
 
-    document.getElementById('ctx-pivot-src').addEventListener('click', () => {
-      if (!_ctxFinding) return;
-      document.getElementById('filter-search').value = _ctxFinding.src_ip || '';
+    // Block clicks on disabled items so state-aware greyed-out entries
+    // don't fall through to their handlers.
+    menu.addEventListener('click', e => {
+      const li = e.target.closest('li');
+      if (li && li.classList.contains('ctx-disabled')) {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+      }
+    }, true);
+
+    // ── Column-aware items ──────────────────────────────────────────────
+    document.getElementById('ctx-pivot').addEventListener('click', () => {
+      if (!_ctxTarget) return;
+      document.getElementById('filter-search').value = _ctxTarget;
       applyFilter();
     });
-    document.getElementById('ctx-pivot-dst').addEventListener('click', () => {
-      if (!_ctxFinding) return;
-      document.getElementById('filter-search').value = _ctxFinding.dst_ip || '';
-      applyFilter();
-    });
+
     document.getElementById('ctx-pcap').addEventListener('click', () => {
       if (_ctxFinding) copyPCAP(_ctxFinding);
     });
@@ -1797,14 +2275,30 @@
       const ok = copyToClipboard(row);
       showToast(ok ? 'Row copied' : 'Copy failed');
     });
+
+    // Each of these delegates to the matching detail-pane button so the
+    // exact same code path runs whether the analyst clicks the button or
+    // the menu item. Keeps escalation, source-records, and chart logic
+    // single-sourced.
     document.getElementById('ctx-ack').addEventListener('click', () => {
       if (_ctxFinding) document.getElementById('ack-btn').click();
+    });
+    document.getElementById('ctx-escalate').addEventListener('click', () => {
+      if (_ctxFinding) document.getElementById('esc-btn').click();
+    });
+    document.getElementById('ctx-source-records').addEventListener('click', () => {
+      if (_ctxFinding) document.getElementById('raw-btn').click();
+    });
+    document.getElementById('ctx-chart').addEventListener('click', () => {
+      if (_ctxFinding) document.getElementById('chart-btn').click();
     });
 
     document.querySelectorAll('#ctx-supp-sub li[data-days]').forEach(li => {
       li.addEventListener('click', async () => {
         if (!_ctxFinding) return;
-        const target = _ctxFinding.dst_ip || _ctxFinding.src_ip || '';
+        // Suppress acts on the IP under the cursor when a Src/Dst column
+        // was clicked; otherwise it falls back to dst-then-src like before.
+        const target = _ctxTarget || _ctxFinding.dst_ip || _ctxFinding.src_ip || '';
         if (!target) return;
         const detail = `${_ctxFinding.type} | ${_ctxFinding.severity} | ${_ctxFinding.src_ip || ''}→${_ctxFinding.dst_ip || ''}:${_ctxFinding.dst_port || ''}`;
         await api('/api/suppressions', {
@@ -1817,7 +2311,9 @@
       });
     });
 
-    // Add to Allowlist / IOC List
+    // Add to Allowlist / IOC List — single click each, target derived from
+    // the column under the cursor. The cache refresh keeps state-awareness
+    // current so a second right-click on the same IP reflects the change.
     async function _addToList(endpoint, label, ip, onSuccess) {
       if (!ip) return;
       try {
@@ -1835,35 +2331,53 @@
       } catch (e) { setStatus(`Error: ${e}`); }
     }
 
-    document.querySelectorAll('#ctx-allowlist-sub li[data-target]').forEach(li => {
-      li.addEventListener('click', () => {
-        if (!_ctxFinding) return;
-        const ip = li.dataset.target === 'dst' ? _ctxFinding.dst_ip : _ctxFinding.src_ip;
-        _addToList('/api/allowlist', 'Allowlist', ip, loadFindings);
+    document.getElementById('ctx-allowlist').addEventListener('click', () => {
+      if (!_ctxTarget) return;
+      _addToList('/api/allowlist', 'Allowlist', _ctxTarget, () => {
+        _loadAllowSet();
+        loadFindings();
       });
     });
-
-    document.querySelectorAll('#ctx-ioc-sub li[data-target]').forEach(li => {
-      li.addEventListener('click', () => {
-        if (!_ctxFinding) return;
-        const ip = li.dataset.target === 'dst' ? _ctxFinding.dst_ip : _ctxFinding.src_ip;
-        _addToList('/api/ioc', 'IOC List', ip, _loadIOCList);
-      });
+    document.getElementById('ctx-ioc-add').addEventListener('click', () => {
+      if (!_ctxTarget) return;
+      _addToList('/api/ioc', 'IOC List', _ctxTarget, _loadIOCList);
     });
 
-    // IOC browser lookups — open in new tab
-    const _iocTarget = () => (_ctxFinding && (_ctxFinding.dst_ip || _ctxFinding.src_ip || ''));
+    // External-service lookups — open in a new tab. URL templates chosen
+    // for direct-link compatibility: VT/AbuseIPDB/Shodan/CrowdSec/OTX work
+    // for IPs and most domains; URLscan distinguishes ip vs domain in its
+    // path, so we infer from a quick "looks like an IP" check. Censys and
+    // GreyNoise free tiers require an account; the link still lands the
+    // analyst on the right page once signed in.
+    const _looksLikeIP = s => /^(\d{1,3}\.){3}\d{1,3}$/.test(s) || /^[0-9a-fA-F:]+:[0-9a-fA-F:]+$/.test(s);
+    const _open = url => window.open(url, '_blank');
     document.getElementById('ctx-vt').addEventListener('click', () => {
-      const ioc = _iocTarget(); if (ioc) window.open(`https://www.virustotal.com/gui/search/${encodeURIComponent(ioc)}`, '_blank');
+      if (_ctxTarget) _open(`https://www.virustotal.com/gui/search/${encodeURIComponent(_ctxTarget)}`);
     });
     document.getElementById('ctx-abuseipdb').addEventListener('click', () => {
-      const ioc = _iocTarget(); if (ioc) window.open(`https://www.abuseipdb.com/check/${encodeURIComponent(ioc)}`, '_blank');
+      if (_ctxTarget) _open(`https://www.abuseipdb.com/check/${encodeURIComponent(_ctxTarget)}`);
     });
     document.getElementById('ctx-shodan').addEventListener('click', () => {
-      const ioc = _iocTarget(); if (ioc) window.open(`https://www.shodan.io/search?query=${encodeURIComponent(ioc)}`, '_blank');
+      if (_ctxTarget) _open(`https://www.shodan.io/search?query=${encodeURIComponent(_ctxTarget)}`);
     });
     document.getElementById('ctx-crowdsec').addEventListener('click', () => {
-      const ioc = _iocTarget(); if (ioc) window.open(`https://app.crowdsec.net/cti/${encodeURIComponent(ioc)}`, '_blank');
+      if (_ctxTarget) _open(`https://app.crowdsec.net/cti/${encodeURIComponent(_ctxTarget)}`);
+    });
+    document.getElementById('ctx-censys').addEventListener('click', () => {
+      if (_ctxTarget) _open(`https://search.censys.io/hosts/${encodeURIComponent(_ctxTarget)}`);
+    });
+    document.getElementById('ctx-greynoise').addEventListener('click', () => {
+      if (_ctxTarget) _open(`https://viz.greynoise.io/ip/${encodeURIComponent(_ctxTarget)}`);
+    });
+    document.getElementById('ctx-urlscan').addEventListener('click', () => {
+      if (!_ctxTarget) return;
+      const path = _looksLikeIP(_ctxTarget) ? 'ip' : 'domain';
+      _open(`https://urlscan.io/${path}/${encodeURIComponent(_ctxTarget)}`);
+    });
+    document.getElementById('ctx-otx').addEventListener('click', () => {
+      if (!_ctxTarget) return;
+      const path = _looksLikeIP(_ctxTarget) ? 'IPv4' : 'domain';
+      _open(`https://otx.alienvault.com/indicator/${path}/${encodeURIComponent(_ctxTarget)}`);
     });
 
     document.querySelectorAll('#ctx-export-campaign-sub li[data-format]').forEach(li => {
@@ -2201,7 +2715,14 @@
     DlgManager.init();
 
     _loadIOCList();
+    _loadAllowSet();
     _loadOrgCIDRs(); // populate the Hosts-tab filter list before findings render
+
+    // Disk-usage telemetry — poll every 5 minutes so the warning banner can
+    // surface without the user having to open Settings. The endpoint itself
+    // caches identically, so this is essentially free after the first call.
+    _refreshDiskUsage();
+    setInterval(_refreshDiskUsage, 5 * 60 * 1000);
     loadFindings()
       .then(() => _updateTIStatus())
       .catch(() => setStatus('Ready — click Import then Analyze'));

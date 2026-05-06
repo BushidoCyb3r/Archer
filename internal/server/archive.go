@@ -17,6 +17,31 @@ import (
 // var (not const) so tests can override it.
 var archiveDir = "/data/archive"
 
+// scanArchiveDir mirrors scanLogsDir but rooted at archiveDir. Used by the
+// "Scan archive" admin action which retroactively matches archived logs
+// against the current IOC list and TI feeds.
+func (s *Server) scanArchiveDir() []string {
+	var files []string
+	if _, err := os.Stat(archiveDir); err != nil {
+		return files
+	}
+	filepath.Walk(archiveDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		name := info.Name()
+		if strings.HasSuffix(name, ".log") ||
+			strings.HasSuffix(name, ".log.gz") ||
+			strings.HasSuffix(name, ".gz") ||
+			strings.HasSuffix(name, ".json") ||
+			strings.HasSuffix(name, ".ndjson") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files
+}
+
 // ArchiveResult summarizes the outcome of a single archive run.
 type ArchiveResult struct {
 	FilesArchived    int    `json:"files_archived"`

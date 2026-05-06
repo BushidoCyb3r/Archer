@@ -18,14 +18,17 @@ import (
 	"github.com/BushidoCyb3r/Archer/internal/analysis"
 )
 
-// startWatch starts the daily watch loop if watch is enabled in the config.
-// Safe to call at startup and after any config change — cancels any existing loop first.
+// startWatch starts the watch loop if watch is enabled in the config.
+// Safe to call at startup and after any config change — cancels any existing
+// loop first. The interval is read from config: 0/24 = once daily at the
+// anchor time, 12/6/4/1 = sub-daily ticks aligned to the anchor's hour.
 func (s *Server) startWatch() {
 	watchTime, enabled := s.store.GetWatch()
 	if !enabled || watchTime == "" {
 		return
 	}
 	tz := s.store.GetWatchTimezone()
+	intervalHours := s.store.GetWatchInterval()
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -36,7 +39,7 @@ func (s *Server) startWatch() {
 	s.watchCancel = cancel
 	s.watchMu.Unlock()
 
-	go s.runWatchLoop(ctx, watchTime, tz)
+	go s.runWatchLoop(ctx, watchTime, tz, intervalHours)
 }
 
 // stopWatch cancels the running watch loop, if any.
@@ -49,14 +52,14 @@ func (s *Server) stopWatch() {
 	s.watchMu.Unlock()
 }
 
-// runWatchLoop sleeps until the next occurrence of hhmm in the configured
-// timezone, triggers analysis, then repeats. Exits on cancellation or when
-// the configured time/TZ/enabled state changes — startWatch will spin up a
-// fresh loop with the new values.
-func (s *Server) runWatchLoop(ctx context.Context, hhmm, tzName string) {
+// runWatchLoop sleeps until the next scheduled tick, triggers analysis,
+// then repeats. Exits on cancellation or whenever the configured
+// time/TZ/interval/enabled state changes — startWatch will spin up a fresh
+// loop with the new values.
+func (s *Server) runWatchLoop(ctx context.Context, hhmm, tzName string, intervalHours int) {
 	for {
 		loc := loadLocationOrUTC(tzName)
-		next, err := nextOccurrence(hhmm, loc)
+		next, err := nextOccurrenceInterval(hhmm, intervalHours, loc)
 		if err != nil {
 			return
 		}
@@ -66,7 +69,8 @@ func (s *Server) runWatchLoop(ctx context.Context, hhmm, tzName string) {
 		case <-time.After(time.Until(next)):
 			currentTime, enabled := s.store.GetWatch()
 			currentTZ := s.store.GetWatchTimezone()
-			if !enabled || currentTime != hhmm || currentTZ != tzName {
+			currentInterval := s.store.GetWatchInterval()
+			if !enabled || currentTime != hhmm || currentTZ != tzName || currentInterval != intervalHours {
 				return
 			}
 			s.triggerWatchAnalysis()
@@ -100,6 +104,35 @@ func nextOccurrence(hhmm string, loc *time.Location) (time.Time, error) {
 		next = next.Add(24 * time.Hour)
 	}
 	return next, nil
+}
+
+// nextOccurrenceInterval returns the next scheduled tick. interval==0 (or
+// 24) is the legacy daily semantic — fire once per day at HH:MM. Otherwise
+// the watch fires every `interval` hours starting from a base hour aligned
+// to HH (so an admin who picks "every 4h at 02:30" sees runs at 02:30,
+// 06:30, 10:30, …, regardless of when they enabled it).
+func nextOccurrenceInterval(hhmm string, interval int, loc *time.Location) (time.Time, error) {
+	var h, m int
+	if _, err := parseHHMM(hhmm, &h, &m); err != nil {
+		return time.Time{}, err
+	}
+	if interval == 0 || interval == 24 {
+		return nextOccurrence(hhmm, loc)
+	}
+	if interval != 1 && interval != 4 && interval != 6 && interval != 12 {
+		// Defensive: an unsupported interval falls back to daily so the
+		// loop keeps firing instead of silently dying.
+		return nextOccurrence(hhmm, loc)
+	}
+	now := time.Now().In(loc)
+	// Anchor: HH mod interval gives the hour-of-cycle the admin picked.
+	// E.g. interval=4, HH=10 → anchor=2, so runs are 02, 06, 10, 14, 18, 22.
+	anchor := h % interval
+	candidate := time.Date(now.Year(), now.Month(), now.Day(), anchor, m, 0, 0, loc)
+	for !candidate.After(now) {
+		candidate = candidate.Add(time.Duration(interval) * time.Hour)
+	}
+	return candidate, nil
 }
 
 // parseHHMM validates and parses an "HH:MM" string.

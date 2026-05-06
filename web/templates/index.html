@@ -8,6 +8,10 @@
 </head>
 <body>
 
+<!-- Low-disk warning. Shown when /data or /logs free space drops below
+     the threshold (10%). Driven by the disk-usage poll in app.js. -->
+<div id="disk-warning-banner" style="display:none;background:var(--sev-high,#f97316);color:#fff;text-align:center;padding:6px 12px;font-size:12px;font-weight:600;letter-spacing:0.02em"></div>
+
 <!-- ── Top bar ─────────────────────────────────────────────────── -->
 <div id="topbar">
   <span class="app-title">
@@ -88,11 +92,22 @@
     <div class="sidebar-section-title">Watch Mode</div>
     <div class="sidebar-label" id="watch-status-label">Disabled</div>
     <div id="watch-admin-controls" style="display:none">
-      <div class="sidebar-label">Daily analysis time</div>
+      <div class="sidebar-label">Cadence</div>
+      <select class="sidebar-input" id="watch-interval" style="width:100%">
+        <option value="0">Daily</option>
+        <option value="12">Every 12 hours</option>
+        <option value="6">Every 6 hours</option>
+        <option value="4">Every 4 hours</option>
+        <option value="1">Hourly</option>
+      </select>
+      <div class="sidebar-label" style="margin-top:6px" id="watch-time-label">Run at</div>
       <div class="sidebar-row">
         <input class="sidebar-input" id="watch-time" type="time" value="02:00" style="flex:1">
+        <input class="sidebar-input" id="watch-minute" type="number" min="0" max="59" value="0"
+               style="flex:1; display:none" placeholder="0–59">
         <button class="sidebar-small-btn" id="watch-btn">Enable</button>
       </div>
+      <div class="sidebar-label" id="watch-schedule-preview" style="margin-top:4px; font-size:11px; color:var(--fg-dim)"></div>
       <div class="sidebar-label" style="margin-top:6px">Timezone</div>
       <input class="sidebar-input" id="watch-tz" type="text" list="watch-tz-list"
              placeholder="UTC" autocomplete="off" style="width:100%">
@@ -222,7 +237,11 @@
           <span id="analyst-rec"></span>
         </div>
         <div id="notes-section" style="display:none">
-          <div id="notes-header">Analyst Notes</div>
+          <div id="notes-header" style="display:flex;align-items:center;justify-content:space-between">
+            <span>Analyst Notes</span>
+            <button id="export-notes-btn" type="button" title="Download all notes for this finding as a .txt file"
+                    style="background:transparent;border:1px solid var(--border);color:var(--fg-secondary);padding:3px 10px;border-radius:var(--radius);font-size:11px;cursor:pointer">Export TXT</button>
+          </div>
           <div id="notes-list"></div>
           <div id="add-note-row">
             <textarea id="inline-note-input" placeholder="Add a note…" rows="2"></textarea>
@@ -280,14 +299,38 @@
 
 <!-- ── Context menu ───────────────────────────────────────────── -->
 <ul class="ctx-menu hidden" id="ctx-menu">
-  <li id="ctx-pivot-src">Pivot → Src IP</li>
-  <li id="ctx-pivot-dst">Pivot → Dst IP</li>
+  <!-- Context header — shows what was right-clicked. Non-clickable. -->
+  <li id="ctx-header" class="ctx-header"></li>
   <li class="ctx-separator"></li>
+
+  <!-- Column-aware items: only shown when the user right-clicks a Src or Dst cell.
+       JS resolves the IP from the cell class and rewrites these labels accordingly. -->
+  <li id="ctx-pivot"     class="ctx-target-aware">Pivot</li>
+  <li id="ctx-allowlist" class="ctx-target-aware ctx-write">Add to Allowlist</li>
+  <li id="ctx-ioc-add"   class="ctx-target-aware ctx-write">Add to IOC List</li>
+  <li id="ctx-lookup"    class="ctx-target-aware ctx-submenu">Lookup ↗
+    <ul class="ctx-submenu-panel" id="ctx-lookup-sub">
+      <li id="ctx-vt">VirusTotal</li>
+      <li id="ctx-abuseipdb">AbuseIPDB</li>
+      <li id="ctx-shodan">Shodan</li>
+      <li id="ctx-crowdsec">CrowdSec</li>
+      <li id="ctx-censys">Censys</li>
+      <li id="ctx-greynoise">GreyNoise</li>
+      <li id="ctx-urlscan">URLscan.io</li>
+      <li id="ctx-otx">AlienVault OTX</li>
+    </ul>
+  </li>
+  <li class="ctx-separator ctx-target-aware"></li>
+
+  <!-- Row-level items: always relevant regardless of which column was clicked. -->
   <li id="ctx-pcap">Copy PCAP Filter</li>
   <li id="ctx-copy-row">Copy Row</li>
+  <li id="ctx-source-records">Source Records</li>
+  <li id="ctx-chart">Beacon Chart</li>
   <li class="ctx-separator"></li>
-  <li id="ctx-ack">Acknowledge</li>
-  <li id="ctx-suppress" class="ctx-submenu">Suppress
+  <li id="ctx-ack"      class="ctx-write">Acknowledge</li>
+  <li id="ctx-escalate" class="ctx-write">Escalate</li>
+  <li id="ctx-suppress" class="ctx-submenu ctx-write">Suppress
     <ul class="ctx-submenu-panel" id="ctx-supp-sub">
       <li data-days="1">1 day</li>
       <li data-days="7">7 days</li>
@@ -295,28 +338,8 @@
       <li data-days="30">30 days</li>
     </ul>
   </li>
-  <li class="ctx-separator"></li>
-  <li id="ctx-allowlist" class="ctx-submenu">Add to Allowlist
-    <ul class="ctx-submenu-panel" id="ctx-allowlist-sub">
-      <li data-target="dst">Dst IP</li>
-      <li data-target="src">Src IP</li>
-    </ul>
-  </li>
-  <li id="ctx-ioc-add" class="ctx-submenu">Add to IOC List
-    <ul class="ctx-submenu-panel" id="ctx-ioc-sub">
-      <li data-target="dst">Dst IP</li>
-      <li data-target="src">Src IP</li>
-    </ul>
-  </li>
-  <li class="ctx-separator"></li>
-  <li id="ctx-lookup" class="ctx-submenu">Lookup IOC ↗
-    <ul class="ctx-submenu-panel" id="ctx-lookup-sub">
-      <li id="ctx-vt">VirusTotal</li>
-      <li id="ctx-abuseipdb">AbuseIPDB</li>
-      <li id="ctx-shodan">Shodan</li>
-      <li id="ctx-crowdsec">CrowdSec</li>
-    </ul>
-  </li>
+
+  <!-- Campaign-only items: revealed when the right-clicked row carries a _campaign payload. -->
   <li class="ctx-separator ctx-campaign-only" style="display:none"></li>
   <li id="ctx-graph-campaign" class="ctx-campaign-only" style="display:none">View campaign in Graph</li>
   <li id="ctx-export-campaign" class="ctx-submenu ctx-campaign-only" style="display:none">Export campaign
@@ -392,6 +415,7 @@
             <th style="width:130px">Slot</th>
             <th style="width:200px">Last seen</th>
             <th style="width:90px">Health</th>
+            <th style="width:90px">Size</th>
             <th></th>
           </tr>
         </thead>
@@ -680,6 +704,14 @@
         <label>AbuseIPDB Key<input class="dlg-input" id="cfg-abuse-key" type="password" placeholder="optional"></label>
         <label>OTX Key<input class="dlg-input" id="cfg-otx-key" type="password" placeholder="optional"></label>
         <label>CrowdSec Key<input class="dlg-input" id="cfg-crowdsec-key" type="password" placeholder="optional"></label>
+        <label>GreyNoise Key<input class="dlg-input" id="cfg-greynoise-key" type="password" placeholder="optional — works without"></label>
+        <label>Censys API
+          <div class="dlg-input-pair">
+            <input class="dlg-input-pair-half" id="cfg-censys-id"     type="text"     placeholder="api_id" autocomplete="off">
+            <span  class="dlg-input-pair-sep">:</span>
+            <input class="dlg-input-pair-half" id="cfg-censys-secret" type="password" placeholder="api_secret" autocomplete="off">
+          </div>
+        </label>
       </div>
     </div>
     <div class="settings-group">
@@ -698,11 +730,19 @@
         <label><input id="cfg-archive-enabled" type="checkbox"> Auto-archive logs older than the cutoff <span style="color:var(--fg-dim)">(fires after each watch-mode run)</span></label>
         <label><input id="cfg-archive-prune" type="checkbox"> Also remove findings older than the archive cutoff <span style="color:var(--fg-dim)">(destructive)</span></label>
       </div>
-      <div style="margin-top:10px">
-        <button class="dlg-btn secondary" id="archive-run-btn" type="button">Run Archive Now</button>
-        <span id="archive-run-status" style="margin-left:12px;color:var(--fg-dim)"></span>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="dlg-btn secondary" id="archive-run-btn"  type="button">Run Archive Now</button>
+        <button class="dlg-btn secondary" id="archive-scan-btn" type="button" title="Re-scan archived logs against the current IOC list and TI feeds. Heavy phases (beacon, exfil, etc.) are skipped — only IOC/feed matches produce findings.">Scan Archive for IOCs</button>
+        <span id="archive-run-status" style="color:var(--fg-dim)"></span>
       </div>
       <div id="archive-last-run" style="margin-top:8px;font-size:12px;color:var(--fg-dim)"></div>
+      <!-- Live disk-usage telemetry. Pulled from /api/disk-usage (5-min
+           cache). Lets the admin decide when to clear archive to cold
+           storage without ssh'ing into the host. -->
+      <div id="disk-usage-block" style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border-subtle);font-size:12px;color:var(--fg-secondary)">
+        <div style="font-size:11px;color:var(--fg-dim);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Disk Usage</div>
+        <div id="disk-usage-content" style="font-family:ui-monospace,monospace;font-size:11px;line-height:1.65;color:var(--fg-dim)">Loading…</div>
+      </div>
     </div>
     <div class="settings-group">
       <div class="settings-group-title" style="color:var(--sev-high, #c66)">Danger Zone</div>

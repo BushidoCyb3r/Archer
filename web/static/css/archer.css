@@ -1025,6 +1025,35 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
   padding: 0;
 }
 .ctx-menu .ctx-separator:hover { background: var(--border-subtle); }
+/* Non-clickable context header that names the right-clicked finding so the
+   analyst sees exactly what each menu item will act on. */
+.ctx-menu .ctx-header {
+  padding: 6px 16px 4px 16px;
+  font-size: 11px;
+  color: var(--fg-dim);
+  cursor: default;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 520px;
+}
+.ctx-menu .ctx-header:hover {
+  background: transparent;
+  color: var(--fg-dim);
+}
+/* State-aware items use this class when an action is no longer applicable
+   (already acknowledged, IP already on a list, etc.). The item stays in
+   place so the menu doesn't reflow but is visually muted and unclickable. */
+.ctx-menu .ctx-disabled {
+  color: var(--fg-dim);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ctx-menu .ctx-disabled:hover {
+  background: transparent;
+  color: var(--fg-dim);
+}
 .ctx-submenu { position: relative; }
 .ctx-submenu::after {
   content: '›';
@@ -1210,6 +1239,42 @@ dialog::backdrop {
    Without this hint the browser draws them using the system light scheme
    and they're nearly invisible. */
 .dlg-input[type="number"] { color-scheme: dark; }
+
+/* Combined two-input control for credentials that are stored as a pair
+   (Censys: api_id + api_secret). The wrapper mimics .dlg-input's frame;
+   the first half is plaintext for the visible identifier and the second
+   half is masked for the secret. Tab moves between them naturally. */
+.dlg-input-pair {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--fg-primary);
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  transition: border-color .12s, box-shadow .12s;
+}
+.dlg-input-pair:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.dlg-input-pair-half {
+  flex: 1 1 50%;
+  width: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  padding: 7px 11px;
+  color: inherit;
+  font: inherit;
+}
+.dlg-input-pair-sep {
+  color: var(--fg-dim);
+  padding: 0 2px;
+  user-select: none;
+}
 
 /* Subtle pulsing dot used as a "waiting on something" indicator next
    to the enrollment dialog's status line. */

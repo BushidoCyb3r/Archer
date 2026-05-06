@@ -4,7 +4,7 @@
 
 # Archer — Network Threat Detection & Analyst Workbench
 
-Archer is a self-hosted, open-source network threat detection platform that processes Zeek log files to identify adversarial behaviors including C2 beaconing, data exfiltration, lateral movement, DNS tunneling, malicious TLS fingerprints, and more. It provides a browser-based analyst workbench for reviewing, annotating, and escalating findings — including live threat intelligence enrichment via VirusTotal, CrowdSec, AlienVault OTX, and AbuseIPDB.
+Archer is a self-hosted, open-source network threat detection platform that processes Zeek log files to identify adversarial behaviors including C2 beaconing, data exfiltration, lateral movement, DNS tunneling, malicious TLS fingerprints, and more. It provides a browser-based analyst workbench for reviewing, annotating, and escalating findings — including live threat intelligence enrichment via VirusTotal, CrowdSec, AlienVault OTX, AbuseIPDB, GreyNoise, and Censys.
 
 ---
 
@@ -41,13 +41,17 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 - **Virtualized findings table** — the table renders only what's on screen, so result sets of any size stay smooth without truncation
 - **Per-tab exports** — every tab has its own CSV and JSON export. Findings/Acknowledged/Escalated/IOC Hits export only the visible subset (server-side, honoring all active filters). Campaigns and Hosts export their aggregations directly. A separate "All" export grabs every finding in the database. Right-click any single campaign row to export just that one campaign — useful for loading into a graphical viewer for stakeholder presentations.
 - **Log archive & retention** — admin-configurable: files older than N days automatically move from `/logs` to `/data/archive` after each watch analysis; findings are preserved by default (or optionally pruned past the same cutoff)
-- **Dataset fingerprint skip** — watch-mode re-analyses short-circuit when the set of files + their sizes + mtimes is unchanged from the last successful run; nightly runs over a static dataset return in milliseconds
+- **Dataset fingerprint skip** — watch-mode re-analyses short-circuit when the set of files + their sizes + mtimes is unchanged from the last successful run; recurring runs over a static dataset return in milliseconds (matters more once you tighten the cadence dropdown to hourly)
 - **Preflight memory warning** — before each run Archer compares the total log size against `GOMEMLIMIT` and surfaces a status-bar warning when the run is projected to approach or exceed the budget
-- **Live threat intelligence** — manual escalation queries VirusTotal, CrowdSec CTI, AlienVault OTX, and AbuseIPDB; results are saved as permanent notes on the finding and pushed to the browser in real time via Server-Sent Events
+- **Live threat intelligence** — manual escalation queries VirusTotal, CrowdSec CTI, AlienVault OTX, AbuseIPDB, GreyNoise (Community API works without a key), and Censys; results are consolidated into a single TI Enrichment note per escalation (per-IP grouping with hit/clean indicators), with live SSE toasts as each lookup completes
+- **Archive IOC scan** — admin-triggered retroactive scan over `/data/archive` against the current IOC list and TI feeds (Feodo / URLhaus / Suspicious URL); skips the heavy beacon/exfil/lateral phases so a 100+ GB archive scans in minutes. New IOC matches surface as findings exactly like a regular run; existing analyst state is preserved by fingerprint merge.
+- **Cell-aware right-click menu** — context header names the right-clicked finding; column-aware items (Pivot / Lookup / Add to Allowlist / Add to IOC) adapt to whichever IP cell was clicked so there's no Src-vs-Dst picker; state-aware disabling (Acknowledge greys for already-acked findings, "Add to IOC" greys when the IP's already on the list); role-gated (write actions hidden for viewers); 8 external-lookup destinations (VT, AbuseIPDB, Shodan, CrowdSec, Censys, GreyNoise, URLscan.io, OTX)
+- **Notes export** — Export TXT button on every finding bundles the finding's metadata header plus the full notes thread (including consolidated TI Enrichment notes) into a single self-contained `.txt` file
 - **Automatic free TI feeds** — Feodo Tracker C2 IPs and URLhaus malware hosts are fetched and cross-referenced during every analysis run without requiring API keys
 - **Role-based access control** — admin, analyst, and viewer roles with per-endpoint enforcement
 - **Analyst workbench** — acknowledge, escalate, suppress, add notes, and copy tcpdump/Suricata filter strings directly from the UI
-- **Watch mode** — admin-configurable daily schedule that automatically re-analyzes the logs directory at a set time in any IANA timezone (timezone selection persists independently of enable/disable)
+- **Watch mode** — admin-configurable scheduled analysis. Cadence dropdown (Daily / Every 12h / Every 6h / Every 4h / Hourly) lets you tighten the loop to match Quiver's hourly shipping rather than waiting for a once-a-day window. Anchor time + IANA timezone persist independently of the enable/disable toggle.
+- **Disk-usage telemetry** — `/api/disk-usage` walks `/logs` per-sensor, totals `/data/archive`, and reports free space on each volume (5-minute server-side cache). Surfaces in Settings → Log Archive (full per-sensor breakdown) and the Sensors modal (Size column). Low-disk banner appears at the top of the page when any tracked volume drops below 10% free.
 - **Quiver sensors** — optional companion agent that ships Zeek logs from any Linux sensor host into Archer over rsync-on-ssh. Enrollment is one curl one-liner per sensor (TLS-pinned), pubkey-pinned per-sensor authorized_keys, hourly randomized push window, live Sensors modal showing health/missed-slot status, single-step disenroll + log-tree purge. Auto-installs prerequisites on Debian/Ubuntu/RHEL/Oracle/Rocky/Alma/SLES/Alpine. See [docs/QUIVER.md](docs/QUIVER.md) for the full operator guide.
 - **Campaign & host views** — see which destinations are contacted by multiple internal hosts and view per-host composite risk scores
 - **Resource-aware deployment** — `start.sh` automatically allocates 80% of host CPU and 70% of host RAM to the container; RAM is held to a tighter cap so burst spikes have absorption headroom before they could OOM-kill the container. The entrypoint then wires the Go runtime memory limit to 90% of whatever budget it gets
@@ -641,30 +645,51 @@ These feeds are fetched automatically at the start of every analysis run:
 | **Feodo Tracker** | Active C2 server IPs for Emotet, TrickBot, QakBot, Dridex, and other banking malware |
 | **URLhaus** | Active malware distribution URLs and hosting domains |
 
-### Paid / Registered Services (API Key Required)
+### Escalation Lookup Services
 
-Configure API keys in the **Settings** dialog. Only services with a configured key are available for escalation lookups.
+Configure credentials in the **Settings** dialog. **GreyNoise** is the only service that runs without any configuration — its Community API works unauthenticated (rate-limited to ~50 requests/hour). Adding a free GreyNoise key raises the limit. Every other service in this table is gated on a configured key.
 
-| Service | Lookup Type | What is Checked |
-|---|---|---|
-| **VirusTotal** | IP addresses and domains | Malicious engine detection count from `last_analysis_stats` |
-| **CrowdSec CTI** | IP addresses only | Overall reputation score from the smoke feed |
-| **AlienVault OTX** | IP addresses and domains | Threat pulse count and reputation score |
-| **AbuseIPDB** | IP addresses only | Abuse confidence score (0–100%) and total report count (last 90 days) |
+| Service | Auth | Lookup Type | What is Checked |
+|---|---|---|---|
+| **VirusTotal** | API key | IP addresses and domains | Malicious engine detection count from `last_analysis_stats` |
+| **CrowdSec CTI** | API key | IP addresses only | Overall reputation score from the smoke feed |
+| **AlienVault OTX** | API key | IP addresses and domains | Threat pulse count and reputation score |
+| **AbuseIPDB** | API key | IP addresses only | Abuse confidence score (0–100%) and total report count (last 90 days) |
+| **GreyNoise** | optional Community key | IP addresses only | Classification (benign/malicious/unknown), `noise:true` (background internet scanner — likely not targeted), `riot:true` (known benign service like Google/AWS) |
+| **Censys** | API ID + API Secret (Basic auth) | IP addresses only | Number of services + sample ports (HTTPS, SSH, …), country, last-observed timestamp. Informational only — Censys doesn't return a malicious verdict. |
+
+The Settings UI presents Censys as a single combined `id:secret` field — the ID half is plaintext (it's an identifier, not a credential by itself), the secret half is masked.
 
 ### Escalation Workflow
 
 When an analyst escalates a finding, Archer opens a dialog to:
 
 1. Select which artifact to look up — **Dst IP**, **Src IP**, or both
-2. Select which TI services to query (only services with configured API keys are shown)
+2. Select which TI services to query (only services with configured credentials are shown; GreyNoise is always shown because it works unauthenticated)
 
 Lookups run in the background. For each service queried:
-- A permanent **note** is added to the finding with the full result
-- A **toast notification** is pushed to the browser in real time
+- A real-time **toast notification** is pushed to the browser as each lookup completes
 - A final summary toast indicates total hit count when all lookups complete
+- Once every lookup has settled, a **single consolidated TI Enrichment note** is written to the finding — grouped per IP, with each result prefixed `⚠` (hit) or `✓` (clean):
 
-Results are classified as `[HIT]` (threat confirmed) or `[CLEAN]` (no threats found) and stored permanently regardless of outcome.
+  ```
+  TI Enrichment Results — 2 IP(s), 1 hit(s)
+
+  [1.2.3.4]
+    ⚠ [VirusTotal] 5 engines flagged 1.2.3.4 as malicious
+    ✓ [GreyNoise] 1.2.3.4 background internet scanner (Censys Scanner) — likely not targeted
+    ✓ [CrowdSec] 1.2.3.4 - no threats found
+    ✓ [Censys] 1.2.3.4 - 4 services [443/HTTPS, 22/SSH, 80/HTTP] (location: US, last seen 2026-05-01)
+
+  [5.6.7.8]
+    ✓ [VirusTotal] 5.6.7.8 - no malicious detections
+  ```
+
+Results are classified as `[HIT]` (threat confirmed) or `[CLEAN]` (no threats found) and stored permanently regardless of outcome. The full thread can be exported as a self-contained `.txt` file via **Export TXT** at the top of the Notes section — useful for incident reports and stakeholder handoffs.
+
+### Archive IOC Scan
+
+Admins can retroactively re-scan archived logs against the current IOC list and TI feeds. Settings → Log Archive → **Scan Archive for IOCs**. The scan walks `/data/archive`, runs only the IOC + Feodo + URLhaus + Suspicious-URL phases (skipping beacon/exfil/lateral/etc.), and produces standard findings via the same fingerprint-merge that regular runs use. Useful when a freshly added threat-intel feed should be checked against historical data that's already aged out of `/logs/`.
 
 ---
 
@@ -716,7 +741,9 @@ The first user to register automatically becomes an **admin** and is signed in i
 | Manage suppressions | ✓ | ✓ | — |
 | Update analysis thresholds | ✓ | — | — |
 | Manage API keys | ✓ | — | — |
-| Configure watch mode | ✓ | — | — |
+| Configure watch mode (anchor time / timezone / cadence) | ✓ | — | — |
+| Scan archive for IOCs | ✓ | — | — |
+| View disk-usage telemetry | ✓ | ✓ | ✓ |
 | View Sensors modal (read-only tables) | ✓ | ✓ | — |
 | Enroll / disenroll / purge sensors | ✓ | — | — |
 | Generate / revoke enrollment tokens | ✓ | — | — |
@@ -739,7 +766,7 @@ Sessions are stored in SQLite with a 24-hour expiry, httpOnly cookies, and `Same
 | **Zeek Logs** | Shows the current log directory; **Import** scans for new files; **Clear** removes the file list. The file list is grouped by sensor (top-level subdirectory under `/logs`) with a file count. |
 | **Analysis** | **Analyze** starts the detection pipeline. A progress bar and step indicator update in real time via SSE. **Pause** and **Stop** are available during a run. |
 | **Threat Intel** | Displays a count of TI hits found in the last analysis. |
-| **Watch Mode** | All users can see whether watch mode is enabled and when the next run is scheduled. Admins can set a daily time, pick an IANA timezone (e.g. `America/New_York`), and enable or disable automatic analysis. The timezone field auto-saves on change and persists independently of the enable/disable toggle — handy for setting timezone first then enabling later. |
+| **Watch Mode** | All users see whether watch mode is enabled and a plain-English schedule preview (e.g. *"Every 4h starting 02:00 EDT — next 14:00 EDT"*). Admins pick a **Cadence** first (Daily / Every 12h / Every 6h / Every 4h / Hourly); the time control beneath it adapts: full HH:MM picker labeled `Run at` for Daily, `First run at` for the multi-hour cadences, and a minute-of-hour numeric input under Hourly (the server only uses the minute portion there). Cadence, time, and timezone auto-save on change and persist independently of the enable/disable toggle. |
 | **Allowlist** | Edit the list of IPs and domains to exclude from all findings. One entry per line. Findings matching an allowlisted IP are hidden across all tabs immediately after saving. |
 | **IOC List** | Edit the list of known-bad IPs and domains. Findings with a src/dst IP matching this list are tagged and appear in the IOC Hits tab. |
 | **Suppressions** | View all active suppressions with their target, context, and expiry time. Individual suppressions can be removed here; expired suppressions are pruned automatically. |
@@ -778,6 +805,18 @@ Filter-bar dropdowns produce server-streamed downloads for findings tabs and cli
 
 **Delta mode**: **New Only** / **Show All** toggle to focus on findings that appeared in the most recent analysis.
 
+### Right-Click Menu (any findings tab)
+
+The context menu reshapes itself based on what was right-clicked, the user's role, and the finding's current state:
+
+- **Context header** at the top names the right-clicked finding (`[CRITICAL] Beaconing — 10.0.5.7 → 198.51.100.4:443`) so item labels read unambiguously.
+- **Column-aware section** — if the right-click landed on a Source or Destination cell, the menu offers `Pivot to <ip>`, `Add <ip> to Allowlist`, `Add <ip> to IOC List`, and `Lookup <ip> ↗ ▸`. The same right-click on any other cell hides the column-aware items entirely and shows only row-level actions, since there's no clear single target.
+- **External lookups** (8 destinations, all open in a new tab): VirusTotal, AbuseIPDB, Shodan, CrowdSec, Censys, GreyNoise, URLscan.io, AlienVault OTX. Censys and GreyNoise free tiers require an account; URLscan and OTX direct-link reads work without one.
+- **Row-level actions**: Copy PCAP Filter, Copy Row, Source Records, Beacon Chart (only shown for findings with timeseries data), Acknowledge, Escalate, Suppress ▸ (1d/7d/14d/30d).
+- **State-aware disabling**: greyed and click-blocked when an action no longer applies — `Acknowledge` for already-acknowledged findings, `Escalate` for already-escalated ones, `Add to Allowlist`/`IOC` when the resolved IP is already on the respective list. Tooltips explain the reason on hover.
+- **Role-gated**: write actions (Ack, Escalate, Suppress, Add to Allowlist/IOC) are hidden entirely for viewer-role users so the menu never offers a click that would dead-end at a 403.
+- **Campaign-only items** (View campaign in Graph, Export campaign ▸) appear when right-clicking a row in the Campaigns tab.
+
 ### Detail Pane
 
 Selecting a finding opens the detail pane, which shows:
@@ -796,7 +835,7 @@ Selecting a finding opens the detail pane, which shows:
 
 Header **Sensors** button (admin + analyst). Three tables:
 
-- **Enrolled Sensors** — read-only for analysts; admins also see Slot, Disenroll (red), and Purge data buttons. Slot and Last seen render in the watch-mode timezone with abbrev (e.g. `:30 hourly`, `2026-05-05 14:30:08 EDT`). Health column shows `✓ on time` (within 1h), `pending` (within 1.5h), `⚠ missed` (>1.5h since last checkin), or `never`.
+- **Enrolled Sensors** — read-only for analysts; admins also see Slot, Disenroll (red), and Purge data buttons. Slot and Last seen render in the watch-mode timezone with abbrev (e.g. `:30 hourly`, `2026-05-05 14:30:08 EDT`). **Health** column shows `✓ on time` (within 1h), `pending` (within 1.5h), `⚠ missed` (>1.5h since last checkin), or `never`. **Size** column shows the per-sensor `/logs/<name>/` byte total, populated from `/api/disk-usage` (5-minute server-side cache).
 - **Pending Tokens** — outstanding enrollment tokens (24h TTL, single-use). Admins see the full token, override name, created/expires timestamps, and a Revoke button. Used tokens disappear from this list — they become rows in Enrolled Sensors. Live SSE updates: when a sensor finishes enrollment, the in-flight enrollment dialog flips to "✓ Enrolled as `<name>`" and the parent table refreshes automatically.
 - **Unauthorized Attempts** — checkins from sensor names Archer doesn't know about. Auto-prunes after 30 days unless an admin pins a row. Admin actions: **Enroll this** (pre-fills override name in the token dialog) or **Dismiss**. Live SSE updates the list when a fresh unrecognized checkin arrives.
 
@@ -807,8 +846,9 @@ Admin-only "+ Enroll new sensor" dialog: optional override name, **Generate toke
 Opened with the gear button in the header. Contains:
 
 - **Beaconing / DNS thresholds** — runtime-tunable detection parameters
-- **Threat Intelligence** — VirusTotal, AbuseIPDB, OTX, and CrowdSec API keys
-- **Log Archive** — enable/disable automatic archive, retention days, and the opt-in **Also remove findings older than the archive cutoff** toggle; includes a **Run Archive Now** button that uses the saved settings
+- **Threat Intelligence** — VirusTotal, AbuseIPDB, OTX, CrowdSec, GreyNoise (optional), and Censys (`API ID` + `API Secret`, rendered as a single combined field where the secret half is masked). GreyNoise is the only entry that's optional — its Community API works unauthenticated; supplying a key lifts the rate limit.
+- **Log Archive** — enable/disable automatic archive, retention days, and the opt-in **Also remove findings older than the archive cutoff** toggle; includes a **Run Archive Now** button that uses the saved settings, and a **Scan Archive for IOCs** button that retroactively re-scans `/data/archive` against the current IOC list and TI feeds (Feodo / URLhaus / Suspicious URL) without rerunning the heavy analysis phases. New IOC matches surface as findings via the same fingerprint-merge as a regular run.
+- **Disk Usage** — auto-refreshing block (5-minute server-side cache via `/api/disk-usage`) showing per-sensor `/logs/<name>/` byte totals under a **Logs** section, the `/data/archive` total under an **Archive** section, and the free-space remaining on each volume. A red banner pins to the top of the page when any tracked volume drops below 10% free.
 - **Danger Zone** — **Discard findings & re-analyze** button that clears every finding in the database and runs a fresh analysis. Useful for clean re-baselines after threshold changes. Destructive — analyst notes and statuses on existing findings are lost; confirmation required.
 
 ### Analysis Complete Alert
@@ -867,7 +907,7 @@ All API endpoints require authentication. Role requirements are noted where appl
 | `GET` | `/api/findings/{id}` | Any | Single finding detail |
 | `GET` | `/api/findings/{id}/raw` | Any | Raw-log pivot. Returns source Zeek records matching the finding's (src, dst) pair. Query params: `limit` (default 500, max 5000), `window_hours` (default 6; `0` means no time filter — scan every matching file) |
 | `PATCH` | `/api/findings/{id}` | Analyst+ | Update status: `{"status":"acknowledged"\|"escalated","analyst":"...","note":"..."}` |
-| `POST` | `/api/findings/{id}/escalate` | Analyst+ | Escalate + run TI lookups: `{"note":"...","ips":["..."],"services":["vt","crowdsec","otx","abuseipdb"]}` |
+| `POST` | `/api/findings/{id}/escalate` | Analyst+ | Escalate + run TI lookups: `{"note":"...","ips":["..."],"services":["vt","crowdsec","otx","abuseipdb","greynoise","censys"]}`. Each lookup's outcome is streamed as a `ti_result` SSE event; once all settle, a single consolidated TI Enrichment note is appended to the finding. |
 | `POST` | `/api/findings/{id}/notes` | Analyst+ | Add note: `{"text":"..."}` |
 
 ### Exports
@@ -884,6 +924,13 @@ All API endpoints require authentication. Role requirements are noted where appl
 | `GET` | `/api/archive` | Any | `{"enabled":bool,"after_days":N,"prune_findings_on_archive":bool,"last_run_at":"...","last_files_archived":N,"last_bytes_archived":N,"last_findings_pruned":N,"last_triggered_by":"..."}` — last_* fields are read-only telemetry omitted on a never-run instance |
 | `POST` | `/api/archive` | Admin | Update archive config. Accepts `{"enabled":bool,"after_days":N,"prune_findings_on_archive":bool}` — last_* fields are ignored if sent |
 | `POST` | `/api/archive/run` | Admin | Run the archive worker. Optional body `{"dry_run":true}` reports what would be moved/pruned without touching disk or the findings table; omit body or pass `{"dry_run":false}` to execute. Returns `{"files_archived":N,"bytes_archived":N,"findings_pruned":N,"skipped":N}` |
+| `POST` | `/api/archive/scan` | Admin | Retroactive IOC + TI scan over `/data/archive`. Skips beacon/exfil/lateral/etc. — only the IOC list, Feodo Tracker, URLhaus, and Suspicious URL phases run. New matches surface as findings via the same fingerprint-merge as a regular run. Empty body. Returns `{"status":"started"}`; progress is emitted via the standard `progress` / `done` SSE events. |
+
+### Disk Usage
+
+| Method | Path | Role | Description |
+|---|---|---|---|
+| `GET` | `/api/disk-usage` | Any | `{"logs":{"total_bytes":N,"free_bytes":N,"sensors":[{"name":"...","bytes":N},...]},"archive":{"total_bytes":N,"free_bytes":N}}`. Server-side cached for 5 minutes — calling more often returns the cached snapshot. The Sensors modal Size column and Settings → Disk Usage block both poll this endpoint. |
 
 ### Configuration
 
@@ -920,14 +967,14 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/api/watch` | Any | `{"time":"HH:MM","enabled":bool,"timezone":"America/New_York","next_run":"2026-04-25 02:00 EDT"}` |
-| `POST` | `/api/watch` | Admin | `{"time":"HH:MM","enabled":bool,"timezone":"America/New_York"}` — empty `timezone` means UTC. Server validates the IANA name with `time.LoadLocation`; bad names return 400. |
+| `GET` | `/api/watch` | Any | `{"time":"HH:MM","enabled":bool,"timezone":"America/New_York","interval_hours":N,"next_run":"2026-04-25 02:00 EDT"}` — `interval_hours` is one of `24` (daily), `12`, `6`, `4`, or `1` (hourly). Sub-daily cadences anchor on the configured minute-of-hour. |
+| `POST` | `/api/watch` | Admin | `{"time":"HH:MM","enabled":bool,"timezone":"America/New_York","interval_hours":N}` — empty `timezone` means UTC. Server validates the IANA name with `time.LoadLocation`; bad names return 400. `interval_hours` must be one of `1`, `4`, `6`, `12`, `24`; out-of-range values fall back to daily. |
 
 ### Threat Intelligence
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/api/ti/services` | Any | `{"vt":bool,"crowdsec":bool,"otx":bool,"abuseipdb":bool}` — true means API key is configured |
+| `GET` | `/api/ti/services` | Any | `{"vt":bool,"crowdsec":bool,"otx":bool,"abuseipdb":bool,"greynoise":bool,"censys":bool}` — true means API key is configured. `greynoise` is always `true` (Community API works unauthenticated; supplying a key only raises the rate limit). `censys` is true only when both API ID and Secret are configured. |
 
 ### Sensors (Admin UI)
 

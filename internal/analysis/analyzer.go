@@ -211,6 +211,47 @@ func (a *Analyzer) Analyze(files []string) []model.Finding {
 	return collect()
 }
 
+// AnalyzeTIOnly runs the IOC + Feodo + URLhaus + suspicious-URL phases
+// over the given file set without doing any of the expensive scoring
+// (beacon, exfil, lateral, DNS-tunnel, file analysis, weird, x509, http).
+// Used by the "Scan archive" admin action so a freshly added IOC or TI
+// feed can match against historical logs that have already aged out of
+// /logs into /data/archive. Host risk aggregation is also skipped — that
+// step folds the full finding set, which would over-attribute scores
+// when this pass intentionally produces only TI hits.
+func (a *Analyzer) AnalyzeTIOnly(files []string) []model.Finding {
+	collect := func() []model.Finding {
+		a.mu.RLock()
+		out := make([]model.Finding, len(a.findings))
+		copy(out, a.findings)
+		a.mu.RUnlock()
+		return out
+	}
+
+	a.sendStatus("Fetching threat intel feeds…")
+	feedsDone := make(chan struct{})
+	go func() {
+		a.prefetchFeeds(files)
+		close(feedsDone)
+	}()
+	a.sendProgress(10, "Fetch Feeds")
+
+	<-feedsDone
+	if !a.waitIfPaused() {
+		return collect()
+	}
+
+	a.sendStatus("Scanning archive against IOC list and TI feeds…")
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); a.checkSuspiciousURLs(files) }()
+	go func() { defer wg.Done(); a.checkTI(files) }()
+	wg.Wait()
+	a.sendProgress(100, "Complete")
+
+	return collect()
+}
+
 func (a *Analyzer) add(f model.Finding) {
 	a.mu.Lock()
 	a.nextID++
