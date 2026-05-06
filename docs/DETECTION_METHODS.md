@@ -736,7 +736,86 @@ to 70 — High severity.
 
 ---
 
-## 16. What Archer is *not* doing
+## 16. Retention vs. detection window — tuning the analyzer's reach
+
+Every statistical detector (Beaconing, HTTP Beaconing, DNS NXDOMAIN flood,
+DNS tunneling diversity, off-hours transfer) operates only on the records
+currently in `/logs`. Archived files under `/data/archive/` are out of scope
+for the regular analyzer — the manual "Scan Archive for IOCs" admin button
+only runs Phase 0 + Phase 3 (IOC matching), not the statistical phases.
+
+That makes archive retention a **detection-coverage decision**, not just a
+disk-usage one.
+
+### 16.1 The math
+
+For a `(src, dst, port)` triple beaconing at period `P`, the detector needs
+at least `BeaconMinConnections` records inside the analysis window:
+
+```
+detectable iff:  retention_days × (1 day / P) ≥ BeaconMinConnections
+                 P ≤ retention_days / BeaconMinConnections
+```
+
+With the default `BeaconMinConnections = 10`:
+
+| Retention in /logs | Min detectable beacon period | Catches                                     |
+|--------------------|------------------------------|---------------------------------------------|
+| 5 days             | every 12h                    | Cobalt Strike, hourly C2, Empire / Sliver   |
+| 14 days            | every ~33h                   | …plus daily APT cadence                     |
+| 30 days            | every 3 days                 | …plus most slow APT beacons                 |
+| 60 days            | every 6 days                 | …plus weekly-ish cadence                    |
+| 90 days            | every 9 days                 | …reaching toward extreme patient adversaries |
+
+Going slower than that requires either dropping `BeaconMinConnections`
+(false positives explode — legitimate periodic traffic starts matching) or
+persistent per-triple state across runs (architecture change, not currently
+implemented).
+
+### 16.2 Score persistence vs. score evolution
+
+Findings persist forever in the database via SetFindings's fingerprint
+merge — every analyst note, ack, escalation, and status carries forward
+across runs. But the *statistical score* on a finding is whatever the most
+recent analyzer run that detected it produced. Once the original supporting
+evidence ages out of `/logs`:
+
+- The finding row stays (the historical detection is preserved)
+- Re-analysis no longer emits a fresh finding for that triple (math fails
+  the minimum threshold), so the score stays frozen at the original value
+- An active beacon that's been running for 60 days won't show "60 days of
+  evidence" in its score — it'll show whatever the analyzer computed when
+  the original detection fired, even if subsequent runs would compute
+  higher confidence on a longer sample
+
+Path to live, evolving scores: persistent per-triple interval state across
+runs. Major architecture change; out of scope for the current design.
+
+### 16.3 Operational guidance
+
+- **Active hunting + commodity malware focus** (Cobalt Strike, ransomware C2,
+  hourly callbacks): 5–14 day retention. Hourly TI watch + daily full
+  pipeline = fast loop, low storage cost. Misses daily/weekly APT cadence.
+- **APT-aware threat hunting** (daily-cadence beacons matter): 30-day
+  retention minimum. Roughly 6× the `/logs` footprint vs. 5-day; daily full
+  run takes longer but two-tier watch keeps hourly TI fast regardless.
+- **Maximum patient-adversary coverage** (weekly+ cadence): 60–90 day
+  retention. Roughly 12–18× the disk vs. 5-day. At this retention the daily
+  full-pipeline run is the dominant operational cost; schedule it for
+  off-hours via the watch anchor time.
+
+The tradeoff is purely between disk space, daily-tick wall-clock, and
+detection floor. There is no algorithmic ceiling — a bigger window always
+catches more.
+
+**See also:** section 12.9 (two-tier watch cadence). Incremental TI ticks
+process only mtime-filtered new files, so hourly TI freshness stays fast
+regardless of how big `/logs` gets — only the once-daily full-pipeline tick
+sees the full retention window.
+
+---
+
+## 17. What Archer is *not* doing
 
 Worth stating explicitly so you don't oversell it:
 
@@ -750,10 +829,14 @@ Worth stating explicitly so you don't oversell it:
 - **No identity correlation.** Source IPs are treated as the actor. NAT,
   shared workstations, and dynamic-IP environments will mix activity from
   multiple users into one Host Risk Score.
+- **No cross-window beacon state.** Statistical detectors operate on the
+  current `/logs` window only. Findings persist across runs (notes, status)
+  but scores don't accumulate as more evidence arrives — see section 16 for
+  the retention-vs-detection-window math and tuning guidance.
 
 ---
 
-## 17. Threshold reference
+## 18. Threshold reference
 
 All thresholds live in `internal/config/config.go` and can be overridden at
 runtime. Defaults:
