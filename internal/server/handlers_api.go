@@ -365,11 +365,17 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 	ts := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 	hitCount := 0
 
-	// Per-IP grouping buffer. Every publishHit/publishClean call appends a
-	// line here; once the full IP×service loop finishes we write one
+	// Per-IP grouping buffer. Every publishHit/publishInfo/publishClean call
+	// appends a line here; once the full IP×service loop finishes we write one
 	// consolidated note instead of N small ones (the previous design left
 	// the notes thread cluttered with one row per service per IP).
-	type lineEntry struct{ ip, text string; hit bool }
+	//
+	// `informative` is the cross-annotation gate: hits and substantive non-hit
+	// findings (e.g. GreyNoise classifying an IP as CiscoOpenDNS, Censys
+	// returning a host's service list) get the flag set; "no record found",
+	// "lookup failed", and "request failed" stay false so they don't pollute
+	// other findings with empty noise.
+	type lineEntry struct{ ip, text string; hit, informative bool }
 	var lines []lineEntry
 
 	doReq := func(req *http.Request) ([]byte, bool) {
@@ -391,16 +397,31 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 	// (live UI feedback) — the persistent note is written once at the end.
 	publishHit := func(source, detail string, sev model.Severity) {
 		hitCount++
-		lines = append(lines, lineEntry{ip: currentIP, text: fmt.Sprintf("⚠ [%s] %s", source, detail), hit: true})
+		lines = append(lines, lineEntry{ip: currentIP, text: fmt.Sprintf("⚠ [%s] %s", source, detail), hit: true, informative: true})
 		evtData, _ := json.Marshal(map[string]any{
 			"finding_id": f.ID, "source": source, "severity": string(sev), "detail": detail, "hit": true,
 		})
 		s.broker.Publish(SSEEvent{Type: "ti_result", Data: string(evtData)})
 	}
 
-	// publishClean appends a clean line and fires an SSE toast.
+	// publishInfo appends a non-hit but substantive line — e.g. GreyNoise
+	// classifying an IP as benign infrastructure, Censys returning a host's
+	// service list. Cross-noted onto other findings the IP appears in so an
+	// analyst opening (say) a beacon finding sees the enrichment context.
+	publishInfo := func(source, detail string) {
+		lines = append(lines, lineEntry{ip: currentIP, text: fmt.Sprintf("ℹ [%s] %s", source, detail), hit: false, informative: true})
+		evtData, _ := json.Marshal(map[string]any{
+			"finding_id": f.ID, "source": source, "severity": string(model.SevInfo), "detail": detail, "hit": false,
+		})
+		s.broker.Publish(SSEEvent{Type: "ti_result", Data: string(evtData)})
+	}
+
+	// publishClean appends a non-informative clean line — "no record found",
+	// "lookup failed", "request failed". Recorded in the consolidated note on
+	// the originating finding for completeness, but NOT cross-noted since
+	// these carry no signal worth surfacing on unrelated findings.
 	publishClean := func(source, detail string) {
-		lines = append(lines, lineEntry{ip: currentIP, text: fmt.Sprintf("✓ [%s] %s", source, detail), hit: false})
+		lines = append(lines, lineEntry{ip: currentIP, text: fmt.Sprintf("✓ [%s] %s", source, detail), hit: false, informative: false})
 		evtData, _ := json.Marshal(map[string]any{
 			"finding_id": f.ID, "source": source, "severity": string(model.SevInfo), "detail": detail, "hit": false,
 		})
@@ -551,13 +572,15 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 							}
 							publishHit("GreyNoise", fmt.Sprintf("%s classified malicious (%s)", dst, data.Name), sev)
 						case data.Riot:
-							publishClean("GreyNoise", fmt.Sprintf("%s known benign service: %s", dst, data.Name))
+							publishInfo("GreyNoise", fmt.Sprintf("%s known benign service: %s", dst, data.Name))
 						case data.Noise:
-							publishClean("GreyNoise", fmt.Sprintf("%s background internet scanner (%s) — likely not targeted", dst, data.Name))
+							publishInfo("GreyNoise", fmt.Sprintf("%s background internet scanner (%s) — likely not targeted", dst, data.Name))
 						case data.Message == "IP not observed scanning the internet or contained in RIOT data set.":
 							publishClean("GreyNoise", fmt.Sprintf("%s - no record found", dst))
+						case data.Classification != "":
+							publishInfo("GreyNoise", fmt.Sprintf("%s - %s", dst, data.Classification))
 						default:
-							publishClean("GreyNoise", fmt.Sprintf("%s - %s", dst, data.Classification))
+							publishClean("GreyNoise", fmt.Sprintf("%s - no record found", dst))
 						}
 					} else {
 						publishClean("GreyNoise", fmt.Sprintf("%s - lookup failed", dst))
@@ -602,7 +625,7 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 							}
 							loc := data.Result.Location.Country
 							if loc == "" { loc = "unknown" }
-							publishClean("Censys", fmt.Sprintf("%s - %d services [%s] (location: %s, last seen %s)",
+							publishInfo("Censys", fmt.Sprintf("%s - %d services [%s] (location: %s, last seen %s)",
 								dst, svcCount, strings.Join(sample, ", "), loc, data.Result.LastUpdatedAt))
 						} else {
 							publishClean("Censys", fmt.Sprintf("%s - no record found", dst))
@@ -643,6 +666,40 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 			AuthorEmail: "system",
 			Timestamp:   ts,
 		})
+	}
+
+	// Cross-annotate: for every IP with a substantive enrichment result
+	// (hit or informative non-hit, e.g. GreyNoise CiscoOpenDNS / Censys
+	// service list), attach a per-IP note to all OTHER findings that mention
+	// that IP. The originating finding already got the full consolidated
+	// note above; this surfaces the enrichment context on related findings
+	// so an analyst opening a beacon row sees the TI verdict inline.
+	skipIDs := map[int]bool{f.ID: true}
+	notedIPs := make(map[string]bool)
+	for _, ip := range ips {
+		if ip == "" || ip == "—" || ip == "(network)" || notedIPs[ip] {
+			continue
+		}
+		notedIPs[ip] = true
+		var b strings.Builder
+		fmt.Fprintf(&b, "TI Enrichment — %s", ip)
+		any := false
+		for _, ln := range lines {
+			if ln.ip != ip || !ln.informative {
+				continue
+			}
+			fmt.Fprintf(&b, "\n  %s", ln.text)
+			any = true
+		}
+		if !any {
+			continue
+		}
+		s.crossNoteByIP(ip, model.Note{
+			Text:        b.String(),
+			Author:      "TI Enrichment",
+			AuthorEmail: "system",
+			Timestamp:   ts,
+		}, skipIDs)
 	}
 
 	doneData, _ := json.Marshal(map[string]any{
@@ -1002,6 +1059,7 @@ func (s *Server) launchTIOnly(files []string) {
 		}
 
 		newNotifs := s.store.SetFindings(findings)
+		s.crossAnnotateNewTIHits(findings)
 		for _, n := range newNotifs {
 			nData, _ := json.Marshal(n)
 			s.broker.Publish(SSEEvent{Type: "notification", Data: string(nData)})

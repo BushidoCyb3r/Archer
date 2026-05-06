@@ -377,6 +377,7 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) {
 		}
 
 		newNotifs := s.store.SetFindings(findings)
+		s.crossAnnotateNewTIHits(findings)
 		for _, n := range newNotifs {
 			nData, _ := json.Marshal(n)
 			s.broker.Publish(SSEEvent{Type: "notification", Data: string(nData)})
