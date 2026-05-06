@@ -17,6 +17,15 @@
   let _currentUser     = null;
   let _orgCIDRs        = []; // admin-supplied CIDRs that augment the built-in private ranges for the Hosts tab
 
+  // Host Risk Score is the per-host roll-up the analyzer emits at the end
+  // of every run (composite of the per-host detection types). The Findings
+  // tab is for discrete network events; this score belongs in the Hosts
+  // tab, where the row is reachable by clicking the host's IP. Filtering
+  // here keeps the counts, type dropdown, and notification jumps consistent.
+  const HOST_FINDING_TYPES = new Set(['Host Risk Score']);
+  function _isHostFinding(f) { return HOST_FINDING_TYPES.has(f.type); }
+  function _networkFindings(arr) { return arr.filter(f => !_isHostFinding(f)); }
+
   // ── Helpers ────────────────────────────────────────────────────────────────
   function setStatus(msg) {
     document.getElementById('status-msg').textContent = msg;
@@ -81,26 +90,32 @@
     const qs = new URLSearchParams(params).toString();
     const data = await api('/api/findings' + (qs ? '?' + qs : ''));
     _allFindings = Array.isArray(data) ? data : [];
-    Table.populateTypeFilter(_allFindings);
+    // Type dropdown and Campaigns are network-event views; the per-host
+    // roll-up never appears in either, so feed both the network-only list.
+    const networkOnly = _networkFindings(_allFindings);
+    Table.populateTypeFilter(networkOnly);
     _updateSensorFilter(_allFindings);
     Campaigns.build(_allFindings);
     _applyTabFilter();
   }
 
-  // Apply the current tab mode filter to the table
+  // Apply the current tab mode filter to the table. All four tab modes
+  // operate on network events only — Host Risk Score is excluded up front
+  // and surfaced through the Hosts tab instead.
   function _applyTabFilter() {
-    let shown = _allFindings;
+    const base = _networkFindings(_allFindings);
+    let shown = base;
     if (_tabMode === 'ack') {
-      shown = _allFindings.filter(f => f.status === 'acknowledged');
+      shown = base.filter(f => f.status === 'acknowledged');
     } else if (_tabMode === 'esc') {
-      shown = _allFindings.filter(f => f.status === 'escalated');
+      shown = base.filter(f => f.status === 'escalated');
     } else if (_tabMode === 'ioc') {
       const TI_TYPES = new Set(['Threat Intel Hit', 'Suspicious URL']);
-      shown = _allFindings.filter(f => f.ioc_match || TI_TYPES.has(f.type) ||
+      shown = base.filter(f => f.ioc_match || TI_TYPES.has(f.type) ||
         (f.src_ip && _iocSet.has(f.src_ip)) || (f.dst_ip && _iocSet.has(f.dst_ip)));
     } else {
       // 'findings' = open only
-      shown = _allFindings.filter(f => !f.status || f.status === '');
+      shown = base.filter(f => !f.status || f.status === '');
     }
     if (_deltaMode) shown = shown.filter(f => f.is_new);
     Table.load(shown);
@@ -108,19 +123,20 @@
   }
 
   function updateInfoLine() {
-    let open  = _allFindings.filter(f => !f.status || f.status === '').length;
-    let acked = _allFindings.filter(f => f.status === 'acknowledged').length;
-    let esc   = _allFindings.filter(f => f.status === 'escalated').length;
+    const base = _networkFindings(_allFindings);
+    let open  = base.filter(f => !f.status || f.status === '').length;
+    let acked = base.filter(f => f.status === 'acknowledged').length;
+    let esc   = base.filter(f => f.status === 'escalated').length;
     const _TI_TYPES = new Set(['Threat Intel Hit', 'Suspicious URL']);
-    let ioc   = _allFindings.filter(f => f.ioc_match || _TI_TYPES.has(f.type) ||
+    let ioc   = base.filter(f => f.ioc_match || _TI_TYPES.has(f.type) ||
       (f.src_ip && _iocSet.has(f.src_ip)) || (f.dst_ip && _iocSet.has(f.dst_ip))).length;
     const parts = [`${open} open`, `${acked} ack'd`, `${esc} escalated`];
     if (ioc) parts.push(`${ioc} IOC`);
-    const newCount = _allFindings.filter(f => f.is_new).length;
+    const newCount = base.filter(f => f.is_new).length;
     if (newCount) parts.push(`${newCount} new`);
     document.getElementById('info-line').textContent = parts.join('  •  ');
     document.getElementById('findings-count').textContent =
-      `${_allFindings.length} total`;
+      `${base.length} total`;
   }
 
   // Fetch IOC list into _iocSet; re-applies tab filter if IOC tab is active.
@@ -760,9 +776,15 @@
   function _setAnalyzing(active) {
     document.getElementById('analyze-btn').disabled = active;
     document.getElementById('analysis-controls').style.display = active ? 'flex' : 'none';
+    // Reset Stop/Pause buttons to their default labels and enabled state
+    // every time analysis starts or finishes, so a partial-state from a
+    // prior cancel doesn't bleed into the next run.
+    const stopBtn = document.getElementById('stop-btn');
+    const pauseBtn = document.getElementById('pause-btn');
+    if (stopBtn)  { stopBtn.disabled = false;  stopBtn.textContent = 'Stop'; }
+    if (pauseBtn) { pauseBtn.disabled = false; pauseBtn.textContent = 'Pause'; }
     if (!active) {
       _paused = false;
-      document.getElementById('pause-btn').textContent = 'Pause';
     }
   }
 
@@ -809,7 +831,39 @@
     });
 
     document.getElementById('stop-btn').addEventListener('click', async () => {
-      try { await api('/api/analyze/cancel', {method: 'POST'}); } catch (_) {}
+      // The analyzer cancels at phase boundaries, not in tight loops, so
+      // there can be a noticeable delay between clicking Stop and the
+      // 'done' SSE event arriving. Without UI feedback the analyst clicks
+      // again or assumes nothing happened. Disable both buttons + relabel
+      // Stop + show a status message so the cancellation is visibly
+      // "received" — the SSE 'done' handler will reset everything.
+      const stopBtn = document.getElementById('stop-btn');
+      const pauseBtn = document.getElementById('pause-btn');
+      if (stopBtn) {
+        stopBtn.disabled = true;
+        stopBtn.textContent = 'Stopping…';
+      }
+      if (pauseBtn) {
+        pauseBtn.disabled = true;
+      }
+      setStatus('Cancellation requested — waiting for analyzer to wind down…');
+      try {
+        await api('/api/analyze/cancel', {method: 'POST'});
+      } catch (e) {
+        // If the cancel request itself failed (network blip, 409 because
+        // analysis just finished, etc.), restore the button so the user
+        // isn't stuck with a permanently-disabled Stop. The 'done' event
+        // would normally reset everything; this is the failure-path
+        // safety net.
+        setStatus('Cancellation request failed: ' + e);
+        if (stopBtn) {
+          stopBtn.disabled = false;
+          stopBtn.textContent = 'Stop';
+        }
+        if (pauseBtn) {
+          pauseBtn.disabled = false;
+        }
+      }
     });
 
     document.getElementById('pause-btn').addEventListener('click', async () => {
@@ -2611,7 +2665,18 @@
       (e, f) => showMenu(e, f)
     );
 
-    Campaigns.init((e, pseudo) => showMenu(e, pseudo), _isOrgIP);
+    // Hosts-row click lifts the per-host roll-up's Host Risk Score finding
+    // out of _allFindings (it's filtered out of the Findings tab) and
+    // renders its detail breakdown. Without this hook the Hosts tab would
+    // stop at "host has score 99" with no way to see why.
+    const onHostClick = ip => {
+      const f = _allFindings.find(x => _isHostFinding(x) && x.src_ip === ip);
+      if (f) {
+        _selectedFinding = f;
+        Detail.render(f);
+      }
+    };
+    Campaigns.init((e, pseudo) => showMenu(e, pseudo), _isOrgIP, onHostClick);
 
     // Clicking a graph node looks up the first finding involving that IP and
     // jumps the table to it — so the graph doubles as a navigation surface.

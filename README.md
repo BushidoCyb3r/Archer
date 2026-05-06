@@ -50,7 +50,7 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 - **Automatic free TI feeds** — Feodo Tracker C2 IPs and URLhaus malware hosts are fetched and cross-referenced during every analysis run without requiring API keys
 - **Role-based access control** — admin, analyst, and viewer roles with per-endpoint enforcement
 - **Analyst workbench** — acknowledge, escalate, suppress, add notes, and copy tcpdump/Suricata filter strings directly from the UI
-- **Watch mode** — admin-configurable scheduled analysis. Cadence dropdown (Daily / Every 12h / Every 6h / Every 4h / Hourly) lets you tighten the loop to match Quiver's hourly shipping rather than waiting for a once-a-day window. Anchor time + IANA timezone persist independently of the enable/disable toggle.
+- **Watch mode** — admin-configurable scheduled analysis. Cadence dropdown (Daily / Every 12h / Every 6h / Every 4h / Hourly) lets you tighten the loop to match Quiver's hourly shipping rather than waiting for a once-a-day window. Anchor time + IANA timezone persist independently of the enable/disable toggle. **Two-tier execution:** the first watch tick of each UTC day runs the full analysis pipeline (statistical detectors need the long temporal window for beaconing, HTTP analysis, etc.); subsequent same-day ticks run an incremental TI/IOC pass over only the log files modified since the last run — typically seconds instead of the full-window minutes-to-hours.
 - **Disk-usage telemetry** — `/api/disk-usage` walks `/logs` per-sensor, totals `/data/archive`, and reports free space on each volume (5-minute server-side cache). Surfaces in Settings → Log Archive (full per-sensor breakdown) and the Sensors modal (Size column). Low-disk banner appears at the top of the page when any tracked volume drops below 10% free.
 - **Quiver sensors** — optional companion agent that ships Zeek logs from any Linux sensor host into Archer over rsync-on-ssh. Enrollment is one curl one-liner per sensor (TLS-pinned), pubkey-pinned per-sensor authorized_keys, hourly randomized push window, live Sensors modal showing health/missed-slot status, single-step disenroll + log-tree purge. Auto-installs prerequisites on Debian/Ubuntu/RHEL/Oracle/Rocky/Alma/SLES/Alpine. See [docs/QUIVER.md](docs/QUIVER.md) for the full operator guide.
 - **Campaign & host views** — see which destinations are contacted by multiple internal hosts and view per-host composite risk scores
@@ -131,7 +131,7 @@ Archer runs five parallel analysis phases across all supported log types.
 
 | Detection Type | Description | Severity |
 |---|---|---|
-| **Host Risk Score** | Weighted composite score (0–100) aggregated across all findings for a given source IP. Weights: Cobalt Strike URI +40, Malicious JA3 +40, Domain Fronting +32, Threat Intel Hit +35, HTTP Beaconing +28, Beaconing +30, Data Exfiltration +25, Lateral Movement +20, Strobe +15, Long Connection +10 | CRITICAL / HIGH / MEDIUM / LOW |
+| **Host Risk Score** | Weighted composite score (0–100) aggregated across all findings for a given source IP. Weights: Cobalt Strike URI +40, Malicious JA3 +40, Domain Fronting +32, Threat Intel Hit +35, HTTP Beaconing +28, Beaconing +30, Data Exfiltration +25, Lateral Movement +20, Strobe +15, Long Connection +10. Surfaced in the **Hosts** tab (not the Findings tab — that tab is reserved for discrete network events). Click any host row to open the underlying score breakdown. | CRITICAL / HIGH / MEDIUM / LOW |
 
 ---
 
@@ -687,6 +687,8 @@ Lookups run in the background. For each service queried:
 
 Results are classified as `[HIT]` (threat confirmed) or `[CLEAN]` (no threats found) and stored permanently regardless of outcome. The full thread can be exported as a self-contained `.txt` file via **Export TXT** at the top of the Notes section — useful for incident reports and stakeholder handoffs.
 
+**Cross-annotation onto sibling findings.** When a TI lookup returns substantive information about an IP — a hit (Feodo / URLhaus / OTX / VirusTotal / AbuseIPDB / CrowdSec / GreyNoise classification) or a substantive non-hit (GreyNoise labelling the IP as `riot:true` Google/AWS/CiscoOpenDNS infrastructure, Censys returning a service list) — Archer also appends a per-IP `TI Enrichment` note to every other finding that mentions that IP. An analyst opening a beacon finding will see "GreyNoise: known benign service Google DNS" inline instead of having to notice a separate Threat Intel Hit row. "No record found", "lookup failed", and "request failed" lines are kept on the originating finding only — they have no signal worth surfacing on related findings. The same applies to automatic TI hits emitted during the analyzer's TI phase: every newly-detected `Threat Intel Hit` cross-notes the IP across all other findings that mention it, gated on `IsNew` so re-runs don't duplicate notes.
+
 ### Archive IOC Scan
 
 Admins can retroactively re-scan archived logs against the current IOC list and TI feeds. Settings → Log Archive → **Scan Archive for IOCs**. The scan walks `/data/archive`, runs only the IOC + Feodo + URLhaus + Suspicious-URL phases (skipping beacon/exfil/lateral/etc.), and produces standard findings via the same fingerprint-merge that regular runs use. Useful when a freshly added threat-intel feed should be checked against historical data that's already aged out of `/logs/`.
@@ -764,7 +766,7 @@ Sessions are stored in SQLite with a 24-hour expiry, httpOnly cookies, and `Same
 | Section | Controls |
 |---|---|
 | **Zeek Logs** | Shows the current log directory; **Import** scans for new files; **Clear** removes the file list. The file list is grouped by sensor (top-level subdirectory under `/logs`) with a file count. |
-| **Analysis** | **Analyze** starts the detection pipeline. A progress bar and step indicator update in real time via SSE. **Pause** and **Stop** are available during a run. |
+| **Analysis** | **Analyze** starts the detection pipeline. A progress bar and step indicator update in real time via SSE. **Pause** and **Stop** are available during a run. The analyzer checks for cancellation at phase boundaries (not in tight loops), so there can be a noticeable delay between clicking **Stop** and the run actually winding down — the button visibly switches to "Stopping…" and the status line shows *"Cancellation requested — waiting for analyzer to wind down…"* until the run exits. Manual analyze runs the full pipeline and preserves analyst state (notes / acks / escalations) via fingerprint merge — useful during active hunts when you want a fresh detection pass without losing your annotations. |
 | **Threat Intel** | Displays a count of TI hits found in the last analysis. |
 | **Watch Mode** | All users see whether watch mode is enabled and a plain-English schedule preview (e.g. *"Every 4h starting 02:00 EDT — next 14:00 EDT"*). Admins pick a **Cadence** first (Daily / Every 12h / Every 6h / Every 4h / Hourly); the time control beneath it adapts: full HH:MM picker labeled `Run at` for Daily, `First run at` for the multi-hour cadences, and a minute-of-hour numeric input under Hourly (the server only uses the minute portion there). Cadence, time, and timezone auto-save on change and persist independently of the enable/disable toggle. |
 | **Allowlist** | Edit the list of IPs and domains to exclude from all findings. One entry per line. Findings matching an allowlisted IP are hidden across all tabs immediately after saving. |
@@ -773,14 +775,16 @@ Sessions are stored in SQLite with a 24-hour expiry, httpOnly cookies, and `Same
 
 ### Finding Tabs
 
+The first four tabs (Findings / Acknowledged / Escalated / IOC Hits) all view the same network-event finding set with different status filters. The last two (Campaigns / Hosts) are aggregations built client-side from the same data. Per-host roll-up findings (`Host Risk Score`) are excluded from the four findings tabs and from the bell — they live in the Hosts tab where the score actually means something to the analyst.
+
 | Tab | Contents |
 |---|---|
-| **Findings** | All open (unacknowledged, non-escalated) findings |
-| **Acknowledged** | Findings marked as reviewed |
-| **Escalated** | Findings sent to threat intelligence or escalated for response |
-| **IOC Hits** | Findings where src or dst IP matches the IOC list, plus all Threat Intel Hit type findings |
+| **Findings** | All open (unacknowledged, non-escalated) network-event findings |
+| **Acknowledged** | Network-event findings marked as reviewed |
+| **Escalated** | Network-event findings sent to threat intelligence or escalated for response |
+| **IOC Hits** | Network-event findings where src or dst IP matches the IOC list, plus all Threat Intel Hit type findings |
 | **Campaigns** | Destinations contacted by two or more distinct internal source IPs — potential shared C2 infrastructure |
-| **Hosts** | Per-host composite risk scores aggregated across all finding types |
+| **Hosts** | Per-host composite risk scores aggregated across all finding types. Click any row to open the underlying `Host Risk Score` finding's detail panel (composite score, contributing detection types, weighting breakdown). Right-click for the standard pivots. |
 
 ### Findings Table
 
@@ -958,12 +962,23 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 ### Notifications
 
+The bell fires for new findings that are CRITICAL or of type `Threat Intel Hit` / `Suspicious URL`. `Host Risk Score` is intentionally excluded — it's a per-host roll-up, not a discrete event, and the underlying network detections that pushed the host's score over the line have already generated their own notifications.
+
 | Method | Path | Role | Description |
 |---|---|---|---|
 | `GET` | `/api/notifications` | Any | List alert notifications |
 | `POST` | `/api/notifications` | Any | `{"action":"dismiss","id":N}` or `{"action":"dismiss_all"}` |
 
 ### Watch Mode
+
+Watch ticks run in two tiers, automatic from the configured cadence:
+
+- **First tick of each UTC calendar day → full analysis.** All phases (Beaconing, HTTP analysis, DNS, SSL, X.509, Files, Weird, Notices, TI, Host Risk Score). Statistical detectors need the long temporal window to spot patterns, so they get refreshed daily.
+- **Subsequent same-day ticks → incremental TI pass.** Only Phase 0 (feed prefetch) + Phase 3 (TI matching) over the file subset modified since the last run. Stateless per-record, fast — typically seconds instead of the full-window minutes-to-hours. Catches new bad-IP contacts within one tick interval.
+
+The decision is automatic and persisted: `LastFullAnalysisUnix` (most recent full run) gates the full/incremental switch, `LastAnalysisUnix` (most recent run of either kind) is the mtime cutoff for the incremental file filter (with a 5-minute overlap so a log rotated at the boundary gets re-checked instead of missed). Manual "Discard findings & re-analyze" runs as a full pass and resets both timestamps, so the cycle restarts cleanly.
+
+The `done` SSE event for incremental ticks includes `"incremental": true` so the UI can distinguish them from full-pass completions.
 
 | Method | Path | Role | Description |
 |---|---|---|---|

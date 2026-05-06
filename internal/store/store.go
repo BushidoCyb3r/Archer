@@ -304,6 +304,15 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 
 	var newNotifs []model.Notification
 	for _, f := range findings {
+		// Host Risk Score is an aggregate per-host roll-up that lives in
+		// the Hosts tab, not a discrete network event. Suppress it from
+		// the bell — the underlying network detections that pushed the
+		// host's score over the line have already generated their own
+		// notifications, and a "jump to finding" tap would land on a
+		// row that the Findings tab no longer renders.
+		if f.Type == "Host Risk Score" {
+			continue
+		}
 		if f.IsNew && (f.Severity == model.SevCritical || f.Type == "Threat Intel Hit" || f.Type == "Suspicious URL") {
 			s.notifCounter++
 			n := model.Notification{
@@ -663,6 +672,58 @@ func (s *Store) GetLastAnalysisFingerprint() string {
 func (s *Store) SetLastAnalysisFingerprint(fp string) {
 	s.mu.Lock()
 	s.config.LastAnalysisFingerprint = fp
+	if s.db != nil {
+		cfgJSON, _ := json.Marshal(s.config)
+		s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))
+	}
+	s.mu.Unlock()
+}
+
+// GetLastFullAnalysisTime returns when the most recent full analysis run
+// completed. Zero time means no full run has ever finished on this
+// deployment — the watch loop treats that as "do a full run on the next
+// tick" so a fresh box gets a baseline before any incremental ticks fire.
+func (s *Store) GetLastFullAnalysisTime() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.config.LastFullAnalysisUnix == 0 {
+		return time.Time{}
+	}
+	return time.Unix(s.config.LastFullAnalysisUnix, 0).UTC()
+}
+
+// SetLastFullAnalysisTime records when a full run completed. Called by the
+// full-analysis flow (manual "Discard & re-analyze" or the daily watch
+// tick) on success — never by incremental runs, since they don't reset
+// the "do a full today" gate.
+func (s *Store) SetLastFullAnalysisTime(t time.Time) {
+	s.mu.Lock()
+	s.config.LastFullAnalysisUnix = t.UTC().Unix()
+	if s.db != nil {
+		cfgJSON, _ := json.Marshal(s.config)
+		s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))
+	}
+	s.mu.Unlock()
+}
+
+// GetLastAnalysisTime returns when ANY analysis run (full or incremental)
+// most recently completed. Used as the mtime cutoff for the next
+// incremental tick's file filter — anything modified after this time is
+// considered "new" and gets re-processed.
+func (s *Store) GetLastAnalysisTime() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.config.LastAnalysisUnix == 0 {
+		return time.Time{}
+	}
+	return time.Unix(s.config.LastAnalysisUnix, 0).UTC()
+}
+
+// SetLastAnalysisTime records when any analysis run completed. Called by
+// both full and incremental flows on success.
+func (s *Store) SetLastAnalysisTime(t time.Time) {
+	s.mu.Lock()
+	s.config.LastAnalysisUnix = t.UTC().Unix()
 	if s.db != nil {
 		cfgJSON, _ := json.Marshal(s.config)
 		s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))

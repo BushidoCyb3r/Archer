@@ -41,25 +41,46 @@ func (s *Server) crossNoteByIP(ip string, note model.Note, skipIDs map[int]bool)
 // Skips the TI hit finding itself (which already carries the source/detail
 // in its own row) and other Threat Intel Hit rows for the same IP (each
 // already names its own source).
+//
+// Per-(dst, source) deduplication: checkTI's per-source fan-out emits N
+// TI Hit findings per (dst, source) — one for each internal host that
+// contacted the bad dst. Without this dedupe the cross-note loop would
+// stamp N copies of the same enrichment note onto every related finding,
+// since they all carry the same dst/source. We collapse the new-hits
+// stream down to one entry per (dst, source) and use the first one's
+// SourceFile/Detail/ID as the representative for the note text.
 func (s *Server) crossAnnotateNewTIHits(findings []model.Finding) {
-	ts := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
+	type key struct{ dst, source string }
+	rep := make(map[key]model.Finding)
 	for _, h := range findings {
 		if !h.IsNew || h.Type != "Threat Intel Hit" {
 			continue
 		}
+		k := key{dst: h.DstIP, source: h.SourceFile}
+		if _, ok := rep[k]; !ok {
+			rep[k] = h
+		}
+	}
+	if len(rep) == 0 {
+		return
+	}
+
+	ts := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
+	all := s.store.GetFindings()
+	skipTI := make(map[int]bool, len(all))
+	for _, f := range all {
+		if f.Type == "Threat Intel Hit" {
+			skipTI[f.ID] = true
+		}
+	}
+
+	for _, h := range rep {
 		note := model.Note{
 			Text:        fmt.Sprintf("TI Enrichment — %s\n  ⚠ [%s] %s", h.DstIP, h.SourceFile, h.Detail),
 			Author:      "TI Enrichment",
 			AuthorEmail: "auto",
 			Timestamp:   ts,
 		}
-		skip := map[int]bool{h.ID: true}
-		all := s.store.GetFindings()
-		for _, f := range all {
-			if f.Type == "Threat Intel Hit" {
-				skip[f.ID] = true
-			}
-		}
-		s.crossNoteByIP(h.DstIP, note, skip)
+		s.crossNoteByIP(h.DstIP, note, skipTI)
 	}
 }

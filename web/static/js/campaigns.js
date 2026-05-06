@@ -3,13 +3,15 @@
 
 const Campaigns = (() => {
   let _onCtx = null;
+  let _onHostClick = null; // app.js hook: clicking a Hosts row opens the per-host roll-up finding's detail
   let _isOrgIP = () => true; // predicate set by app.js; default to "everything is internal" so the panel works before init runs
   let _campaigns = []; // exposed via getCampaigns() for export
   let _hosts = [];     // exposed via getHosts() for export
 
-  function init(onCtx, isOrgIP) {
+  function init(onCtx, isOrgIP, onHostClick) {
     _onCtx = onCtx;
     if (typeof isOrgIP === 'function') _isOrgIP = isOrgIP;
+    if (typeof onHostClick === 'function') _onHostClick = onHostClick;
   }
 
   function build(findings) {
@@ -101,12 +103,16 @@ const Campaigns = (() => {
     }
     _hosts.forEach(e => {
       const tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
       tr.innerHTML = `
         <td class="src-ip dst-ip" style="font-family:monospace">${e.ip}</td>
         <td class="score" style="color:${_scoreColor(e.score)}">${e.score}</td>
         <td style="text-align:center">${e.count}</td>
         <td style="color:${_sevColor(e.topSev)};font-weight:700">${e.topSev}</td>
         <td style="font-size:11px;color:var(--fg-dim)">${[...e.types].slice(0,4).join(', ')}</td>`;
+      tr.addEventListener('click', () => {
+        if (_onHostClick) _onHostClick(e.ip);
+      });
       tr.addEventListener('contextmenu', ev => {
         ev.preventDefault();
         if (_onCtx) _onCtx(ev, {dst_ip: e.ip, src_ip: e.ip, dst_port: ''});
