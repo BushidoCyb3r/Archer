@@ -74,6 +74,14 @@ type Config struct {
 	LastFullAnalysisUnix int64 `json:"last_full_analysis_unix,omitempty"` // when most recent full run completed; gates "did we already do a full today?"
 	LastAnalysisUnix     int64 `json:"last_analysis_unix,omitempty"`     // when ANY run (full or incremental) completed; mtime filter cutoff for next incremental
 
+	// WatchAlwaysFull disables the two-tier cadence: every watch tick runs
+	// the full pipeline regardless of whether a full has already happened
+	// today. Useful for active hunts where the operator wants statistical
+	// detectors (beaconing, HTTP analysis, etc.) refreshing at every tick
+	// instead of once daily. Costs more CPU per tick but eliminates the
+	// "wait until tomorrow's first tick to see new beacons" gap.
+	WatchAlwaysFull bool `json:"watch_always_full,omitempty"`
+
 	// OrgInternalCIDRs are admin-supplied CIDRs (or single IPs) that the
 	// Hosts tab should treat as belonging to the organisation, in addition
 	// to the built-in private ranges (RFC 1918, IPv4 link-local, IPv6 ULA,

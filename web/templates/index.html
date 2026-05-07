@@ -722,6 +722,13 @@
       <textarea class="dlg-input" id="cfg-org-cidrs" rows="4" placeholder="203.0.113.0/24&#10;198.51.100.42" style="width:100%;font-family:monospace;resize:vertical"></textarea>
     </div>
     <div class="settings-group">
+      <div class="settings-group-title">Watch Mode</div>
+      <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
+        By default, only the first watch tick of each UTC day runs the full pipeline (Beaconing, HTTP analysis, all detectors); subsequent same-day ticks run a cheaper incremental TI/IOC pass. Turn this on to make every tick a full scan instead — uses more CPU per tick but eliminates the "wait until tomorrow" gap on statistical detectors. Useful during active hunts.
+      </div>
+      <label><input id="cfg-watch-always-full" type="checkbox"> Always run full scan on every watch tick</label>
+    </div>
+    <div class="settings-group">
       <div class="settings-group-title">Log Archive</div>
       <div class="settings-grid">
         <label>Archive after (days)<input class="dlg-input" id="cfg-archive-after" type="number" min="1"></label>

@@ -876,9 +876,15 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 				// pass — matters for "is my beacon detection going to refresh
 				// at the next tick?" mental modelling. Mirrors the decision
 				// logic in triggerWatchAnalysis (see watch.go).
+				//
+				// Operator can opt out of the two-tier behavior via the
+				// "Always run full scan" toggle in Settings → Watch Mode;
+				// when on, every tick is full and the sidebar drops the
+				// "Next Full Scan" follow-up line.
+				alwaysFull := s.store.GetConfig().WatchAlwaysFull
 				lastFull := s.store.GetLastFullAnalysisTime()
 				isFullTick := func(t time.Time) bool {
-					if lastFull.IsZero() {
+					if alwaysFull || lastFull.IsZero() {
 						return true
 					}
 					utc := t.UTC()

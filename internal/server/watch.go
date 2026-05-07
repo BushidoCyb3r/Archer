@@ -92,16 +92,15 @@ func loadLocationOrUTC(name string) *time.Location {
 }
 
 // formatRelativeTime renders a time as a compact, scannable string for the
-// watch-mode UI. Today/tomorrow get spelled out (the common case); same-week
+// watch-mode UI. Today/Tomorrow get spelled out (the common case); same-week
 // dates fall back to weekday + time; further-out dates use month-day; only
 // dates in a different calendar year include the year. The timezone
-// abbreviation is intentionally NOT included — the caller surfaces it once
-// on the cadence head so the analyst doesn't read "EDT" three times in
-// three lines.
+// abbreviation is intentionally NOT included — the caller's UI already
+// shows the configured timezone in the input above.
 //
 // Examples (all in the supplied loc):
-//   today 06:00
-//   tomorrow 00:00
+//   Today 06:00
+//   Tomorrow 00:00
 //   Mon 14:30
 //   May 12 09:00
 //   Jan 3 2027 02:00
@@ -114,9 +113,9 @@ func formatRelativeTime(t time.Time, loc *time.Location) string {
 	hm := tLoc.Format("15:04")
 	switch {
 	case daysDiff == 0:
-		return "today " + hm
+		return "Today " + hm
 	case daysDiff == 1:
-		return "tomorrow " + hm
+		return "Tomorrow " + hm
 	case daysDiff > 1 && daysDiff < 7 && tLoc.Year() == nowLoc.Year():
 		return tLoc.Format("Mon ") + hm
 	case tLoc.Year() == nowLoc.Year():
@@ -228,6 +227,16 @@ func (s *Server) triggerWatchAnalysis() {
 	}
 	files := s.scanLogsDir()
 	if len(files) == 0 {
+		return
+	}
+
+	// WatchAlwaysFull forces every tick to run the full pipeline,
+	// bypassing the two-tier date-based decision below. Operator opts in
+	// from Settings → Watch Mode when they want statistical detectors
+	// refreshing every tick (active hunt) instead of once a day.
+	if s.store.GetConfig().WatchAlwaysFull {
+		s.store.SetUploadedFiles(files)
+		s.launchAnalysisWithOptions(files, false)
 		return
 	}
 

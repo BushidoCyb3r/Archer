@@ -633,6 +633,19 @@ between daily runs is detected on the next day's first tick. Real-time
 beacon detection from a single hour of logs is mathematically
 impossible, so this is the floor any honest design hits.
 
+**Operator override — `WatchAlwaysFull`.** Settings → Watch Mode exposes
+an **Always run full scan on every watch tick** checkbox that disables
+the two-tier behavior entirely. When on, `triggerWatchAnalysis`
+short-circuits the date-comparison check and routes every tick through
+`launchAnalysisWithOptions` (full pipeline). Operators flip this on
+during active hunts where the 24h gap on statistical detectors is too
+slow; keep off for resource-conscious background monitoring where the
+hourly TI freshness is enough between daily statistical refreshes. The
+flag persists in the settings table as `watch_always_full`. The
+`/api/watch` response reflects it: with the flag on, `next_run_kind`
+always returns `"full"` and `next_full_run` always equals `next_run`,
+so the sidebar drops the redundant "Next Full Scan:" follow-up line.
+
 ---
 
 ## 13. Zeek Notice Passthrough

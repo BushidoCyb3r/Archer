@@ -1909,6 +1909,8 @@
     set('cfg-censys-secret',  cfg.censys_api_secret);
     const cidrEl = document.getElementById('cfg-org-cidrs');
     if (cidrEl) cidrEl.value = Array.isArray(cfg.org_internal_cidrs) ? cfg.org_internal_cidrs.join('\n') : '';
+    const alwaysFull = document.getElementById('cfg-watch-always-full');
+    if (alwaysFull) alwaysFull.checked = !!cfg.watch_always_full;
   }
 
   function _populateArchive(a) {
@@ -1963,6 +1965,7 @@
       censys_api_id:            g('cfg-censys-id').trim(),
       censys_api_secret:        g('cfg-censys-secret').trim(),
       org_internal_cidrs:       cidrs,
+      watch_always_full:        !!(document.getElementById('cfg-watch-always-full') || {}).checked,
     };
   }
 
@@ -2036,61 +2039,48 @@
       timeInput.style.display = '';
       minInput.style.display  = 'none';
     } else {
-      labelEl.textContent = 'First run at';
+      labelEl.textContent = 'First full scan at';
       timeInput.style.display = '';
       minInput.style.display  = 'none';
     }
   }
 
-  // _renderWatchSchedulePreview lays out the watch schedule in three tight
-  // lines: cadence/anchor/TZ on top, next tick + (sub-daily only) tier
-  // below, and a third line naming the next full-pipeline tick when
-  // the next tick is incremental. Time strings are relative ("today
-  // 06:00", "tomorrow 00:00") to keep the panel scannable; the timezone
-  // abbrev is shown once on the cadence head, not repeated per line.
+  // _renderWatchSchedulePreview shows the upcoming-run state at the bottom
+  // of the watch sidebar. The cadence / anchor / TZ are already visible in
+  // the controls above (dropdown, time input, timezone input), so we don't
+  // restate any of them — the preview is just "what's about to happen,"
+  // in the timezone the user already configured.
   function _renderWatchSchedulePreview(cfg) {
     const el = document.getElementById('watch-schedule-preview');
     if (!el) return;
     el.innerHTML = '';
     if (!cfg || !cfg.enabled) { el.textContent = ''; return; }
-    const interval = (cfg.interval_hours === 24) ? 0 : (cfg.interval_hours || 0);
-    const tz       = cfg.timezone_abbr || 'UTC';
-    const time     = cfg.time || '';
-    const mm       = time.split(':')[1] || '00';
-
-    let head;
-    if (interval === 1)       head = `Hourly at :${mm} ${tz}`;
-    else if (interval === 0)  head = `Daily at ${time} ${tz}`;
-    else                      head = `Every ${interval}h, anchor ${time} ${tz}`;
-
-    const line1 = document.createElement('div');
-    line1.textContent = head;
-    el.appendChild(line1);
-
     if (!cfg.next_run) return;
 
-    const kind = cfg.next_run_kind || '';
-    const line2 = document.createElement('div');
-    line2.style.fontSize = '11px';
-    line2.style.color = 'var(--fg-dim)';
-    line2.style.marginTop = '2px';
+    const interval = (cfg.interval_hours === 24) ? 0 : (cfg.interval_hours || 0);
+    const kind     = cfg.next_run_kind || '';
+
+    const line1 = document.createElement('div');
+    line1.style.fontSize = '11px';
+    line1.style.color = 'var(--fg-dim)';
     let suffix = '';
     if (interval !== 0) {
-      if (kind === 'full')        suffix = ' — full pipeline';
-      else if (kind === 'incremental') suffix = ' — incremental TI/IOC';
+      if (kind === 'full')        suffix = ' | Full Scan';
+      else if (kind === 'incremental') suffix = ' | Incremental TI/IOC';
     }
-    line2.textContent = `Next: ${cfg.next_run}${suffix}`;
-    el.appendChild(line2);
+    line1.textContent = `Next: ${cfg.next_run}${suffix}`;
+    el.appendChild(line1);
 
-    // Third line only when the next tick is incremental and the server
-    // told us when the next full pass will fire — daily cadence (every
-    // tick is full) and the "next is already full" case both skip it.
+    // Only mention the next full scan when the next tick is incremental
+    // and the server told us when the next full one will fire. Daily
+    // cadence (every tick is full) and the "next is already full" case
+    // both skip it.
     if (interval !== 0 && kind === 'incremental' && cfg.next_full_run) {
-      const line3 = document.createElement('div');
-      line3.style.fontSize = '11px';
-      line3.style.color = 'var(--fg-dim)';
-      line3.textContent = `Full pipeline: ${cfg.next_full_run}`;
-      el.appendChild(line3);
+      const line2 = document.createElement('div');
+      line2.style.fontSize = '11px';
+      line2.style.color = 'var(--fg-dim)';
+      line2.textContent = `Next Full Scan: ${cfg.next_full_run}`;
+      el.appendChild(line2);
     }
   }
 
