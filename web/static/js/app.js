@@ -2259,19 +2259,14 @@
         }
       }
 
-      // Header — names the right-clicked finding so item labels read
-      // unambiguously even when a campaign row aggregates many findings.
+      // Top-left arrow visually anchors the menu to the click point.
+      // The verbose "[crit] Beaconing — src → dst:port" header used to
+      // live here but pushed the menu wider than the longest finding
+      // description; menu item labels already include the resolved IP
+      // ("Add 192.0.2.5 to Allowlist", "Pivot to 192.0.2.5", etc.), so
+      // the banner was redundant.
       const hdr = document.getElementById('ctx-header');
-      if (hdr) {
-        const sev  = (f && f.severity) || '';
-        const type = (f && f.type) || '';
-        const src  = (f && f.src_ip) || '';
-        const dst  = (f && f.dst_ip) || '';
-        const port = (f && f.dst_port) ? `:${f.dst_port}` : '';
-        const sevPart = sev ? `[${sev}] ` : '';
-        const arrow   = (src && dst) ? `${src} → ${dst}${port}` : (src || dst || '');
-        hdr.textContent = `${sevPart}${type}${type && arrow ? ' — ' : ''}${arrow}`;
-      }
+      if (hdr) hdr.textContent = '↖';
 
       // Column-aware section: hide entirely on cells that aren't Src or Dst.
       // The user explicitly asked for non-IP cells to show only row-level
