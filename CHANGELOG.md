@@ -30,6 +30,17 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Fixed
+- **Active findings filter is no longer lost when you mutate state from
+  the analyst UI.** Adding an IP to the Allowlist (right-click or save
+  dialog), suppressing or unsuppressing a finding, and the post-analyze
+  refresh all called `loadFindings()` with no params, which dropped the
+  current filter (search, src/dst, port, sensor, time window) and
+  refetched the unfiltered dataset. The form fields stayed visible but
+  the underlying data ignored them until the operator hit Apply or
+  refreshed the page. All six call sites now pass `_currentFilterParams()`
+  so the filter survives the round-trip.
+
 ### Added
 - **Comments and stable order in the allowlist / IOC list dialogs.**
   Lines starting with `#` are first-class comments that round-trip
