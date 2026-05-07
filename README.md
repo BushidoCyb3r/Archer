@@ -16,6 +16,7 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 - [Requirements](#requirements)
 - [Installing Prerequisites](#installing-prerequisites)
 - [Quick Start](#quick-start)
+- [Air-Gapped Installation](#air-gapped-installation)
 - [Log File Layout](#log-file-layout)
 - [Configuration](#configuration)
 - [Threat Intelligence](#threat-intelligence)
@@ -565,6 +566,69 @@ Navigate to `http://localhost:8080`. The first user to register automatically re
 1. Click **Import** in the sidebar to scan the `logs/` directory
 2. Click **Analyze** to run the full detection pipeline
 3. Findings appear in real time as the pipeline progresses
+
+---
+
+## Air-Gapped Installation
+
+Archer's runtime has no hard internet dependencies — once installed, the analyzer reads logs from disk, the analyst UI is local, sensors push over LAN, and findings are stored in SQLite on the host. The only outbound traffic at runtime is **threat-intel feed prefetching** (FeodoTracker, URLhaus) and **manual escalation lookups** (OTX / AbuseIPDB / VirusTotal / CrowdSec / GreyNoise / Censys); both fail gracefully when offline, and every other detector — Beaconing, Cobalt Strike URI, JA3, Lateral Movement, Suspicious URL via local IOC list, etc. — works fine without network.
+
+**The catch is the build.** A fresh `git clone` + `docker compose build` reaches out to three places: Docker Hub for the `golang:1.25-alpine` and `alpine:3.20` base images, the Alpine package mirror for `apk add` (rsync, openssh-server, tini, ca-certificates, tzdata, rrsync), and the Go module proxy for ~11 module dependencies in `go.sum`. None of those resolve in an air-gapped environment without preparation.
+
+The cleanest pattern is to **build on a connected box, ship the resulting Docker image as a tarball, load it on the air-gapped target.** The image is the artifact; you stop trying to rebuild on the isolated side.
+
+### Build + ship workflow
+
+On a connected box with Docker installed:
+
+```bash
+git clone <archer-repo-url>
+cd Archer
+docker compose build               # populates archer:latest in local Docker
+docker save archer:latest -o archer-image.tar   # ~80 MB
+```
+
+Copy `archer-image.tar` plus the `Archer/` source tree (for `docker-compose.yml`, `start.sh`, `reset.sh`, the Quiver scripts, etc.) to the air-gapped host via whatever sneakernet you use — USB, scp from a connected jump host, signed transfer, etc.
+
+On the air-gapped host (Docker installed, no internet):
+
+```bash
+docker load -i archer-image.tar    # loads archer:latest from the tarball
+cd Archer
+./start.sh up                      # uses the loaded image, no build, no pulls
+```
+
+`start.sh` handles the resource sizing as described in [Quick Start](#quick-start) and brings up the stack against the loaded image. No outbound HTTP fires. The container starts, sshd binds 2222, the analyst UI binds 8080, and you're operational.
+
+### What still works offline
+
+| Capability | Works air-gapped? | Notes |
+|---|---|---|
+| Log ingest from `/logs` | ✓ | Sensors push over LAN, or admin drops files manually |
+| All statistical detectors (Beaconing, HTTP, DNS, SSL, etc.) | ✓ | Closed-form math, no external calls |
+| IOC list matching | ✓ | Admin maintains the list locally via Settings → IOC List |
+| Allowlist + suppressions | ✓ | Local |
+| Findings, notes, escalations, exports | ✓ | All local SQLite + browser |
+| Quiver sensor enrollment | ✓ | TLS handshake is internal LAN traffic, pinned-pubkey |
+| Quiver sensor install on RHEL/Debian/etc. | ⚠ | Sensor's `install.sh` uses the local distro package manager (`apt`/`dnf`/etc.) to install rsync/openssh-client/cron — those need to resolve from the sensor's own internal package mirror or be pre-installed |
+| FeodoTracker + URLhaus feed prefetch | ✗ | Outbound HTTPS to `feodotracker.abuse.ch` and `urlhaus.abuse.ch`. Fails silently per analysis run; no findings from these feeds. |
+| Escalation lookups (OTX/AbuseIPDB/VT/etc.) | ✗ | Outbound HTTPS per service. Manual escalation surfaces "request failed" results in the consolidated TI Enrichment note instead of hits. |
+
+### Bringing TI feeds into an air-gapped install
+
+If you want TI matching to work air-gapped, the practical path is to **mirror the two free feeds locally** (FeodoTracker IP blocklist and URLhaus active-URL CSV are plain text + CSV downloads), serve them from an internal HTTP endpoint, and either patch `internal/analysis/ti.go`'s `fetchFeodo` / `fetchURLhaus` URLs to point at the mirror — OR populate the local IOC list from the same files via a periodic internal job and rely on IOC-list matching (which works air-gapped) as the substitute for live feed lookups.
+
+The escalation services (OTX, AbuseIPDB, VirusTotal, CrowdSec, GreyNoise, Censys) all require their own API endpoints; there's no "mirror" pattern for these short of running an internal API gateway with cached responses. For most air-gapped deployments these stay disabled.
+
+### When you actually need to rebuild on the air-gapped side
+
+If your operational model requires building from source on the isolated host (e.g. you're patching analyzer code in the field), the path is heavier:
+
+1. Pre-pull both base images on a connected box, save as tarballs, sneakernet over: `docker pull golang:1.25-alpine && docker pull alpine:3.20 && docker save golang:1.25-alpine alpine:3.20 -o base-images.tar`
+2. Vendor Go modules into the repo before transit: `cd Archer && go mod vendor` — this drops all module sources into `./vendor/` so the build doesn't need the Go module proxy. You'll also need to add `-mod=vendor` to the `go build` line in the Dockerfile.
+3. Solve the `apk add` problem — Alpine doesn't ship a self-contained "all-packages" snapshot. The realistic options are: (a) host an internal Alpine package mirror, (b) bake the needed packages into a custom base image built on the connected side and shipped as a tarball alongside the source, or (c) skip the Alpine package step and embed the binaries directly into a `FROM scratch` image.
+
+Most teams find option 1 (build connected, ship the tarball) is dramatically less work than option 2-3 (rebuild on the air-gapped side). Use the rebuild path only when you have a specific reason to need source-on-target.
 
 ---
 
