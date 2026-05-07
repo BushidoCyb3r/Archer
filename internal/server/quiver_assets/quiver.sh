@@ -16,9 +16,11 @@
 #   4. Locate the local Zeek log tree (LOCAL_LOGS_DIR or autodetect
 #      across /opt/zeek/logs, /usr/local/zeek/logs, /nsm/zeek/logs,
 #      and a few legacy Bro paths).
-#   5. Filter to log types Archer's analyzers actually consume; first
-#      run after install ships everything (FIRST_SYNC=1), recurring
-#      runs ship only the last 24h (-mtime -1).
+#   5. Filter to log types Archer's analyzers actually consume. First
+#      run after install (FIRST_SYNC=1) honors the admin's install-time
+#      backfill window from INITIAL_BACKFILL_DAYS in /etc/quiver/config
+#      — empty means ship every .gz, an integer N means -mtime -N.
+#      Recurring cron runs always use -mtime -1 regardless.
 #   6. rsync over ssh to quiver@archer:.  rrsync chroots us into
 #      /logs/<sensor-name>/ on the server side, so the trailing colon
 #      means "the root of the chroot." -avR preserves the date-tree
@@ -31,6 +33,8 @@
 # Operator overrides (edit /etc/quiver/config):
 #   LOCAL_LOGS_DIR=/path/to/zeek/logs   # bypass the autodetect list
 #   ARCHER_SSH_PORT=2222                # if you remap on the server
+#   INITIAL_BACKFILL_DAYS=30            # only honored on FIRST_SYNC=1
+#                                       # invocations; ignored by cron
 #
 # Logs land in syslog (cron's stdout/stderr capture varies by distro).
 # To debug a tick interactively: sudo -u quiver /usr/local/bin/quiver.sh
@@ -109,11 +113,17 @@ cd "$LOCAL_LOGS_DIR"
 # out so we don't waste bandwidth on logs Archer can't use.
 LOG_TYPES_REGEX='(conn|dns|http|ssl|x509|known_certs|capture_loss|notice|stats|weird|files)'
 
-# FIRST_SYNC=1 (set by install.sh's first invocation) ships the entire
-# log tree. Recurring runs drop everything older than 24 hours so we
-# stop re-shipping yesterday's files every tick.
+# FIRST_SYNC=1 (set by install.sh's first invocation) honors the
+# install-time backfill window — INITIAL_BACKFILL_DAYS=N in the sourced
+# config means "ship at most the last N days," empty means "ship the
+# entire local log tree." Recurring cron runs always use the 24h
+# default regardless of the install-time setting.
 if [ "${FIRST_SYNC:-0}" = "1" ]; then
-    MTIME_FILTER=""
+    if [ -n "${INITIAL_BACKFILL_DAYS:-}" ]; then
+        MTIME_FILTER="-mtime -${INITIAL_BACKFILL_DAYS}"
+    else
+        MTIME_FILTER=""
+    fi
 else
     MTIME_FILTER="-mtime -1"
 fi

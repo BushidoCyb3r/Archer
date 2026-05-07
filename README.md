@@ -710,7 +710,9 @@ The script auto-installs missing dependencies (rsync, openssh-client, cronie/cro
 
 **Supported distros.** Debian, Ubuntu, Kali, RHEL/Oracle/Rocky/Alma 7+, Fedora, openSUSE/SLES, and Alpine. SELinux contexts are restored on RHEL-family hosts so cron can exec the daily script under enforcing mode.
 
-**Cadence.** Sensors push every hour at a server-assigned random minute-of-hour. Each push ships only the last 24 hours of completed `.gz` files (rsync mtime-skips already-shipped files). The first install-time push backfills everything.
+**Cadence.** Sensors push every hour at a server-assigned random minute-of-hour. Each push ships only the last 24 hours of completed `.gz` files (rsync mtime-skips already-shipped files).
+
+**Initial backfill window.** During `install.sh`, the operator is prompted for how many days of historical Zeek logs the sensor should ship on its first push — Enter for all available history (legacy default), or a positive integer N to ship only the last N days. The choice is persisted to `/etc/quiver/config` as `INITIAL_BACKFILL_DAYS=` and is honored only by the FIRST_SYNC=1 invocation; recurring cron pushes always use the 24h window. For non-interactive deployments, set `INITIAL_BACKFILL_DAYS=N` in the environment before piping the install script and the prompt is skipped. Useful when a sensor has months of local Zeek history but the operator only wants the recent slice ingested into Archer.
 
 **Sensors modal.** Three tables visible to all authenticated users; admin-only writes:
 

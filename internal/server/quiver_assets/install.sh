@@ -18,8 +18,13 @@
 #   8. Drops /etc/sudoers.d/quiver — narrowly authorizes the quiver
 #      user to invoke ONLY the uninstall script via sudo.
 #   9. Restores SELinux contexts on the dropped files (no-op off RHEL).
-#  10. Runs the first push immediately (FIRST_SYNC=1 ships the entire
-#      Zeek log tree; recurring runs only ship the last 24h).
+#  10. Prompts the admin for the initial backfill window — how many days
+#      of historical Zeek logs to ship on the first push. Defaults to all
+#      available history; can be set non-interactively by exporting
+#      INITIAL_BACKFILL_DAYS=N before running this script.
+#  11. Runs the first push immediately, honoring that window. FIRST_SYNC=1
+#      tells quiver.sh to use the install-time backfill cap; recurring
+#      cron runs always use the 24-hour default.
 #
 # Filesystem footprint left behind:
 #   /etc/quiver/                  config, ssh key, known_hosts
@@ -239,6 +244,38 @@ echo "$UNINSTALL_SH_B64" | base64 -d > /usr/local/bin/quiver-uninstall.sh
 chmod 755 /usr/local/bin/quiver-uninstall.sh
 chown root:root /usr/local/bin/quiver-uninstall.sh
 
+# ── Initial backfill window ─────────────────────────────────────────────────
+# Admin-controlled cap on how far back the FIRST sync ships. Empty means
+# "ship every .gz we can find" (Zeek's full local retention). Honored only
+# by the FIRST_SYNC=1 invocation below; recurring cron runs always use the
+# 24h mtime window regardless of what's set here.
+#
+# Resolution order:
+#   1. INITIAL_BACKFILL_DAYS env var (set non-interactively, e.g. by config
+#      management) wins — no prompt fires.
+#   2. Otherwise, prompt on /dev/tty with default = empty (= all history).
+#   3. If no /dev/tty (truly headless), fall back to all history.
+if [ -z "${INITIAL_BACKFILL_DAYS+x}" ]; then
+    if [ -e /dev/tty ]; then
+        printf '\nquiver: initial log backfill — how many days of historical Zeek logs should this\n' >&2
+        printf '       sensor ship to Archer right now?\n' >&2
+        printf '       (press Enter to ship all available history, or enter a number e.g. 7): ' >&2
+        IFS= read -r INITIAL_BACKFILL_DAYS </dev/tty 2>/dev/null || INITIAL_BACKFILL_DAYS=""
+    else
+        INITIAL_BACKFILL_DAYS=""
+    fi
+fi
+# Trim whitespace, then validate: empty (= all) or a positive integer.
+INITIAL_BACKFILL_DAYS=$(printf '%s' "${INITIAL_BACKFILL_DAYS:-}" | tr -d '[:space:]')
+if [ -n "$INITIAL_BACKFILL_DAYS" ]; then
+    case "$INITIAL_BACKFILL_DAYS" in
+        ''|*[!0-9]*|0)
+            echo "quiver: '$INITIAL_BACKFILL_DAYS' isn't a positive integer — falling back to all available history" >&2
+            INITIAL_BACKFILL_DAYS=""
+            ;;
+    esac
+fi
+
 # ── Config and known_hosts ──────────────────────────────────────────────────
 
 cat > /etc/quiver/config <<CONF
@@ -252,6 +289,7 @@ SCHEDULE_MINUTE=${M}
 SSH_KEY_PATH=${KEY}
 KNOWN_HOSTS_PATH=/etc/quiver/known_hosts
 LOCAL_LOGS_DIR=
+INITIAL_BACKFILL_DAYS=${INITIAL_BACKFILL_DAYS}
 CONF
 chmod 644 /etc/quiver/config
 chown root:root /etc/quiver/config
@@ -294,10 +332,16 @@ if command -v restorecon >/dev/null 2>&1; then
                   /etc/quiver/config 2>/dev/null || true
 fi
 
-# ── First sync (full backfill) ──────────────────────────────────────────────
-# FIRST_SYNC=1 makes quiver.sh skip its mtime filter and ship the entire
-# Zeek log tree. Recurring runs use the default 24-hour window.
-echo "quiver: running first sync (full log backfill)..."
+# ── First sync (initial backfill) ───────────────────────────────────────────
+# FIRST_SYNC=1 makes quiver.sh apply the install-time backfill window
+# (INITIAL_BACKFILL_DAYS in /etc/quiver/config) instead of the 24-hour
+# default that recurring cron runs use. Empty backfill window = ship the
+# entire local Zeek log tree.
+if [ -n "$INITIAL_BACKFILL_DAYS" ]; then
+    echo "quiver: running first sync (backfill: last ${INITIAL_BACKFILL_DAYS} day(s))..."
+else
+    echo "quiver: running first sync (backfill: all available history)..."
+fi
 FIRST_SYNC=1 sudo -E -u quiver /usr/local/bin/quiver.sh || echo "quiver: first sync had issues — see /var/log for details" >&2
 
 echo ""
