@@ -83,13 +83,28 @@ func (s *Server) handleQuiverEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Token  string `json:"token"`
-		Name   string `json:"name"`
-		Host   string `json:"host"`
-		Pubkey string `json:"pubkey"`
+		Token           string `json:"token"`
+		Name            string `json:"name"`
+		Host            string `json:"host"`
+		Pubkey          string `json:"pubkey"`
+		ProtocolVersion *int   `json:"protocol_version,omitempty"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
 		jsonError(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	// Validate the sensor's protocol version before any state-changing work
+	// (token consume, authorized_keys write, sensor-row insert). A pre-Phase-2
+	// sensor that omits the field is treated as v1 for one compatibility
+	// cycle so existing fleets keep enrolling during the upgrade window.
+	sentProto := 1
+	if req.ProtocolVersion != nil {
+		sentProto = *req.ProtocolVersion
+	}
+	if _, ok := resolveQuiverProtocol(req.ProtocolVersion); !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(quiverProtocolErrorJSON(sentProto))
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
@@ -179,9 +194,10 @@ func (s *Server) handleQuiverEnroll(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"name":            sensor.Name,
-		"schedule_hour":   sensor.ScheduleHour,
-		"schedule_minute": sensor.ScheduleMinute,
+		"name":             sensor.Name,
+		"schedule_hour":    sensor.ScheduleHour,
+		"schedule_minute":  sensor.ScheduleMinute,
+		"protocol_version": QuiverProtocolVersion,
 	})
 }
 
@@ -199,10 +215,24 @@ func (s *Server) handleQuiverCheckin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Name string `json:"name"`
+		Name            string `json:"name"`
+		ProtocolVersion *int   `json:"protocol_version,omitempty"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil {
 		jsonError(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	// Validate protocol before doing any store work. Checkin returns 200
+	// with status="protocol_unsupported" rather than 400 — the sensor's
+	// curl uses -fsSL and would otherwise lose the body to "network_error",
+	// hiding the real cause. Status-discriminator stays consistent with
+	// the existing enrolled/disenrolled/unknown shape.
+	sentProto := 1
+	if req.ProtocolVersion != nil {
+		sentProto = *req.ProtocolVersion
+	}
+	if _, ok := resolveQuiverProtocol(req.ProtocolVersion); !ok {
+		quiverProtocolUnsupportedCheckin(w, sentProto)
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
@@ -220,11 +250,15 @@ func (s *Server) handleQuiverCheckin(w http.ResponseWriter, r *http.Request) {
 				"hour":   sn.ScheduleHour,
 				"minute": sn.ScheduleMinute,
 			},
+			"protocol_version": QuiverProtocolVersion,
 		})
 		return
 	}
 	if s.store.HasMostRecentDisenrolled(req.Name) {
-		json.NewEncoder(w).Encode(map[string]any{"status": "disenrolled"})
+		json.NewEncoder(w).Encode(map[string]any{
+			"status":           "disenrolled",
+			"protocol_version": QuiverProtocolVersion,
+		})
 		return
 	}
 	attempt := s.store.RecordUnauthorizedAttempt(req.Name, sourceIP(r), time.Now().Unix())
@@ -233,7 +267,10 @@ func (s *Server) handleQuiverCheckin(w http.ResponseWriter, r *http.Request) {
 	if data, err := json.Marshal(attempt); err == nil {
 		s.broker.Publish(SSEEvent{Type: "unauthorized_attempt", Data: string(data)})
 	}
-	json.NewEncoder(w).Encode(map[string]any{"status": "unknown"})
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":           "unknown",
+		"protocol_version": QuiverProtocolVersion,
+	})
 }
 
 // randomMinute picks a uniformly random minute-of-hour for an enrolled

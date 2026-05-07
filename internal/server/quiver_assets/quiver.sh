@@ -58,9 +58,16 @@ fi
 
 CHECKIN_URL="https://${ARCHER_HOST}:${ARCHER_HTTPS_PORT}/api/quiver/checkin"
 
+# PROTOCOL_VERSION is sourced from /etc/quiver/config. Older configs
+# written before protocol versioning landed don't define it; default to
+# 1 so an in-place quiver.sh upgrade against a stale config doesn't
+# silently break checkin. The server applies the same backwards-compat
+# rule (missing field == v1) on its end.
+: "${PROTOCOL_VERSION:=1}"
+
 resp=$(curl -fsSL -k --pinnedpubkey "sha256//${ARCHER_TLS_FP}" --max-time 30 \
     -H "Content-Type: application/json" \
-    -X POST -d "{\"name\":\"${SENSOR_NAME}\"}" \
+    -X POST -d "{\"name\":\"${SENSOR_NAME}\",\"protocol_version\":${PROTOCOL_VERSION}}" \
     "${CHECKIN_URL}" 2>/dev/null || echo '{"status":"network_error"}')
 
 status=$(echo "$resp" | sed -n 's/.*"status":"\([^"]*\)".*/\1/p')
@@ -82,6 +89,17 @@ case "$status" in
     disenrolled)
         echo "quiver: server says we're disenrolled, self-cleaning" >&2
         sudo /usr/local/bin/quiver-uninstall.sh
+        exit 0
+        ;;
+    protocol_unsupported)
+        # Server rejected our PROTOCOL_VERSION. The sensor isn't broken,
+        # but it can't push until quiver.sh is updated to a version the
+        # server speaks. Surface what the server supports so the operator
+        # can match versions; the row stays enrolled so re-running the
+        # install one-liner from a current Archer build will fix it.
+        srv_supported=$(echo "$resp" | sed -n 's/.*"supported_versions":\[\([0-9, ]*\)\].*/\1/p')
+        echo "quiver: server rejected protocol v${PROTOCOL_VERSION}; supported versions: ${srv_supported:-unknown}" >&2
+        echo "quiver: re-run the install one-liner from the Archer admin UI to update this sensor" >&2
         exit 0
         ;;
     unknown|network_error|"")

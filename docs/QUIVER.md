@@ -224,7 +224,72 @@ These are served on the TLS listener (`:8443`) and the rsync sshd (`:22` → hos
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/quiver/install.sh` | Renders the install bash for the requesting host. The TLS fingerprint, host, and ports get substituted into the embedded template; the daily and uninstall scripts are inlined as base64 so the install runs without a second network hop. |
-| `POST` | `/api/quiver/enroll` | Body `{token, name, host, pubkey}`. Validates the token (single-use, 24h TTL), writes the `authorized_keys` line, creates `/logs/<name>/`, persists the sensor row, returns `{name, schedule_hour:0, schedule_minute}`. |
-| `POST` | `/api/quiver/checkin` | Body `{name}`. Returns `{"status":"enrolled","schedule":{"hour":0,"minute":N}}` or `{"status":"disenrolled"}` or `{"status":"unknown"}` (and records an `unauthorized_attempts` row, plus pushes an SSE event). |
+| `POST` | `/api/quiver/enroll` | Body `{token, name, host, pubkey, protocol_version}`. Validates the token (single-use, 24h TTL) and protocol version, writes the `authorized_keys` line, creates `/logs/<name>/`, persists the sensor row, returns `{name, schedule_hour:0, schedule_minute, protocol_version}`. |
+| `POST` | `/api/quiver/checkin` | Body `{name, protocol_version}`. Returns `{"status":"enrolled","schedule":{"hour":0,"minute":N},"protocol_version":1}`, `{"status":"disenrolled","protocol_version":1}`, `{"status":"unknown","protocol_version":1}` (and records an `unauthorized_attempts` row, plus pushes an SSE event), or `{"status":"protocol_unsupported","sensor_version":N,"server_version":1,"supported_versions":[1]}` when the sensor's protocol version isn't in the server's supported set. |
 
 `schedule_hour` is always `0` under hourly mode (the cron line uses `*` for the hour); the field is kept on the response for backward compatibility with daily-mode sensors that haven't been re-enrolled yet.
+
+## Protocol versioning
+
+Quiver speaks a versioned wire protocol between the sensor and the Archer server. Every enrollment and checkin carries a `protocol_version` integer; the server validates it against an internal `supportedQuiverProtocols` set and rejects mismatches with a structured error. Without this handshake, an old sensor talking to a newer server would silently rsync to a stale path or fail enrollment with an opaque token error — the version field turns "weird unexplained breakage" into "your sensor is on v1, server requires v2+; please reinstall from `<archer>/quiver/install.sh`."
+
+### What the current version (`v1`) covers
+
+The protocol contract pinned at v1 is everything the sensor and server agree on out-of-band today. Anything in this list changing in a way old clients can't muddle through is what triggers a v2 bump.
+
+**Wire shapes**
+
+- **Enrollment payload**: `{token, name, host, pubkey, protocol_version}`. Token is single-use; pubkey is an OpenSSH-format ed25519 line.
+- **Enrollment response**: `{name, schedule_hour, schedule_minute, protocol_version}`.
+- **Checkin payload**: `{name, protocol_version}`.
+- **Checkin response**: status discriminator (`enrolled` / `disenrolled` / `unknown` / `protocol_unsupported`) plus version echo.
+
+**Identity and crypto**
+
+- **Sensor name regex**: `^[a-z0-9][a-z0-9_-]{0,51}$`. Enforced both client-side (`is_safe()` in `install.sh`) and server-side (`validSensorName` in `handlers_quiver.go`). Filesystem-safe so the name can serve directly as a `/logs/<name>/` directory; capped at 52 chars to leave headroom for path tooling.
+- **Pubkey algorithm**: ed25519, generated via `ssh-keygen -t ed25519`. Switching to RSA, ECDSA, ssh certificates, or any other auth model is a v2 concern.
+- **TLS pinning**: SHA-256 fingerprint of the server's certificate, baked into the install one-liner and `/etc/quiver/config` as `ARCHER_TLS_FP`. Curl's `--pinnedpubkey "sha256//<fp>"` enforces it on every request.
+
+**Transport**
+
+- **Ports**: HTTPS on 8443, SSH on 22 (mapped host-side to 2222 in the bundled `docker-compose.yml`).
+- **Rsync directory layout**: server-side rrsync chroot at `/logs/<sensor-name>/`, forced via `command="rrsync -wo /logs/<name>/"` in `authorized_keys` (the `-w` is write-only, `-o` is read-only metadata). Sensor pushes use `-avR` so the YYYY-MM-DD/file.log.gz tree is preserved relative to the chroot root.
+- **Source-files-never-deleted semantics**: rsync runs *without* `--remove-source-files`. Every `.gz` Archer ingests is a copy; the server never deletes from the sensor. Local rotation/retention is the sensor operator's responsibility. Reversing this is a v2 break — sensors built for v1 assume their files are safe.
+
+**Schedule and content**
+
+- **Schedule contract**: hourly cadence, server-assigned minute-of-hour. The daily-mode `schedule_hour` field is preserved on responses but the cron line uses `*` for the hour. Server can reassign the minute via the checkin response; sensor rewrites `/etc/cron.d/quiver` and `/etc/quiver/config` in place.
+- **First-sync semantics**: `FIRST_SYNC=1` (set by `install.sh`'s first invocation only) honors `INITIAL_BACKFILL_DAYS` from `/etc/quiver/config` — empty means "ship the entire local Zeek log tree," an integer N means `-mtime -N`. Recurring cron runs always use `-mtime -1` regardless of `INITIAL_BACKFILL_DAYS`.
+- **Accepted Zeek log types**: the regex `(conn|dns|http|ssl|x509|known_certs|capture_loss|notice|stats|weird|files)` in `quiver.sh` filters which `.gz` files are eligible to push. Adding a new analyzer family that needs a different log type (e.g. `tunnel`, `dpd`) requires sensor scripts to be updated — that's a v2 concern even though the wire shape doesn't change. Operators with stale sensor scripts would silently miss the new log type otherwise.
+
+### When to bump
+
+Bump `QuiverProtocolVersion` and add the new version to `supportedQuiverProtocols` whenever any of the above changes in a way the previous version's sensor can't muddle through. Concrete examples:
+
+- Renaming the rsync chroot from `/logs/<name>/` to `/logs/<sensor-id>/`.
+- Adding a required field to enrollment (a new field that absence-of breaks the server's flow).
+- Changing the schedule contract from hourly to operator-configurable cadence pushed from the server.
+- Switching the auth model (e.g. SSH cert auth in place of pinned pubkey).
+- Adding a server-pushed config endpoint that sensors are expected to poll.
+
+Cosmetic or backwards-compatible additions don't need a bump — adding an optional field to enrollment that an older sensor can omit is fine.
+
+### Compatibility window
+
+When you bump from v`N` to v`N+1`:
+
+1. Add `N+1` to `supportedQuiverProtocols` and set `QuiverProtocolVersion = N+1`.
+2. Keep `N` in the supported set for at least one minor release — that's the deprecation cycle. Document the planned removal in CHANGELOG under `### Deprecated`.
+3. Bump `PROTOCOL_VERSION` in `quiver_assets/install.sh` so freshly enrolled sensors use the new version.
+4. In the release after that minor, remove `N` from the supported set. Document under `### Breaking`.
+
+This means a sensor in the field has at least one minor-version cycle to be reinstalled before it loses connectivity.
+
+### Backwards compatibility for pre-versioning sensors
+
+Sensors enrolled before protocol versioning landed (Archer < v0.2.0) don't send a `protocol_version` field. The server treats a missing field as `1` for one minor cycle so existing fleets keep enrolling and checking in during the upgrade window. Once every fielded sensor has run the new install one-liner (or pushed at least one checkin from an updated `quiver.sh`), the server can flip missing-field handling to a hard error in a future minor.
+
+### Error surfaces
+
+- **Enrollment with unsupported version**: HTTP 400 with `{error, sensor_version, server_version, supported_versions}`. The install script logs the response body and exits before committing local state, so the operator sees the failure at install time.
+- **Checkin with unsupported version**: HTTP 200 with `{status: "protocol_unsupported", sensor_version, server_version, supported_versions}`. The checkin response shape is already a status discriminator; using HTTP 200 means `curl -fsSL` doesn't swallow the body. `quiver.sh` logs the supported-versions list and exits cleanly so cron tries again next tick (still failing) until the operator reinstalls from the current Archer build.

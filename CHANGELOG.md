@@ -31,7 +31,38 @@ relevant, `### Detection changes` in each release entry.
 ## [Unreleased]
 
 ### Added
-- *(future entries land here.)*
+- **Quiver protocol versioning.** Both enrollment (`/api/quiver/enroll`)
+  and checkin (`/api/quiver/checkin`) now exchange a `protocol_version`
+  integer. The server validates against an internal supported-versions
+  set and rejects mismatches with a structured error so operators see
+  "your sensor is on v1, server requires v2+" instead of an opaque
+  rsync failure later. See `docs/QUIVER.md` "Protocol versioning" for
+  the v1 contract surface, when to bump, and the deprecation cycle.
+- `internal/server/quiver_protocol.go` — `QuiverProtocolVersion`
+  constant, `supportedQuiverProtocols` set, validator helper.
+- `PROTOCOL_VERSION=1` constant in `quiver_assets/install.sh` and
+  `quiver_assets/quiver.sh`; persisted to `/etc/quiver/config`.
+- Enrollment failures from `install.sh` now log the server's response
+  body so a protocol mismatch surfaces the supported-versions list at
+  install time, before any local state is committed.
+- New `protocol_unsupported` checkin status; `quiver.sh` handles it by
+  logging the supported set and exiting cleanly (sensor row stays
+  enrolled — reinstall from the current Archer build to fix).
+- Test coverage for protocol validation:
+  `internal/server/quiver_protocol_test.go` exercises
+  `resolveQuiverProtocol` (nil default, supported, unsupported), the
+  canonical error body, and both handlers' rejection + backwards-compat
+  paths (9 cases). First step toward Phase 4 (detection-semantics tests).
+- QUIVER.md "Protocol versioning" section now pins the implicit pieces of
+  the v1 contract (sensor name regex, pubkey algorithm, accepted Zeek
+  log-type regex, `--remove-source-files`-never-set rsync semantics) so a
+  future v2 bump has a clear baseline.
+
+### Changed
+- Sensors enrolled before this release that omit `protocol_version` are
+  accepted as v1 for one compatibility cycle. The flip to a hard error
+  on a missing field will be announced under `### Deprecated` before
+  the cycle closes.
 
 ---
 
