@@ -31,7 +31,27 @@ relevant, `### Detection changes` in each release entry.
 ## [Unreleased]
 
 ### Added
-- *(future entries land here.)*
+- **Comments and stable order in the allowlist / IOC list dialogs.**
+  Lines starting with `#` are first-class comments that round-trip
+  through save/reload — operators can use them as section headers
+  (`# Cloud build agents`, `# Cobalt Strike beacons seen 2026-04`).
+  Inline tails like `1.2.3.4 # office` are stripped down to the
+  matchable entry at storage time. Whole-line comments are skipped
+  by the matcher, never causing false positives or negatives. Both
+  list dialogs now show a small hint above the textarea explaining
+  the conventions.
+- Test coverage for list comment-handling and order preservation in
+  `internal/store/list_test.go`.
+
+### Changed
+- Allowlist and IOC list now preserve operator line order across the
+  save/reload cycle. Previously the in-memory storage was a Go map,
+  which randomized iteration on every read — operator groupings (and
+  any visual structure) shuffled on each list dialog open. The store
+  now keeps an ordered slice, persists in slice order via SQLite
+  rowid, and reads back with `ORDER BY rowid`. Existing installs are
+  cleaned automatically on first start (junk comment-strings stored
+  by older Archer get sanitized at load time).
 
 ---
 
