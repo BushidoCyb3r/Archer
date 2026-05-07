@@ -961,6 +961,25 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
+#statusbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+#version-pill {
+  color: var(--fg-dim);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-subtle, var(--border));
+  border-radius: 10px;
+  cursor: pointer;
+  transition: color .12s, border-color .12s;
+}
+#version-pill:hover {
+  color: var(--fg-secondary);
+  border-color: var(--border);
+}
 
 /* ============================================================================
    Export dropdown menus

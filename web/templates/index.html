@@ -294,7 +294,13 @@
 <!-- ── Status bar ─────────────────────────────────────────────── -->
 <div id="statusbar">
   <span id="status-msg">Ready</span>
-  <span id="findings-count"></span>
+  <div id="statusbar-right">
+    <span id="findings-count"></span>
+    <!-- Version pill is populated by _loadVersion() from /api/version. Click
+         opens the About dialog. Defaults to baked-in version when the fetch
+         hasn't completed yet so the pill never reads as blank. -->
+    <span id="version-pill" title="Click for build info">v0.1.0</span>
+  </div>
 </div>
 
 <!-- ── Context menu ───────────────────────────────────────────── -->
@@ -664,6 +670,32 @@
   <div class="dlg-footer">
     <button class="dlg-btn secondary" id="ioc-cancel">Cancel</button>
     <button class="dlg-btn primary" id="ioc-save">Save</button>
+  </div>
+</dialog>
+
+<!-- About dialog — opened from the statusbar version pill. Shows release
+     identifier, git commit, and build time. All three values are populated
+     by /api/version on init; values are static post-build so this is a
+     read-only diagnostic. -->
+<dialog id="about-dialog">
+  <div class="dlg-header">About Archer</div>
+  <div class="dlg-body">
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-family:ui-monospace,monospace;font-size:12px;line-height:1.6">
+      <div style="color:var(--fg-dim)">Version</div>
+      <div id="about-version" style="color:var(--fg-primary)">—</div>
+      <div style="color:var(--fg-dim)">Commit</div>
+      <div id="about-commit" style="color:var(--fg-secondary)">—</div>
+      <div style="color:var(--fg-dim)">Built</div>
+      <div id="about-build-time" style="color:var(--fg-secondary)">—</div>
+    </div>
+    <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border-subtle);color:var(--fg-dim);font-size:12px;line-height:1.5">
+      Archer is pre-1.0 — API, schema, Quiver protocol, and detection
+      semantics may change between minor versions. See CHANGELOG.md for the
+      list of changes per release.
+    </div>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn primary" id="about-close">Close</button>
   </div>
 </dialog>
 

@@ -113,6 +113,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/register", s.handleRegister)
 	s.mux.HandleFunc("/logout", s.handleLogout)
 
+	// Version — unauthenticated diagnostic. Same surface tier as a future
+	// /api/health: anyone reaching the listener can ask "what build is this?".
+	s.mux.HandleFunc("/api/version", s.handleVersion)
+
 	// Role-aware middleware helpers
 	//   any(h)      — authenticated, any role
 	//   write(h)    — authenticated, analyst or admin

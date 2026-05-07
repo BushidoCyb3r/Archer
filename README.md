@@ -4,6 +4,8 @@
 
 # Archer — Network Threat Detection & Analyst Workbench
 
+**Version:** v0.1.0 — pre-1.0, see [CHANGELOG.md](CHANGELOG.md) and the [Versioning](#versioning) section below for the stability contract.
+
 Archer is a self-hosted, open-source network threat detection platform that processes Zeek log files to identify adversarial behaviors including C2 beaconing, data exfiltration, lateral movement, DNS tunneling, malicious TLS fingerprints, and more. It provides a browser-based analyst workbench for reviewing, annotating, and escalating findings — including live threat intelligence enrichment via VirusTotal, CrowdSec, AlienVault OTX, AbuseIPDB, GreyNoise, and Censys.
 
 ---
@@ -24,6 +26,7 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 - [User Roles](#user-roles)
 - [Web Interface](#web-interface)
 - [API Reference](#api-reference)
+- [Versioning](#versioning)
 - [Resetting to Factory State](#resetting-to-factory-state)
 - [Running Without Docker](#running-without-docker)
 - [License](#license)
@@ -931,7 +934,13 @@ When an analysis run finishes, a centered dialog reports the total finding count
 
 ## API Reference
 
-All API endpoints require authentication. Role requirements are noted where applicable.
+All API endpoints require authentication. Role requirements are noted where applicable. The single exception is `/api/version`, which is unauthenticated diagnostic.
+
+### Build Identifier
+
+| Method | Path | Role | Description |
+|---|---|---|---|
+| `GET` | `/api/version` | None | `{"version":"v0.1.0","commit":"<short-sha>","build_time":"<iso-8601>"}`. Unauthenticated — same diagnostic tier as a future `/api/health`. The values come from `internal/version` and are populated at build time via `-ldflags` from the git checkout (see `start.sh`). The web UI reads this on init to populate the statusbar version pill and the About dialog. |
 
 ### Authentication
 
@@ -1094,6 +1103,30 @@ See [docs/QUIVER.md](docs/QUIVER.md) for the full Quiver protocol description.
 | Method | Path | Role | Description |
 |---|---|---|---|
 | `GET` | `/events` | Any | SSE stream. Event types: `progress` `{"pct":N,"step":"..."}`, `status` `{"msg":"..."}`, `done` `{"count":N,"new_count":N,"cancelled":bool}`, `notification` (finding alert), `ti_result` `{"finding_id":N,"source":"...","detail":"...","hit":bool}`, `ti_done` `{"finding_id":N,"hits":N}`, `unauthorized_attempt` (full unauthorized-attempt row when an unknown sensor name checks in), `sensor_enrolled` (full sensor row when a fresh enrollment completes — drives the in-flight enrollment dialog's confirmation tick and the parent Sensors table refresh) |
+
+---
+
+## Versioning
+
+Archer uses [Semantic Versioning](https://semver.org/) under the **0.x prefix**: `v0.MAJOR.MINOR`. Pre-1.0 minor versions may break any of four surfaces without a major bump:
+
+1. **HTTP/SSE API contract** — renamed/removed `/api/*` fields, changed event shapes.
+2. **DB schema** — table changes that require migration on upgrade.
+3. **Quiver sensor protocol** — enrollment payload shape, rsync layout, ports, schedule contract.
+4. **Detection semantics** — score formulas, thresholds, finding types, feed-matching logic.
+
+These four surfaces become the stability contract once Archer reaches 1.0. Until then, releases call out breakage explicitly in `CHANGELOG.md` under `### Breaking` and (for detection-formula changes that may shift existing scores) `### Detection changes`.
+
+**The current release** is identified by:
+
+- `GET /api/version` — programmatic.
+- The version pill at the bottom-right of the analyst UI status bar — clickable for build details (commit, build time).
+- `docker inspect archer` — OCI image labels (`org.opencontainers.image.version`, `org.opencontainers.image.revision`).
+- `git describe --tags` in the source checkout.
+
+**To cut a release**, see [RELEASING.md](RELEASING.md) for the operator runbook.
+
+**Release history** lives in [CHANGELOG.md](CHANGELOG.md), formatted per [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 

@@ -15,6 +15,7 @@ import (
 	"github.com/BushidoCyb3r/Archer/internal/analysis"
 	"github.com/BushidoCyb3r/Archer/internal/model"
 	"github.com/BushidoCyb3r/Archer/internal/store"
+	"github.com/BushidoCyb3r/Archer/internal/version"
 )
 
 // sensorFromPath returns the first path component under logsDir, which is
@@ -1152,7 +1153,7 @@ func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="archer_results_%s.json"`, time.Now().Format("20060102_150405")))
 
 	out := map[string]any{
-		"archer_version": "3.0.0-go",
+		"archer_version": version.Version,
 		"saved_at":       time.Now().UTC().Format("2006-01-02 15:04:05 UTC"),
 		"findings":       findings,
 	}
@@ -1167,6 +1168,21 @@ func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	enc.Encode(out)
+}
+
+// handleVersion exposes the build identifier (release tag, git commit, build
+// time) so the UI's About dialog and any external operator tooling can read
+// it without going through the export flow. Unauthenticated by design — it's
+// diagnostic, not sensitive, and is the same kind of endpoint as a future
+// /api/health.
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	json.NewEncoder(w).Encode(map[string]string{
+		"version":    version.Version,
+		"commit":     version.Commit,
+		"build_time": version.BuildTime,
+	})
 }
 
 func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {

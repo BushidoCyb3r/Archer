@@ -1,6 +1,15 @@
 services:
   archer:
-    build: .
+    build:
+      context: .
+      args:
+        # Version metadata baked into the binary at build time. start.sh
+        # populates these from the git checkout; air-gap installs that build
+        # from a tarball with no git history fall back to the defaults in
+        # internal/version/version.go (currently v0.1.0).
+        ARCHER_VERSION: ${ARCHER_VERSION:-v0.1.0}
+        ARCHER_COMMIT: ${ARCHER_COMMIT:-unknown}
+        ARCHER_BUILD_TIME: ${ARCHER_BUILD_TIME:-unknown}
     image: archer:latest
     container_name: archer
     restart: unless-stopped

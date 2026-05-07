@@ -17,6 +17,13 @@
   let _currentUser     = null;
   let _orgCIDRs        = []; // admin-supplied CIDRs that augment the built-in private ranges for the Hosts tab
 
+  // Cached Archer version metadata fetched from /api/version. Populated by
+  // _loadVersion() during init so JSON exports and the statusbar/About dialog
+  // all read from a single source of truth instead of literal strings.
+  // Defaults match internal/version/version.go for the case where the fetch
+  // hasn't completed yet (rare — exports are always user-initiated).
+  let _archerVersion   = { version: 'v0.1.0', commit: 'unknown', build_time: 'unknown' };
+
   // Host Risk Score is the per-host roll-up the analyzer emits at the end
   // of every run (composite of the per-host detection types). The Findings
   // tab is for discrete network events; this score belongs in the Hosts
@@ -360,7 +367,7 @@
 
   function _downloadCampaignsJSON(campaigns) {
     const out = JSON.stringify({
-      archer_version: '3.0.0-go',
+      archer_version: _archerVersion.version,
       saved_at: new Date().toISOString(),
       campaigns: campaigns.map(_campaignToRow),
     }, null, 2);
@@ -488,7 +495,7 @@
         port: port,
         max_score: maxScore,
         finding_types: types,
-        archer_version: '3.0.0-go',
+        archer_version: _archerVersion.version,
         saved_at: new Date().toISOString(),
       },
       nodes,
@@ -647,7 +654,7 @@
 
   function _downloadHostsJSON(hosts) {
     const out = JSON.stringify({
-      archer_version: '3.0.0-go',
+      archer_version: _archerVersion.version,
       saved_at: new Date().toISOString(),
       hosts: hosts.map(_hostToRow),
     }, null, 2);
@@ -2804,6 +2811,8 @@
     _loadIOCList();
     _loadAllowSet();
     _loadOrgCIDRs(); // populate the Hosts-tab filter list before findings render
+    _loadVersion();  // fill statusbar version pill + About dialog from /api/version
+    _initAboutDialog();
 
     // Disk-usage telemetry — poll every 5 minutes so the warning banner can
     // surface without the user having to open Settings. The endpoint itself
@@ -2821,6 +2830,37 @@
       const cfg = await api('/api/config');
       _orgCIDRs = Array.isArray(cfg.org_internal_cidrs) ? cfg.org_internal_cidrs : [];
     } catch (_) { /* keep current list on failure */ }
+  }
+
+  // Pulls /api/version once on init and writes the result to the statusbar
+  // pill plus the About dialog's hidden fields. The endpoint is
+  // unauthenticated so this works even on the login screen, but we only
+  // ever call it from init() after the user is in.
+  async function _loadVersion() {
+    try {
+      const r = await fetch('/api/version', { cache: 'no-store' });
+      if (!r.ok) return;
+      const v = await r.json();
+      _archerVersion = {
+        version:    v.version    || _archerVersion.version,
+        commit:     v.commit     || 'unknown',
+        build_time: v.build_time || 'unknown',
+      };
+      const pill = document.getElementById('version-pill');
+      if (pill) pill.textContent = _archerVersion.version;
+      const av = document.getElementById('about-version');    if (av) av.textContent = _archerVersion.version;
+      const ac = document.getElementById('about-commit');     if (ac) ac.textContent = _archerVersion.commit;
+      const ab = document.getElementById('about-build-time'); if (ab) ab.textContent = _archerVersion.build_time;
+    } catch (_) { /* keep defaults on failure */ }
+  }
+
+  function _initAboutDialog() {
+    const pill   = document.getElementById('version-pill');
+    const dlg    = document.getElementById('about-dialog');
+    const close  = document.getElementById('about-close');
+    if (!pill || !dlg) return;
+    pill.addEventListener('click', () => { try { dlg.showModal(); } catch (_) { dlg.setAttribute('open',''); } });
+    if (close) close.addEventListener('click', () => dlg.close());
   }
 
   init();
