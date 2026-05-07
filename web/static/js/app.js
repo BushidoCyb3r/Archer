@@ -2042,55 +2042,56 @@
     }
   }
 
-  // _renderWatchSchedulePreview shows the resulting schedule in plain
-  // English (cadence + anchor + timezone + next-run) so the user doesn't
-  // have to mentally combine three fields. Always reflects what the
-  // server reported, never what the form currently holds.
-  //
-  // For sub-daily cadences a second line surfaces the two-tier behavior:
-  // the next tick is tagged "full pipeline" or "incremental TI", and when
-  // it's incremental we show when the next full pipeline pass will fire
-  // so the analyst knows when statistical detectors will refresh next.
+  // _renderWatchSchedulePreview lays out the watch schedule in three tight
+  // lines: cadence/anchor/TZ on top, next tick + (sub-daily only) tier
+  // below, and a third line naming the next full-pipeline tick when
+  // the next tick is incremental. Time strings are relative ("today
+  // 06:00", "tomorrow 00:00") to keep the panel scannable; the timezone
+  // abbrev is shown once on the cadence head, not repeated per line.
   function _renderWatchSchedulePreview(cfg) {
     const el = document.getElementById('watch-schedule-preview');
     if (!el) return;
     el.innerHTML = '';
     if (!cfg || !cfg.enabled) { el.textContent = ''; return; }
     const interval = (cfg.interval_hours === 24) ? 0 : (cfg.interval_hours || 0);
-    const tzLabel  = cfg.timezone || 'UTC';
+    const tz       = cfg.timezone_abbr || 'UTC';
     const time     = cfg.time || '';
     const mm       = time.split(':')[1] || '00';
+
     let head;
-    if (interval === 1)       head = `Hourly at :${mm}`;
-    else if (interval === 0)  head = `Daily at ${time}`;
-    else                      head = `Every ${interval}h starting ${time}`;
-    const next = cfg.next_run ? ` — next ${cfg.next_run}` : '';
+    if (interval === 1)       head = `Hourly at :${mm} ${tz}`;
+    else if (interval === 0)  head = `Daily at ${time} ${tz}`;
+    else                      head = `Every ${interval}h, anchor ${time} ${tz}`;
 
     const line1 = document.createElement('div');
-    line1.textContent = `${head} ${tzLabel}${next}`;
+    line1.textContent = head;
     el.appendChild(line1);
 
-    // Daily cadence (interval=0) — every tick is a full pipeline pass, so
-    // there's no two-tier distinction to surface.
-    if (interval === 0) return;
+    if (!cfg.next_run) return;
 
-    // Sub-daily cadence — annotate the next tick as full vs incremental,
-    // and (when incremental) show when the next full one will fire.
     const kind = cfg.next_run_kind || '';
     const line2 = document.createElement('div');
     line2.style.fontSize = '11px';
     line2.style.color = 'var(--fg-dim)';
     line2.style.marginTop = '2px';
-    if (kind === 'full') {
-      line2.textContent = '↳ next tick: full pipeline (all detectors)';
-    } else if (kind === 'incremental') {
-      const nf = cfg.next_full_run ? ` — next full pipeline at ${cfg.next_full_run}` : '';
-      line2.textContent = `↳ next tick: incremental TI / IOC${nf}`;
-    } else {
-      // Defensive: server didn't report kind. Don't speculate.
-      return;
+    let suffix = '';
+    if (interval !== 0) {
+      if (kind === 'full')        suffix = ' — full pipeline';
+      else if (kind === 'incremental') suffix = ' — incremental TI/IOC';
     }
+    line2.textContent = `Next: ${cfg.next_run}${suffix}`;
     el.appendChild(line2);
+
+    // Third line only when the next tick is incremental and the server
+    // told us when the next full pass will fire — daily cadence (every
+    // tick is full) and the "next is already full" case both skip it.
+    if (interval !== 0 && kind === 'incremental' && cfg.next_full_run) {
+      const line3 = document.createElement('div');
+      line3.style.fontSize = '11px';
+      line3.style.color = 'var(--fg-dim)';
+      line3.textContent = `Full pipeline: ${cfg.next_full_run}`;
+      el.appendChild(line3);
+    }
   }
 
   function initWatch() {

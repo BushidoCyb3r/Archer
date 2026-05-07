@@ -91,6 +91,41 @@ func loadLocationOrUTC(name string) *time.Location {
 	return time.UTC
 }
 
+// formatRelativeTime renders a time as a compact, scannable string for the
+// watch-mode UI. Today/tomorrow get spelled out (the common case); same-week
+// dates fall back to weekday + time; further-out dates use month-day; only
+// dates in a different calendar year include the year. The timezone
+// abbreviation is intentionally NOT included — the caller surfaces it once
+// on the cadence head so the analyst doesn't read "EDT" three times in
+// three lines.
+//
+// Examples (all in the supplied loc):
+//   today 06:00
+//   tomorrow 00:00
+//   Mon 14:30
+//   May 12 09:00
+//   Jan 3 2027 02:00
+func formatRelativeTime(t time.Time, loc *time.Location) string {
+	nowLoc := time.Now().In(loc)
+	tLoc := t.In(loc)
+	nowDate := time.Date(nowLoc.Year(), nowLoc.Month(), nowLoc.Day(), 0, 0, 0, 0, loc)
+	tDate := time.Date(tLoc.Year(), tLoc.Month(), tLoc.Day(), 0, 0, 0, 0, loc)
+	daysDiff := int(tDate.Sub(nowDate).Hours() / 24)
+	hm := tLoc.Format("15:04")
+	switch {
+	case daysDiff == 0:
+		return "today " + hm
+	case daysDiff == 1:
+		return "tomorrow " + hm
+	case daysDiff > 1 && daysDiff < 7 && tLoc.Year() == nowLoc.Year():
+		return tLoc.Format("Mon ") + hm
+	case tLoc.Year() == nowLoc.Year():
+		return tLoc.Format("Jan 2 ") + hm
+	default:
+		return tLoc.Format("Jan 2 2006 ") + hm
+	}
+}
+
 // nextOccurrence returns the next wall-clock time in loc when HH:MM will
 // occur. If that time has already passed today (in loc), returns tomorrow.
 func nextOccurrence(hhmm string, loc *time.Location) (time.Time, error) {
