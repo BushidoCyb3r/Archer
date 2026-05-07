@@ -31,6 +31,23 @@ relevant, `### Detection changes` in each release entry.
 ## [Unreleased]
 
 ### Added
+- *(future entries land here.)*
+
+---
+
+## [v0.2.0] — 2026-05-07
+
+Quiver wire protocol now carries an explicit version handshake so old
+sensors against new servers fail loudly with a structured error
+instead of silently breaking rsync. v1 is the first pinned protocol;
+its full contract surface (wire shapes, sensor name regex, pubkey
+algorithm, rsync layout, schedule contract, accepted Zeek log types)
+is documented in `docs/QUIVER.md` so future v2 bumps have a clear
+baseline. Pre-Phase-2 sensors that omit the version field are accepted
+as v1 for one compatibility cycle; the flip to a hard rejection will
+be announced under `### Deprecated` before the cycle closes.
+
+### Added
 - **Quiver protocol versioning.** Both enrollment (`/api/quiver/enroll`)
   and checkin (`/api/quiver/checkin`) now exchange a `protocol_version`
   integer. The server validates against an internal supported-versions
@@ -163,5 +180,6 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.2.0...HEAD
+[v0.2.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/BushidoCyb3r/Archer/releases/tag/v0.1.0
