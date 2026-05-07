@@ -2,10 +2,24 @@ FROM golang:1.25-alpine AS builder
 
 ENV GOTOOLCHAIN=local
 
+# Version metadata is baked in at build time via -ldflags. start.sh fills
+# these from `git describe --tags --always` and `git rev-parse --short HEAD`
+# so each rebuild reports the actual checkout state. Defaults match the
+# baked-in values in internal/version/version.go for the air-gap case where
+# the build host has no git history (tarball install).
+ARG ARCHER_VERSION=v0.1.0
+ARG ARCHER_COMMIT=unknown
+ARG ARCHER_BUILD_TIME=unknown
+
 WORKDIR /src
 COPY go.mod ./
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /archer ./cmd/archer
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w \
+      -X github.com/BushidoCyb3r/Archer/internal/version.Version=${ARCHER_VERSION} \
+      -X github.com/BushidoCyb3r/Archer/internal/version.Commit=${ARCHER_COMMIT} \
+      -X github.com/BushidoCyb3r/Archer/internal/version.BuildTime=${ARCHER_BUILD_TIME}" \
+    -o /archer ./cmd/archer
 
 # ── Final image ───────────────────────────────────────────────────────────────
 FROM alpine:3.20
@@ -59,6 +73,15 @@ RUN chmod +x /app/entrypoint.sh
 # Persistent shares for sshd state are declared in docker-compose.yml so
 # operators can bind-mount them when host-side persistence matters.
 VOLUME ["/logs", "/data"]
+
+# Re-declare ARGs in the final stage so OCI image labels can interpolate
+# them — ARG values from the builder stage don't carry over by default.
+ARG ARCHER_VERSION=v0.1.0
+ARG ARCHER_COMMIT=unknown
+LABEL org.opencontainers.image.title="Archer"
+LABEL org.opencontainers.image.version="${ARCHER_VERSION}"
+LABEL org.opencontainers.image.revision="${ARCHER_COMMIT}"
+LABEL org.opencontainers.image.source="https://github.com/BushidoCyb3r/Archer"
 
 # 8080 — analyst UI (plain HTTP, LAN-side)
 # 8443 — Quiver sensor checkin / install endpoint (TLS, pinned at enrollment)

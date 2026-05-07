@@ -23,3 +23,9 @@ data/
 .vscode/
 *.swp
 *.swo
+
+# Private operator's logbook — durable maturation roadmap, not for the public repo
+MATURATION_PLAN.md
+
+# Private AI-assistant onboarding doc — operator voice, conventions, lessons learned
+CLAUDE.md

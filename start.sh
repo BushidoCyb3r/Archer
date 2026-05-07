@@ -44,10 +44,27 @@ ARCHER_CPUS=$(awk "BEGIN { v = $TOTAL_CPUS * 0.8; printf (v < 0.5 ? \"0.5\" : \"
 ARCHER_MEM_MB=$(awk "BEGIN { v = int($TOTAL_MEM_MB * 0.7); print (v < 512 ? 512 : v) }")
 ARCHER_MEMORY="${ARCHER_MEM_MB}m"
 
+# Derive version metadata from the git checkout so the build bakes in the
+# right tag/commit/time. `git describe --tags --always` falls back to the
+# short commit when no tag exists yet (pre-v0.1.0 checkouts), and we let
+# the Dockerfile's defaults take over if git itself isn't available — that
+# covers air-gap tarball installs where the repo was extracted, not cloned.
+if command -v git >/dev/null 2>&1 && git -C "$SCRIPT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+  ARCHER_VERSION="$(git -C "$SCRIPT_DIR" describe --tags --always --dirty 2>/dev/null || echo v0.1.0)"
+  ARCHER_COMMIT="$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+else
+  ARCHER_VERSION="v0.1.0"
+  ARCHER_COMMIT="unknown"
+fi
+ARCHER_BUILD_TIME="$(date -u +%FT%TZ)"
+
 # Write .env so 'docker compose' picks up the values even without this script
 cat > "$ENV_FILE" <<EOF
 ARCHER_CPUS=${ARCHER_CPUS}
 ARCHER_MEMORY=${ARCHER_MEMORY}
+ARCHER_VERSION=${ARCHER_VERSION}
+ARCHER_COMMIT=${ARCHER_COMMIT}
+ARCHER_BUILD_TIME=${ARCHER_BUILD_TIME}
 EOF
 
 # ── Print summary ────────────────────────────────────────────────────────────
@@ -57,6 +74,7 @@ if [[ "$DOCKER_CPUS" =~ ^[0-9]+$ ]] && (( DOCKER_CPUS > 0 )); then
   echo "Docker capacity:  ${DOCKER_CPUS} CPUs  |  ${DOCKER_MEM_MB} MB RAM"
 fi
 echo "Archer limits:    ${ARCHER_CPUS} CPUs  |  ${ARCHER_MEMORY} RAM  (CPU 80% / RAM 70%)"
+echo "Archer version:   ${ARCHER_VERSION}  (commit ${ARCHER_COMMIT}, built ${ARCHER_BUILD_TIME})"
 echo ""
 
 # Pick the IP a remote analyst would use to reach this host. `ip route get`
