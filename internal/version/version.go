@@ -10,7 +10,7 @@ package version
 
 // Version is the release tag this binary was built from. Production
 // builds set it via -ldflags from `git describe --tags --always`.
-var Version = "v0.1.0"
+var Version = "v0.2.0"
 
 // Commit is the short git SHA this binary was built from. "unknown" when
 // the build host had no git checkout (e.g. air-gap tarball).
