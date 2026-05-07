@@ -168,7 +168,12 @@ func compileListMatcher(entries []string) *listMatcher {
 	m := &listMatcher{exact: make(map[string]bool, len(entries))}
 	for _, raw := range entries {
 		e := strings.TrimSpace(raw)
-		if e == "" {
+		// Whole-line comments (operator section headers stored verbatim
+		// so they round-trip through save/reload) are not matchable —
+		// skip them. Inline `... # tail` tails were already stripped at
+		// store time by sanitizeListEntries, so anything reaching here
+		// without a '#' prefix is a real entry.
+		if e == "" || e[0] == '#' {
 			continue
 		}
 		if _, ipnet, err := net.ParseCIDR(e); err == nil {

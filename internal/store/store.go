@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,12 +13,21 @@ import (
 )
 
 // Store is the thread-safe in-memory application state.
+//
+// allowlist and iocList are slices (not maps) so the operator-supplied
+// order is preserved across a save/reload cycle. Maps would randomize
+// iteration on each GetAllowlist/GetIOCList call, scattering any
+// section-header comment lines or logical groupings the operator
+// arranged in the textarea. The slice is the source of truth on disk
+// too — InitDB reads with `ORDER BY rowid` and SetAllowlist/SetIOCList
+// fully replace via DELETE+INSERT in slice order so SQLite rowids
+// always reflect the current ordering.
 type Store struct {
 	mu             sync.RWMutex
 	db             *sql.DB
 	findings       []model.Finding
-	allowlist      map[string]bool
-	iocList        map[string]bool
+	allowlist      []string
+	iocList        []string
 	suppressions   map[string]suppressionEntry
 	notifications  []model.Notification
 	notifCounter   int
@@ -33,11 +43,60 @@ type suppressionEntry struct {
 
 func New(cfg config.Config) *Store {
 	return &Store{
-		allowlist:    make(map[string]bool),
-		iocList:      make(map[string]bool),
 		suppressions: make(map[string]suppressionEntry),
 		config:       cfg,
 	}
+}
+
+// sanitizeListEntries trims, strips inline `... # tail` comments from
+// non-comment lines, drops empty lines, and dedupes while preserving
+// first-seen order. Used by SetAllowlist, SetIOCList, and InitDB's load
+// path so both fresh PUTs and existing-DB rollovers end up clean.
+//
+// Whole-line comments (lines whose first non-whitespace character is
+// '#') pass through verbatim — operators use them as section headers
+// and they round-trip through save/reload so the textarea preserves
+// the operator's intended structure across sessions.
+//
+// Inline tails get stripped because the entry needs to be matchable —
+// `1.2.3.4 # office` would otherwise be stored as a literal string
+// that never matches any IP. '#' isn't legal in IPs, CIDRs, or DNS
+// labels, so the strip is safe regardless of position.
+func sanitizeListEntries(entries []string) []string {
+	out := make([]string, 0, len(entries))
+	seen := make(map[string]bool, len(entries))
+	for _, raw := range entries {
+		e := strings.TrimSpace(raw)
+		if e == "" {
+			continue
+		}
+		if e[0] != '#' {
+			for i := 0; i < len(e)-1; i++ {
+				if (e[i] == ' ' || e[i] == '\t') && e[i+1] == '#' {
+					e = strings.TrimSpace(e[:i])
+					break
+				}
+			}
+		}
+		if e == "" || seen[e] {
+			continue
+		}
+		seen[e] = true
+		out = append(out, e)
+	}
+	return out
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // InitDB wires the store to a shared SQLite database, creates the necessary
@@ -84,22 +143,35 @@ func (s *Store) InitDB(db *sql.DB) {
 		log.Printf("store: migrated findings.dataset → findings.sensor")
 	}
 
-	load := func(tbl string, dst map[string]bool) {
-		rows, err := db.Query(`SELECT entry FROM ` + tbl)
+	loadOrdered := func(tbl string) []string {
+		rows, err := db.Query(`SELECT entry FROM ` + tbl + ` ORDER BY rowid`)
 		if err != nil {
 			log.Printf("store: cannot load %s: %v", tbl, err)
-			return
+			return nil
 		}
 		defer rows.Close()
+		var out []string
 		for rows.Next() {
 			var e string
 			if rows.Scan(&e) == nil && e != "" {
-				dst[e] = true
+				out = append(out, e)
 			}
 		}
+		return out
 	}
-	load("allowlist", s.allowlist)
-	load("ioc_list", s.iocList)
+	// Sanitize on load so any pre-comment-strip junk from older Archer
+	// installs gets cleaned automatically. If sanitize changes the slice,
+	// re-persist so SQLite reflects the cleaned form on disk too.
+	s.allowlist = loadOrdered("allowlist")
+	if cleaned := sanitizeListEntries(s.allowlist); !slicesEqual(cleaned, s.allowlist) {
+		s.allowlist = cleaned
+		s.persistList("allowlist", s.allowlist)
+	}
+	s.iocList = loadOrdered("ioc_list")
+	if cleaned := sanitizeListEntries(s.iocList); !slicesEqual(cleaned, s.iocList) {
+		s.iocList = cleaned
+		s.persistList("ioc_list", s.iocList)
+	}
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY, config TEXT NOT NULL)`); err != nil {
 		log.Printf("store: cannot create settings table: %v", err)
@@ -136,8 +208,11 @@ func (s *Store) InitDB(db *sql.DB) {
 }
 
 // persistList replaces all rows in tbl with the current entries.
-// Caller must hold s.mu at least for reading (items is already a snapshot).
-func (s *Store) persistList(tbl string, items map[string]bool) {
+// Items are inserted in slice order so SQLite's rowid sequence reflects
+// the operator's intended ordering — InitDB's `ORDER BY rowid` SELECT
+// then reproduces the same order on next load. Caller must hold s.mu
+// at least for reading (items is already a snapshot).
+func (s *Store) persistList(tbl string, items []string) {
 	if s.db == nil {
 		return
 	}
@@ -151,7 +226,7 @@ func (s *Store) persistList(tbl string, items map[string]bool) {
 		log.Printf("store: persist %s delete: %v", tbl, err)
 		return
 	}
-	for e := range items {
+	for _, e := range items {
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO `+tbl+` (entry) VALUES (?)`, e); err != nil {
 			tx.Rollback()
 			log.Printf("store: persist %s insert: %v", tbl, err)
@@ -402,44 +477,30 @@ func (s *Store) SetConfig(cfg config.Config) {
 func (s *Store) GetAllowlist() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]string, 0, len(s.allowlist))
-	for k := range s.allowlist {
-		out = append(out, k)
-	}
+	out := make([]string, len(s.allowlist))
+	copy(out, s.allowlist)
 	return out
 }
 
 func (s *Store) SetAllowlist(entries []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.allowlist = make(map[string]bool, len(entries))
-	for _, e := range entries {
-		if e != "" {
-			s.allowlist[e] = true
-		}
-	}
+	s.allowlist = sanitizeListEntries(entries)
 	s.persistList("allowlist", s.allowlist)
 }
 
 func (s *Store) GetIOCList() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]string, 0, len(s.iocList))
-	for k := range s.iocList {
-		out = append(out, k)
-	}
+	out := make([]string, len(s.iocList))
+	copy(out, s.iocList)
 	return out
 }
 
 func (s *Store) SetIOCList(entries []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.iocList = make(map[string]bool, len(entries))
-	for _, e := range entries {
-		if e != "" {
-			s.iocList[e] = true
-		}
-	}
+	s.iocList = sanitizeListEntries(entries)
 	s.persistList("ioc_list", s.iocList)
 }
 
