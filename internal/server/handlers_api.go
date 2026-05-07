@@ -856,12 +856,19 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 		}
 		if enabled && watchTime != "" {
 			loc := loadLocationOrUTC(tz)
+			// Surface the timezone abbreviation (EDT, PST, UTC, …) once,
+			// instead of repeating the long IANA name three times across
+			// the schedule preview, the next-run line, and the next-full
+			// line. Frontend renders the abbrev once on the cadence head
+			// and leaves the time strings unadorned.
+			abbrev := time.Now().In(loc).Format("MST")
+			if abbrev == "" {
+				abbrev = "UTC"
+			}
+			resp["timezone_abbr"] = abbrev
+
 			if next, err := nextOccurrenceInterval(watchTime, intervalHours, loc); err == nil {
-				label := tz
-				if label == "" {
-					label = "UTC"
-				}
-				resp["next_run"] = next.In(loc).Format("2006-01-02 15:04 ") + label
+				resp["next_run"] = formatRelativeTime(next, loc)
 
 				// Two-tier cadence: derive next_run_kind and next_full_run so
 				// the sidebar can tell the analyst whether the upcoming tick
@@ -896,7 +903,7 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 					for i := 0; i < 30; i++ {
 						candidate = candidate.Add(step)
 						if isFullTick(candidate) {
-							resp["next_full_run"] = candidate.In(loc).Format("2006-01-02 15:04 ") + label
+							resp["next_full_run"] = formatRelativeTime(candidate, loc)
 							break
 						}
 					}
