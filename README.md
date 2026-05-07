@@ -1093,8 +1093,8 @@ These endpoints are served on the TLS listener (`:8443`) and authenticated by si
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/quiver/install.sh` | Renders the install bash for the requesting host. Embeds the TLS fingerprint, host, ports, and base64-encoded daily + uninstall scripts so the install runs without a second network hop. |
-| `POST` | `/api/quiver/enroll` | Body `{token, name, host, pubkey}`. Validates the token, creates `/logs/<name>/`, writes the per-sensor `authorized_keys` line, persists the sensor row. Returns `{name, schedule_hour:0, schedule_minute:N}`. |
-| `POST` | `/api/quiver/checkin` | Body `{name}`. Returns `{"status":"enrolled","schedule":{"hour":0,"minute":N}}`, `{"status":"disenrolled"}`, or `{"status":"unknown"}`. Unknown checkins create `unauthorized_attempts` rows and push an SSE event. |
+| `POST` | `/api/quiver/enroll` | Body `{token, name, host, pubkey, protocol_version}`. Validates the token + protocol version, creates `/logs/<name>/`, writes the per-sensor `authorized_keys` line, persists the sensor row. Returns `{name, schedule_hour:0, schedule_minute:N, protocol_version}`. Unsupported protocol versions return HTTP 400 with `{error, sensor_version, server_version, supported_versions}`. |
+| `POST` | `/api/quiver/checkin` | Body `{name, protocol_version}`. Returns `{"status":"enrolled","schedule":{"hour":0,"minute":N},"protocol_version":1}`, `{"status":"disenrolled","protocol_version":1}`, `{"status":"unknown","protocol_version":1}`, or `{"status":"protocol_unsupported","sensor_version":N,"server_version":1,"supported_versions":[1]}`. Unknown checkins create `unauthorized_attempts` rows and push an SSE event. Pre-versioning sensors that omit `protocol_version` are accepted as v1 for one compatibility cycle. |
 
 See [docs/QUIVER.md](docs/QUIVER.md) for the full Quiver protocol description.
 

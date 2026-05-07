@@ -52,6 +52,13 @@ TLS_FP="{{TLS_FP}}"
 QUIVER_SH_B64="{{QUIVER_SH_B64}}"
 UNINSTALL_SH_B64="{{UNINSTALL_SH_B64}}"
 
+# Quiver wire-protocol version this script speaks. The server validates
+# this on enrollment + checkin and rejects mismatches with a structured
+# error so the operator sees "your sensor is on vN, server requires v..."
+# instead of an opaque rsync failure later. See docs/QUIVER.md "Protocol
+# versioning" for what counts as a bump and the compatibility rules.
+PROTOCOL_VERSION=1
+
 # ── Preconditions ───────────────────────────────────────────────────────────
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -214,14 +221,32 @@ HOST_REPORTED=$(hostname -f 2>/dev/null || hostname 2>/dev/null \
 
 # Hostname and pubkey already pass through is_safe / ssh-keygen; the
 # token is opaque random bytes from the admin UI; none of those need
-# additional escaping for this minimal JSON payload.
-PAYLOAD=$(printf '{"token":"%s","name":"%s","host":"%s","pubkey":"%s"}' \
-    "$TOKEN" "$NAME" "$HOST_REPORTED" "$PUB")
+# additional escaping for this minimal JSON payload. PROTOCOL_VERSION is
+# always a bare integer literal (not user input), so quoting it as a
+# number is safe.
+PAYLOAD=$(printf '{"token":"%s","name":"%s","host":"%s","pubkey":"%s","protocol_version":%d}' \
+    "$TOKEN" "$NAME" "$HOST_REPORTED" "$PUB" "$PROTOCOL_VERSION")
 
-RESP=$(curl -fsSL -k --pinnedpubkey "sha256//${TLS_FP}" --max-time 30 \
+# -fsSL fails the request body on non-2xx, which is exactly what we want
+# when the server rejects an unsupported protocol version — the curl
+# exit code below trips the error path and the operator sees the failure
+# at install time, before any local state is committed. The actual
+# rejection message lives in the server's response body, but with -f we
+# don't see it. Re-issue without -f on failure to surface it.
+if ! RESP=$(curl -fsSL -k --pinnedpubkey "sha256//${TLS_FP}" --max-time 30 \
     -H "Content-Type: application/json" \
     -X POST -d "$PAYLOAD" \
-    "$ENROLL_URL") || { echo "quiver: enrollment HTTP request failed" >&2; exit 1; }
+    "$ENROLL_URL"); then
+    ERR_BODY=$(curl -sSL -k --pinnedpubkey "sha256//${TLS_FP}" --max-time 30 \
+        -H "Content-Type: application/json" \
+        -X POST -d "$PAYLOAD" \
+        "$ENROLL_URL" 2>/dev/null || echo '')
+    echo "quiver: enrollment failed" >&2
+    if [ -n "$ERR_BODY" ]; then
+        echo "quiver: server response: $ERR_BODY" >&2
+    fi
+    exit 1
+fi
 
 # Hourly mode: only the minute-of-hour matters. We still parse and
 # persist H so legacy daily-mode telemetry stays consistent, but the
@@ -290,6 +315,7 @@ SSH_KEY_PATH=${KEY}
 KNOWN_HOSTS_PATH=/etc/quiver/known_hosts
 LOCAL_LOGS_DIR=
 INITIAL_BACKFILL_DAYS=${INITIAL_BACKFILL_DAYS}
+PROTOCOL_VERSION=${PROTOCOL_VERSION}
 CONF
 chmod 644 /etc/quiver/config
 chown root:root /etc/quiver/config

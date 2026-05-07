@@ -325,9 +325,13 @@ Server-side endpoints (`internal/server/handlers_quiver.go`):
 | `POST /api/quiver/checkin` | sensor SSH key (transitively) | Body `{name}`. Returns `enrolled` / `disenrolled` / `unknown`. Unknown checkins create `unauthorized_attempts` rows. |
 
 The protocol contract — what fields the sensor sends, the rsync layout
-on disk, the ports, the sshd `command="..."` jail — is currently
-implicit. Phase 2 of the maturation plan adds a `PROTOCOL_VERSION`
-field that ratchets this contract.
+on disk, the ports, the sshd `command="..."` jail — is versioned via
+`internal/server/quiver_protocol.go`. Both enrollment and checkin
+payloads carry a `protocol_version` integer; the server validates
+against `supportedQuiverProtocols` and rejects mismatches with a
+structured error. The current version is `1` (see `QuiverProtocolVersion`
+in `quiver_protocol.go`). Bumping rules and the deprecation cycle are
+documented in [QUIVER.md](QUIVER.md) under "Protocol versioning."
 
 For sensor-side operational details, see [QUIVER.md](QUIVER.md).
 
