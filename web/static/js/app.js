@@ -909,7 +909,7 @@
         ? `Analysis stopped — ${evt.count || 0} partial findings`
         : `Analysis complete — ${evt.count || 0} findings (${evt.new_count || 0} new)`);
       document.getElementById('analysis-status').textContent = '';
-      await loadFindings();
+      await loadFindings(_currentFilterParams());
       _updateTIStatus();
       // Catch any notifications missed if SSE connection dropped during analysis
       fetch('/api/notifications')
@@ -1472,7 +1472,7 @@
           body: JSON.stringify({target, days, detail: dlg.dataset.detail || ''}),
         });
         setStatus(`Suppressed ${target} for ${days} day(s)`);
-        loadFindings();
+        loadFindings(_currentFilterParams());
       } catch (e) { setStatus('Suppress error: ' + e); }
       dlg.close();
     });
@@ -1510,7 +1510,7 @@
           await api(`/api/suppressions/${encodeURIComponent(s.target)}`, {method:'DELETE'}).catch(() => {});
           setStatus(`Unsuppressed ${s.target}`);
           await _renderSuppressions();
-          loadFindings();
+          loadFindings(_currentFilterParams());
         });
         listEl.appendChild(row);
       });
@@ -1541,7 +1541,7 @@
       }).catch(e => setStatus('Error: ' + e));
       setStatus('Allowlist saved');
       alDlg.close();
-      loadFindings();
+      loadFindings(_currentFilterParams());
       _loadAllowSet();
     });
 
@@ -2390,7 +2390,7 @@
           body: JSON.stringify({target, days: parseFloat(li.dataset.days), detail}),
         }).catch(e => setStatus('Error: ' + e));
         setStatus(`Suppressed ${target} for ${li.dataset.days} day(s)`);
-        loadFindings();
+        loadFindings(_currentFilterParams());
       });
     });
 
@@ -2418,7 +2418,7 @@
       if (!_ctxTarget) return;
       _addToList('/api/allowlist', 'Allowlist', _ctxTarget, () => {
         _loadAllowSet();
-        loadFindings();
+        loadFindings(_currentFilterParams());
       });
     });
     document.getElementById('ctx-ioc-add').addEventListener('click', () => {
