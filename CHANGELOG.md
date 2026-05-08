@@ -30,6 +30,21 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+*(future entries land here.)*
+
+---
+
+## [v0.4.0] — 2026-05-08
+
+The maturation roadmap's Phase 4 (detection-semantics tests) and
+Phase 5 (CI) both ship in this release, plus a long-overdue
+operator-timezone fix to the off-hours detector. Every offline
+detector path in the analyzer is now locked into a checked-in
+golden fixture and validated on every push and PR by the new CI
+workflow. The single breaking change is a config-key rename
+(`watch_timezone` → `timezone`); existing installs need to re-set
+their operator timezone once via the Watch sidebar.
+
 ### Added
 - **CI workflow.** A single GitHub Actions workflow at
   `.github/workflows/ci.yml` runs on every push to `main` and every
