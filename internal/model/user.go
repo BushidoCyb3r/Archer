@@ -49,7 +49,7 @@ func (u User) DisplayName() string {
 // Note is an analyst annotation attached to a finding.
 type Note struct {
 	Text        string `json:"text"`
-	Author      string `json:"author"`       // display name
+	Author      string `json:"author"` // display name
 	AuthorEmail string `json:"author_email"`
 	Timestamp   string `json:"timestamp"`
 }

@@ -25,7 +25,7 @@ var riskWeights = map[string]int{
 func (a *Analyzer) aggregateRisk(_ []string) {
 	// Group existing findings by src_ip
 	type hostData struct {
-		types   map[string]bool
+		types    map[string]bool
 		maxScore int
 		firstTS  string
 	}

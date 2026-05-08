@@ -149,13 +149,13 @@ func (a *Analyzer) Analyze(files []string) []model.Finding {
 		fn   func([]string)
 	}
 	phase1 := []namedStep{
-		{"Notices",        a.analyzeNotice},
-		{"Connections",    a.analyzeConn},
-		{"DNS",            a.analyzeDNS},
-		{"SSL/TLS",        a.analyzeSSL},
-		{"X.509 Certs",   a.analyzeX509},
+		{"Notices", a.analyzeNotice},
+		{"Connections", a.analyzeConn},
+		{"DNS", a.analyzeDNS},
+		{"SSL/TLS", a.analyzeSSL},
+		{"X.509 Certs", a.analyzeX509},
 		{"File Downloads", a.analyzeFiles},
-		{"Weird Events",   a.analyzeWeird},
+		{"Weird Events", a.analyzeWeird},
 	}
 
 	var wg1 sync.WaitGroup

@@ -376,7 +376,10 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 	// returning a host's service list) get the flag set; "no record found",
 	// "lookup failed", and "request failed" stay false so they don't pollute
 	// other findings with empty noise.
-	type lineEntry struct{ ip, text string; hit, informative bool }
+	type lineEntry struct {
+		ip, text         string
+		hit, informative bool
+	}
 	var lines []lineEntry
 
 	doReq := func(req *http.Request) ([]byte, bool) {
@@ -441,12 +444,18 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 				req.Header.Set("X-Api-Key", cfg.CrowdSecAPIKey)
 				if body, ok := doReq(req); ok {
 					var data struct {
-						Scores struct{ Overall struct{ Total float64 `json:"total"` } `json:"overall"` } `json:"scores"`
+						Scores struct {
+							Overall struct {
+								Total float64 `json:"total"`
+							} `json:"overall"`
+						} `json:"scores"`
 					}
 					if json.Unmarshal(body, &data) == nil {
 						if data.Scores.Overall.Total > 0 {
 							sev := model.SevHigh
-							if data.Scores.Overall.Total > 5 { sev = model.SevCritical }
+							if data.Scores.Overall.Total > 5 {
+								sev = model.SevCritical
+							}
 							publishHit("CrowdSec", fmt.Sprintf("%s reputation score %.2f", dst, data.Scores.Overall.Total), sev)
 						} else {
 							publishClean("CrowdSec", fmt.Sprintf("%s - no threats found", dst))
@@ -462,7 +471,9 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 
 		if svcs["vt"] && cfg.VirusTotalAPIKey != "" {
 			vtURL := fmt.Sprintf("https://www.virustotal.com/api/v3/ip_addresses/%s", dst)
-			if !isIP { vtURL = fmt.Sprintf("https://www.virustotal.com/api/v3/domains/%s", dst) }
+			if !isIP {
+				vtURL = fmt.Sprintf("https://www.virustotal.com/api/v3/domains/%s", dst)
+			}
 			if req, err := http.NewRequest("GET", vtURL, nil); err == nil {
 				req.Header.Set("x-apikey", cfg.VirusTotalAPIKey)
 				if body, ok := doReq(req); ok {
@@ -477,7 +488,9 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 						stats := data.Data.Attributes.LastAnalysisStats
 						if mal := stats["malicious"]; mal > 0 {
 							sev := model.SevHigh
-							if mal > 3 { sev = model.SevCritical }
+							if mal > 3 {
+								sev = model.SevCritical
+							}
 							publishHit("VirusTotal", fmt.Sprintf("%d engines flagged %s as malicious", mal, dst), sev)
 						} else {
 							publishClean("VirusTotal", fmt.Sprintf("%s - no malicious detections", dst))
@@ -493,18 +506,24 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 
 		if svcs["otx"] && cfg.OTXAPIKey != "" {
 			otxURL := fmt.Sprintf("https://otx.alienvault.com/api/v1/indicators/IPv4/%s/general", dst)
-			if !isIP { otxURL = fmt.Sprintf("https://otx.alienvault.com/api/v1/indicators/domain/%s/general", dst) }
+			if !isIP {
+				otxURL = fmt.Sprintf("https://otx.alienvault.com/api/v1/indicators/domain/%s/general", dst)
+			}
 			if req, err := http.NewRequest("GET", otxURL, nil); err == nil {
 				req.Header.Set("X-OTX-API-KEY", cfg.OTXAPIKey)
 				if body, ok := doReq(req); ok {
 					var data struct {
-						PulseInfo struct { Count int `json:"count"` } `json:"pulse_info"`
+						PulseInfo struct {
+							Count int `json:"count"`
+						} `json:"pulse_info"`
 						Reputation int `json:"reputation"`
 					}
 					if json.Unmarshal(body, &data) == nil {
 						if data.PulseInfo.Count > 0 || data.Reputation > 0 {
 							sev := model.SevHigh
-							if data.PulseInfo.Count > 5 { sev = model.SevCritical }
+							if data.PulseInfo.Count > 5 {
+								sev = model.SevCritical
+							}
 							publishHit("OTX", fmt.Sprintf("%s found in %d threat pulse(s)", dst, data.PulseInfo.Count), sev)
 						} else {
 							publishClean("OTX", fmt.Sprintf("%s - no threat pulses found", dst))
@@ -532,7 +551,9 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 					if json.Unmarshal(body, &data) == nil {
 						if data.Data.AbuseConfidenceScore > 0 {
 							sev := model.SevHigh
-							if data.Data.AbuseConfidenceScore > 75 { sev = model.SevCritical }
+							if data.Data.AbuseConfidenceScore > 75 {
+								sev = model.SevCritical
+							}
 							publishHit("AbuseIPDB", fmt.Sprintf("%s confidence score %d%% (%d reports)", dst, data.Data.AbuseConfidenceScore, data.Data.TotalReports), sev)
 						} else {
 							publishClean("AbuseIPDB", fmt.Sprintf("%s - no abuse reports", dst))
@@ -621,11 +642,15 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 							// note is grep-able without dumping the full payload.
 							sample := make([]string, 0, 3)
 							for i, s := range data.Result.Services {
-								if i >= 3 { break }
+								if i >= 3 {
+									break
+								}
 								sample = append(sample, fmt.Sprintf("%d/%s", s.Port, s.ServiceName))
 							}
 							loc := data.Result.Location.Country
-							if loc == "" { loc = "unknown" }
+							if loc == "" {
+								loc = "unknown"
+							}
 							publishInfo("Censys", fmt.Sprintf("%s - %d services [%s] (location: %s, last seen %s)",
 								dst, svcCount, strings.Join(sample, ", "), loc, data.Result.LastUpdatedAt))
 						} else {
@@ -771,7 +796,6 @@ func (s *Server) handleIOC(w http.ResponseWriter, r *http.Request) {
 		jsonOK(w)
 	}
 }
-
 
 func (s *Server) handleSuppressions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {

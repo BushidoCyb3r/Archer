@@ -30,7 +30,7 @@ type Sensor struct {
 	EnrolledBy     string `json:"enrolled_by"`
 	Status         string `json:"status"` // enrolled | disenrolling | disenrolled
 	PubkeyFP       string `json:"pubkey_fp"`
-	AuthKeyLine    string `json:"-"`               // exact authorized_keys line we wrote; used to remove on disenroll
+	AuthKeyLine    string `json:"-"` // exact authorized_keys line we wrote; used to remove on disenroll
 	ScheduleHour   int    `json:"schedule_hour"`
 	ScheduleMinute int    `json:"schedule_minute"`
 	LastSeenAt     int64  `json:"last_seen_at"`
@@ -64,7 +64,6 @@ type UnauthorizedAttempt struct {
 	AttemptCount int64  `json:"attempt_count"`
 	Pinned       bool   `json:"pinned"`
 }
-
 
 // ── Sensors CRUD ──────────────────────────────────────────────────────────
 

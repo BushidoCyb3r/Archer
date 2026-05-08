@@ -121,7 +121,7 @@ func (s *Server) routes() {
 	//   any(h)      — authenticated, any role
 	//   write(h)    — authenticated, analyst or admin
 	//   admin(h)    — authenticated, admin only
-	any   := func(h http.HandlerFunc) http.Handler { return s.requireAuth(http.HandlerFunc(h)) }
+	any := func(h http.HandlerFunc) http.Handler { return s.requireAuth(http.HandlerFunc(h)) }
 	write := func(h http.HandlerFunc) http.Handler {
 		return s.requireAuth(requireRole(model.RoleAnalyst, model.RoleAdmin)(http.HandlerFunc(h)))
 	}
@@ -136,7 +136,7 @@ func (s *Server) routes() {
 	s.mux.Handle("/events", any(s.handleSSE))
 
 	// File management — scan/clear require analyst+; plain file list is read-only
-	s.mux.Handle("/api/logs/scan", any(s.handleLogsScan))   // GET=any, POST enforced inside handler
+	s.mux.Handle("/api/logs/scan", any(s.handleLogsScan)) // GET=any, POST enforced inside handler
 	s.mux.Handle("/api/files", any(s.handleFiles))
 	s.mux.Handle("/api/files/clear", write(s.handleClearFiles))
 
@@ -144,9 +144,9 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/analyze", write(s.handleAnalyze))
 	s.mux.Handle("/api/analyze/status", any(s.handleAnalyzeStatus))
 	s.mux.Handle("/api/analyze/cancel", write(s.handleAnalyzeCancel))
-	s.mux.Handle("/api/analyze/pause",  write(s.handleAnalyzePause))
+	s.mux.Handle("/api/analyze/pause", write(s.handleAnalyzePause))
 	s.mux.Handle("/api/analyze/resume", write(s.handleAnalyzeResume))
-	s.mux.Handle("/api/analyze/reset",  any(s.handleAnalyzeReset)) // admin enforced inside handler
+	s.mux.Handle("/api/analyze/reset", any(s.handleAnalyzeReset)) // admin enforced inside handler
 
 	// Findings — read=any, write=analyst+
 	s.mux.Handle("/api/findings", any(s.handleFindings))
@@ -156,16 +156,16 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/config", any(s.handleConfig)) // PUT enforced inside handler
 
 	// Lists — read=any, write=analyst+
-	s.mux.Handle("/api/allowlist", any(s.handleAllowlist))   // PUT enforced inside handler
-	s.mux.Handle("/api/ioc", any(s.handleIOC))               // PUT enforced inside handler
-	s.mux.Handle("/api/suppressions", any(s.handleSuppressions))    // POST enforced inside handler
+	s.mux.Handle("/api/allowlist", any(s.handleAllowlist))       // PUT enforced inside handler
+	s.mux.Handle("/api/ioc", any(s.handleIOC))                   // PUT enforced inside handler
+	s.mux.Handle("/api/suppressions", any(s.handleSuppressions)) // POST enforced inside handler
 	s.mux.Handle("/api/suppressions/", any(s.handleDeleteSuppression))
 	s.mux.Handle("/api/notifications", any(s.handleNotifications))
-	s.mux.Handle("/api/watch", any(s.handleWatch))           // GET=any; POST enforced as admin inside handler
-	s.mux.Handle("/api/archive", any(s.handleArchive))       // GET=any; POST enforced as admin inside handler
+	s.mux.Handle("/api/watch", any(s.handleWatch))     // GET=any; POST enforced as admin inside handler
+	s.mux.Handle("/api/archive", any(s.handleArchive)) // GET=any; POST enforced as admin inside handler
 	s.mux.Handle("/api/archive/run", any(s.handleArchiveRun))
 	s.mux.Handle("/api/archive/scan", any(s.handleArchiveScan)) // admin enforced inside handler — IOC/TI scan over /data/archive
-	s.mux.Handle("/api/disk-usage", any(s.handleDiskUsage))   // any authenticated; /logs+archive sizes & free space
+	s.mux.Handle("/api/disk-usage", any(s.handleDiskUsage))     // any authenticated; /logs+archive sizes & free space
 
 	// User / auth API
 	s.mux.Handle("/api/me", any(s.handleMe))

@@ -59,10 +59,10 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		s.renderAuth(w, "register.html", map[string]any{"Error": "", "FirstName": "", "LastName": "", "Email": ""})
 	case http.MethodPost:
 		firstName := strings.TrimSpace(r.FormValue("first_name"))
-		lastName  := strings.TrimSpace(r.FormValue("last_name"))
-		email     := strings.TrimSpace(strings.ToLower(r.FormValue("email")))
-		password  := r.FormValue("password")
-		confirm   := r.FormValue("confirm")
+		lastName := strings.TrimSpace(r.FormValue("last_name"))
+		email := strings.TrimSpace(strings.ToLower(r.FormValue("email")))
+		password := r.FormValue("password")
+		confirm := r.FormValue("confirm")
 
 		// Helper to re-render with the form values preserved
 		fail := func(msg string) {
@@ -202,9 +202,9 @@ func (s *Server) handleUsersCollection(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "invalid request", http.StatusBadRequest)
 			return
 		}
-		req.Email     = strings.TrimSpace(strings.ToLower(req.Email))
+		req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 		req.FirstName = strings.TrimSpace(req.FirstName)
-		req.LastName  = strings.TrimSpace(req.LastName)
+		req.LastName = strings.TrimSpace(req.LastName)
 		if req.FirstName == "" || req.LastName == "" {
 			jsonError(w, "first and last name are required", http.StatusBadRequest)
 			return
@@ -318,7 +318,6 @@ func (s *Server) renderAuth(w http.ResponseWriter, tmplName string, data map[str
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = tmpl.Execute(w, data)
 }
-
 
 func validEmail(s string) bool {
 	at := strings.IndexByte(s, '@')
