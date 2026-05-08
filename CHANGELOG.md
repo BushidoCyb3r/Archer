@@ -38,6 +38,24 @@ relevant, `### Detection changes` in each release entry.
   records configured feed instances (source type, URL, API key,
   refresh cadence, aging window, status); `feed_indicators` records
   the per-indicator stream the fetcher will populate.
+- **OpenCTI source-type adapter (Phase 7 slice 3).** New
+  `internal/feeds/opencti.go` mirrors the MISP adapter but speaks
+  OpenCTI's GraphQL `/graphql` endpoint with bearer authentication.
+  Walks cursor-based pagination (`first` / `after`), capped at 100
+  pages × 1000-row default page size so a misconfigured huge tenant
+  can't OOM the worker. Reads the canonical
+  `x_opencti_main_observable_type` field plus the STIX pattern from
+  each indicator node; the type drives bucket selection
+  (`IPv4-Addr`/`IPv6-Addr` → `IndicatorIP` or `IndicatorCIDR`,
+  `Domain-Name`/`Hostname` → `IndicatorDomain`, `StixFile` →
+  `IndicatorHash`), with `Url` and unknown types deliberately
+  skipped. STIX-pattern value extraction handles both unquoted and
+  quoted property paths (e.g. `file:hashes.'SHA-256' = '<hash>'`)
+  by scoping the regex to the right-hand side of `=`. Server's
+  AdapterFor switch now constructs an `OpenCTIClient` for
+  `source_type = 'opencti'` feed rows. Same caveat as slice 2: no
+  admin UI yet (slice 5), so feeds need manual SQL configuration to
+  exercise the path; matcher consumption still pending slice 4.
 - **MISP source-type adapter + fetcher worker (Phase 7 slice 2).**
   New `internal/feeds` package introduces the source-agnostic
   `Adapter` interface, the normalized `Indicator` type, and a

@@ -1,0 +1,266 @@
+package feeds
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"regexp"
+	"strings"
+	"time"
+)
+
+// OpenCTIClient adapts a single OpenCTI instance to the Adapter
+// interface. OpenCTI exposes a GraphQL endpoint at /graphql with bearer
+// authentication. The Indicators query returns nodes with a STIX
+// pattern string and a mainObservableType — both used to derive our
+// normalized IndicatorType bucket.
+//
+// Pagination: cursor-based via `first` + `after`. The adapter walks
+// the cursor until pageInfo.hasNextPage is false, capped at PageLimit
+// pages so a misconfigured query against a huge tenant can't OOM the
+// process.
+type OpenCTIClient struct {
+	BaseURL string
+	APIKey  string
+	HTTP    *http.Client
+
+	// PageSize is the GraphQL `first` argument (rows per page).
+	PageSize int
+	// PageLimit caps the cursor walk. Default 100; with PageSize 1000
+	// that's 100k indicators per fetch — enough for most internal-team
+	// deployments.
+	PageLimit int
+}
+
+// NewOpenCTIClient constructs a client with safe defaults: 30s
+// timeout, 1000 indicators per page, 100-page cap.
+func NewOpenCTIClient(baseURL, apiKey string) *OpenCTIClient {
+	return &OpenCTIClient{
+		BaseURL:   strings.TrimRight(baseURL, "/"),
+		APIKey:    apiKey,
+		HTTP:      &http.Client{Timeout: 30 * time.Second},
+		PageSize:  1000,
+		PageLimit: 100,
+	}
+}
+
+// Source satisfies Adapter.Source.
+func (c *OpenCTIClient) Source() SourceType { return SourceOpenCTI }
+
+// openCTIQuery is the GraphQL query the adapter sends. Pinned to the
+// fields we actually consume; OpenCTI's schema is stable for these.
+const openCTIQuery = `query Indicators($first: Int, $after: ID) {
+  indicators(first: $first, after: $after) {
+    edges {
+      cursor
+      node {
+        id
+        pattern
+        x_opencti_main_observable_type
+        objectLabel {
+          edges {
+            node { value }
+          }
+        }
+      }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}`
+
+// openCTIRequest is the GraphQL POST body shape.
+type openCTIRequest struct {
+	Query     string         `json:"query"`
+	Variables map[string]any `json:"variables"`
+}
+
+// openCTIResponse covers the indicators query response.
+type openCTIResponse struct {
+	Data struct {
+		Indicators struct {
+			Edges []struct {
+				Cursor string `json:"cursor"`
+				Node   struct {
+					ID                         string `json:"id"`
+					Pattern                    string `json:"pattern"`
+					XOpenCTIMainObservableType string `json:"x_opencti_main_observable_type"`
+					ObjectLabel                struct {
+						Edges []struct {
+							Node struct {
+								Value string `json:"value"`
+							} `json:"node"`
+						} `json:"edges"`
+					} `json:"objectLabel"`
+				} `json:"node"`
+			} `json:"edges"`
+			PageInfo struct {
+				HasNextPage bool   `json:"hasNextPage"`
+				EndCursor   string `json:"endCursor"`
+			} `json:"pageInfo"`
+		} `json:"indicators"`
+	} `json:"data"`
+	Errors []struct {
+		Message string `json:"message"`
+	} `json:"errors"`
+}
+
+// stixValue extracts the single-quoted value from a STIX pattern. The
+// canonical STIX pattern form is `[<obj-type>:<prop> = '<value>']`.
+// For property paths that are themselves quoted — e.g.
+// `file:hashes.'SHA-256' = 'abcdef'` — a regex over the whole pattern
+// would grab the first quoted substring, which is the algorithm name,
+// not the value. Splitting on the rightmost `=` first scopes the
+// quoted-value match to the right-hand side. Returns empty string
+// when no quoted value is found; caller treats that as a skip.
+var stixValueRe = regexp.MustCompile(`'([^']+)'`)
+
+func stixValue(pattern string) string {
+	eq := strings.LastIndex(pattern, "=")
+	if eq < 0 {
+		return ""
+	}
+	rhs := pattern[eq+1:]
+	if m := stixValueRe.FindStringSubmatch(rhs); len(m) >= 2 {
+		return m[1]
+	}
+	return ""
+}
+
+// Fetch satisfies Adapter.Fetch. Walks the cursor, accumulating
+// normalized indicators across pages. On any per-page error the
+// accumulated set is returned alongside the error so partial
+// progress isn't lost.
+func (c *OpenCTIClient) Fetch(ctx context.Context) ([]Indicator, error) {
+	if c.BaseURL == "" {
+		return nil, fmt.Errorf("opencti: empty base URL")
+	}
+	if c.APIKey == "" {
+		return nil, fmt.Errorf("opencti: empty API key")
+	}
+
+	out := make([]Indicator, 0, c.PageSize)
+	var cursor string
+	for page := 0; page < c.PageLimit; page++ {
+		vars := map[string]any{"first": c.PageSize}
+		if cursor != "" {
+			vars["after"] = cursor
+		}
+
+		body, err := json.Marshal(openCTIRequest{Query: openCTIQuery, Variables: vars})
+		if err != nil {
+			return out, fmt.Errorf("opencti: marshal request: %w", err)
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/graphql", bytes.NewReader(body))
+		if err != nil {
+			return out, fmt.Errorf("opencti: build request: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := c.HTTP.Do(req)
+		if err != nil {
+			return out, fmt.Errorf("opencti: request failed: %w", err)
+		}
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20)) // 50 MiB safety cap
+		_ = resp.Body.Close()
+		if err != nil {
+			return out, fmt.Errorf("opencti: read response: %w", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			preview := string(raw)
+			if len(preview) > 1024 {
+				preview = preview[:1024]
+			}
+			return out, fmt.Errorf("opencti: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(preview))
+		}
+
+		var parsed openCTIResponse
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			return out, fmt.Errorf("opencti: decode response: %w", err)
+		}
+		if len(parsed.Errors) > 0 {
+			return out, fmt.Errorf("opencti: graphql error: %s", parsed.Errors[0].Message)
+		}
+
+		for _, edge := range parsed.Data.Indicators.Edges {
+			ind, ok := normalizeOpenCTINode(edge.Node)
+			if !ok {
+				continue
+			}
+			out = append(out, ind)
+		}
+
+		if !parsed.Data.Indicators.PageInfo.HasNextPage {
+			break
+		}
+		cursor = parsed.Data.Indicators.PageInfo.EndCursor
+		if cursor == "" {
+			// Defensive: hasNextPage=true with no cursor would loop forever.
+			break
+		}
+	}
+	return out, nil
+}
+
+// normalizeOpenCTINode translates one OpenCTI indicator node into the
+// normalized Indicator shape. Returns ok=false to skip indicators we
+// can't classify (URL, unrecognized observable types, malformed
+// values).
+func normalizeOpenCTINode(node struct {
+	ID                         string `json:"id"`
+	Pattern                    string `json:"pattern"`
+	XOpenCTIMainObservableType string `json:"x_opencti_main_observable_type"`
+	ObjectLabel                struct {
+		Edges []struct {
+			Node struct {
+				Value string `json:"value"`
+			} `json:"node"`
+		} `json:"edges"`
+	} `json:"objectLabel"`
+}) (Indicator, bool) {
+	val := stixValue(node.Pattern)
+	if val == "" {
+		return Indicator{}, false
+	}
+
+	var typ IndicatorType
+	switch node.XOpenCTIMainObservableType {
+	case "IPv4-Addr", "IPv6-Addr":
+		if strings.Contains(val, "/") {
+			if _, _, err := net.ParseCIDR(val); err != nil {
+				return Indicator{}, false
+			}
+			typ = IndicatorCIDR
+		} else {
+			if net.ParseIP(val) == nil {
+				return Indicator{}, false
+			}
+			typ = IndicatorIP
+		}
+	case "Domain-Name", "Hostname":
+		typ = IndicatorDomain
+	case "StixFile":
+		typ = IndicatorHash
+	default:
+		return Indicator{}, false
+	}
+
+	tags := make([]string, 0, len(node.ObjectLabel.Edges))
+	for _, e := range node.ObjectLabel.Edges {
+		if e.Node.Value != "" {
+			tags = append(tags, e.Node.Value)
+		}
+	}
+
+	return Indicator{
+		Indicator: val,
+		Type:      typ,
+		SourceID:  node.ID,
+		Tags:      tags,
+	}, true
+}

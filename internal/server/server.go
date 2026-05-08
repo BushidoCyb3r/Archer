@@ -71,6 +71,8 @@ func (s *Server) startFeedWorker() {
 		switch f.SourceType {
 		case feeds.SourceMISP:
 			return feeds.NewMISPClient(f.URL, f.APIKey), nil
+		case feeds.SourceOpenCTI:
+			return feeds.NewOpenCTIClient(f.URL, f.APIKey), nil
 		default:
 			return nil, fmt.Errorf("unsupported feed source_type: %q", f.SourceType)
 		}
