@@ -871,7 +871,7 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		watchTime, enabled := s.store.GetWatch()
-		tz := s.store.GetWatchTimezone()
+		tz := s.store.GetTimezone()
 		intervalHours := s.store.GetWatchInterval()
 		resp := map[string]any{
 			"time":           watchTime,

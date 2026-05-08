@@ -566,7 +566,7 @@ func (s *Store) AppendUploadedFile(path string) {
 func (s *Store) SetWatch(watchTime, timezone string, enabled bool, intervalHours int) {
 	s.mu.Lock()
 	s.config.WatchTime = watchTime
-	s.config.WatchTimezone = timezone
+	s.config.Timezone = timezone
 	s.config.WatchEnabled = enabled
 	s.config.WatchIntervalHours = intervalHours
 	if s.db != nil {
@@ -582,12 +582,13 @@ func (s *Store) GetWatch() (watchTime string, enabled bool) {
 	return s.config.WatchTime, s.config.WatchEnabled
 }
 
-// GetWatchTimezone returns the IANA name configured for the watch schedule,
-// or "" when none is set. Callers should treat "" as UTC.
-func (s *Store) GetWatchTimezone() string {
+// GetTimezone returns the operator's IANA timezone, or "" when none is set.
+// Callers should treat "" as UTC. Used by the watch scheduler to interpret
+// WatchTime and by the off-hours detector to interpret OffHoursStart/End.
+func (s *Store) GetTimezone() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.config.WatchTimezone
+	return s.config.Timezone
 }
 
 // GetWatchInterval returns the configured cadence in hours: 0 (default)
