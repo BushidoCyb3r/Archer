@@ -86,6 +86,16 @@ relevant, `### Detection changes` in each release entry.
   `ssl.log` with SNI ≠ HTTP Host), `http_suspicious_file/`
   (`/payload.exe`), and `http_beacon/` (10 perfectly-regular
   requests).
+- **SSL/TLS and X.509 golden fixtures (Phase 4.5).** Eight new
+  scenarios. SSL: `ssl_malicious_ja3/` (Cobalt Strike beacon JA3),
+  `ssl_weak_tls/` (TLSv10), `ssl_no_sni/` (established TLS without
+  SNI on port 443), and `ssl_no_sni_c2_port/` (same but on port
+  4444). X.509: `x509_self_signed/` (subject == issuer),
+  `x509_default_subject/` (`openssl` substring), `x509_short_validity/`
+  (8-hour validity window), and `x509_long_validity/` (26-year
+  window). Each X.509 scenario locks in a distinct Detail-string
+  indicator so a refactor that drops or reorders one of the
+  cert-anomaly checks fails the test loudly.
 
 ### Changed
 - One-time codebase reformat with `gofmt -w` so the new CI lint job

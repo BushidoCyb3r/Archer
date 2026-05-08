@@ -1,0 +1,11 @@
+[
+  {
+    "type": "Suspicious Certificate",
+    "severity": "MEDIUM",
+    "score": 58,
+    "src_ip": "(cert)",
+    "dst_ip": "CN=evil.local",
+    "detail": "Subject: CN=evil.local | Issuer: CN=evil.local | Indicators: self-signed (subject==issuer)",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

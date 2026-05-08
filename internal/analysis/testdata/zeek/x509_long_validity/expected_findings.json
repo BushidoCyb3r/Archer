@@ -1,0 +1,11 @@
+[
+  {
+    "type": "Suspicious Certificate",
+    "severity": "MEDIUM",
+    "score": 58,
+    "src_ip": "(cert)",
+    "dst_ip": "CN=forever.example.org",
+    "detail": "Subject: CN=forever.example.org | Issuer: CN=Some CA | Indicators: validity \u003e 10 years",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

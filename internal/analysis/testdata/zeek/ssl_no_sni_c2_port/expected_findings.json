@@ -1,0 +1,12 @@
+[
+  {
+    "type": "SSL No-SNI on C2 Port",
+    "severity": "HIGH",
+    "score": 82,
+    "src_ip": "192.168.4.10",
+    "dst_ip": "203.0.113.110",
+    "dst_port": "4444",
+    "detail": "Established TLS with no SNI on C2 port 4444 (Metasploit default)",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]
