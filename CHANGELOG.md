@@ -31,7 +31,29 @@ relevant, `### Detection changes` in each release entry.
 ## [Unreleased]
 
 ### Added
-- *(future entries land here.)*
+- **CI workflow.** A single GitHub Actions workflow at
+  `.github/workflows/ci.yml` runs on every push to `main` and every
+  pull request targeting `main`. Three jobs in parallel: `lint`
+  (gofmt + go vet), `test` (go test -race), and `build` (CGO_ENABLED=0
+  static binary plus a Docker build smoke check that mirrors the
+  multi-stage `Dockerfile` flags). The build job depends on lint+test
+  passing first so a broken test doesn't waste a Docker image build.
+  Each push surfaces as ✅ or ❌ on the commit; the README has a CI
+  badge linking to the workflow runs page.
+- Phase 5 of the maturation roadmap is complete; future PRs (including
+  Phase 4's detection-semantics tests) inherit the gate automatically.
+
+### Changed
+- One-time codebase reformat with `gofmt -w` so the new CI lint job
+  passes from day one. Mechanical whitespace-only diff across 18 Go
+  files; no behavior change. Aligned `:=` declaration blocks in a
+  handful of files (`cmd/archer/main.go`, etc.) collapsed to standard
+  single-space form. Future drift is caught by the CI gofmt check.
+- README "Version: v0.1.0" stale literal at the top replaced with the
+  CI badge plus a generic "Pre-1.0 — see CHANGELOG.md for the current
+  release" line. The literal version was already drifting (we shipped
+  v0.2.0 and v0.3.0 without updating it); the analyst-UI status pill
+  and `/api/version` endpoint are the live source of truth.
 
 ---
 
