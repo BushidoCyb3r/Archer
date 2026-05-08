@@ -46,6 +46,17 @@ type beaconState struct {
 func (a *Analyzer) analyzeConn(files []string) {
 	connFiles := filterFiles(files, "conn")
 
+	// Off-hours window is interpreted in the operator's configured timezone.
+	// Empty Timezone or an unparseable IANA name falls back to UTC so a bad
+	// config doesn't disable detection — failing closed (UTC default) is
+	// preferable to failing open (no off-hours detection at all).
+	offHoursLoc := time.UTC
+	if a.cfg.Timezone != "" {
+		if loc, err := time.LoadLocation(a.cfg.Timezone); err == nil {
+			offHoursLoc = loc
+		}
+	}
+
 	pairCounts := make(map[pairKey]int)
 	beacon := make(map[pairKey]*beaconState)
 
@@ -115,7 +126,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 			}
 
 			if ts > 0 && !isPrivateIP(dst) {
-				hour := time.Unix(int64(ts), 0).UTC().Hour()
+				hour := time.Unix(int64(ts), 0).In(offHoursLoc).Hour()
 				var offHours bool
 				if a.cfg.OffHoursStart > a.cfg.OffHoursEnd {
 					offHours = hour >= a.cfg.OffHoursStart || hour < a.cfg.OffHoursEnd
@@ -363,14 +374,16 @@ func (a *Analyzer) analyzeConn(files []string) {
 		}
 		score := clamp(int(45+math.Log10(mb+1)*12), 1, 78)
 		ts := offFirst[ok2]
-		hour := time.Unix(int64(ts), 0).UTC().Hour()
+		tzAtTs := time.Unix(int64(ts), 0).In(offHoursLoc)
+		hour := tzAtTs.Hour()
+		tzAbbrev := tzAtTs.Format("MST")
 		a.add(model.Finding{
 			Type:      "Off-Hours Transfer",
 			Severity:  model.SevMedium,
 			Score:     score,
 			SrcIP:     ok2.src,
 			DstIP:     ok2.dst,
-			Detail:    fmt.Sprintf("%.2f MB outbound at %02d:xx UTC (off-hours window: %02d-%02d)", mb, hour, a.cfg.OffHoursStart, a.cfg.OffHoursEnd),
+			Detail:    fmt.Sprintf("%.2f MB outbound at %02d:xx %s (off-hours window: %02d-%02d)", mb, hour, tzAbbrev, a.cfg.OffHoursStart, a.cfg.OffHoursEnd),
 			Timestamp: fmtTS(ts),
 		})
 	}

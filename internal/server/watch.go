@@ -27,7 +27,7 @@ func (s *Server) startWatch() {
 	if !enabled || watchTime == "" {
 		return
 	}
-	tz := s.store.GetWatchTimezone()
+	tz := s.store.GetTimezone()
 	intervalHours := s.store.GetWatchInterval()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -68,7 +68,7 @@ func (s *Server) runWatchLoop(ctx context.Context, hhmm, tzName string, interval
 			return
 		case <-time.After(time.Until(next)):
 			currentTime, enabled := s.store.GetWatch()
-			currentTZ := s.store.GetWatchTimezone()
+			currentTZ := s.store.GetTimezone()
 			currentInterval := s.store.GetWatchInterval()
 			if !enabled || currentTime != hhmm || currentTZ != tzName || currentInterval != intervalHours {
 				return

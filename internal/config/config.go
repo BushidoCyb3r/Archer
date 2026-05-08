@@ -34,13 +34,19 @@ type Config struct {
 	CensysAPIID     string `json:"censys_api_id"`
 	CensysAPISecret string `json:"censys_api_secret"`
 
+	// Operator timezone — IANA name, e.g. "America/New_York". Empty = UTC.
+	// Used by the watch scheduler (WatchTime is HH:MM in this TZ) and by
+	// the off-hours detector (OffHoursStart/End read as hour-of-day in this
+	// TZ). Setting one timezone for both keeps "off-hours at 02:00" mean
+	// the same thing whether you're talking about scheduling or detection.
+	Timezone string `json:"timezone,omitempty"`
+
 	// Watch mode — scheduled analysis. WatchTime is the anchor (HH:MM in
-	// WatchTimezone) and WatchIntervalHours controls cadence: 0 or 24 = once
+	// Timezone) and WatchIntervalHours controls cadence: 0 or 24 = once
 	// daily at HH:MM (the legacy default), 12/6/4/1 = sub-daily ticks at the
 	// same minute past every Nth hour aligned to the anchor's hour-offset.
-	WatchTime          string `json:"watch_time"` // HH:MM in WatchTimezone, e.g. "02:00"
+	WatchTime          string `json:"watch_time"` // HH:MM in Timezone, e.g. "02:00"
 	WatchEnabled       bool   `json:"watch_enabled"`
-	WatchTimezone      string `json:"watch_timezone,omitempty"`       // IANA name, e.g. "America/New_York". Empty = UTC.
 	WatchIntervalHours int    `json:"watch_interval_hours,omitempty"` // 0 (default) or 24 = daily; 12/6/4/1 = sub-daily.
 
 	// Archive mode — moves log files older than a cutoff out of the scan

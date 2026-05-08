@@ -91,6 +91,28 @@ relevant, `### Detection changes` in each release entry.
   ordering changes. Existing analyst notes referencing the old order
   are unaffected (the Detail field is fresh on each analysis pass and
   not part of the fingerprint).
+- **Off-Hours Transfer is now timezone-aware.** The off-hours window
+  (`OffHoursStart`/`OffHoursEnd` config fields) is interpreted in the
+  operator's configured `Timezone` instead of UTC. A team in
+  `America/New_York` setting Timezone to that name will now see
+  off-hours fire for activity between 22:00 and 06:00 EST/EDT — what
+  an analyst expects when they say "off-hours" — instead of the
+  literal UTC window. With the default empty Timezone (= UTC) the
+  behavior is unchanged. Bad/unparseable IANA names fall back to UTC
+  defensively. The finding's Detail string now also surfaces the
+  resolved timezone abbreviation (e.g. "02:xx EST"), where it
+  previously hardcoded "UTC". Re-baseline hunts that depend on
+  off-hours hits if you change Timezone.
+
+### Breaking
+- **Config field renamed: `WatchTimezone` → `Timezone`.** This is the
+  same operator-timezone setting, now shared by the watch scheduler
+  and the off-hours detector. The HTTP API for `/api/watch` was
+  already using `timezone` as the JSON key (so no client/UI change),
+  but the underlying stored config used `watch_timezone`. On first
+  startup after upgrading, any existing operator timezone setting
+  will read as empty (UTC default) — re-set the timezone via the
+  Watch sidebar and it'll persist under the new key.
 
 ---
 
