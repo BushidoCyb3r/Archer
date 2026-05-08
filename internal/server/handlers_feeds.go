@@ -30,6 +30,7 @@ type feedResponse struct {
 	LastError             string `json:"last_error,omitempty"`
 	Status                string `json:"status"`
 	Enabled               bool   `json:"enabled"`
+	TLSSkipVerify         bool   `json:"tls_skip_verify"`
 	CreatedAt             int64  `json:"created_at"`
 	UpdatedAt             int64  `json:"updated_at"`
 	HasAPIKey             bool   `json:"has_api_key"`
@@ -48,6 +49,7 @@ func toFeedResponse(f feeds.Feed) feedResponse {
 		LastError:             f.LastError,
 		Status:                f.Status,
 		Enabled:               f.Enabled,
+		TLSSkipVerify:         f.TLSSkipVerify,
 		CreatedAt:             f.CreatedAt,
 		UpdatedAt:             f.UpdatedAt,
 		HasAPIKey:             f.APIKey != "",
@@ -68,6 +70,7 @@ type feedRequest struct {
 	RefreshCadenceMinutes int    `json:"refresh_cadence_minutes"`
 	IndicatorAgingDays    int    `json:"indicator_aging_days"`
 	Enabled               bool   `json:"enabled"`
+	TLSSkipVerify         bool   `json:"tls_skip_verify"`
 }
 
 // handleFeeds dispatches GET (list) and POST (create) on /api/feeds.
@@ -107,6 +110,7 @@ func (s *Server) handleFeeds(w http.ResponseWriter, r *http.Request) {
 			RefreshCadenceMinutes: req.RefreshCadenceMinutes,
 			IndicatorAgingDays:    req.IndicatorAgingDays,
 			Enabled:               req.Enabled,
+			TLSSkipVerify:         req.TLSSkipVerify,
 		})
 		if err != nil {
 			jsonError(w, err.Error(), http.StatusInternalServerError)
@@ -170,6 +174,7 @@ func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 		current.RefreshCadenceMinutes = req.RefreshCadenceMinutes
 		current.IndicatorAgingDays = req.IndicatorAgingDays
 		current.Enabled = req.Enabled
+		current.TLSSkipVerify = req.TLSSkipVerify
 		if err := s.store.UpdateFeed(current); err != nil {
 			jsonError(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -283,9 +288,9 @@ func (s *Server) handleFeedRefresh(w http.ResponseWriter, r *http.Request, id in
 func (s *Server) buildFeedAdapter(f feeds.Feed) (feeds.Adapter, error) {
 	switch f.SourceType {
 	case feeds.SourceMISP:
-		return feeds.NewMISPClient(f.URL, f.APIKey), nil
+		return feeds.NewMISPClient(f.URL, f.APIKey, f.TLSSkipVerify), nil
 	case feeds.SourceOpenCTI:
-		return feeds.NewOpenCTIClient(f.URL, f.APIKey), nil
+		return feeds.NewOpenCTIClient(f.URL, f.APIKey, f.TLSSkipVerify), nil
 	default:
 		return nil, fmt.Errorf("unsupported feed source_type: %q", f.SourceType)
 	}

@@ -45,7 +45,7 @@ func TestMISPClient_Fetch_ParsesAndNormalizes(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewMISPClient(srv.URL, "test-key")
+	c := NewMISPClient(srv.URL, "test-key", false)
 	got, err := c.Fetch(context.Background())
 	if err != nil {
 		t.Fatalf("Fetch returned error: %v", err)
@@ -119,7 +119,7 @@ func TestMISPClient_Fetch_PropagatesHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewMISPClient(srv.URL, "bad-key")
+	c := NewMISPClient(srv.URL, "bad-key", false)
 	_, err := c.Fetch(context.Background())
 	if err == nil {
 		t.Fatalf("expected error on HTTP 401, got nil")

@@ -95,6 +95,7 @@ const Feeds = (() => {
     document.getElementById('feeds-edit-cadence').value = feed ? feed.refresh_cadence_minutes : 60;
     document.getElementById('feeds-edit-aging').value = feed ? feed.indicator_aging_days : 30;
     document.getElementById('feeds-edit-enabled').checked = feed ? feed.enabled : true;
+    document.getElementById('feeds-edit-tls-skip-verify').checked = feed ? !!feed.tls_skip_verify : false;
     const err = document.getElementById('feeds-edit-error');
     err.style.display = 'none';
     err.textContent = '';
@@ -113,6 +114,7 @@ const Feeds = (() => {
       refresh_cadence_minutes: parseInt(document.getElementById('feeds-edit-cadence').value, 10) || 0,
       indicator_aging_days:    parseInt(document.getElementById('feeds-edit-aging').value, 10) || 0,
       enabled:                 document.getElementById('feeds-edit-enabled').checked,
+      tls_skip_verify:         document.getElementById('feeds-edit-tls-skip-verify').checked,
     };
 
     try {
