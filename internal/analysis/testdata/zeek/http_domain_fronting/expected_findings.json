@@ -1,0 +1,21 @@
+[
+  {
+    "type": "Domain Fronting",
+    "severity": "CRITICAL",
+    "score": 88,
+    "src_ip": "192.168.3.40",
+    "dst_ip": "203.0.113.103",
+    "dst_port": "443",
+    "detail": "SSL SNI: \"cdn.example.com\" ≠ HTTP Host: \"hidden.evil.com\" — CDN-based domain fronting",
+    "timestamp": "2024-01-15 12:00:01"
+  },
+  {
+    "type": "Host Risk Score",
+    "severity": "MEDIUM",
+    "score": 32,
+    "src_ip": "192.168.3.40",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 32 | Detections: [Domain Fronting]",
+    "timestamp": "2024-01-15 12:00:01"
+  }
+]

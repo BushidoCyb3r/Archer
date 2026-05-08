@@ -1,0 +1,1 @@
+{"ts":1705320001.0,"uid":"DF000001","id.orig_h":"192.168.3.40","id.orig_p":50000,"id.resp_h":"203.0.113.103","id.resp_p":443,"method":"GET","host":"hidden.evil.com","uri":"/","user_agent":"Mozilla/5.0","status_code":200,"resp_mime_types":"text/html","orig_ip_bytes":250,"resp_ip_bytes":4096}

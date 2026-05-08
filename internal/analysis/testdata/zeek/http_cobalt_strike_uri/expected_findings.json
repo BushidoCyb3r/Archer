@@ -1,0 +1,21 @@
+[
+  {
+    "type": "Cobalt Strike URI",
+    "severity": "CRITICAL",
+    "score": 93,
+    "src_ip": "192.168.3.20",
+    "dst_ip": "203.0.113.101",
+    "dst_port": "80",
+    "detail": "CS checksum8 match (x86) — URI: /xyzaa | Host: evil.com | Checksum=92",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Host Risk Score",
+    "severity": "MEDIUM",
+    "score": 40,
+    "src_ip": "192.168.3.20",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 40 | Detections: [Cobalt Strike URI]",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]
