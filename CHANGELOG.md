@@ -31,6 +31,21 @@ relevant, `### Detection changes` in each release entry.
 ## [Unreleased]
 
 ### Added
+- *(future entries land here.)*
+
+---
+
+## [v0.3.0] — 2026-05-08
+
+DB schema changes are now first-class numbered migrations instead of
+inline `CREATE`/`ALTER` calls, so future column additions can't strand
+existing installs mid-mission. Operator-facing improvements to the
+allowlist / IOC list dialogs (comments, stable order) and a handful of
+analyst-loop bug fixes round out the release. Existing installs upgrade
+in place — the migration runner detects pre-Phase-3 schemas and stamps
+version 1 without touching the data.
+
+### Added
 - **DB schema migration framework.** Schema changes are now expressed
   as numbered SQL files under `internal/store/migrations/` (embedded
   via `embed.FS`) and applied transactionally on server start. A new
@@ -40,14 +55,22 @@ relevant, `### Detection changes` in each release entry.
   schema. Existing installs that predate the framework are detected by
   the presence of the `findings` table and have version 1 stamped
   without re-running 0001 — operator data is preserved untouched.
-  Adding a future schema change is now: drop a new
-  `NNNN_<title>.sql` file, write Go code against the new shape, write
-  a CHANGELOG entry. See `RELEASING.md` "Schema migrations" for the
-  policy and `docs/ARCHITECTURE.md` for the runner's data flow.
-- Test coverage for the framework: `internal/store/migrate_test.go`
-  covers fresh-DB application, pre-framework bootstrap-stamping,
-  idempotent re-runs, transaction rollback on bad SQL, version-prefix
-  parsing edge cases, and embedded-file integrity.
+  Adding a future schema change is now: drop a new `NNNN_<title>.sql`
+  file, write Go code against the new shape, write a CHANGELOG entry.
+  See `RELEASING.md` "Schema migrations" for the policy and
+  `docs/ARCHITECTURE.md` for the runner's data flow.
+- **Comments and stable order in the allowlist / IOC list dialogs.**
+  Lines starting with `#` are first-class comments that round-trip
+  through save/reload — operators can use them as section headers
+  (`# Cloud build agents`, `# Cobalt Strike beacons seen 2026-04`).
+  Inline tails like `1.2.3.4 # office` are stripped down to the
+  matchable entry at storage time. Whole-line comments are skipped by
+  the matcher, never causing false positives or negatives. Both list
+  dialogs now show a small hint above the textarea explaining the
+  conventions.
+- Test coverage for the migration framework
+  (`internal/store/migrate_test.go`) and for list comment-handling and
+  order preservation (`internal/store/list_test.go`).
 
 ### Changed
 - `Store.InitDB` and `UserStore.NewUserStore` no longer create or alter
@@ -57,6 +80,20 @@ relevant, `### Detection changes` in each release entry.
   baked into `0001_init.sql` as column definitions; on existing installs
   these were already applied at boot of the previous version, so the
   bootstrap-stamp logic carries them forward without re-running.
+- **Allowlist and IOC list now preserve operator line order across the
+  save/reload cycle.** Previously the in-memory storage was a Go map,
+  which randomized iteration on every read — operator groupings (and
+  any visual structure) shuffled on each list dialog open. The store
+  now keeps an ordered slice, persists in slice order via SQLite rowid,
+  and reads back with `ORDER BY rowid`. Existing installs are cleaned
+  automatically on first start (junk comment-strings stored by older
+  Archer get sanitized at load time).
+- Right-click context menu no longer carries a wide
+  `[severity] Type — src → dst:port` banner that forced the menu wider
+  than the longest action label. A small `↖` arrow at the top-left
+  visually anchors the menu to the click point; the action labels
+  themselves already include the resolved IP, so disambiguation
+  survives the simplification.
 - Right-click → Lookup → Censys now opens `platform.censys.io/hosts/<ip>`
   instead of `search.censys.io/hosts/<ip>`. Censys migrated their
   analyst-facing UI to the new platform host in 2026; the path is
@@ -74,29 +111,6 @@ relevant, `### Detection changes` in each release entry.
   the underlying data ignored them until the operator hit Apply or
   refreshed the page. All six call sites now pass `_currentFilterParams()`
   so the filter survives the round-trip.
-
-### Added
-- **Comments and stable order in the allowlist / IOC list dialogs.**
-  Lines starting with `#` are first-class comments that round-trip
-  through save/reload — operators can use them as section headers
-  (`# Cloud build agents`, `# Cobalt Strike beacons seen 2026-04`).
-  Inline tails like `1.2.3.4 # office` are stripped down to the
-  matchable entry at storage time. Whole-line comments are skipped
-  by the matcher, never causing false positives or negatives. Both
-  list dialogs now show a small hint above the textarea explaining
-  the conventions.
-- Test coverage for list comment-handling and order preservation in
-  `internal/store/list_test.go`.
-
-### Changed
-- Allowlist and IOC list now preserve operator line order across the
-  save/reload cycle. Previously the in-memory storage was a Go map,
-  which randomized iteration on every read — operator groupings (and
-  any visual structure) shuffled on each list dialog open. The store
-  now keeps an ordered slice, persists in slice order via SQLite
-  rowid, and reads back with `ORDER BY rowid`. Existing installs are
-  cleaned automatically on first start (junk comment-strings stored
-  by older Archer get sanitized at load time).
 
 ---
 
@@ -245,6 +259,7 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.3.0...HEAD
+[v0.3.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.2.0...v0.3.0
 [v0.2.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/BushidoCyb3r/Archer/releases/tag/v0.1.0
