@@ -65,3 +65,9 @@ Each scenario subdirectory contains:
 | `dns_tunneling/` | DNS Tunneling (per-query) |
 | `dns_nxdomain_flood/` | DNS NXDOMAIN Flood |
 | `dns_subdomain_diversity/` | DNS Tunneling (subdomain diversity) |
+| `http_suspicious_ua/` | Suspicious UA |
+| `http_cobalt_strike_uri/` | Cobalt Strike URI |
+| `http_c2_uri_pattern/` | C2 URI Pattern |
+| `http_domain_fronting/` | Domain Fronting (uses paired ssl.log) |
+| `http_suspicious_file/` | Suspicious File Download |
+| `http_beacon/` | HTTP Beaconing |

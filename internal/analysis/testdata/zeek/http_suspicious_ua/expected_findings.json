@@ -1,0 +1,12 @@
+[
+  {
+    "type": "Suspicious UA",
+    "severity": "LOW",
+    "score": 30,
+    "src_ip": "192.168.3.10",
+    "dst_ip": "203.0.113.100",
+    "dst_port": "80",
+    "detail": "Scripting/automation UA: \"curl/7.79.1\" | Host: example.com",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

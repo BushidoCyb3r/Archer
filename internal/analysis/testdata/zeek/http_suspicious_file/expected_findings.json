@@ -1,0 +1,12 @@
+[
+  {
+    "type": "Suspicious File Download",
+    "severity": "HIGH",
+    "score": 72,
+    "src_ip": "192.168.3.50",
+    "dst_ip": "203.0.113.104",
+    "dst_port": "80",
+    "detail": "extension: .exe | URI: /payload.exe | Host: drop.example.com",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

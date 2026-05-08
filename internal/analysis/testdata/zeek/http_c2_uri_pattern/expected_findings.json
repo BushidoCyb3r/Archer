@@ -1,0 +1,21 @@
+[
+  {
+    "type": "C2 URI Pattern",
+    "severity": "CRITICAL",
+    "score": 91,
+    "src_ip": "192.168.3.30",
+    "dst_ip": "203.0.113.102",
+    "dst_port": "80",
+    "detail": "Cobalt Strike /submit.php — URI: /submit.php | Host: evil.com | Method: POST",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Host Risk Score",
+    "severity": "MEDIUM",
+    "score": 38,
+    "src_ip": "192.168.3.30",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 38 | Detections: [C2 URI Pattern]",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

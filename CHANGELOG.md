@@ -78,6 +78,14 @@ relevant, `### Detection changes` in each release entry.
   threshold), and `dns_subdomain_diversity/` (50 unique subdomains
   under one apex). Each scenario fires exactly the targeted detector
   with no contamination.
+- **HTTP-detector golden fixtures (Phase 4.4).** Six new scenarios
+  cover every detector in `analyzeHTTP`: `http_suspicious_ua/` (curl
+  UA), `http_cobalt_strike_uri/` (URI `/xyzaa` whose byte-sum modulo
+  256 equals 92, the x86 stager checksum), `http_c2_uri_pattern/`
+  (`/submit.php` regex match), `http_domain_fronting/` (paired
+  `ssl.log` with SNI ≠ HTTP Host), `http_suspicious_file/`
+  (`/payload.exe`), and `http_beacon/` (10 perfectly-regular
+  requests).
 
 ### Changed
 - One-time codebase reformat with `gofmt -w` so the new CI lint job
