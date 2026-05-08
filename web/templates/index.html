@@ -44,6 +44,7 @@
     </div>
   </div>
   <button id="sensors-btn" style="display:none">Sensors</button>
+  <button id="feeds-btn" style="display:none">Feeds</button>
   <button id="users-btn" style="display:none">Users<span id="pending-badge" style="display:none"></span></button>
   <button id="settings-btn">Settings</button>
   <div id="user-badge">
@@ -526,6 +527,86 @@
   </div>
 </dialog>
 
+<!-- ── Threat-intel feeds dialog (Phase 7 slice 5b) ─────────────── -->
+<dialog id="feeds-dialog">
+  <div class="dlg-header">Threat Intel Feeds</div>
+  <div class="dlg-body">
+    <div style="font-size:11px;color:var(--fg-dim);margin-bottom:10px">
+      Configure MISP or OpenCTI instances. Indicators fetched from enabled feeds compose with the Operator IOC list and surface as <code>ioc_match</code> on findings, with <code>ioc_source</code> identifying which list flagged the match.
+    </div>
+    <div id="feeds-admin-bar" style="margin-bottom:8px;display:none">
+      <button id="feeds-new-btn" class="dlg-btn primary">+ Add feed</button>
+    </div>
+    <div id="feeds-table-wrap">
+      <table id="feeds-table">
+        <thead>
+          <tr>
+            <th style="width:160px">Name</th>
+            <th style="width:90px">Source</th>
+            <th style="width:90px">Status</th>
+            <th style="width:90px">Indicators</th>
+            <th style="width:170px">Last refresh</th>
+            <th style="width:90px">Cadence</th>
+            <th style="width:80px">Aging</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="feeds-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="feeds-close">Close</button>
+  </div>
+</dialog>
+
+<dialog id="feeds-edit-dlg">
+  <div class="dlg-header" id="feeds-edit-title">Add feed</div>
+  <div class="dlg-body">
+    <div style="margin-bottom:10px">
+      <label style="font-size:11px;color:var(--fg-dim);display:block;margin-bottom:4px">Source type</label>
+      <select id="feeds-edit-source-type" class="dlg-input">
+        <option value="misp">MISP</option>
+        <option value="opencti">OpenCTI</option>
+      </select>
+    </div>
+    <div style="margin-bottom:10px">
+      <label style="font-size:11px;color:var(--fg-dim);display:block;margin-bottom:4px">Name</label>
+      <input id="feeds-edit-name" class="dlg-input" type="text" placeholder="e.g. company-misp">
+    </div>
+    <div style="margin-bottom:10px">
+      <label style="font-size:11px;color:var(--fg-dim);display:block;margin-bottom:4px">URL (include https://)</label>
+      <input id="feeds-edit-url" class="dlg-input" type="text" placeholder="https://misp.example.com">
+    </div>
+    <div style="margin-bottom:10px">
+      <label style="font-size:11px;color:var(--fg-dim);display:block;margin-bottom:4px">
+        API key
+        <span id="feeds-edit-keyhint" style="display:none;margin-left:6px;color:var(--fg-dim)">(leave blank to keep existing)</span>
+      </label>
+      <input id="feeds-edit-apikey" class="dlg-input" type="password" autocomplete="off">
+    </div>
+    <div style="display:flex;gap:10px;margin-bottom:10px">
+      <div style="flex:1">
+        <label style="font-size:11px;color:var(--fg-dim);display:block;margin-bottom:4px">Refresh cadence (minutes)</label>
+        <input id="feeds-edit-cadence" class="dlg-input" type="number" min="1" value="60">
+      </div>
+      <div style="flex:1">
+        <label style="font-size:11px;color:var(--fg-dim);display:block;margin-bottom:4px">Aging window (days)</label>
+        <input id="feeds-edit-aging" class="dlg-input" type="number" min="0" value="30">
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px">
+      <input id="feeds-edit-enabled" type="checkbox" checked>
+      Enabled (fetcher runs on cadence)
+    </label>
+    <div id="feeds-edit-error" style="display:none;margin-top:10px;color:var(--fg-bad);font-size:11px"></div>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="feeds-edit-cancel">Cancel</button>
+    <button class="dlg-btn primary" id="feeds-edit-save">Save</button>
+  </div>
+</dialog>
+
 <dialog id="note-dialog">
   <div class="dlg-header" id="note-dialog-title">Add Note</div>
   <div class="dlg-body">
@@ -846,6 +927,7 @@
 <script src="/static/js/dialog.js"></script>
 <script src="/static/js/graph.js"></script>
 <script src="/static/js/sensors.js"></script>
+<script src="/static/js/feeds.js"></script>
 <script src="/static/js/app.js"></script>
 </body>
 </html>

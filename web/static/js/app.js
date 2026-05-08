@@ -2764,6 +2764,11 @@
       if (u.role === 'admin' || u.role === 'analyst') {
         Sensors.init(u.role === 'admin');
       }
+      // Feeds menu mirrors Sensors: admin + analyst can read; admin
+      // gets the add/edit/delete/refresh actions.
+      if (typeof Feeds !== 'undefined' && (u.role === 'admin' || u.role === 'analyst')) {
+        Feeds.init(u.role === 'admin');
+      }
       // Hide write-only controls for viewers
       if (u.role === 'viewer') {
         ['import-logs-btn','clear-files-btn','analyze-btn','allowlist-btn','ioc-btn','suppressions-btn',
