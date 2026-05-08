@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/config"
+	"github.com/BushidoCyb3r/Archer/internal/match"
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
 
@@ -28,6 +29,8 @@ type Store struct {
 	findings      []model.Finding
 	allowlist     []string
 	iocList       []string
+	allowlistM    *match.Matcher // cached compile of allowlist; rebuilt on Set
+	iocM          *match.Matcher // cached compile of iocList; rebuilt on Set
 	suppressions  map[string]suppressionEntry
 	notifications []model.Notification
 	notifCounter  int
@@ -138,6 +141,12 @@ func (s *Store) InitDB(db *sql.DB) {
 		s.iocList = cleaned
 		s.persistList("ioc_list", s.iocList)
 	}
+
+	// Compile the cached matchers once at load. Rebuilt only when
+	// SetAllowlist/SetIOCList are called — what was previously rebuilt
+	// per /api/findings request, costing 100-500ms on a hot list.
+	s.allowlistM = match.Compile(s.allowlist)
+	s.iocM = match.Compile(s.iocList)
 
 	var cfgJSON string
 	if err := db.QueryRow(`SELECT config FROM settings WHERE id = 1`).Scan(&cfgJSON); err == nil {
@@ -444,6 +453,7 @@ func (s *Store) SetAllowlist(entries []string) {
 	defer s.mu.Unlock()
 	s.allowlist = sanitizeListEntries(entries)
 	s.persistList("allowlist", s.allowlist)
+	s.allowlistM = match.Compile(s.allowlist)
 }
 
 func (s *Store) GetIOCList() []string {
@@ -459,6 +469,23 @@ func (s *Store) SetIOCList(entries []string) {
 	defer s.mu.Unlock()
 	s.iocList = sanitizeListEntries(entries)
 	s.persistList("ioc_list", s.iocList)
+	s.iocM = match.Compile(s.iocList)
+}
+
+// AllowlistMatcher returns the cached compiled matcher. Safe to call
+// concurrently — the Matcher value is immutable once compiled, so the
+// pointer copy under the read lock is sufficient.
+func (s *Store) AllowlistMatcher() *match.Matcher {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.allowlistM
+}
+
+// IOCMatcher mirrors AllowlistMatcher for the IOC list.
+func (s *Store) IOCMatcher() *match.Matcher {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.iocM
 }
 
 func (s *Store) AddSuppression(target string, expiry time.Time, detail string) {
