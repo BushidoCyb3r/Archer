@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 )
 
 // OpenCTIClient adapts a single OpenCTI instance to the Adapter
@@ -37,12 +36,15 @@ type OpenCTIClient struct {
 }
 
 // NewOpenCTIClient constructs a client with safe defaults: 30s
-// timeout, 1000 indicators per page, 100-page cap.
-func NewOpenCTIClient(baseURL, apiKey string) *OpenCTIClient {
+// timeout, 1000 indicators per page, 100-page cap. tlsSkipVerify=true
+// disables certificate verification on the upstream HTTPS request —
+// opt-in per feed for internal OpenCTI deployments running self-signed
+// or internal-CA certs.
+func NewOpenCTIClient(baseURL, apiKey string, tlsSkipVerify bool) *OpenCTIClient {
 	return &OpenCTIClient{
 		BaseURL:   strings.TrimRight(baseURL, "/"),
 		APIKey:    apiKey,
-		HTTP:      &http.Client{Timeout: 30 * time.Second},
+		HTTP:      httpClientWithTLS(tlsSkipVerify),
 		PageSize:  1000,
 		PageLimit: 100,
 	}

@@ -3,6 +3,7 @@ package feeds
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -37,14 +38,30 @@ type MISPClient struct {
 }
 
 // NewMISPClient constructs a client with safe defaults: 30s timeout,
-// 100k attribute cap. Override fields directly for non-default
-// behavior.
-func NewMISPClient(baseURL, apiKey string) *MISPClient {
+// 100k attribute cap. tlsSkipVerify=true disables certificate
+// verification on the upstream HTTPS request — opt-in per feed for
+// internal MISP deployments running self-signed or internal-CA certs.
+func NewMISPClient(baseURL, apiKey string, tlsSkipVerify bool) *MISPClient {
 	return &MISPClient{
 		BaseURL: strings.TrimRight(baseURL, "/"),
 		APIKey:  apiKey,
-		HTTP:    &http.Client{Timeout: 30 * time.Second},
+		HTTP:    httpClientWithTLS(tlsSkipVerify),
 		Limit:   100000,
+	}
+}
+
+// httpClientWithTLS builds an *http.Client whose Transport honors the
+// per-feed tls_skip_verify flag. Cloned from the stdlib default so we
+// keep its connection-pool and proxy behavior; only TLSClientConfig is
+// rewritten when the operator opts into bypass.
+func httpClientWithTLS(skipVerify bool) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if skipVerify {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+	return &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: transport,
 	}
 }
 

@@ -599,6 +599,14 @@
       <input id="feeds-edit-enabled" type="checkbox" checked>
       Enabled (fetcher runs on cadence)
     </label>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-top:6px">
+      <input id="feeds-edit-tls-skip-verify" type="checkbox">
+      Skip TLS certificate verification
+    </label>
+    <div style="font-size:11px;color:var(--fg-dim);margin-left:22px">
+      Only enable for trusted internal feeds (self-signed or internal-CA certs).
+      Disables verification of the upstream's TLS chain and hostname.
+    </div>
     <div id="feeds-edit-error" style="display:none;margin-top:10px;color:var(--fg-bad);font-size:11px"></div>
   </div>
   <div class="dlg-footer">

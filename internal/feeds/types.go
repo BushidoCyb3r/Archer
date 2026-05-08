@@ -50,8 +50,15 @@ type Feed struct {
 	LastError             string
 	Status                string // "idle" | "fetching" | "ok" | "error"
 	Enabled               bool
-	CreatedAt             int64
-	UpdatedAt             int64
+	// TLSSkipVerify disables certificate verification on the upstream
+	// HTTPS request. Off by default. Internal MISP / OpenCTI deployments
+	// commonly run with self-signed or internal-CA certs that the Archer
+	// container does not trust; this flag is the operator's per-feed
+	// opt-in to bypass that check. UI surfaces it with an explicit
+	// warning — turn off only for trusted internal feeds.
+	TLSSkipVerify bool
+	CreatedAt     int64
+	UpdatedAt     int64
 }
 
 // Indicator is the normalized form an adapter emits. The fetcher
