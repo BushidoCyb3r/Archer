@@ -4,7 +4,9 @@
 
 # Archer — Network Threat Detection & Analyst Workbench
 
-**Version:** v0.1.0 — pre-1.0, see [CHANGELOG.md](CHANGELOG.md) and the [Versioning](#versioning) section below for the stability contract.
+[![CI](https://github.com/BushidoCyb3r/Archer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/BushidoCyb3r/Archer/actions/workflows/ci.yml)
+
+Pre-1.0 — see [CHANGELOG.md](CHANGELOG.md) for the current release and the [Versioning](#versioning) section below for the stability contract.
 
 Archer is a self-hosted, open-source network threat detection platform that processes Zeek log files to identify adversarial behaviors including C2 beaconing, data exfiltration, lateral movement, DNS tunneling, malicious TLS fingerprints, and more. It provides a browser-based analyst workbench for reviewing, annotating, and escalating findings — including live threat intelligence enrichment via VirusTotal, CrowdSec, AlienVault OTX, AbuseIPDB, GreyNoise, and Censys.
 

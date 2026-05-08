@@ -1,0 +1,110 @@
+name: ci
+
+# Pre-merge gate for the main branch. Runs on every push to main and on
+# every pull request targeting main. Three independent jobs:
+#
+#   - lint:   gofmt + go vet, fast feedback on formatting / static issues
+#   - test:   go test -race, exercises the full unit + handler suite
+#   - build:  CGO_ENABLED=0 go build, plus a docker build smoke check
+#
+# Each job uses the Go version pinned in go.mod (currently 1.25) so the
+# CI compiler matches what `./start.sh` produces locally.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Read-only token by default — none of these jobs need write access to
+# repo contents, packages, or pull requests. Tightens the blast radius of
+# a compromised action dependency.
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: gofmt + vet
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::Files need gofmt:"
+            echo "$unformatted"
+            echo "---"
+            gofmt -d . | head -200
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+  test:
+    name: go test -race
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        # -race catches concurrency bugs in the SSE broker, watch loop,
+        # store mutex paths, and parallelEach worker pools — places where
+        # subtle races would otherwise only surface under prod load.
+        run: go test -race ./...
+
+  build:
+    name: build (binary + docker)
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build static binary
+        # Match the production build flags from Dockerfile so an issue
+        # the multi-stage build would hit surfaces here first.
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+        run: |
+          go build -ldflags="-s -w \
+            -X github.com/BushidoCyb3r/Archer/internal/version.Version=ci-${GITHUB_SHA::7} \
+            -X github.com/BushidoCyb3r/Archer/internal/version.Commit=${GITHUB_SHA::7} \
+            -X github.com/BushidoCyb3r/Archer/internal/version.BuildTime=$(date -u +%FT%TZ)" \
+            -o /tmp/archer ./cmd/archer
+          ls -la /tmp/archer
+
+      - name: Docker build smoke test
+        # Doesn't push — just confirms the multi-stage build still
+        # produces a valid image with the current Dockerfile and
+        # source tree. Catches Dockerfile drift before it bites
+        # operators on the next ./start.sh up.
+        run: |
+          docker build \
+            --build-arg ARCHER_VERSION=ci-${GITHUB_SHA::7} \
+            --build-arg ARCHER_COMMIT=${GITHUB_SHA::7} \
+            --build-arg ARCHER_BUILD_TIME=$(date -u +%FT%TZ) \
+            -t archer:ci .
