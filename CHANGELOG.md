@@ -59,6 +59,17 @@ relevant, `### Detection changes` in each release entry.
   pre-populated (non-nil), the corresponding live HTTP fetch is
   skipped. Tests inject empty (non-nil) maps to neutralize the feeds
   without touching the public internet.
+- **Conn-detector golden fixtures (Phase 4.2).** The golden-file test
+  is now table-driven over scenario subdirectories under
+  `internal/analysis/testdata/zeek/`. Six new scenarios cover every
+  detector in `analyzeConn`: `strobe/` (1000-conn fan-out, also
+  exercises beacon scoring under irregular timing), `long_connection/`
+  (2-hour duration), `exfil/` (7.5 MB outbound, 30× ratio), `lateral/`
+  (internal SMB), `c2_port/` (Metasploit default port 4444), and
+  `off_hours/` (1.5 MB at 02:00 UTC). The original `beacon_url/`
+  scenario was moved into its own subdirectory alongside the new
+  ones. Each scenario has its own `README.md` documenting what's
+  exercised and which findings it produces.
 
 ### Changed
 - One-time codebase reformat with `gofmt -w` so the new CI lint job

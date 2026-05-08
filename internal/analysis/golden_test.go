@@ -17,9 +17,9 @@ import (
 //
 //	go test ./internal/analysis/... -run TestGoldenZeek -update
 //
-// Then commit the new testdata/zeek/expected_findings.json with the same
-// commit that landed the detection change.
-var updateGolden = flag.Bool("update", false, "regenerate golden expected_findings.json from current analyzer output")
+// Then commit the new expected_findings.json files (one per scenario subdir)
+// in the same commit that landed the detection change.
+var updateGolden = flag.Bool("update", false, "regenerate golden expected_findings.json files from current analyzer output")
 
 // goldenFinding is the comparison projection of model.Finding. Fields excluded:
 //   - ID: sequential and depends on goroutine scheduling, never stable.
@@ -94,8 +94,10 @@ func collectFixtureLogs(t *testing.T, dir string) []string {
 	return files
 }
 
-func TestGoldenZeek(t *testing.T) {
-	dir := filepath.Join("testdata", "zeek")
+// runScenario runs one fixture subdirectory through the analyzer and either
+// asserts against (or, with -update, regenerates) the scenario's golden file.
+func runScenario(t *testing.T, dir string) {
+	t.Helper()
 	files := collectFixtureLogs(t, dir)
 	if len(files) == 0 {
 		t.Fatalf("no .log fixtures in %s", dir)
@@ -103,7 +105,7 @@ func TestGoldenZeek(t *testing.T) {
 
 	a := New(config.Default(), nil, nil)
 	// Inject deterministic feeds. prefetchFeeds skips its live HTTP fetches
-	// when caches are non-nil, so this run never touches the public internet.
+	// when caches are non-nil, so the run never touches the public internet.
 	a.feodoIPs = map[string]bool{}
 	a.urlhausIPs = map[string]bool{}
 	a.urlhausHosts = map[string]bool{"malware.test": true}
@@ -150,5 +152,33 @@ func TestGoldenZeek(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("finding[%d] mismatch\n  got:  %+v\n  want: %+v", i, got[i], want[i])
 		}
+	}
+}
+
+// TestGoldenZeek discovers every scenario subdirectory under testdata/zeek/
+// and runs each as its own subtest. Each scenario is a self-contained
+// fixture: one or more *.log files plus an expected_findings.json captured
+// against current analyzer output.
+func TestGoldenZeek(t *testing.T) {
+	root := filepath.Join("testdata", "zeek")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read scenario root %s: %v", root, err)
+	}
+	scenarios := make([]string, 0)
+	for _, e := range entries {
+		if e.IsDir() {
+			scenarios = append(scenarios, e.Name())
+		}
+	}
+	sort.Strings(scenarios)
+	if len(scenarios) == 0 {
+		t.Fatalf("no scenario subdirectories in %s", root)
+	}
+
+	for _, name := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			runScenario(t, filepath.Join(root, name))
+		})
 	}
 }
