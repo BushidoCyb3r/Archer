@@ -1,0 +1,20 @@
+[
+  {
+    "type": "Data Exfiltration",
+    "severity": "CRITICAL",
+    "score": 66,
+    "src_ip": "192.168.1.40",
+    "dst_ip": "203.0.113.50",
+    "detail": "Outbound: 7.50 MB | Ratio out/in: 30.0 (threshold: 10.0)",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Host Risk Score",
+    "severity": "MEDIUM",
+    "score": 25,
+    "src_ip": "192.168.1.40",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 25 | Detections: [Data Exfiltration]",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

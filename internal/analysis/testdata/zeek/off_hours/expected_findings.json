@@ -1,0 +1,11 @@
+[
+  {
+    "type": "Off-Hours Transfer",
+    "severity": "MEDIUM",
+    "score": 49,
+    "src_ip": "192.168.1.70",
+    "dst_ip": "203.0.113.70",
+    "detail": "1.50 MB outbound at 02:xx UTC (off-hours window: 22-06)",
+    "timestamp": "2024-01-15 02:00:00"
+  }
+]

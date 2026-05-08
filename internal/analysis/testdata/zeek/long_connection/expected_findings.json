@@ -1,0 +1,21 @@
+[
+  {
+    "type": "Host Risk Score",
+    "severity": "LOW",
+    "score": 10,
+    "src_ip": "192.168.1.30",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 10 | Detections: [Long Connection]",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Long Connection",
+    "severity": "MEDIUM",
+    "score": 50,
+    "src_ip": "192.168.1.30",
+    "dst_ip": "203.0.113.40",
+    "dst_port": "443",
+    "detail": "Duration: 2.00 hours | Proto: tcp",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]
