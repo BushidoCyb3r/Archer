@@ -109,6 +109,16 @@ func RunMigrations(db *sql.DB) error {
 		return fmt.Errorf("RunMigrations: nil database handle")
 	}
 
+	// Foreign keys must be explicitly enabled per-connection in SQLite.
+	// Phase 7's feed_indicators table relies on ON DELETE CASCADE; the
+	// users.db connection sets MaxOpenConns=1 so this PRAGMA holds for
+	// the connection's lifetime. Older migrations didn't depend on FK
+	// enforcement so this is safe to enable retroactively on existing
+	// installs.
+	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+		return fmt.Errorf("enable foreign keys: %w", err)
+	}
+
 	// Ensure the tracking table exists before we look at it. Idempotent.
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version    INTEGER PRIMARY KEY,

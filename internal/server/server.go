@@ -2,12 +2,14 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/analysis"
+	"github.com/BushidoCyb3r/Archer/internal/feeds"
 	model "github.com/BushidoCyb3r/Archer/internal/model"
 	"github.com/BushidoCyb3r/Archer/internal/store"
 )
@@ -23,18 +25,19 @@ var scoreExplanationsMap = model.ScoreExplanations
 
 // Server holds all server dependencies.
 type Server struct {
-	store          *store.Store
-	users          *store.UserStore
-	broker         *Broker
-	webDir         string
-	logsDir        string
-	authKeysPath   string
-	mux            *http.ServeMux
-	analyzerMu     sync.Mutex
-	activeAnalyzer *analysis.Analyzer
-	watchMu        sync.Mutex
-	watchCancel    context.CancelFunc
-	tlsFingerprint string
+	store            *store.Store
+	users            *store.UserStore
+	broker           *Broker
+	webDir           string
+	logsDir          string
+	authKeysPath     string
+	mux              *http.ServeMux
+	analyzerMu       sync.Mutex
+	activeAnalyzer   *analysis.Analyzer
+	watchMu          sync.Mutex
+	watchCancel      context.CancelFunc
+	feedWorkerCancel context.CancelFunc
+	tlsFingerprint   string
 	// Disk-usage cache: walking /logs and /data/archive can take seconds
 	// on large deployments, so memoize the result and refresh on a short
 	// TTL. The cache is invalidated implicitly by the timestamp check.
@@ -53,7 +56,28 @@ func New(st *store.Store, us *store.UserStore, broker *Broker, webDir, logsDir, 
 	s.routes()
 	s.startWatch() // no-op if watch is disabled or unconfigured
 	s.startUnauthorizedPruneLoop()
+	s.startFeedWorker()
 	return s
+}
+
+// startFeedWorker runs the per-feed fetcher loop in a goroutine that
+// outlives this call. The worker reconciles its goroutine set against
+// the feeds table every 30s, so admin-UI add/remove/enable/disable
+// changes propagate without a server restart. With no feeds
+// configured this is effectively a no-op (the reconciliation tick
+// finds nothing to schedule).
+func (s *Server) startFeedWorker() {
+	w := feeds.NewWorker(s.store, func(f feeds.Feed) (feeds.Adapter, error) {
+		switch f.SourceType {
+		case feeds.SourceMISP:
+			return feeds.NewMISPClient(f.URL, f.APIKey), nil
+		default:
+			return nil, fmt.Errorf("unsupported feed source_type: %q", f.SourceType)
+		}
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	s.feedWorkerCancel = cancel
+	go w.Run(ctx)
 }
 
 // startUnauthorizedPruneLoop drops unpinned unauthorized_attempts rows
