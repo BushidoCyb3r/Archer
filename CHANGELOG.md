@@ -38,6 +38,33 @@ relevant, `### Detection changes` in each release entry.
   records configured feed instances (source type, URL, API key,
   refresh cadence, aging window, status); `feed_indicators` records
   the per-indicator stream the fetcher will populate.
+- **Matcher composition + per-finding provenance (Phase 7 slice 4).**
+  Feed indicators are now joined into the IOC matching surface used
+  by `/api/findings`. The Store exposes `IOCSources() []SourcedMatcher`
+  returning the operator IOC matcher first, then one matcher per
+  enabled feed in feed-id order. The findings filter walks the
+  sourced-matcher slice and short-circuits on the first hit, tagging
+  the finding with the matching source label
+  ("Operator IOC list" or "Feed: <feed name>").
+- **`Finding.IOCSource` field on the API response.** New
+  `ioc_source` JSON field surfaces which list flagged each finding —
+  what the analyst UI's status icon and detail panel will key off.
+  Computed at read time from the current Store snapshot, not
+  persisted (feed indicators age out and can switch source on the
+  next refresh; the persisted thing is `ioc_match: bool`). Threat
+  Intel Hit / Suspicious URL findings (intrinsic IOCs per the
+  analyzer) get `"Threat Intel Hit"` as the source label. This is
+  an additive HTTP API change — `omitempty` keeps existing clients
+  unaffected.
+- **Per-feed matcher cache.** Each enabled feed gets a compiled
+  matcher cached on first read; `UpsertFeedIndicators` /
+  `RemoveStaleIndicators` / `DeleteFeed` invalidate the cache for
+  the affected feed so the next IOC-match call rebuilds with current
+  state. With this in place the MISP/OpenCTI integration is fully
+  end-to-end: configure a feed (currently via SQL until slice 5's
+  admin UI lands), the worker fetches and writes indicators, those
+  indicators light up matching findings on the next `/api/findings`
+  call.
 - **OpenCTI source-type adapter (Phase 7 slice 3).** New
   `internal/feeds/opencti.go` mirrors the MISP adapter but speaks
   OpenCTI's GraphQL `/graphql` endpoint with bearer authentication.

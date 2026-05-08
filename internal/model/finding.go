@@ -21,26 +21,33 @@ const (
 
 // Finding is a single detection result.
 type Finding struct {
-	ID          int          `json:"id"`
-	Type        string       `json:"type"`
-	Severity    Severity     `json:"severity"`
-	Score       int          `json:"score"`
-	SrcIP       string       `json:"src_ip"`
-	DstIP       string       `json:"dst_ip"`
-	DstPort     string       `json:"dst_port"`
-	Detail      string       `json:"detail"`
-	Timestamp   string       `json:"timestamp"`
-	SourceFile  string       `json:"source_file"`
-	Status      Status       `json:"status"`
-	Analyst     string       `json:"analyst"`
-	AnalystNote string       `json:"analyst_note"`
-	StatusTS    string       `json:"status_ts"`
-	IOCMatch    bool         `json:"ioc_match"`
-	IsNew       bool         `json:"is_new"`
-	Sensor      string       `json:"sensor,omitempty"`
-	Intervals   []float64    `json:"intervals,omitempty"`
-	TSData      [][3]float64 `json:"ts_data,omitempty"`
-	Notes       []Note       `json:"notes,omitempty"`
+	ID          int      `json:"id"`
+	Type        string   `json:"type"`
+	Severity    Severity `json:"severity"`
+	Score       int      `json:"score"`
+	SrcIP       string   `json:"src_ip"`
+	DstIP       string   `json:"dst_ip"`
+	DstPort     string   `json:"dst_port"`
+	Detail      string   `json:"detail"`
+	Timestamp   string   `json:"timestamp"`
+	SourceFile  string   `json:"source_file"`
+	Status      Status   `json:"status"`
+	Analyst     string   `json:"analyst"`
+	AnalystNote string   `json:"analyst_note"`
+	StatusTS    string   `json:"status_ts"`
+	IOCMatch    bool     `json:"ioc_match"`
+	// IOCSource names which list flagged the indicator: "Operator IOC list"
+	// or "Feed: <feed name>". Computed at /api/findings read time from the
+	// current Store snapshot — not persisted, since feed indicators age
+	// out and can switch source on the next refresh. Empty when IOCMatch
+	// is false. Threat Intel Hit / Suspicious URL findings (intrinsic IOCs
+	// per the analyzer) get "Threat Intel Hit" as the source label.
+	IOCSource string       `json:"ioc_source,omitempty"`
+	IsNew     bool         `json:"is_new"`
+	Sensor    string       `json:"sensor,omitempty"`
+	Intervals []float64    `json:"intervals,omitempty"`
+	TSData    [][3]float64 `json:"ts_data,omitempty"`
+	Notes     []Note       `json:"notes,omitempty"`
 }
 
 // Fingerprint uniquely identifies a finding for delta/baseline comparison.
