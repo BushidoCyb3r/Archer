@@ -119,6 +119,23 @@ func RunMigrations(db *sql.DB) error {
 		return fmt.Errorf("enable foreign keys: %w", err)
 	}
 
+	// Switch the database to WAL journaling. Unlike the rollback-journal
+	// default, WAL lets readers and writers run concurrently — readers see
+	// a consistent snapshot, writers append to a side log without blocking
+	// the SELECT path. Critical for any workload where a long-running
+	// writer (e.g. the feed worker upserting 100k indicators) coexists
+	// with HTTP reads (/api/findings, the Feeds dialog list, etc.).
+	// Persists at the database level — once set, future connections and
+	// future Archer restarts inherit WAL mode without re-running this
+	// PRAGMA. Logged once so the operator can see the mode took effect.
+	var jm string
+	if err := db.QueryRow(`PRAGMA journal_mode = WAL`).Scan(&jm); err != nil {
+		return fmt.Errorf("enable WAL journaling: %w", err)
+	}
+	if !strings.EqualFold(jm, "wal") {
+		log.Printf("store: WARN — requested WAL journaling, got %q (filesystem may not support it)", jm)
+	}
+
 	// Ensure the tracking table exists before we look at it. Idempotent.
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version    INTEGER PRIMARY KEY,

@@ -132,6 +132,15 @@ func (s *Store) DeleteFeed(id int64) error {
 // worker calls RemoveStaleIndicators with the same snapshot timestamp
 // after the upsert so the aging window is operator-configurable per
 // feed, not pinned to the upsert call.
+//
+// Chunked: indicators are committed in batches of upsertBatchSize so
+// the writer's lock window stays short. WAL mode lets readers run
+// concurrently with the writer regardless, but smaller transactions
+// keep CPU and memory pressure off any single fsync. On a partial
+// failure (batch N succeeds, batch N+1 errors), prior batches stay
+// committed and the error is returned with the running totals — the
+// next refresh re-attempts from upstream's full snapshot, so partial
+// progress is durable rather than lost.
 func (s *Store) UpsertFeedIndicators(feedID int64, inds []feeds.Indicator, now int64) (added, refreshed int, err error) {
 	if s.db == nil {
 		return 0, 0, fmt.Errorf("store: db not initialized")
@@ -140,6 +149,29 @@ func (s *Store) UpsertFeedIndicators(feedID int64, inds []feeds.Indicator, now i
 		return 0, 0, nil
 	}
 
+	const upsertBatchSize = 1000
+	for start := 0; start < len(inds); start += upsertBatchSize {
+		end := start + upsertBatchSize
+		if end > len(inds) {
+			end = len(inds)
+		}
+		a, r, batchErr := s.upsertFeedIndicatorBatch(feedID, inds[start:end], now)
+		added += a
+		refreshed += r
+		if batchErr != nil {
+			s.invalidateFeedMatcher(feedID)
+			return added, refreshed, batchErr
+		}
+	}
+	s.invalidateFeedMatcher(feedID)
+	return added, refreshed, nil
+}
+
+// upsertFeedIndicatorBatch processes one slice of indicators in a single
+// transaction. Pulled out of UpsertFeedIndicators so the batch loop can
+// commit between batches without leaving prepared statements open across
+// commit boundaries (each batch gets its own tx + prepared stmts).
+func (s *Store) upsertFeedIndicatorBatch(feedID int64, inds []feeds.Indicator, now int64) (added, refreshed int, err error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return 0, 0, fmt.Errorf("store: begin tx: %w", err)
@@ -192,7 +224,6 @@ func (s *Store) UpsertFeedIndicators(feedID int64, inds []feeds.Indicator, now i
 	if err := tx.Commit(); err != nil {
 		return added, refreshed, fmt.Errorf("store: commit: %w", err)
 	}
-	s.invalidateFeedMatcher(feedID)
 	return added, refreshed, nil
 }
 
