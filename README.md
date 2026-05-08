@@ -130,8 +130,10 @@ Archer runs five parallel analysis phases across all supported log types.
 
 | Detection Type | Description | Severity |
 |---|---|---|
-| **Threat Intel Hit** | Source or destination IP/domain matched against Feodo Tracker C2 IPs or URLhaus malware hosts during analysis; or confirmed malicious by a TI service during analyst escalation | CRITICAL |
-| **Suspicious URL** | HTTP destination matched against URLhaus malware distribution hosts | CRITICAL |
+| **Threat Intel Hit** | Source or destination IP/domain matched against Feodo Tracker C2 IPs, URLhaus malware hosts, or any configured MISP/OpenCTI feed during analysis; or confirmed malicious by a TI service during analyst escalation | CRITICAL (built-in feeds) / HIGH (MISP/OpenCTI feeds) |
+| **Suspicious URL** | HTTP destination host matched against URLhaus malware distribution hosts or any configured MISP/OpenCTI feed's domain indicators | CRITICAL (URLhaus) / HIGH (MISP/OpenCTI feeds) |
+
+For MISP/OpenCTI integration — adding a feed, configuration options, the per-feed TLS-verify bypass, indicator types that match (and ones that don't), aging behavior, and troubleshooting — see **[docs/FEEDS.md](docs/FEEDS.md)**. Feeds are admin-curated through the Feeds topbar dialog; findings carry per-feed provenance via the `SourceFile: feed:<name>` field.
 
 ### Composite Scoring
 
