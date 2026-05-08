@@ -1,0 +1,12 @@
+[
+  {
+    "type": "Suspicious TLD",
+    "severity": "MEDIUM",
+    "score": 52,
+    "src_ip": "192.168.2.20",
+    "dst_ip": "evil.tk",
+    "dst_port": "53",
+    "detail": "TLD \".tk\" is a free/abused zone — query: evil.tk",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

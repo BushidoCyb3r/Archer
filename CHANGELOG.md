@@ -70,6 +70,14 @@ relevant, `### Detection changes` in each release entry.
   scenario was moved into its own subdirectory alongside the new
   ones. Each scenario has its own `README.md` documenting what's
   exercised and which findings it produces.
+- **DNS-detector golden fixtures (Phase 4.3).** Five new scenarios
+  cover every detector in `analyzeDNS`: `dns_doh_bypass/` (DNS to
+  8.8.8.8:443), `dns_suspicious_tld/` (`evil.tk`),
+  `dns_tunneling/` (qtype=TXT trip), `dns_nxdomain_flood/` (250
+  NXDOMAINs of one query so subdomain diversity stays under
+  threshold), and `dns_subdomain_diversity/` (50 unique subdomains
+  under one apex). Each scenario fires exactly the targeted detector
+  with no contamination.
 
 ### Changed
 - One-time codebase reformat with `gofmt -w` so the new CI lint job
