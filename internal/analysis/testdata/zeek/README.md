@@ -71,3 +71,11 @@ Each scenario subdirectory contains:
 | `http_domain_fronting/` | Domain Fronting (uses paired ssl.log) |
 | `http_suspicious_file/` | Suspicious File Download |
 | `http_beacon/` | HTTP Beaconing |
+| `ssl_malicious_ja3/` | Malicious JA3 |
+| `ssl_weak_tls/` | Weak TLS |
+| `ssl_no_sni/` | SSL No-SNI |
+| `ssl_no_sni_c2_port/` | SSL No-SNI on C2 Port |
+| `x509_self_signed/` | Suspicious Certificate (self-signed) |
+| `x509_default_subject/` | Suspicious Certificate (default subject) |
+| `x509_short_validity/` | Suspicious Certificate (short validity) |
+| `x509_long_validity/` | Suspicious Certificate (long validity) |

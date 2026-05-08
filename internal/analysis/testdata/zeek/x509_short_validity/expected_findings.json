@@ -1,0 +1,11 @@
+[
+  {
+    "type": "Suspicious Certificate",
+    "severity": "MEDIUM",
+    "score": 58,
+    "src_ip": "(cert)",
+    "dst_ip": "CN=ephemeral.example.org",
+    "detail": "Subject: CN=ephemeral.example.org | Issuer: CN=Some CA | Indicators: short validity (8h)",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

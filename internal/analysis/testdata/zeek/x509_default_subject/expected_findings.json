@@ -1,0 +1,11 @@
+[
+  {
+    "type": "Suspicious Certificate",
+    "severity": "MEDIUM",
+    "score": 58,
+    "src_ip": "(cert)",
+    "dst_ip": "CN=openssl cert",
+    "detail": "Subject: CN=openssl cert | Issuer: CN=Some CA | Indicators: default subject (\"openssl\")",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]
