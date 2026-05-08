@@ -1390,6 +1390,57 @@ dialog::backdrop {
 #ioc-dialog                   { width: 480px; }
 #sensors-token-dlg            { width: min(95vw, 1250px); }
 #sensors-dialog               { width: min(95vw, 1100px); }
+#feeds-dialog                 { width: min(95vw, 1100px); }
+#feeds-edit-dlg               { width: 480px; }
+
+/* Feeds table — same scaffold as the Sensors table. The inline column
+   widths in the markup do the column-balance work; this block fills the
+   dialog horizontally, gives rows breathing room, and styles the header. */
+#feeds-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+#feeds-table th {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+#feeds-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#feeds-table tr:hover td { background: var(--bg-elev-3); }
+#feeds-table .dlg-btn { padding: 3px 9px; font-size: 11px; margin-left: 4px; }
+
+/* Status pill rendered by feeds.js (`severity-pill` + sev-* modifier).
+   The modifier class only contributes the color variable; this rule
+   does the pill geometry so status cells aren't bare text. */
+.severity-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid currentColor;
+}
+.severity-pill.sev-low      { color: var(--sev-low); }
+.severity-pill.sev-medium   { color: var(--sev-medium); }
+.severity-pill.sev-critical { color: var(--sev-critical); }
+.severity-pill.sev-info     { color: var(--sev-info); }
+
 #settings-dialog              { width: 600px; }
 #users-dialog                 { width: 720px; }
 #chart-dialog                 { width: 880px; }
