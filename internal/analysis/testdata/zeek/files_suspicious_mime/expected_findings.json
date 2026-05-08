@@ -1,0 +1,11 @@
+[
+  {
+    "type": "Suspicious File Download",
+    "severity": "HIGH",
+    "score": 72,
+    "src_ip": "192.168.5.10",
+    "dst_ip": "203.0.113.120",
+    "detail": "MIME: application/x-dosexec | File: update",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

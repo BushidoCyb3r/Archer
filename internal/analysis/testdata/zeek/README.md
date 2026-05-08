@@ -79,3 +79,9 @@ Each scenario subdirectory contains:
 | `x509_default_subject/` | Suspicious Certificate (default subject) |
 | `x509_short_validity/` | Suspicious Certificate (short validity) |
 | `x509_long_validity/` | Suspicious Certificate (long validity) |
+| `files_suspicious_mime/` | Suspicious File Download (MIME) |
+| `files_suspicious_ext/` | Suspicious File Download (extension) |
+| `weird_protocol_anomaly/` | Protocol Anomaly (low-interest) |
+| `weird_high_interest/` | Protocol Anomaly (high-interest) |
+| `notice_zeek/` | Zeek Notice (default HIGH) |
+| `notice_critical/` | Zeek Notice (critical keyword) |
