@@ -17,6 +17,16 @@
   let _currentUser     = null;
   let _orgCIDRs        = []; // admin-supplied CIDRs that augment the built-in private ranges for the Hosts tab
 
+  // Pagination state for /api/findings. The page-size selector lets the
+  // analyst pick 100/200/500/1000 rows per fetch; Load More appends the
+  // next page rather than replacing. Defaults to 100 because hunt
+  // workflows go top-down by score and the first 100 cover most of the
+  // immediate triage; analysts widen explicitly when they need to dig.
+  let _pageSize        = 100;
+  let _pageOffset      = 0;
+  let _totalFindings   = 0;
+  let _hasMore         = false;
+
   // Cached Archer version metadata fetched from /api/version. Populated by
   // _loadVersion() during init so JSON exports and the statusbar/About dialog
   // all read from a single source of truth instead of literal strings.
@@ -93,10 +103,41 @@
   }
 
   // ── Load findings ──────────────────────────────────────────────────────────
-  async function loadFindings(params = {}) {
-    const qs = new URLSearchParams(params).toString();
-    const data = await api('/api/findings' + (qs ? '?' + qs : ''));
-    _allFindings = Array.isArray(data) ? data : [];
+  // loadFindings is the single entry-point for refreshing the table. The
+  // optional second arg controls pagination behavior:
+  //   { append: false } (default) — fresh page-1 fetch; resets offset and
+  //     replaces the in-memory finding set.
+  //   { append: true } — Load More: increments offset, appends the new
+  //     rows to the existing finding set.
+  // Reads X-Total-Count and X-Has-More from the response headers so the
+  // pagination footer shows accurate "Showing N of M" and toggles the
+  // Load More button without a second round-trip.
+  async function loadFindings(params = {}, opts = {}) {
+    const append = !!opts.append;
+    if (!append) {
+      _pageOffset = 0;
+    }
+    const merged = Object.assign({}, params, {
+      limit: String(_pageSize),
+      offset: String(_pageOffset),
+    });
+    const qs = new URLSearchParams(merged).toString();
+    const r = await fetch('/api/findings' + (qs ? '?' + qs : ''));
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw (e.error || r.statusText);
+    }
+    const page = await r.json();
+    _totalFindings = parseInt(r.headers.get('X-Total-Count') || '0', 10) || 0;
+    _hasMore = (r.headers.get('X-Has-More') || '').toLowerCase() === 'true';
+
+    if (append) {
+      _allFindings = _allFindings.concat(Array.isArray(page) ? page : []);
+    } else {
+      _allFindings = Array.isArray(page) ? page : [];
+    }
+    _updatePaginationFooter();
+
     // Type dropdown and Campaigns are network-event views; the per-host
     // roll-up never appears in either, so feed both the network-only list.
     const networkOnly = _networkFindings(_allFindings);
@@ -104,6 +145,15 @@
     _updateSensorFilter(_allFindings);
     Campaigns.build(_allFindings);
     _applyTabFilter();
+  }
+
+  function _updatePaginationFooter() {
+    const shown  = document.getElementById('page-shown');
+    const total  = document.getElementById('page-total');
+    const more   = document.getElementById('page-load-more');
+    if (shown)  shown.textContent = _allFindings.length.toLocaleString();
+    if (total)  total.textContent = _totalFindings.toLocaleString();
+    if (more)   more.style.display = _hasMore ? '' : 'none';
   }
 
   // Apply the current tab mode filter to the table. All four tab modes
@@ -193,6 +243,18 @@
 
   // ── Filter bar ─────────────────────────────────────────────────────────────
   function initFilterBar() {
+    // Default the "From" date to 7 days ago. Most hunt workflows look at
+    // recent activity, and an unbounded fetch over a multi-month corpus
+    // is what made the dashboard slow in the first place. The analyst
+    // can still clear the field to widen the window — this is just a
+    // sane initial value, not a hard floor.
+    const fromInput = document.getElementById('filter-from');
+    if (fromInput && !fromInput.value) {
+      const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const iso = d.toISOString().slice(0, 16); // datetime-local format
+      fromInput.value = iso;
+    }
+
     document.getElementById('apply-filter-btn').addEventListener('click', applyFilter);
     document.getElementById('reset-filter-btn').addEventListener('click', () => {
       ['filter-search','filter-src','filter-dst','filter-port','filter-from','filter-to'].forEach(id => {
@@ -208,6 +270,38 @@
       const el = document.getElementById(id);
       if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') applyFilter(); });
     });
+
+    // Pagination footer wiring. Page-size dropdown resets to page 1
+    // and re-fetches; Load More appends the next page in place.
+    const pageSizeSel = document.getElementById('page-size-select');
+    if (pageSizeSel) {
+      pageSizeSel.value = String(_pageSize);
+      pageSizeSel.addEventListener('change', () => {
+        const v = parseInt(pageSizeSel.value, 10);
+        if (v > 0) {
+          _pageSize = v;
+          loadFindings(_currentFilterParams());
+        }
+      });
+    }
+    const loadMoreBtn = document.getElementById('page-load-more');
+    if (loadMoreBtn) {
+      loadMoreBtn.addEventListener('click', async () => {
+        loadMoreBtn.disabled = true;
+        const orig = loadMoreBtn.textContent;
+        loadMoreBtn.textContent = 'Loading…';
+        try {
+          _pageOffset += _pageSize;
+          await loadFindings(_currentFilterParams(), { append: true });
+        } catch (e) {
+          console.error('load more failed', e);
+          _pageOffset -= _pageSize; // roll back so retry doesn't skip
+        } finally {
+          loadMoreBtn.disabled = false;
+          loadMoreBtn.textContent = orig;
+        }
+      });
+    }
 
     // "Export current tab" dispatches on the active tab. Findings-style
     // tabs go through the server (server-side filters apply); Campaigns
@@ -270,6 +364,17 @@
     const sn  = g('filter-sensor');     if (sn)  params.sensor = sn;
     const from = g('filter-from');      if (from) params.from = from;
     const to   = g('filter-to');        if (to)   params.to   = to;
+
+    // Tab-aware status filter, mirrored server-side. Without this, the
+    // Findings tab fetches every status (including acknowledged and
+    // escalated) and filters client-side via _applyTabFilter — fine for
+    // a thousand findings, painful for hundreds of thousands.
+    if (_tabMode === 'ack')      params.status = 'acknowledged';
+    else if (_tabMode === 'esc') params.status = 'escalated';
+    else if (_tabMode === 'ioc') params.ioc_only = 'true';
+    else                         params.status = 'open';
+    if (_deltaMode) params.delta = 'true';
+
     return params;
   }
 

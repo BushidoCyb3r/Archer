@@ -1423,6 +1423,38 @@ dialog::backdrop {
 #feeds-table tr:hover td { background: var(--bg-elev-3); }
 #feeds-table .dlg-btn { padding: 3px 9px; font-size: 11px; margin-left: 4px; }
 
+/* Findings table pagination footer — sits below the table, holds the
+   per-page selector + Load More button + position indicator. Sticks to
+   the bottom of the table-wrap so it's always visible regardless of
+   scroll. */
+#findings-pagination {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elev-1);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+#findings-pagination .page-info { color: var(--fg-muted); }
+#findings-pagination .page-info #page-shown,
+#findings-pagination .page-info #page-total { color: var(--fg-primary); font-variant-numeric: tabular-nums; }
+#findings-pagination .page-size-label { display: inline-flex; align-items: center; gap: 6px; }
+#findings-pagination select {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--fg-primary);
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+#findings-pagination #page-load-more {
+  margin-left: auto;
+  padding: 4px 14px;
+  font-size: 12px;
+}
+
 /* Status pill rendered by feeds.js (`severity-pill` + sev-* modifier).
    The modifier class only contributes the color variable; this rule
    does the pill geometry so status cells aren't bare text. */

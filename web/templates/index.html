@@ -222,6 +222,21 @@
           </thead>
           <tbody id="findings-tbody"></tbody>
         </table>
+        <div id="findings-pagination">
+          <span class="page-info">
+            Showing <span id="page-shown">0</span> of <span id="page-total">0</span>
+          </span>
+          <label class="page-size-label">
+            Per page:
+            <select id="page-size-select">
+              <option value="100">100</option>
+              <option value="200">200</option>
+              <option value="500">500</option>
+              <option value="1000">1000</option>
+            </select>
+          </label>
+          <button id="page-load-more" class="dlg-btn secondary" style="display:none">Load more</button>
+        </div>
       </div>
 
       <!-- Detail pane — always visible when any findings-type tab is active -->

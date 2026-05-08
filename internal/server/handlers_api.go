@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -178,6 +179,19 @@ func (s *Server) handleAnalyzeResume(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleFindings returns filtered and sorted findings.
+//
+// Pagination: ?limit=N&offset=K page through the result. Default limit
+// is 1000 (the analyst-table sweet spot for hunt workflows that go
+// top-down by score); cap is 5000 (above that we'd be back to the
+// pre-pagination payload sizes). The total result-set size is
+// surfaced via X-Total-Count and X-Has-More response headers so the
+// UI can render an accurate "Load more" affordance without a second
+// round-trip.
+//
+// Export endpoints (/api/export/csv, /api/export/json) deliberately
+// do NOT paginate — they go through filterFindings directly and dump
+// the full set as a single download, which is the right behavior for
+// "give me everything for this hunt" workflows.
 func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -190,6 +204,8 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 		sortCol = "score"
 	}
 	sortDir := q.Get("dir")
+
+	limit, offset := parseListPagination(q)
 
 	result := s.filterFindings(s.store.GetFindings(), q)
 
@@ -219,8 +235,100 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 		return !less
 	})
 
+	total := len(result)
+	page := result
+	if offset >= total {
+		page = nil
+	} else {
+		end := offset + limit
+		if end > total {
+			end = total
+		}
+		page = result[offset:end]
+	}
+	hasMore := offset+len(page) < total
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	w.Header().Set("X-Total-Count", strconv.Itoa(total))
+	if hasMore {
+		w.Header().Set("X-Has-More", "true")
+	} else {
+		w.Header().Set("X-Has-More", "false")
+	}
+	w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count, X-Has-More")
+	json.NewEncoder(w).Encode(projectFindingList(page))
+}
+
+// parseListPagination reads ?limit and ?offset from the query string,
+// applies sane defaults (limit 1000, offset 0), and clamps to safe
+// bounds (limit max 5000, offset min 0). Anything unparseable falls
+// back to the defaults rather than erroring — pagination should never
+// be the reason a request fails.
+func parseListPagination(q url.Values) (limit, offset int) {
+	const (
+		defaultLimit = 1000
+		maxLimit     = 5000
+	)
+	limit = defaultLimit
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+	if v := q.Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	return limit, offset
+}
+
+// listFinding mirrors model.Finding for the list endpoint but omits the
+// per-finding chart/evidence payload that bloats the response. The
+// analyst's table view uses none of TSData / Intervals / Notes — those
+// are read by the detail panel via /api/findings/{id}, which keeps the
+// full shape. On a corpus with thousands of Beaconing findings, omitting
+// TSData alone cut the list response by ~100 MB in measurement.
+//
+// Field tags match model.Finding so existing UI code reads the same JSON
+// keys; only the three heavy fields are absent from the wire format.
+type listFinding struct {
+	ID          int            `json:"id"`
+	Type        string         `json:"type"`
+	Severity    model.Severity `json:"severity"`
+	Score       int            `json:"score"`
+	SrcIP       string         `json:"src_ip"`
+	DstIP       string         `json:"dst_ip"`
+	DstPort     string         `json:"dst_port"`
+	Detail      string         `json:"detail"`
+	Timestamp   string         `json:"timestamp"`
+	SourceFile  string         `json:"source_file"`
+	Status      model.Status   `json:"status"`
+	Analyst     string         `json:"analyst"`
+	AnalystNote string         `json:"analyst_note"`
+	StatusTS    string         `json:"status_ts"`
+	IOCMatch    bool           `json:"ioc_match"`
+	IOCSource   string         `json:"ioc_source,omitempty"`
+	IsNew       bool           `json:"is_new"`
+	Sensor      string         `json:"sensor,omitempty"`
+}
+
+func projectFindingList(in []model.Finding) []listFinding {
+	out := make([]listFinding, len(in))
+	for i, f := range in {
+		out[i] = listFinding{
+			ID: f.ID, Type: f.Type, Severity: f.Severity, Score: f.Score,
+			SrcIP: f.SrcIP, DstIP: f.DstIP, DstPort: f.DstPort,
+			Detail: f.Detail, Timestamp: f.Timestamp, SourceFile: f.SourceFile,
+			Status: f.Status, Analyst: f.Analyst, AnalystNote: f.AnalystNote,
+			StatusTS: f.StatusTS, IOCMatch: f.IOCMatch, IOCSource: f.IOCSource,
+			IsNew: f.IsNew, Sensor: f.Sensor,
+		}
+	}
+	return out
 }
 
 func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
