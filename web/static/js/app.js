@@ -2442,7 +2442,9 @@
       if (_ctxTarget) _open(`https://app.crowdsec.net/cti/${encodeURIComponent(_ctxTarget)}`);
     });
     document.getElementById('ctx-censys').addEventListener('click', () => {
-      if (_ctxTarget) _open(`https://search.censys.io/hosts/${encodeURIComponent(_ctxTarget)}`);
+      // Censys migrated their analyst-facing UI from search.censys.io to
+      // platform.censys.io in 2026. The /hosts/<ip> path is unchanged.
+      if (_ctxTarget) _open(`https://platform.censys.io/hosts/${encodeURIComponent(_ctxTarget)}`);
     });
     document.getElementById('ctx-greynoise').addEventListener('click', () => {
       if (_ctxTarget) _open(`https://viz.greynoise.io/ip/${encodeURIComponent(_ctxTarget)}`);
