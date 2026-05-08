@@ -172,9 +172,10 @@ button, input, select, textarea {
 }
 .badge.hidden { display: none; }
 
-/* Top-bar buttons (Settings, Sensors, Users) */
+/* Top-bar buttons (Settings, Sensors, Feeds, Users) */
 #settings-btn,
 #sensors-btn,
+#feeds-btn,
 #users-btn {
   background: transparent;
   border: 1px solid var(--border);
@@ -189,8 +190,10 @@ button, input, select, textarea {
 }
 #settings-btn:hover,
 #sensors-btn:hover,
+#feeds-btn:hover,
 #users-btn:hover { background: var(--bg-elev-3); color: var(--fg-primary); border-color: var(--border-strong); }
 #sensors-btn,
+#feeds-btn,
 #users-btn { margin-right: 2px; }
 
 #pending-badge {
