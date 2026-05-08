@@ -30,6 +30,14 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Changed
+- Right-click → Lookup → Censys now opens `platform.censys.io/hosts/<ip>`
+  instead of `search.censys.io/hosts/<ip>`. Censys migrated their
+  analyst-facing UI to the new platform host in 2026; the path is
+  unchanged. The programmatic escalation lookup at
+  `internal/server/handlers_api.go:601` still hits `search.censys.io`
+  because Censys's API endpoint stayed stable across the UI rebrand.
+
 ### Fixed
 - **Active findings filter is no longer lost when you mutate state from
   the analyst UI.** Adding an IP to the Allowlist (right-click or save
