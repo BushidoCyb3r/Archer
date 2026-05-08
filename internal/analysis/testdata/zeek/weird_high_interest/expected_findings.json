@@ -1,0 +1,11 @@
+[
+  {
+    "type": "Protocol Anomaly",
+    "severity": "MEDIUM",
+    "score": 65,
+    "src_ip": "192.168.6.20",
+    "dst_ip": "203.0.113.131",
+    "detail": "Zeek weird: bad_HTTP_request",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

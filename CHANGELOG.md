@@ -96,6 +96,16 @@ relevant, `### Detection changes` in each release entry.
   window). Each X.509 scenario locks in a distinct Detail-string
   indicator so a refactor that drops or reorders one of the
   cert-anomaly checks fails the test loudly.
+- **Files / Weird / Notice golden fixtures (Phase 4.6).** Six new
+  scenarios for the Zeek-passthrough analyzers.
+  `files_suspicious_mime/` (MIME `application/x-dosexec`),
+  `files_suspicious_ext/` (filename `loader.ps1`),
+  `weird_protocol_anomaly/` (low-interest weird, default 22 / LOW),
+  `weird_high_interest/` (`bad_HTTP_request` from the
+  high-interest map, 65 / MEDIUM), `notice_zeek/`
+  (`SSH::Login_From_New_Country`, default 68 / HIGH), and
+  `notice_critical/` (note type containing `scan` keyword, 92 /
+  CRITICAL).
 
 ### Changed
 - One-time codebase reformat with `gofmt -w` so the new CI lint job

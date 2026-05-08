@@ -1,0 +1,11 @@
+[
+  {
+    "type": "Suspicious File Download",
+    "severity": "HIGH",
+    "score": 72,
+    "src_ip": "192.168.5.20",
+    "dst_ip": "203.0.113.121",
+    "detail": "filename: loader.ps1 | File: loader.ps1",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

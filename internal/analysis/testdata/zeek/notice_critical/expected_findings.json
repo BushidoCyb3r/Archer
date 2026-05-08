@@ -1,0 +1,11 @@
+[
+  {
+    "type": "Zeek Notice",
+    "severity": "CRITICAL",
+    "score": 92,
+    "src_ip": "192.168.7.20",
+    "dst_ip": "203.0.113.141",
+    "detail": "Notice: Scan::Port_Scan | 192.168.7.20 scanned at least 25 unique ports of host 203.0.113.141 in 0m21s",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]
