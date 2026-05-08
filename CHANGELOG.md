@@ -31,6 +31,21 @@ relevant, `### Detection changes` in each release entry.
 ## [Unreleased]
 
 ### Added
+- **Feed-aggregator schema (Phase 7 slice 1).** New `feeds` and
+  `feed_indicators` tables land via `0002_feeds.sql` migration.
+  Schema-only for now — the fetcher worker, MISP/OpenCTI source-type
+  adapters, and admin UI ship in subsequent slices. The `feeds` table
+  records configured feed instances (source type, URL, API key,
+  refresh cadence, aging window, status); `feed_indicators` records
+  the per-indicator stream the fetcher will populate.
+- **Cached list matchers in the Store.** A new `internal/match`
+  package holds the compiled-list matcher type previously inlined
+  in `internal/server/findings_filter.go`. The Store builds the
+  allowlist and IOC matchers once at startup and rebuilds them
+  inside `SetAllowlist` / `SetIOCList` — what was previously
+  rebuilt per `/api/findings` request, costing 100-500ms on a hot
+  list. Matcher values are immutable post-compile and shared across
+  goroutines via pointer copy under the store's read lock.
 - **API contract reference (Phase 6).** New `docs/API.md` enumerates
   every `/api/*` endpoint, plus `/login`, `/logout`, `/register`,
   `/events`, and the three sensor-facing `/quiver/*` endpoints.
