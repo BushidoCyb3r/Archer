@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -241,6 +242,69 @@ func (s *Store) ListFeedIndicators(feedID int64) []feeds.Indicator {
 			_ = json.Unmarshal([]byte(tagsJSON), &ind.Tags)
 		}
 		out = append(out, ind)
+	}
+	return out
+}
+
+// EnabledFeedIndicators returns one SourcedIndicators bucket per
+// enabled feed. Indicators are typed: ip → IPs, cidr → CIDRs (parsed
+// once here so the caller doesn't re-parse on every match check),
+// domain → Domains (lowercased to make match insensitive to case),
+// hash → skipped (no analyzer field today carries a hash candidate).
+//
+// Tags are carried alongside on the Tags map keyed by indicator value.
+// The analyzer surfaces them in finding Detail when present so the
+// analyst sees the upstream label (e.g. "tlp:white", "malware:emotet")
+// without having to cross-reference back to MISP.
+//
+// Disabled feeds are skipped entirely — operators turning a feed off
+// should immediately stop seeing matches from it on the next analysis.
+func (s *Store) EnabledFeedIndicators() []feeds.SourcedIndicators {
+	if s.db == nil {
+		return nil
+	}
+	all := s.ListFeeds()
+	out := make([]feeds.SourcedIndicators, 0, len(all))
+	for _, f := range all {
+		if !f.Enabled {
+			continue
+		}
+		inds := s.ListFeedIndicators(f.ID)
+		bucket := feeds.SourcedIndicators{
+			Source:  "feed:" + f.Name,
+			IPs:     make(map[string]bool),
+			Domains: make(map[string]bool),
+			Tags:    make(map[string][]string),
+		}
+		for _, ind := range inds {
+			val := strings.TrimSpace(ind.Indicator)
+			if val == "" {
+				continue
+			}
+			switch ind.Type {
+			case feeds.IndicatorIP:
+				bucket.IPs[val] = true
+			case feeds.IndicatorCIDR:
+				if _, ipnet, err := net.ParseCIDR(val); err == nil {
+					bucket.CIDRs = append(bucket.CIDRs, ipnet)
+				}
+			case feeds.IndicatorDomain:
+				bucket.Domains[strings.ToLower(val)] = true
+			case feeds.IndicatorHash:
+				// no candidate field today; skip
+				continue
+			default:
+				continue
+			}
+			if len(ind.Tags) > 0 {
+				key := val
+				if ind.Type == feeds.IndicatorDomain {
+					key = strings.ToLower(val)
+				}
+				bucket.Tags[key] = ind.Tags
+			}
+		}
+		out = append(out, bucket)
 	}
 	return out
 }

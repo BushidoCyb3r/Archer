@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -36,11 +37,23 @@ func (a *Analyzer) prefetchFeeds(_ []string) {
 		go func() { defer wg.Done(); a.urlhausIPs, a.urlhausHosts = fetchURLhaus(client) }()
 	}
 	wg.Wait()
+
+	// MISP / OpenCTI feed indicators. Snapshotted into feedSources for
+	// the duration of this run so the matcher cache invalidations from a
+	// concurrent feed refresh don't perturb mid-run state.
+	if a.feedProvider != nil {
+		a.feedSources = a.feedProvider.EnabledFeedIndicators()
+	} else {
+		a.feedSources = nil
+	}
 }
 
-// checkSuspiciousURLs scans HTTP logs for requests to hosts listed in URLhaus.
+// checkSuspiciousURLs scans HTTP logs for requests to hosts listed in
+// URLhaus or any enabled MISP/OpenCTI feed's domain indicators. One
+// Suspicious URL finding per (src, host) pair regardless of how many
+// requests; the URI of the first request is captured for context.
 func (a *Analyzer) checkSuspiciousURLs(files []string) {
-	if len(a.urlhausHosts) == 0 {
+	if len(a.urlhausHosts) == 0 && !a.anyFeedDomains() {
 		return
 	}
 	seen := make(map[[2]string]bool)
@@ -75,9 +88,48 @@ func (a *Analyzer) checkSuspiciousURLs(files []string) {
 					})
 				}
 			}
+			lc := strings.ToLower(h)
+			for _, fs := range a.feedSources {
+				if !fs.Domains[lc] {
+					continue
+				}
+				key := [2]string{src, fs.Source + "|" + lc}
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				feedName := strings.TrimPrefix(fs.Source, "feed:")
+				detail := fmt.Sprintf("%s domain match: %s | URI: %s", feedName, host, uri)
+				if tags := fs.Tags[lc]; len(tags) > 0 {
+					detail += " | tags: " + strings.Join(tags, ", ")
+				}
+				a.add(model.Finding{
+					Type:      "Suspicious URL",
+					Severity:  model.SevHigh,
+					Score:     90,
+					SrcIP:     src,
+					DstIP:     dst,
+					DstPort:   fmt.Sprint(dstPort),
+					Detail:    detail,
+					Timestamp: fmtTS(ts),
+				})
+			}
 			return true
 		})
 	}
+}
+
+// anyFeedDomains reports whether any enabled feed source carries at
+// least one domain indicator. Cheap O(feeds) check that lets the HTTP
+// scan early-exit when neither URLhaus nor any feed has anything to
+// match against.
+func (a *Analyzer) anyFeedDomains() bool {
+	for _, fs := range a.feedSources {
+		if len(fs.Domains) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // tiIPObs records a single (dst-ip, src) observation for TI hit fan-out.
@@ -240,6 +292,51 @@ func (a *Analyzer) checkTI(files []string) {
 				detail: fmt.Sprintf("URLhaus malware distribution domain: %s", host),
 				score:  97,
 				sev:    model.SevCritical,
+			})
+		}
+	}
+
+	// Match against MISP / OpenCTI feeds. One bucket per enabled feed,
+	// already type-segregated. Hit detail mentions the feed name and
+	// any upstream-supplied tags so the analyst can see provenance
+	// without cross-referencing back to MISP/OpenCTI.
+	for _, fs := range a.feedSources {
+		for ip := range dstIPSet {
+			matched := false
+			if fs.IPs[ip] {
+				matched = true
+			} else if len(fs.CIDRs) > 0 {
+				if parsed := net.ParseIP(ip); parsed != nil {
+					for _, cidr := range fs.CIDRs {
+						if cidr.Contains(parsed) {
+							matched = true
+							break
+						}
+					}
+				}
+			}
+			if !matched {
+				continue
+			}
+			hits = append(hits, tiHit{
+				dst:    ip,
+				source: fs.Source,
+				detail: feedHitDetail(fs.Source, ip, fs.Tags[ip]),
+				score:  90,
+				sev:    model.SevHigh,
+			})
+		}
+		for d := range dstDomainSet {
+			lc := strings.ToLower(d)
+			if !fs.Domains[lc] {
+				continue
+			}
+			hits = append(hits, tiHit{
+				dst:    d,
+				source: fs.Source,
+				detail: feedHitDetail(fs.Source, d, fs.Tags[lc]),
+				score:  90,
+				sev:    model.SevHigh,
 			})
 		}
 	}
@@ -538,6 +635,19 @@ func (a *Analyzer) checkTI(files []string) {
 			}
 		}
 	}
+}
+
+// feedHitDetail formats the per-finding Detail line for a MISP /
+// OpenCTI feed match. Source is "feed:<name>"; tags (if any) are
+// upstream labels — surfaced inline so analysts see provenance and
+// upstream context without bouncing to MISP. Format mirrors the
+// built-in URLhaus / Feodo lines for visual consistency.
+func feedHitDetail(source, ind string, tags []string) string {
+	feedName := strings.TrimPrefix(source, "feed:")
+	if len(tags) == 0 {
+		return fmt.Sprintf("%s indicator match: %s", feedName, ind)
+	}
+	return fmt.Sprintf("%s indicator match: %s — tags: %s", feedName, ind, strings.Join(tags, ", "))
 }
 
 // tiIPEvidence formats the per-source observation context appended to a

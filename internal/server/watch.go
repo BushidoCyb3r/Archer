@@ -320,6 +320,7 @@ func (s *Server) launchIncrementalAnalysis(files []string) {
 	logsDir := s.logsDir
 	go func() {
 		az := analysis.New(cfg, progressCh, statusCh)
+		az.SetFeedProvider(s.store)
 
 		s.analyzerMu.Lock()
 		s.activeAnalyzer = az
@@ -528,6 +529,7 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) {
 	logsDir := s.logsDir
 	go func() {
 		az := analysis.New(cfg, progressCh, statusCh)
+		az.SetFeedProvider(s.store)
 
 		s.analyzerMu.Lock()
 		s.activeAnalyzer = az
