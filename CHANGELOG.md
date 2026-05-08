@@ -30,7 +30,45 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+---
+
+## [v0.5.0] — 2026-05-08
+
+This release closes Phase 6 (API contract reference + deprecation
+policy) and Phase 7 (MISP / OpenCTI threat-intel feed integration).
+The full feed pipeline is operator-usable end to end: configure
+feeds in the new admin UI, the worker fetches indicators on cadence,
+and the analyzer's TI matching paths now consult those feed
+indicators alongside the built-in URLhaus / Feodo lists. Findings
+that match a feed indicator carry per-feed provenance
+(`SourceFile: feed:<name>`) plus any upstream tags inline. Two
+phase-7 follow-ups also land here: a per-feed TLS-verify bypass for
+self-signed internal MISP / OpenCTI deployments, and the analyzer-
+side wiring that consumes `feed_indicators` to actually emit Threat
+Intel Hit / Suspicious URL findings from feed matches.
+
 ### Added
+- **Analyzer-side feed matching.** The TI hot path now consults
+  enabled MISP / OpenCTI feeds during phase-0 prefetch and tests
+  candidate IPs / CIDRs / domains against them in `checkTI` and
+  `checkSuspiciousURLs`. Matches emit `Threat Intel Hit` (HIGH /
+  score 90) or `Suspicious URL` (HIGH / score 90) findings tagged
+  with `feed:<name>` plus any upstream tags inline in Detail. New
+  `analysis.FeedProvider` interface (aliased to `feeds.Provider`)
+  is satisfied by the Store; analyzer construction sites in
+  `handlers_api.go` and `watch.go` wire it via
+  `Analyzer.SetFeedProvider`. Hash indicators are stored but not
+  yet matched — no analyzer field today carries a hash candidate;
+  closes when file-finding analyzers grow that field.
+- **Per-feed TLS-verify bypass.** New `tls_skip_verify` boolean on
+  the `feeds` table (migration `0003_feeds_tls_skip_verify.sql`)
+  with a checkbox in the feed-edit dialog and a warning sub-text
+  ("only enable for trusted internal feeds"). Threaded through to
+  `MISPClient` / `OpenCTIClient` constructors as a Transport
+  override. Default off — operators opt in deliberately per feed.
+  Closes the common deployment friction where a lab MISP runs with
+  a self-signed cert that the Archer container's CA bundle doesn't
+  trust.
 - **Feed-aggregator schema (Phase 7 slice 1).** New `feeds` and
   `feed_indicators` tables land via `0002_feeds.sql` migration.
   Schema-only for now — the fetcher worker, MISP/OpenCTI source-type
@@ -156,6 +194,38 @@ relevant, `### Detection changes` in each release entry.
   removals (RFC 7234 `Warning: 299 -` header on the deprecated
   surface for one cycle, then removed under `### Breaking`). README
   Operations section links to the new doc.
+
+### Detection changes
+- **Threat Intel Hit and Suspicious URL findings now fire from
+  MISP / OpenCTI feed matches.** Before this release, those finding
+  types only fired from the built-in URLhaus / FeodoTracker /
+  OTX / AbuseIPDB sources; feed indicators were stored but never
+  produced findings. Behavior change: deployments with at least one
+  enabled feed will see additional findings on next analysis whose
+  dst-IP / DNS-query / HTTP-host overlaps with the feed's
+  indicators. Severity HIGH / score 90 (lower than URLhaus's
+  CRITICAL / 96-97 — these are unverified relative to URLhaus's
+  curated malware-distribution focus). Re-baseline if your hunt
+  workflow filters on IOC source. Deployments with no feeds
+  configured see no behavior change.
+
+### Breaking
+- **DB schema: `feeds` and `feed_indicators` tables (migration
+  `0002_feeds.sql`).** Lands automatically on first start of
+  v0.5.0. New install: created from scratch. Existing v0.4.0
+  install: forward-only migration applied at startup. No data
+  backfill — feeds are operator-configured post-upgrade. Rollback
+  to v0.4.0 requires restoring `/data` from backup; there's no
+  down-migration tooling.
+- **DB schema: `tls_skip_verify` column on `feeds` table (migration
+  `0003_feeds_tls_skip_verify.sql`).** Bundled into the same v0.5.0
+  upgrade path as 0002 — single restart applies both. Default value
+  0 (verification on); operators tick the per-feed checkbox to opt
+  in.
+- **HTTP API: `Finding.IOCSource` field added to `/api/findings`
+  responses.** Additive — existing clients that ignore unknown
+  fields are unaffected. Clients that strictly validate response
+  schemas will need to allow the new field.
 
 ---
 
@@ -528,7 +598,9 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.5.0...HEAD
+[v0.5.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.4.0...v0.5.0
+[v0.4.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.3.0...v0.4.0
 [v0.3.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.2.0...v0.3.0
 [v0.2.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/BushidoCyb3r/Archer/releases/tag/v0.1.0
