@@ -105,7 +105,11 @@ For minor bumps with breaking changes:
   install gets 0001 stamped without re-running so operator data is preserved.
 - Detection-semantics change: re-run `go test ./internal/analysis/...`
   against the golden fixture — the diff should match the CHANGELOG entry.
-  *(Requires Phase 4.)*
+  When the change is intentional, regenerate the golden:
+  `go test ./internal/analysis/... -run TestGoldenZeek -update`. Inspect
+  the resulting `internal/analysis/testdata/zeek/expected_findings.json`
+  diff before staging it — every line of change should be explainable
+  from the CHANGELOG entry. *(See "Detection-semantics tests" below.)*
 
 ## Schema migrations
 
@@ -153,6 +157,44 @@ DB schema changes use the migration framework added in Phase 3.
 - Tracking: `schema_migrations` table (`version INTEGER PRIMARY KEY,
   applied_at INTEGER NOT NULL`)
 - Tests: `internal/store/migrate_test.go`
+
+## Detection-semantics tests
+
+Detection changes (score formulas, thresholds, finding types,
+feed-matching logic) get caught by the golden-file test in
+`internal/analysis/golden_test.go`, which runs the full `Analyze`
+pipeline over a synthetic Zeek NDJSON fixture under
+`internal/analysis/testdata/zeek/` and diffs the resulting findings
+against `expected_findings.json`.
+
+**Workflow when a detection change is intentional**:
+
+1. Make the code change in `internal/analysis/` and confirm the existing
+   golden test fails (`go test ./internal/analysis/... -run TestGoldenZeek`)
+   — that failure is the change being detected.
+2. Inspect the diff carefully: the failure message lists every finding
+   that drifted. Confirm each drift is the expected consequence of your
+   change and not collateral.
+3. Regenerate the golden:
+   `go test ./internal/analysis/... -run TestGoldenZeek -update`.
+4. Stage `internal/analysis/testdata/zeek/expected_findings.json` in
+   the same commit as the code change. The diff in the JSON file
+   becomes part of the PR review surface.
+5. Add a `### Detection changes` entry to the CHANGELOG describing what
+   moved and why. Operators reading this section decide whether to
+   re-baseline their hunt findings.
+
+**Adding new fixtures**: drop a new `.log` file (NDJSON Zeek format)
+into `testdata/zeek/`. The test discovers all `*.log` files in the
+directory and feeds them to one analyzer pass. For new detection
+families that don't fit the current scenario, prefer a new
+subdirectory and a new test (e.g., `TestGoldenDNSTunnel`) over
+overloading the existing fixture — golden stability degrades when one
+fixture has to satisfy too many expectations.
+
+**Math helpers** in `internal/analysis/stats.go` have unit tests in
+`stats_test.go` — pure-function table tests, no fixture machinery. Run
+those alongside the golden test on every detection-touching change.
 
 ## 7. Communicate
 
