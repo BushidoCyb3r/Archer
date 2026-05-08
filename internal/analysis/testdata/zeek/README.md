@@ -28,6 +28,12 @@ Each scenario subdirectory contains:
   with `-update` and committed alongside the fixture.
 - `README.md` — what this scenario exercises and which detector(s) it
   primarily targets.
+- `feeds.json` (optional) — per-scenario TI feed injection. Schema:
+  `{"feodo_ips":[…], "urlhaus_ips":[…], "urlhaus_hosts":[…]}`. Each
+  field is independently optional; omitted fields fall back to the
+  default (empty Feodo/URLhaus IP maps, plus a single `malware.test`
+  URLhaus host so the original `beacon_url/` scenario keeps working
+  without a `feeds.json` file).
 
 ## Adding a new scenario
 
@@ -37,10 +43,9 @@ Each scenario subdirectory contains:
    Cross-detector triggers are fine when they're *expected* (e.g., 1500
    regular connections fire both Strobe and Beacon — that's the
    real-world behavior; capture both).
-3. The runner injects empty (non-nil) Feodo and URLhaus IP maps plus
-   `urlhausHosts = {"malware.test": true}` for every scenario. If a
-   scenario needs different feeds, extend the runner with a per-scenario
-   `feeds.json` — not done yet, add when first needed.
+3. If the scenario needs specific TI-feed entries (Feodo IP, URLhaus
+   IP, URLhaus host), drop a `feeds.json` next to the `*.log` files.
+   See `ti_feodo_ip/feeds.json` for the schema.
 4. Run `go test ./internal/analysis/... -run TestGoldenZeek -update` to
    capture the golden for the new subdirectory.
 5. Read the resulting `expected_findings.json`. Verify the expected
@@ -85,3 +90,5 @@ Each scenario subdirectory contains:
 | `weird_high_interest/` | Protocol Anomaly (high-interest) |
 | `notice_zeek/` | Zeek Notice (default HIGH) |
 | `notice_critical/` | Zeek Notice (critical keyword) |
+| `ti_feodo_ip/` | Threat Intel Hit (FeodoTracker IP — uses `feeds.json`) |
+| `ti_urlhaus_ip/` | Threat Intel Hit (URLhaus IP — uses `feeds.json`) |

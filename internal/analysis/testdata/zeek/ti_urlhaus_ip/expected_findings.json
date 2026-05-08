@@ -1,0 +1,21 @@
+[
+  {
+    "type": "Host Risk Score",
+    "severity": "MEDIUM",
+    "score": 35,
+    "src_ip": "192.168.8.20",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 35 | Detections: [Threat Intel Hit]",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Threat Intel Hit",
+    "severity": "CRITICAL",
+    "score": 97,
+    "src_ip": "192.168.8.20",
+    "dst_ip": "203.0.113.201",
+    "dst_port": "443",
+    "detail": "URLhaus malware distribution IP: 203.0.113.201 — observed via conn on port 443 (1 session(s))",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]
