@@ -208,11 +208,20 @@ CREATE TABLE sessions (...);
 CREATE TABLE pending_users (...);  -- approval-required new registrations
 ```
 
-There's no migration framework yet — that's [Phase 3 of the maturation
-plan](../MATURATION_PLAN.md). Schema additions today rely on `CREATE
-TABLE IF NOT EXISTS` plus tolerated `ALTER TABLE` for column adds. The
-one rename (`dataset` → `sensor`) was handled with an `ALTER` whose
-duplicate-column error is the all-clear signal.
+Schema changes use the migration framework in
+`internal/store/migrate.go`. Numbered SQL files under
+`internal/store/migrations/` are embedded via `embed.FS` and applied
+transactionally on server start. A `schema_migrations` table records
+which versions have been applied; the runner is idempotent so subsequent
+boots are no-ops, and a failure rolls the transaction back and aborts
+startup so handler code never sees a half-applied schema.
+
+The runner is invoked from `NewUserStore` (which owns the DB connection
+lifecycle) before any other store code touches the database.
+
+For policy on adding new migrations — file naming, transaction
+semantics, the forward-only rule — see [RELEASING.md](../RELEASING.md)
+"Schema migrations".
 
 ### `SetFindings` is a fingerprint-merge
 

@@ -30,7 +30,33 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Added
+- **DB schema migration framework.** Schema changes are now expressed
+  as numbered SQL files under `internal/store/migrations/` (embedded
+  via `embed.FS`) and applied transactionally on server start. A new
+  `schema_migrations` table records which versions have been applied;
+  the runner skips already-applied migrations and aborts startup loudly
+  on any failure rather than reaching handler code with a half-applied
+  schema. Existing installs that predate the framework are detected by
+  the presence of the `findings` table and have version 1 stamped
+  without re-running 0001 — operator data is preserved untouched.
+  Adding a future schema change is now: drop a new
+  `NNNN_<title>.sql` file, write Go code against the new shape, write
+  a CHANGELOG entry. See `RELEASING.md` "Schema migrations" for the
+  policy and `docs/ARCHITECTURE.md` for the runner's data flow.
+- Test coverage for the framework: `internal/store/migrate_test.go`
+  covers fresh-DB application, pre-framework bootstrap-stamping,
+  idempotent re-runs, transaction rollback on bad SQL, version-prefix
+  parsing edge cases, and embedded-file integrity.
+
 ### Changed
+- `Store.InitDB` and `UserStore.NewUserStore` no longer create or alter
+  schema inline — the migration runner does it before either gets the
+  DB handle. The previous one-shot `dataset → sensor` rename, the
+  `suppressions.detail` ALTER, and the `users.status` ALTER are now
+  baked into `0001_init.sql` as column definitions; on existing installs
+  these were already applied at boot of the previous version, so the
+  bootstrap-stamp logic carries them forward without re-running.
 - Right-click → Lookup → Censys now opens `platform.censys.io/hosts/<ip>`
   instead of `search.censys.io/hosts/<ip>`. Censys migrated their
   analyst-facing UI to the new platform host in 2026; the path is

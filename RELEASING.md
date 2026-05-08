@@ -99,10 +99,60 @@ For minor bumps with breaking changes:
 - Quiver protocol bump: deploy one sensor on the previous protocol version
   and confirm enrollment fails with the expected structured error.
 - DB schema change: spin up against an existing v0.x-1 database and confirm
-  migrations apply cleanly. *(Requires Phase 3 of the maturation plan.)*
+  migrations apply cleanly. The runner logs `applied schema migration NNNN`
+  for each new file; the schema_migrations table records every applied
+  version. A fresh DB applies 0001 from scratch; an existing pre-Phase-3
+  install gets 0001 stamped without re-running so operator data is preserved.
 - Detection-semantics change: re-run `go test ./internal/analysis/...`
   against the golden fixture — the diff should match the CHANGELOG entry.
   *(Requires Phase 4.)*
+
+## Schema migrations
+
+DB schema changes use the migration framework added in Phase 3.
+
+**Adding a schema change**:
+
+1. Create a new file in `internal/store/migrations/` named
+   `NNNN_short_title.sql` where `NNNN` is the next integer (zero-padded
+   to four digits by convention, but the runner accepts any positive
+   integer prefix). Example: `0002_add_finding_confidence_column.sql`.
+2. Write the SQL — `ALTER TABLE`, `CREATE INDEX`, etc. The whole file
+   runs in a single transaction; multiple statements separated by `;`
+   are fine. Avoid `IF NOT EXISTS` / `IF EXISTS` on new migrations so
+   any inconsistency surfaces as a startup error rather than being
+   silently papered over.
+3. Update Go code that reads or writes the affected table — new columns
+   on existing rows pick up `DEFAULT` values; `NOT NULL` columns
+   without a default need a backfill `UPDATE` in the same migration.
+4. Update `docs/ARCHITECTURE.md` (Storage section) if the schema dump
+   should reflect the new shape.
+5. CHANGELOG entry under `### Breaking` (pre-1.0 minor bump). Mention
+   any data backfill the migration performs and what the rollback
+   story is (typically: "rollback requires restoring `/data` from
+   backup — there's no down-migration tooling").
+
+**Rules**:
+
+- Never edit a migration that's been released. The runner records
+  applied versions; editing `0001_init.sql` after release won't re-run
+  it on existing installs, and a fresh install would diverge from the
+  state operators in the field have.
+- Never re-use a version number. The runner detects duplicates at load
+  and refuses to start.
+- Migrations are atomic per-version. A failure rolls back the
+  transaction and aborts startup. Half-applied schemas don't reach
+  handler code.
+- The framework is **forward-only**. There's no down-migration. To
+  reverse a change, write a new migration that undoes it.
+
+**Where the code lives**:
+
+- Runner: `internal/store/migrate.go` (`RunMigrations`)
+- Migrations: `internal/store/migrations/*.sql` (embedded via `embed.FS`)
+- Tracking: `schema_migrations` table (`version INTEGER PRIMARY KEY,
+  applied_at INTEGER NOT NULL`)
+- Tests: `internal/store/migrate_test.go`
 
 ## 7. Communicate
 

@@ -1,9 +1,10 @@
 package store
 
 // Persistent state for Quiver: enrolled sensors, outstanding enrollment
-// tokens, and unauthorized checkin attempts. Each table is created lazily
-// via InitSensorTables (called from InitDB) so existing deployments pick
-// the new schema up on next boot without a manual migration step.
+// tokens, and unauthorized checkin attempts. Schema lives in
+// migrations/0001_init.sql alongside the other Archer tables; the
+// migration runner ensures it's present before any handler reads or
+// writes here.
 //
 // The tables don't carry any cross-references with the existing findings
 // table; the link is purely by sensor name (Finding.Sensor matches
@@ -13,7 +14,6 @@ package store
 
 import (
 	"crypto/sha256"
-	"database/sql"
 	"encoding/base64"
 	"log"
 	"strings"
@@ -65,58 +65,6 @@ type UnauthorizedAttempt struct {
 	Pinned       bool   `json:"pinned"`
 }
 
-// InitSensorTables creates the three Quiver-related tables if they don't
-// exist. Idempotent — safe to call on every boot.
-func (s *Store) InitSensorTables(db *sql.DB) {
-	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS sensors (
-			id              INTEGER PRIMARY KEY AUTOINCREMENT,
-			name            TEXT NOT NULL,
-			host            TEXT,
-			source_ip       TEXT,
-			enrolled_at     INTEGER NOT NULL,
-			enrolled_by     TEXT,
-			status          TEXT NOT NULL DEFAULT 'enrolled',
-			pubkey_fp       TEXT,
-			authkey_line    TEXT,
-			schedule_hour   INTEGER NOT NULL DEFAULT 2,
-			schedule_minute INTEGER NOT NULL DEFAULT 0,
-			last_seen_at    INTEGER DEFAULT 0,
-			last_files      INTEGER DEFAULT 0,
-			last_bytes      INTEGER DEFAULT 0
-		)`,
-		// Partial unique index: only one currently-active sensor per name.
-		// Disenrolled rows can share a name with a freshly-enrolled one,
-		// matching the "treat re-enrollment as a new sensor" rule.
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_sensors_active_name
-			ON sensors(name) WHERE status IN ('enrolled','disenrolling')`,
-		`CREATE TABLE IF NOT EXISTS enrollment_tokens (
-			id            INTEGER PRIMARY KEY AUTOINCREMENT,
-			token         TEXT NOT NULL UNIQUE,
-			override_name TEXT,
-			created_at    INTEGER NOT NULL,
-			expires_at    INTEGER NOT NULL,
-			used_at       INTEGER DEFAULT 0,
-			created_by    TEXT,
-			consumed_by   TEXT
-		)`,
-		`CREATE TABLE IF NOT EXISTS unauthorized_attempts (
-			id            INTEGER PRIMARY KEY AUTOINCREMENT,
-			name          TEXT NOT NULL,
-			source_ip     TEXT NOT NULL,
-			first_seen    INTEGER NOT NULL,
-			last_seen     INTEGER NOT NULL,
-			attempt_count INTEGER NOT NULL DEFAULT 1,
-			pinned        INTEGER NOT NULL DEFAULT 0,
-			UNIQUE(name, source_ip)
-		)`,
-	}
-	for _, q := range stmts {
-		if _, err := db.Exec(q); err != nil {
-			log.Printf("store: sensor schema init failed: %v", err)
-		}
-	}
-}
 
 // ── Sensors CRUD ──────────────────────────────────────────────────────────
 
