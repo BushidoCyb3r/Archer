@@ -18,12 +18,23 @@ import (
 // prefetchFeeds fetches threat intel feeds concurrently and caches results on the Analyzer.
 // This runs as the first analysis step so downstream steps (checkTI, checkSuspiciousURLs) can
 // reuse the data without a second network round-trip.
+//
+// Pre-populated caches are honored as-is: if a cache is non-nil it is treated as
+// already loaded and the corresponding network fetch is skipped. Tests use this
+// to inject deterministic feeds and avoid live HTTP calls. An empty (but non-nil)
+// map means "feed loaded, no entries" — the same shape a fetch would produce on
+// an empty upstream — and is distinct from nil ("not yet loaded").
 func (a *Analyzer) prefetchFeeds(_ []string) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() { defer wg.Done(); a.feodoIPs = fetchFeodo(client) }()
-	go func() { defer wg.Done(); a.urlhausIPs, a.urlhausHosts = fetchURLhaus(client) }()
+	if a.feodoIPs == nil {
+		wg.Add(1)
+		go func() { defer wg.Done(); a.feodoIPs = fetchFeodo(client) }()
+	}
+	if a.urlhausIPs == nil || a.urlhausHosts == nil {
+		wg.Add(1)
+		go func() { defer wg.Done(); a.urlhausIPs, a.urlhausHosts = fetchURLhaus(client) }()
+	}
 	wg.Wait()
 }
 

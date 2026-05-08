@@ -3,6 +3,7 @@ package analysis
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
@@ -81,6 +82,7 @@ func (a *Analyzer) aggregateRisk(_ []string) {
 		for t := range hd.types {
 			typeList = append(typeList, t)
 		}
+		sort.Strings(typeList)
 
 		a.add(model.Finding{
 			Type:      "Host Risk Score",

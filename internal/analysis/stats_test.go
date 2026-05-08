@@ -1,0 +1,402 @@
+package analysis
+
+import (
+	"math"
+	"testing"
+)
+
+const floatTol = 1e-9
+
+func almostEqual(a, b, tol float64) bool {
+	if math.IsNaN(a) || math.IsNaN(b) {
+		return false
+	}
+	return math.Abs(a-b) <= tol
+}
+
+func TestFmedian(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []float64
+		want float64
+	}{
+		{"empty", []float64{}, 0},
+		{"single", []float64{42}, 42},
+		{"odd_sorted", []float64{1, 2, 3, 4, 5}, 3},
+		{"odd_unsorted", []float64{5, 1, 3, 2, 4}, 3},
+		{"even", []float64{1, 2, 3, 4}, 2.5},
+		{"duplicates", []float64{2, 2, 2, 2}, 2},
+		{"negatives", []float64{-3, -1, 0, 1, 3}, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := fmedian(tt.in)
+			if !almostEqual(got, tt.want, floatTol) {
+				t.Errorf("fmedian(%v) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
+	}
+
+	// Confirm input is not mutated (fmedian copies before sort).
+	in := []float64{3, 1, 2}
+	_ = fmedian(in)
+	if in[0] != 3 || in[1] != 1 || in[2] != 2 {
+		t.Errorf("fmedian mutated input: %v", in)
+	}
+}
+
+func TestFmean(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []float64
+		want float64
+	}{
+		{"empty", []float64{}, 0},
+		{"single", []float64{5}, 5},
+		{"basic", []float64{1, 2, 3, 4, 5}, 3},
+		{"negatives_cancel", []float64{-2, -1, 0, 1, 2}, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := fmean(tt.in)
+			if !almostEqual(got, tt.want, floatTol) {
+				t.Errorf("fmean(%v) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBowleyScore(t *testing.T) {
+	t.Run("too_few_elements", func(t *testing.T) {
+		if got := bowleyScore([]float64{1, 2}); got != 1.0 {
+			t.Errorf("bowleyScore(<3) = %v, want 1.0", got)
+		}
+	})
+
+	t.Run("small_iqr_returns_one", func(t *testing.T) {
+		// Spread under 10s — denom guard returns 1.0.
+		got := bowleyScore([]float64{1, 2, 3, 4, 5})
+		if got != 1.0 {
+			t.Errorf("small-iqr bowleyScore = %v, want 1.0", got)
+		}
+	})
+
+	t.Run("perfectly_symmetric", func(t *testing.T) {
+		// Symmetric distribution with denom >= 10 → score 1.0.
+		xs := []float64{0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100}
+		got := bowleyScore(xs)
+		if !almostEqual(got, 1.0, 1e-6) {
+			t.Errorf("symmetric bowleyScore = %v, want 1.0", got)
+		}
+	})
+
+	t.Run("right_skewed_lowers_score", func(t *testing.T) {
+		// Heavy right tail — score should drop below 1.
+		xs := []float64{0, 1, 2, 3, 4, 5, 6, 7, 100, 200, 1000}
+		got := bowleyScore(xs)
+		if got >= 1.0 || got < 0 {
+			t.Errorf("skewed bowleyScore = %v, want in [0,1)", got)
+		}
+	})
+}
+
+func TestMadScore(t *testing.T) {
+	t.Run("empty_returns_default", func(t *testing.T) {
+		if got := madScore(nil, 0.42); got != 0.42 {
+			t.Errorf("empty madScore = %v, want default 0.42", got)
+		}
+	})
+
+	t.Run("zero_median_returns_default", func(t *testing.T) {
+		// All zeros → median 0 → returns default.
+		if got := madScore([]float64{0, 0, 0}, 0.99); got != 0.99 {
+			t.Errorf("zero-median madScore = %v, want default 0.99", got)
+		}
+	})
+
+	t.Run("perfectly_regular", func(t *testing.T) {
+		// All same value → MAD = 0 → score = (med - 0) / med = 1.0.
+		got := madScore([]float64{60, 60, 60, 60}, 0)
+		if !almostEqual(got, 1.0, floatTol) {
+			t.Errorf("regular madScore = %v, want 1.0", got)
+		}
+	})
+
+	t.Run("irregular_lowers_score", func(t *testing.T) {
+		// High dispersion — score should be much lower.
+		got := madScore([]float64{10, 20, 50, 100, 500, 1000}, 0)
+		if got >= 1.0 || got < 0 {
+			t.Errorf("irregular madScore = %v, want in [0,1)", got)
+		}
+	})
+
+	t.Run("clamped_to_unit_interval", func(t *testing.T) {
+		// Manufactured: MAD > median should clamp to 0.
+		got := madScore([]float64{1, 1, 1, 100, 100, 100}, 0)
+		if got < 0 || got > 1 {
+			t.Errorf("madScore = %v out of [0,1]", got)
+		}
+	})
+}
+
+func TestStatisticalScore(t *testing.T) {
+	t.Run("regular_combination", func(t *testing.T) {
+		// All-same → bowley=1 (q1==q3 guard) and MAD=0 → both sub-scores 1.
+		xs := []float64{60, 60, 60, 60, 60, 60}
+		got := statisticalScore(xs, 0)
+		if got != 1.0 {
+			t.Errorf("regular statisticalScore = %v, want 1.0", got)
+		}
+	})
+
+	t.Run("symmetric_but_dispersed", func(t *testing.T) {
+		// Symmetric (bowley=1) but high MAD (mad<1) → combined < 1.
+		xs := []float64{0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100}
+		got := statisticalScore(xs, 0)
+		if got >= 1.0 || got <= 0 {
+			t.Errorf("symmetric-dispersed statisticalScore = %v, want in (0,1)", got)
+		}
+	})
+
+	t.Run("rounded_to_three_places", func(t *testing.T) {
+		// Non-trivial inputs; just verify rounding to 3 decimals.
+		xs := []float64{1, 2, 3, 4, 5, 6, 7, 100, 200, 1000}
+		got := statisticalScore(xs, 0)
+		// got*1000 should be (very close to) an integer.
+		scaled := got * 1000
+		if math.Abs(scaled-math.Round(scaled)) > 1e-9 {
+			t.Errorf("statisticalScore = %v not rounded to 3 places", got)
+		}
+		if got < 0 || got > 1 {
+			t.Errorf("statisticalScore = %v out of [0,1]", got)
+		}
+	})
+}
+
+func TestComputeHistogram(t *testing.T) {
+	t.Run("empty_window_returns_zeroes", func(t *testing.T) {
+		freq, freqCount := computeHistogram([]float64{1, 2, 3}, 5, 5, 24)
+		if len(freqCount) != 0 {
+			t.Errorf("freqCount = %v, want empty", freqCount)
+		}
+		for i, v := range freq {
+			if v != 0 {
+				t.Errorf("freq[%d] = %d, want 0", i, v)
+			}
+		}
+	})
+
+	t.Run("uniform_partitioning", func(t *testing.T) {
+		// 24 timestamps, one per bucket, exactly aligned.
+		ts := make([]float64, 24)
+		for i := range ts {
+			ts[i] = float64(i) + 0.5
+		}
+		freq, freqCount := computeHistogram(ts, 0, 24, 24)
+		if len(freqCount) != 24 {
+			t.Errorf("freqCount size = %d, want 24", len(freqCount))
+		}
+		for i, v := range freq {
+			if v != 1 {
+				t.Errorf("freq[%d] = %d, want 1", i, v)
+			}
+		}
+	})
+
+	t.Run("clamps_to_last_bucket", func(t *testing.T) {
+		// Timestamp at the boundary should map to last bucket, not over.
+		freq, _ := computeHistogram([]float64{10}, 0, 10, 24)
+		if freq[23] != 1 {
+			t.Errorf("boundary timestamp not clamped: freq = %v", freq)
+		}
+	})
+
+	t.Run("all_same_bucket", func(t *testing.T) {
+		// Cluster all timestamps into bucket 0.
+		freq, freqCount := computeHistogram([]float64{0.1, 0.2, 0.3}, 0, 24, 24)
+		if freq[0] != 3 {
+			t.Errorf("freq[0] = %d, want 3", freq[0])
+		}
+		if freqCount[0] != 3 || len(freqCount) != 1 {
+			t.Errorf("freqCount = %v, want {0:3}", freqCount)
+		}
+	})
+}
+
+func TestCvScore(t *testing.T) {
+	tests := []struct {
+		name string
+		hist []int
+		want float64
+	}{
+		{"too_few_nonzero", []int{0, 0, 5, 0}, 0},
+		{"all_zero", []int{0, 0, 0, 0}, 0},
+		{"perfectly_uniform", []int{10, 10, 10, 10}, 1.0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cvScore(tt.hist)
+			if !almostEqual(got, tt.want, floatTol) {
+				t.Errorf("cvScore(%v) = %v, want %v", tt.hist, got, tt.want)
+			}
+		})
+	}
+
+	t.Run("varied_lowers_score", func(t *testing.T) {
+		got := cvScore([]int{1, 2, 3, 4, 5})
+		if got <= 0 || got >= 1 {
+			t.Errorf("varied cvScore = %v, want in (0,1)", got)
+		}
+	})
+
+	t.Run("high_cv_clamped_to_zero", func(t *testing.T) {
+		// std/mean >= 1 should return 0.
+		got := cvScore([]int{1, 1, 1, 1, 1, 1, 1, 1, 100})
+		if got != 0 {
+			t.Errorf("high-CV cvScore = %v, want 0", got)
+		}
+	})
+}
+
+func TestBimodalScore(t *testing.T) {
+	t.Run("too_few_total_bars", func(t *testing.T) {
+		fc := map[int]int{0: 5, 1: 5}
+		if got := bimodalScore(fc, 10, 0.05); got != 0 {
+			t.Errorf("bimodalScore totalBars<11 = %v, want 0", got)
+		}
+	})
+
+	t.Run("too_few_buckets", func(t *testing.T) {
+		fc := map[int]int{0: 100}
+		if got := bimodalScore(fc, 24, 0.05); got != 0 {
+			t.Errorf("bimodalScore len<2 = %v, want 0", got)
+		}
+	})
+
+	t.Run("two_strong_peaks", func(t *testing.T) {
+		fc := map[int]int{0: 100, 5: 100, 10: 1, 15: 1, 20: 1, 21: 1, 22: 1, 23: 1, 1: 1, 2: 1, 3: 1, 4: 1}
+		got := bimodalScore(fc, 24, 0.5)
+		if got <= 0 || got > 1 {
+			t.Errorf("bimodal two-peaks = %v, want in (0,1]", got)
+		}
+	})
+
+	t.Run("single_peak_no_score", func(t *testing.T) {
+		// Only one bucket above 50% threshold → highCount<2 → 0.
+		fc := map[int]int{0: 100, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1, 11: 1}
+		got := bimodalScore(fc, 24, 0.5)
+		if got != 0 {
+			t.Errorf("bimodal single-peak = %v, want 0", got)
+		}
+	})
+}
+
+func TestHistScoreRITA(t *testing.T) {
+	t.Run("regular_pattern_high_score", func(t *testing.T) {
+		// Evenly spaced timestamps should produce a high regularity score.
+		ts := make([]float64, 240)
+		for i := range ts {
+			ts[i] = float64(i) * 60 // every 60s for 4 hours
+		}
+		score, totalBars := histScoreRITA(ts, 0, ts[len(ts)-1])
+		if totalBars < 1 {
+			t.Errorf("totalBars = %d, want >= 1", totalBars)
+		}
+		if score < 0 || score > 1 {
+			t.Errorf("histScoreRITA score = %v, want in [0,1]", score)
+		}
+	})
+
+	t.Run("zero_window_zero_score", func(t *testing.T) {
+		score, totalBars := histScoreRITA([]float64{1, 2, 3}, 5, 5)
+		if score != 0 || totalBars != 0 {
+			t.Errorf("histScoreRITA empty-window = (%v,%d), want (0,0)", score, totalBars)
+		}
+	})
+}
+
+func TestDurationScore(t *testing.T) {
+	t.Run("too_few_bars_zero", func(t *testing.T) {
+		ts := []float64{0, 1, 2}
+		got := durationScore(ts, 0, 100, 24)
+		if got != 0 {
+			t.Errorf("too-few-bars durationScore = %v, want 0", got)
+		}
+	})
+
+	t.Run("full_coverage_high_score", func(t *testing.T) {
+		// Spread across full 24 buckets → coverage and consistency both ~1.
+		ts := make([]float64, 24)
+		for i := range ts {
+			ts[i] = float64(i)
+		}
+		got := durationScore(ts, 0, 24, 12)
+		if got < 0.9 {
+			t.Errorf("full-coverage durationScore = %v, want >= 0.9", got)
+		}
+	})
+
+	t.Run("clamp_to_unit", func(t *testing.T) {
+		ts := make([]float64, 24)
+		for i := range ts {
+			ts[i] = float64(i)
+		}
+		got := durationScore(ts, 0, 24, 1)
+		if got < 0 || got > 1 {
+			t.Errorf("durationScore = %v out of [0,1]", got)
+		}
+	})
+}
+
+func TestShannonEntropy(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want float64
+	}{
+		{"empty", "", 0},
+		{"single_char", "a", 0},
+		{"all_same", "aaaaaa", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shannonEntropy(tt.in)
+			if !almostEqual(got, tt.want, floatTol) {
+				t.Errorf("shannonEntropy(%q) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
+	}
+
+	t.Run("two_chars_equal_distribution", func(t *testing.T) {
+		// "ab" → entropy = 1.0 (perfect bit).
+		got := shannonEntropy("ab")
+		if !almostEqual(got, 1.0, 1e-9) {
+			t.Errorf("shannonEntropy(\"ab\") = %v, want 1.0", got)
+		}
+	})
+
+	t.Run("case_insensitive", func(t *testing.T) {
+		// Lowercased internally — "AB" should match "ab".
+		a := shannonEntropy("AB")
+		b := shannonEntropy("ab")
+		if !almostEqual(a, b, floatTol) {
+			t.Errorf("case sensitivity: AB=%v ab=%v", a, b)
+		}
+	})
+
+	t.Run("uniform_4_chars", func(t *testing.T) {
+		// "abcd" → uniform 4-symbol → entropy = log2(4) = 2.
+		got := shannonEntropy("abcd")
+		if !almostEqual(got, 2.0, 1e-9) {
+			t.Errorf("shannonEntropy(\"abcd\") = %v, want 2.0", got)
+		}
+	})
+
+	t.Run("skewed_distribution_below_max", func(t *testing.T) {
+		// "aaab" → skewed → less than uniform 2-symbol case (1.0).
+		got := shannonEntropy("aaab")
+		if got <= 0 || got >= 1.0 {
+			t.Errorf("shannonEntropy(\"aaab\") = %v, want in (0,1)", got)
+		}
+	})
+}

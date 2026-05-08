@@ -1,0 +1,41 @@
+[
+  {
+    "type": "Beaconing",
+    "severity": "HIGH",
+    "score": 50,
+    "src_ip": "192.168.1.5",
+    "dst_ip": "203.0.113.10",
+    "dst_port": "443",
+    "detail": "Connections: 30 | Mean interval: 60.0s | CV: 0.00 | Score components: ts=1.00 ds=1.00 hist=0.00 dur=0.00",
+    "timestamp": "2024-01-15 12:02:00"
+  },
+  {
+    "type": "Host Risk Score",
+    "severity": "HIGH",
+    "score": 65,
+    "src_ip": "192.168.1.5",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 65 | Detections: [Beaconing Suspicious URL Threat Intel Hit]",
+    "timestamp": "2024-01-15 12:02:00"
+  },
+  {
+    "type": "Suspicious URL",
+    "severity": "CRITICAL",
+    "score": 96,
+    "src_ip": "192.168.1.5",
+    "dst_ip": "198.51.100.50",
+    "dst_port": "80",
+    "detail": "URLhaus malware distribution host: malware.test | URI: /payload.bin",
+    "timestamp": "2024-01-15 12:02:00"
+  },
+  {
+    "type": "Threat Intel Hit",
+    "severity": "CRITICAL",
+    "score": 97,
+    "src_ip": "192.168.1.5",
+    "dst_ip": "malware.test",
+    "dst_port": "80",
+    "detail": "URLhaus malware distribution domain: malware.test — HTTP request to /payload.bin (1 request(s))",
+    "timestamp": "2024-01-15 12:02:00"
+  }
+]

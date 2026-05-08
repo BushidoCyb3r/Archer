@@ -1,0 +1,1 @@
+{"ts":1705320120,"uid":"H0000001","id.orig_h":"192.168.1.5","id.orig_p":50100,"id.resp_h":"198.51.100.50","id.resp_p":80,"method":"GET","host":"malware.test","uri":"/payload.bin","user_agent":"Mozilla/5.0","status_code":200,"resp_mime_types":"text/plain","orig_ip_bytes":250,"resp_ip_bytes":2048}

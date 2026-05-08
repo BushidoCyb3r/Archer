@@ -42,6 +42,23 @@ relevant, `### Detection changes` in each release entry.
   badge linking to the workflow runs page.
 - Phase 5 of the maturation roadmap is complete; future PRs (including
   Phase 4's detection-semantics tests) inherit the gate automatically.
+- **Detection-semantics test scaffolding (Phase 4.1).** First slice of
+  the golden-file framework. `internal/analysis/stats_test.go` covers
+  the math helpers (`fmedian`, `fmean`, `bowleyScore`, `madScore`,
+  `statisticalScore`, `computeHistogram`, `cvScore`, `bimodalScore`,
+  `histScoreRITA`, `durationScore`, `shannonEntropy`) with table
+  tests and edge cases. `internal/analysis/golden_test.go` runs the
+  full analyzer over a synthetic Zeek NDJSON corpus under
+  `internal/analysis/testdata/zeek/` and diffs the resulting findings
+  against a checked-in `expected_findings.json`. Running with `-update`
+  regenerates the golden file when a CHANGELOG-acknowledged detection
+  change lands. Findings are projected to a stable subset (no IDs, no
+  reservoir-sampled `TSData`, no analyst mutations) and sorted before
+  diffing so the result is independent of goroutine scheduling.
+- **`prefetchFeeds` test-isolation guard.** When a feed cache is
+  pre-populated (non-nil), the corresponding live HTTP fetch is
+  skipped. Tests inject empty (non-nil) maps to neutralize the feeds
+  without touching the public internet.
 
 ### Changed
 - One-time codebase reformat with `gofmt -w` so the new CI lint job
@@ -54,6 +71,15 @@ relevant, `### Detection changes` in each release entry.
   release" line. The literal version was already drifting (we shipped
   v0.2.0 and v0.3.0 without updating it); the analyst-UI status pill
   and `/api/version` endpoint are the live source of truth.
+
+### Detection changes
+- **Host Risk Score `Detail` field is now sorted alphabetically.** The
+  detection-types list rendered into the finding's Detail string was
+  iterated from a Go map, which produced non-deterministic ordering
+  across runs. Same set, same composite score — only the rendered
+  ordering changes. Existing analyst notes referencing the old order
+  are unaffected (the Detail field is fresh on each analysis pass and
+  not part of the fingerprint).
 
 ---
 
