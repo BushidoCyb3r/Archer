@@ -29,8 +29,9 @@ type Store struct {
 	findings      []model.Finding
 	allowlist     []string
 	iocList       []string
-	allowlistM    *match.Matcher // cached compile of allowlist; rebuilt on Set
-	iocM          *match.Matcher // cached compile of iocList; rebuilt on Set
+	allowlistM    *match.Matcher           // cached compile of allowlist; rebuilt on Set
+	iocM          *match.Matcher           // cached compile of iocList; rebuilt on Set
+	feedMatchers  map[int64]*match.Matcher // per-feed cached compile; rebuilt on indicator write
 	suppressions  map[string]suppressionEntry
 	notifications []model.Notification
 	notifCounter  int
@@ -47,6 +48,7 @@ type suppressionEntry struct {
 func New(cfg config.Config) *Store {
 	return &Store{
 		suppressions: make(map[string]suppressionEntry),
+		feedMatchers: make(map[int64]*match.Matcher),
 		config:       cfg,
 	}
 }
@@ -481,11 +483,83 @@ func (s *Store) AllowlistMatcher() *match.Matcher {
 	return s.allowlistM
 }
 
-// IOCMatcher mirrors AllowlistMatcher for the IOC list.
-func (s *Store) IOCMatcher() *match.Matcher {
+// SourcedMatcher pairs a compiled matcher with the human-readable
+// label of the list it was compiled from. Returned by IOCSources()
+// so /api/findings can short-circuit on the first hit and tag the
+// finding with which list flagged it.
+type SourcedMatcher struct {
+	Source  string // "Operator IOC list" or "Feed: <feed name>"
+	Matcher *match.Matcher
+}
+
+// IOCSources returns the operator IOC list matcher first, then one
+// matcher per enabled feed in feed-id order. Disabled feeds are
+// excluded so the operator can mute a noisy feed via the admin UI
+// without deleting its indicators. Per-feed matchers are lazy-built
+// the first time they're requested and cached; UpsertFeedIndicators,
+// RemoveStaleIndicators, and DeleteFeed invalidate the cache for
+// the affected feed.
+func (s *Store) IOCSources() []SourcedMatcher {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.iocM
+	iocM := s.iocM
+	s.mu.RUnlock()
+
+	out := []SourcedMatcher{
+		{Source: "Operator IOC list", Matcher: iocM},
+	}
+	for _, f := range s.ListFeeds() {
+		if !f.Enabled {
+			continue
+		}
+		m := s.feedMatcher(f.ID)
+		out = append(out, SourcedMatcher{
+			Source:  "Feed: " + f.Name,
+			Matcher: m,
+		})
+	}
+	return out
+}
+
+// feedMatcher returns the compiled matcher for one feed, building +
+// caching on first request and returning the cached value on
+// subsequent calls. Invalidation is the responsibility of the write
+// methods (UpsertFeedIndicators, RemoveStaleIndicators, DeleteFeed).
+func (s *Store) feedMatcher(feedID int64) *match.Matcher {
+	s.mu.RLock()
+	if m, ok := s.feedMatchers[feedID]; ok {
+		s.mu.RUnlock()
+		return m
+	}
+	s.mu.RUnlock()
+
+	// Read indicators outside the lock — ListFeedIndicators acquires
+	// the DB but not s.mu, so this avoids holding s.mu across SQLite
+	// I/O while rebuilding.
+	inds := s.ListFeedIndicators(feedID)
+	entries := make([]string, 0, len(inds))
+	for _, ind := range inds {
+		entries = append(entries, ind.Indicator)
+	}
+	m := match.Compile(entries)
+
+	s.mu.Lock()
+	// Double-check under write lock so a concurrent rebuild doesn't
+	// drop a fresh entry.
+	if existing, ok := s.feedMatchers[feedID]; ok {
+		s.mu.Unlock()
+		return existing
+	}
+	s.feedMatchers[feedID] = m
+	s.mu.Unlock()
+	return m
+}
+
+// invalidateFeedMatcher drops the cached matcher for a feed. The next
+// IOCSources / feedMatcher call rebuilds from current indicators.
+func (s *Store) invalidateFeedMatcher(feedID int64) {
+	s.mu.Lock()
+	delete(s.feedMatchers, feedID)
+	s.mu.Unlock()
 }
 
 func (s *Store) AddSuppression(target string, expiry time.Time, detail string) {

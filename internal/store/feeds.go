@@ -118,6 +118,7 @@ func (s *Store) DeleteFeed(id int64) error {
 	if err != nil {
 		return fmt.Errorf("store: delete feed %d: %w", id, err)
 	}
+	s.invalidateFeedMatcher(id)
 	return nil
 }
 
@@ -189,6 +190,7 @@ func (s *Store) UpsertFeedIndicators(feedID int64, inds []feeds.Indicator, now i
 	if err := tx.Commit(); err != nil {
 		return added, refreshed, fmt.Errorf("store: commit: %w", err)
 	}
+	s.invalidateFeedMatcher(feedID)
 	return added, refreshed, nil
 }
 
@@ -205,6 +207,9 @@ func (s *Store) RemoveStaleIndicators(feedID int64, before int64) (int, error) {
 		return 0, fmt.Errorf("store: prune indicators: %w", err)
 	}
 	n, _ := res.RowsAffected()
+	if n > 0 {
+		s.invalidateFeedMatcher(feedID)
+	}
 	return int(n), nil
 }
 

@@ -10,11 +10,11 @@ import (
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
 
-// Matcher invalidation: SetAllowlist and SetIOCList in the store are
-// the only mutators that invalidate the compiled list matchers used
-// below. The store rebuilds them inside its lock at write time, and
-// this code reads the cached pointers via AllowlistMatcher() /
-// IOCMatcher() — no per-request compile.
+// Matcher invalidation: SetAllowlist / SetIOCList rebuild the
+// allowlist and operator-IOC matchers; UpsertFeedIndicators /
+// RemoveStaleIndicators / DeleteFeed invalidate the per-feed
+// matchers (lazy-rebuilt on next read). This filter reads
+// AllowlistMatcher() and IOCSources() — no per-request compile.
 
 // filterFindings applies every query-string filter supported by the UI to
 // `findings` and returns the subset that match, with IOCMatch populated.
@@ -68,7 +68,12 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 	}
 
 	alM := s.store.AllowlistMatcher()
-	iocM := s.store.IOCMatcher()
+	// IOC sources: operator-curated list first, then each enabled feed.
+	// Built once per /api/findings call; per-finding iteration short-
+	// circuits on the first hit and tags the finding with the matching
+	// source. A typical install has 0-3 feeds + 1 operator list, so
+	// the inner loop is bounded.
+	iocSources := s.store.IOCSources()
 
 	result := make([]model.Finding, 0, len(findings))
 	for i := range findings {
@@ -148,11 +153,26 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 		// by definition — flag them so the per-row status icon shows the IOC
 		// diamond rather than the generic "new finding" indicator.
 		isTI := f.Type == "Threat Intel Hit" || f.Type == "Suspicious URL"
-		ioMatch := iocM.Matches(f.DstIP) || iocM.Matches(f.SrcIP) || isTI
+		ioMatch := false
+		ioSource := ""
+		for _, sm := range iocSources {
+			if sm.Matcher.Matches(f.DstIP) || sm.Matcher.Matches(f.SrcIP) {
+				ioMatch = true
+				ioSource = sm.Source
+				break
+			}
+		}
+		if isTI {
+			ioMatch = true
+			if ioSource == "" {
+				ioSource = "Threat Intel Hit"
+			}
+		}
 		if iocOnly && !ioMatch {
 			continue
 		}
 		f.IOCMatch = ioMatch
+		f.IOCSource = ioSource
 		result = append(result, *f)
 	}
 	return result
