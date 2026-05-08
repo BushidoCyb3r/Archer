@@ -38,6 +38,21 @@ relevant, `### Detection changes` in each release entry.
   records configured feed instances (source type, URL, API key,
   refresh cadence, aging window, status); `feed_indicators` records
   the per-indicator stream the fetcher will populate.
+- **Feeds admin API endpoints (Phase 7 slice 5a).** `/api/feeds`
+  (GET list, POST create) and `/api/feeds/{id}` (PUT update, DELETE
+  remove) plus `/api/feeds/{id}/refresh` (POST manual fetch).
+  Reads are open to any authenticated user; mutations and
+  manual-refresh require admin. The API key field is write-only —
+  `POST` and `PUT` accept it in the request body, but `GET`
+  responses redact it (replaced with a `has_api_key: bool` flag) so
+  a stolen session cookie can't scrape feed credentials. `PUT` with
+  an empty `api_key` keeps the existing key (avoids the foot-gun
+  where re-saving a config without re-typing the secret blanks it
+  out). The manual-refresh endpoint is synchronous with a 60s
+  upstream cap and reports added/refreshed indicator counts in the
+  response so the admin sees what just happened. Slice 5b will land
+  the corresponding admin UI; until then, configuring a feed still
+  needs `curl` instead of SQL.
 - **Matcher composition + per-finding provenance (Phase 7 slice 4).**
   Feed indicators are now joined into the IOC matching surface used
   by `/api/findings`. The Store exposes `IOCSources() []SourcedMatcher`
