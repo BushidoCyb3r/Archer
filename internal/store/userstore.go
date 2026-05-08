@@ -57,24 +57,14 @@ func NewUserStore(dataDir string) *UserStore {
 	}
 	db.SetMaxOpenConns(1) // SQLite is single-writer
 
-	if _, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS users (
-			id            INTEGER PRIMARY KEY AUTOINCREMENT,
-			email         TEXT    UNIQUE NOT NULL,
-			first_name    TEXT    NOT NULL DEFAULT '',
-			last_name     TEXT    NOT NULL DEFAULT '',
-			password_hash TEXT    NOT NULL,
-			role          TEXT    NOT NULL DEFAULT 'analyst',
-			status        TEXT    NOT NULL DEFAULT 'active',
-			created_at    TEXT    NOT NULL
-		)`); err != nil {
-		log.Fatalf("userstore: cannot create users table: %v", err)
+	// Run schema migrations once at startup. NewUserStore owns the DB
+	// connection lifecycle, so this is the natural place to ensure the
+	// schema matches what handler code expects before any read or write
+	// hits a missing column. Failure is fatal — a half-applied schema
+	// would otherwise yield mysterious runtime errors downstream.
+	if err := RunMigrations(db); err != nil {
+		log.Fatalf("userstore: schema migrations failed: %v", err)
 	}
-
-	// Migration for deployments created before the status column existed.
-	// Existing rows default to 'active' so current admins are not locked out.
-	// Errors here mean the column already exists, which is fine.
-	_, _ = db.Exec(`ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`)
 
 	us := &UserStore{
 		db:       db,

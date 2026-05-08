@@ -99,49 +99,15 @@ func slicesEqual(a, b []string) bool {
 	return true
 }
 
-// InitDB wires the store to a shared SQLite database, creates the necessary
-// tables, and loads any previously saved allowlist / IOC list entries.
+// InitDB wires the store to the shared SQLite database and loads
+// previously persisted state into memory. Schema creation is no longer
+// done here — RunMigrations (called from NewUserStore on the same DB
+// handle) brings every table to the current version before this method
+// runs. InitDB is purely a "read existing state into memory" pass.
 func (s *Store) InitDB(db *sql.DB) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.db = db
-
-	for _, tbl := range []string{"allowlist", "ioc_list"} {
-		if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS ` + tbl + ` (entry TEXT PRIMARY KEY)`); err != nil {
-			log.Printf("store: cannot create %s table: %v", tbl, err)
-		}
-	}
-
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS findings (
-		id           INTEGER PRIMARY KEY,
-		type         TEXT,
-		severity     TEXT,
-		score        INTEGER,
-		src_ip       TEXT,
-		dst_ip       TEXT,
-		dst_port     TEXT,
-		detail       TEXT,
-		timestamp    TEXT,
-		source_file  TEXT,
-		status       TEXT,
-		analyst      TEXT,
-		analyst_note TEXT,
-		status_ts    TEXT,
-		ioc_match    INTEGER DEFAULT 0,
-		is_new       INTEGER DEFAULT 0,
-		sensor       TEXT,
-		intervals    TEXT,
-		ts_data      TEXT,
-		notes        TEXT
-	)`); err != nil {
-		log.Printf("store: cannot create findings table: %v", err)
-	}
-	// Migration: pre-Quiver schemas had this column named "dataset". The rename
-	// is one-way; once renamed the ALTER becomes a no-op (column already named
-	// "sensor"), and the duplicate-column error is the all-clear signal.
-	if _, err := db.Exec(`ALTER TABLE findings RENAME COLUMN dataset TO sensor`); err == nil {
-		log.Printf("store: migrated findings.dataset → findings.sensor")
-	}
 
 	loadOrdered := func(tbl string) []string {
 		rows, err := db.Query(`SELECT entry FROM ` + tbl + ` ORDER BY rowid`)
@@ -173,9 +139,6 @@ func (s *Store) InitDB(db *sql.DB) {
 		s.persistList("ioc_list", s.iocList)
 	}
 
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY, config TEXT NOT NULL)`); err != nil {
-		log.Printf("store: cannot create settings table: %v", err)
-	}
 	var cfgJSON string
 	if err := db.QueryRow(`SELECT config FROM settings WHERE id = 1`).Scan(&cfgJSON); err == nil {
 		if err := json.Unmarshal([]byte(cfgJSON), &s.config); err != nil {
@@ -183,11 +146,6 @@ func (s *Store) InitDB(db *sql.DB) {
 		}
 	}
 
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS suppressions (target TEXT PRIMARY KEY, expiry INTEGER NOT NULL, detail TEXT DEFAULT '')`); err != nil {
-		log.Printf("store: cannot create suppressions table: %v", err)
-	}
-	// Add detail column to existing tables that predate this schema change
-	db.Exec(`ALTER TABLE suppressions ADD COLUMN detail TEXT DEFAULT ''`)
 	now := time.Now().Unix()
 	if _, err := db.Exec(`DELETE FROM suppressions WHERE expiry <= ?`, now); err != nil {
 		log.Printf("store: prune suppressions: %v", err)
@@ -203,7 +161,6 @@ func (s *Store) InitDB(db *sql.DB) {
 		}
 	}
 
-	s.InitSensorTables(db)
 	s.loadFindings()
 }
 
