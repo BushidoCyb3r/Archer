@@ -1113,6 +1113,7 @@ func (s *Server) launchTIOnly(files []string) {
 
 	go func() {
 		az := analysis.New(cfg, progressCh, statusCh)
+		az.SetFeedProvider(s.store)
 
 		s.analyzerMu.Lock()
 		s.activeAnalyzer = az

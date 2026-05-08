@@ -32,6 +32,13 @@ type Analyzer struct {
 	urlhausIPs   map[string]bool
 	urlhausHosts map[string]bool
 
+	// MISP / OpenCTI feed indicators, sourced via FeedProvider. Loaded
+	// during phase 0 alongside the built-in feeds so checkTI /
+	// checkSuspiciousURLs see the same shape regardless of source. Nil
+	// FeedProvider = no MISP/OpenCTI hits, just built-ins.
+	feedProvider FeedProvider
+	feedSources  []SourcedFeedIndicators
+
 	// Cancellation and pause
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -57,6 +64,12 @@ func New(cfg config.Config, progressCh chan<- ProgressEvent, statusCh chan<- str
 		resumeCh:     resumeCh,
 	}
 }
+
+// SetFeedProvider wires the source of MISP/OpenCTI feed indicators
+// the analyzer should consult during TI matching. May be called at
+// any time; the next prefetchFeeds invocation picks it up. Pass nil
+// to detach.
+func (a *Analyzer) SetFeedProvider(p FeedProvider) { a.feedProvider = p }
 
 // Cancel stops the analysis as soon as possible.
 func (a *Analyzer) Cancel() { a.cancel() }
