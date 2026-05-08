@@ -60,3 +60,8 @@ Each scenario subdirectory contains:
 | `lateral/` | Lateral Movement |
 | `c2_port/` | C2 Port |
 | `off_hours/` | Off-Hours Transfer |
+| `dns_doh_bypass/` | DoH Bypass |
+| `dns_suspicious_tld/` | Suspicious TLD |
+| `dns_tunneling/` | DNS Tunneling (per-query) |
+| `dns_nxdomain_flood/` | DNS NXDOMAIN Flood |
+| `dns_subdomain_diversity/` | DNS Tunneling (subdomain diversity) |

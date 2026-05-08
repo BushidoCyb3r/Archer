@@ -1,0 +1,12 @@
+[
+  {
+    "type": "DNS NXDOMAIN Flood",
+    "severity": "HIGH",
+    "score": 80,
+    "src_ip": "192.168.2.40",
+    "dst_ip": "(network)",
+    "dst_port": "53",
+    "detail": "NXDOMAIN responses: 250 (threshold: 200) — possible DGA",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

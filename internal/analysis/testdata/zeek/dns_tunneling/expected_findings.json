@@ -1,0 +1,12 @@
+[
+  {
+    "type": "DNS Tunneling",
+    "severity": "HIGH",
+    "score": 64,
+    "src_ip": "192.168.2.30",
+    "dst_ip": "evil.com",
+    "dst_port": "53",
+    "detail": "Tunnel indicators: qtype=TXT | query: data.evil.com",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]
