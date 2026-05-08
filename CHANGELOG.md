@@ -38,6 +38,20 @@ relevant, `### Detection changes` in each release entry.
   records configured feed instances (source type, URL, API key,
   refresh cadence, aging window, status); `feed_indicators` records
   the per-indicator stream the fetcher will populate.
+- **Feeds admin UI (Phase 7 slice 5b).** New "Feeds" topbar button
+  (admin + analyst, like Sensors) opens a management dialog listing
+  every configured feed with name, source type, status pill,
+  indicator count, last-refresh timestamp, cadence, and aging
+  window. Admins get add / edit / delete / refresh row controls;
+  analysts get the read-only view. The edit dialog handles both
+  create and update; on edit, the API-key field shows a
+  "leave blank to keep existing" hint and submitting empty
+  preserves the stored key (matches the slice 5a server behavior).
+  Manual-refresh button shows the live add/refresh counts inline
+  on the row for ~2.5s after a fetch lands. With this slice, the
+  full Phase 7 path is operator-usable end to end without SQL —
+  configure a feed in the UI, the worker fetches on cadence,
+  matching findings get tagged with `ioc_source: "Feed: <name>"`.
 - **Feeds admin API endpoints (Phase 7 slice 5a).** `/api/feeds`
   (GET list, POST create) and `/api/feeds/{id}` (PUT update, DELETE
   remove) plus `/api/feeds/{id}/refresh` (POST manual fetch).
