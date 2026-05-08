@@ -38,6 +38,28 @@ relevant, `### Detection changes` in each release entry.
   records configured feed instances (source type, URL, API key,
   refresh cadence, aging window, status); `feed_indicators` records
   the per-indicator stream the fetcher will populate.
+- **MISP source-type adapter + fetcher worker (Phase 7 slice 2).**
+  New `internal/feeds` package introduces the source-agnostic
+  `Adapter` interface, the normalized `Indicator` type, and a
+  `Worker` that schedules per-feed refreshes on each feed's
+  configured cadence. The MISP adapter (`misp.go`) hits
+  `/attributes/restSearch` with `Authorization: <api-key>`, filters
+  to network-indicator attribute types
+  (`ip-src`/`ip-dst`/`domain`/`hostname`/`md5`/`sha1`/`sha256`),
+  and normalizes into `IndicatorIP`/`IndicatorCIDR`/`IndicatorDomain`/`IndicatorHash`
+  with tag round-trip. URLs are skipped at this slice (need
+  host/path parser logic to feed into per-finding correlation;
+  punted to a follow-up). Worker reconciles its goroutine set
+  against the `feeds` table every 30s so admin-UI changes
+  propagate without a server restart, fires the first tick
+  immediately on start to populate freshly-added feeds, and
+  records last-error / status in the feed row on transient
+  upstream failures. New Store CRUD methods land for the `feeds`
+  and `feed_indicators` tables. SQLite foreign-key enforcement is
+  now enabled at migration time so the `ON DELETE CASCADE` on
+  `feed_indicators` actually fires when a feed is deleted.
+  Without an admin UI yet (slice 5), no feeds get configured by
+  default and the worker is a no-op for existing installs.
 - **Cached list matchers in the Store.** A new `internal/match`
   package holds the compiled-list matcher type previously inlined
   in `internal/server/findings_filter.go`. The Store builds the
