@@ -28,17 +28,17 @@ type Config struct {
 	// GreyNoise Community API works unauthenticated (rate-limited to ~50/h).
 	// A free Community-tier key bumps the limit; the field is optional and
 	// the GreyNoise lookup runs regardless.
-	GreyNoiseAPIKey       string  `json:"greynoise_api_key"`
+	GreyNoiseAPIKey string `json:"greynoise_api_key"`
 	// Censys uses HTTP Basic with an ID + Secret pair. Both are required for
 	// the lookup to fire; without them the service stays hidden in the UI.
-	CensysAPIID           string  `json:"censys_api_id"`
-	CensysAPISecret       string  `json:"censys_api_secret"`
+	CensysAPIID     string `json:"censys_api_id"`
+	CensysAPISecret string `json:"censys_api_secret"`
 
 	// Watch mode — scheduled analysis. WatchTime is the anchor (HH:MM in
 	// WatchTimezone) and WatchIntervalHours controls cadence: 0 or 24 = once
 	// daily at HH:MM (the legacy default), 12/6/4/1 = sub-daily ticks at the
 	// same minute past every Nth hour aligned to the anchor's hour-offset.
-	WatchTime          string `json:"watch_time"`                     // HH:MM in WatchTimezone, e.g. "02:00"
+	WatchTime          string `json:"watch_time"` // HH:MM in WatchTimezone, e.g. "02:00"
 	WatchEnabled       bool   `json:"watch_enabled"`
 	WatchTimezone      string `json:"watch_timezone,omitempty"`       // IANA name, e.g. "America/New_York". Empty = UTC.
 	WatchIntervalHours int    `json:"watch_interval_hours,omitempty"` // 0 (default) or 24 = daily; 12/6/4/1 = sub-daily.
@@ -72,7 +72,7 @@ type Config struct {
 	// Both are also set after manual "Discard findings & re-analyze" so
 	// the cycle resets cleanly. Internal; not user-editable.
 	LastFullAnalysisUnix int64 `json:"last_full_analysis_unix,omitempty"` // when most recent full run completed; gates "did we already do a full today?"
-	LastAnalysisUnix     int64 `json:"last_analysis_unix,omitempty"`     // when ANY run (full or incremental) completed; mtime filter cutoff for next incremental
+	LastAnalysisUnix     int64 `json:"last_analysis_unix,omitempty"`      // when ANY run (full or incremental) completed; mtime filter cutoff for next incremental
 
 	// WatchAlwaysFull disables the two-tier cadence: every watch tick runs
 	// the full pipeline regardless of whether a full has already happened

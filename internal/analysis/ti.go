@@ -15,7 +15,6 @@ import (
 	"github.com/BushidoCyb3r/Archer/internal/parser"
 )
 
-
 // prefetchFeeds fetches threat intel feeds concurrently and caches results on the Analyzer.
 // This runs as the first analysis step so downstream steps (checkTI, checkSuspiciousURLs) can
 // reuse the data without a second network round-trip.
@@ -36,11 +35,11 @@ func (a *Analyzer) checkSuspiciousURLs(files []string) {
 	seen := make(map[[2]string]bool)
 	for _, f := range filterFiles(files, "http") {
 		_ = parser.ParseLog(f, func(rec map[string]any) bool {
-			src     := parser.GetStr(rec, "id.orig_h")
-			dst     := parser.GetStr(rec, "id.resp_h")
-			host    := parser.GetStr(rec, "host")
-			uri     := parser.GetStr(rec, "uri")
-			ts      := parser.GetFloat(rec, "ts")
+			src := parser.GetStr(rec, "id.orig_h")
+			dst := parser.GetStr(rec, "id.resp_h")
+			host := parser.GetStr(rec, "host")
+			uri := parser.GetStr(rec, "uri")
+			ts := parser.GetFloat(rec, "ts")
 			dstPort := parser.GetInt(rec, "id.resp_p")
 			if host == "" || src == "" {
 				return true
@@ -94,8 +93,8 @@ type tiDomainObs struct {
 
 func (a *Analyzer) checkTI(files []string) {
 	// Use pre-fetched feeds from prefetchFeeds step
-	feodoIPs     := a.feodoIPs
-	urlhausIPs   := a.urlhausIPs
+	feodoIPs := a.feodoIPs
+	urlhausIPs := a.urlhausIPs
 	urlhausHosts := a.urlhausHosts
 
 	// Two-phase design. Phase A is a cheap dst-only sweep (one bool per

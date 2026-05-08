@@ -44,11 +44,11 @@ func (s *Server) scanArchiveDir() []string {
 
 // ArchiveResult summarizes the outcome of a single archive run.
 type ArchiveResult struct {
-	FilesArchived    int    `json:"files_archived"`
-	BytesArchived    int64  `json:"bytes_archived"`
-	FindingsPruned   int    `json:"findings_pruned"`
-	Skipped          int    `json:"skipped"`
-	Err              string `json:"error,omitempty"`
+	FilesArchived  int    `json:"files_archived"`
+	BytesArchived  int64  `json:"bytes_archived"`
+	FindingsPruned int    `json:"findings_pruned"`
+	Skipped        int    `json:"skipped"`
+	Err            string `json:"error,omitempty"`
 }
 
 // runArchive moves files under logsDir whose mtime is older than `afterDays`

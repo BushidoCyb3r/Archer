@@ -23,17 +23,17 @@ import (
 // fully replace via DELETE+INSERT in slice order so SQLite rowids
 // always reflect the current ordering.
 type Store struct {
-	mu             sync.RWMutex
-	db             *sql.DB
-	findings       []model.Finding
-	allowlist      []string
-	iocList        []string
-	suppressions   map[string]suppressionEntry
-	notifications  []model.Notification
-	notifCounter   int
-	config         config.Config
-	uploadedFiles  []string
-	analyzing      bool
+	mu            sync.RWMutex
+	db            *sql.DB
+	findings      []model.Finding
+	allowlist     []string
+	iocList       []string
+	suppressions  map[string]suppressionEntry
+	notifications []model.Notification
+	notifCounter  int
+	config        config.Config
+	uploadedFiles []string
+	analyzing     bool
 }
 
 type suppressionEntry struct {
@@ -306,12 +306,12 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 		fp := findings[i].Fingerprint()
 		newFPSet[fp] = true
 		if old, ok := existing[fp]; ok {
-			findings[i].Status      = old.Status
-			findings[i].Analyst     = old.Analyst
+			findings[i].Status = old.Status
+			findings[i].Analyst = old.Analyst
 			findings[i].AnalystNote = old.AnalystNote
-			findings[i].StatusTS    = old.StatusTS
-			findings[i].Notes       = old.Notes
-			findings[i].IsNew       = false
+			findings[i].StatusTS = old.StatusTS
+			findings[i].Notes = old.Notes
+			findings[i].IsNew = false
 		} else {
 			findings[i].IsNew = true
 		}
@@ -511,7 +511,6 @@ func (s *Store) IsSuppressed(ip string) bool {
 	}
 	return true
 }
-
 
 func (s *Store) GetNotifications() []model.Notification {
 	s.mu.RLock()

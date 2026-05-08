@@ -22,11 +22,11 @@ func TestPruneFindingsBefore_DropsOldAndTimestamplessFindings(t *testing.T) {
 	fresh := now.Add(-1 * time.Hour).Format("2006-01-02 15:04:05")
 
 	s.findings = []model.Finding{
-		{Type: "Beaconing", Timestamp: old},          // dropped — old
-		{Type: "Long Connection", Timestamp: fresh},  // kept — within window
-		{Type: "Strobe", Timestamp: ""},              // dropped — empty (was kept under old behavior)
-		{Type: "Data Exfiltration", Timestamp: ""},   // dropped — empty
-		{Type: "Beaconing", Timestamp: "garbage"},    // dropped — unparseable
+		{Type: "Beaconing", Timestamp: old},         // dropped — old
+		{Type: "Long Connection", Timestamp: fresh}, // kept — within window
+		{Type: "Strobe", Timestamp: ""},             // dropped — empty (was kept under old behavior)
+		{Type: "Data Exfiltration", Timestamp: ""},  // dropped — empty
+		{Type: "Beaconing", Timestamp: "garbage"},   // dropped — unparseable
 	}
 
 	cutoff := now.Add(-24 * time.Hour)

@@ -99,11 +99,12 @@ func loadLocationOrUTC(name string) *time.Location {
 // shows the configured timezone in the input above.
 //
 // Examples (all in the supplied loc):
-//   Today 06:00
-//   Tomorrow 00:00
-//   Mon 14:30
-//   May 12 09:00
-//   Jan 3 2027 02:00
+//
+//	Today 06:00
+//	Tomorrow 00:00
+//	Mon 14:30
+//	May 12 09:00
+//	Jan 3 2027 02:00
 func formatRelativeTime(t time.Time, loc *time.Location) string {
 	nowLoc := time.Now().In(loc)
 	tLoc := t.In(loc)

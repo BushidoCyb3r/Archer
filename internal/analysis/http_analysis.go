@@ -10,16 +10,16 @@ import (
 )
 
 type httpBeaconState struct {
-	total      int
-	lastTs     float64
-	ivs        []float64
-	ivsSeen    int
-	byteVals   []float64
-	byteSeen   int
-	hourMap    map[int]int
-	minTs      float64
-	maxTs      float64
-	firstTs    float64
+	total    int
+	lastTs   float64
+	ivs      []float64
+	ivsSeen  int
+	byteVals []float64
+	byteSeen int
+	hourMap  map[int]int
+	minTs    float64
+	maxTs    float64
+	firstTs  float64
 }
 
 func csChecksum8(uri string) int {

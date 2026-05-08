@@ -16,12 +16,12 @@ import (
 )
 
 func main() {
-	addr     := flag.String("addr", ":8080", "plain HTTP listen address (analyst UI)")
-	tlsAddr  := flag.String("tls-addr", ":8443", "HTTPS listen address (Quiver sensor traffic); empty disables")
-	tlsDir   := flag.String("tls-dir", "", "directory holding server.crt/server.key (default: <data-dir>/tls)")
-	webDir   := flag.String("web-dir", "", "path to web directory (default: ./web next to binary)")
-	logsDir  := flag.String("logs-dir", "/logs", "Zeek logs directory (bind-mounted in Docker)")
-	dataDir  := flag.String("data-dir", "/data", "persistent data directory (SQLite database)")
+	addr := flag.String("addr", ":8080", "plain HTTP listen address (analyst UI)")
+	tlsAddr := flag.String("tls-addr", ":8443", "HTTPS listen address (Quiver sensor traffic); empty disables")
+	tlsDir := flag.String("tls-dir", "", "directory holding server.crt/server.key (default: <data-dir>/tls)")
+	webDir := flag.String("web-dir", "", "path to web directory (default: ./web next to binary)")
+	logsDir := flag.String("logs-dir", "/logs", "Zeek logs directory (bind-mounted in Docker)")
+	dataDir := flag.String("data-dir", "/data", "persistent data directory (SQLite database)")
 	authKeys := flag.String("authkeys-path", "/home/quiver/.ssh/authorized_keys", "sshd authorized_keys file Archer rewrites on enroll/disenroll")
 	flag.Parse()
 
@@ -47,12 +47,12 @@ func main() {
 		os.Exit(128 + int(sig.(syscall.Signal)))
 	}()
 
-	cfg    := config.Default()
-	st     := store.New(cfg)
-	us     := store.NewUserStore(*dataDir)
+	cfg := config.Default()
+	st := store.New(cfg)
+	us := store.NewUserStore(*dataDir)
 	st.InitDB(us.DB())
 	broker := server.NewBroker()
-	srv    := server.New(st, us, broker, *webDir, *logsDir, *authKeys)
+	srv := server.New(st, us, broker, *webDir, *logsDir, *authKeys)
 
 	// Bootstrap TLS for sensor-facing traffic. A single bad cert shouldn't
 	// take Archer down — the analyst UI on plain HTTP keeps working even

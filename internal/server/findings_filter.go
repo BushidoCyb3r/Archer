@@ -41,7 +41,7 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 	minScore, _ := strconv.Atoi(q.Get("min_score"))
 	delta := q.Get("delta") == "true"
 	sensorF := q.Get("sensor")
-	statusF := q.Get("status")     // "open" | "acknowledged" | "escalated"
+	statusF := q.Get("status") // "open" | "acknowledged" | "escalated"
 	iocOnly := q.Get("ioc_only") == "true"
 
 	srcMatcher := parseIPMatcher(q.Get("src_ip"))
