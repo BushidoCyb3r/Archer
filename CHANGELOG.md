@@ -106,6 +106,18 @@ relevant, `### Detection changes` in each release entry.
   (`SSH::Login_From_New_Country`, default 68 / HIGH), and
   `notice_critical/` (note type containing `scan` keyword, 92 /
   CRITICAL).
+- **TI-feed golden fixtures + per-scenario feeds (Phase 4.7).** The
+  golden runner now accepts an optional `feeds.json` per scenario
+  (schema: `feodo_ips`, `urlhaus_ips`, `urlhaus_hosts`). Two new
+  scenarios use it: `ti_feodo_ip/` (FeodoTracker IP match,
+  CRITICAL/99) and `ti_urlhaus_ip/` (URLhaus IP match,
+  CRITICAL/97). The URLhaus *host* match path was already covered by
+  `beacon_url/` via the default injection; these add the IP-match
+  variants. With these in place, every detector that fires from
+  `analyzeConn`, `analyzeDNS`, `analyzeHTTP`, `analyzeSSL`,
+  `analyzeX509`, `analyzeFiles`, `analyzeWeird`, `analyzeNotice`,
+  `checkSuspiciousURLs`, and `checkTI`'s offline (non-API) paths is
+  now locked into a golden fixture.
 
 ### Changed
 - One-time codebase reformat with `gofmt -w` so the new CI lint job

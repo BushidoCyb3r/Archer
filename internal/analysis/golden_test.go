@@ -94,6 +94,54 @@ func collectFixtureLogs(t *testing.T, dir string) []string {
 	return files
 }
 
+// scenarioFeeds matches the optional feeds.json that scenarios can use to
+// override the default TI-feed injection. Any field omitted falls back to
+// the default below — empty map for *_ips and a single "malware.test" entry
+// for hosts (so the original beacon_url scenario keeps working without
+// needing its own feeds.json).
+type scenarioFeeds struct {
+	FeodoIPs     []string `json:"feodo_ips"`
+	URLhausIPs   []string `json:"urlhaus_ips"`
+	URLhausHosts []string `json:"urlhaus_hosts"`
+}
+
+func loadScenarioFeeds(dir string) (feodoIPs, urlhausIPs, urlhausHosts map[string]bool, err error) {
+	feodoIPs = map[string]bool{}
+	urlhausIPs = map[string]bool{}
+	urlhausHosts = map[string]bool{"malware.test": true}
+
+	raw, readErr := os.ReadFile(filepath.Join(dir, "feeds.json"))
+	if readErr != nil {
+		// No feeds.json — fall back to defaults silently. Most scenarios
+		// don't need TI injection beyond the default malware.test entry.
+		return feodoIPs, urlhausIPs, urlhausHosts, nil
+	}
+	var f scenarioFeeds
+	if err := json.Unmarshal(raw, &f); err != nil {
+		return nil, nil, nil, err
+	}
+	// feeds.json fully replaces the defaults for whichever fields it sets.
+	if f.FeodoIPs != nil {
+		feodoIPs = make(map[string]bool, len(f.FeodoIPs))
+		for _, ip := range f.FeodoIPs {
+			feodoIPs[ip] = true
+		}
+	}
+	if f.URLhausIPs != nil {
+		urlhausIPs = make(map[string]bool, len(f.URLhausIPs))
+		for _, ip := range f.URLhausIPs {
+			urlhausIPs[ip] = true
+		}
+	}
+	if f.URLhausHosts != nil {
+		urlhausHosts = make(map[string]bool, len(f.URLhausHosts))
+		for _, h := range f.URLhausHosts {
+			urlhausHosts[h] = true
+		}
+	}
+	return feodoIPs, urlhausIPs, urlhausHosts, nil
+}
+
 // runScenario runs one fixture subdirectory through the analyzer and either
 // asserts against (or, with -update, regenerates) the scenario's golden file.
 func runScenario(t *testing.T, dir string) {
@@ -103,12 +151,17 @@ func runScenario(t *testing.T, dir string) {
 		t.Fatalf("no .log fixtures in %s", dir)
 	}
 
+	feodoIPs, urlhausIPs, urlhausHosts, err := loadScenarioFeeds(dir)
+	if err != nil {
+		t.Fatalf("load feeds.json in %s: %v", dir, err)
+	}
+
 	a := New(config.Default(), nil, nil)
 	// Inject deterministic feeds. prefetchFeeds skips its live HTTP fetches
 	// when caches are non-nil, so the run never touches the public internet.
-	a.feodoIPs = map[string]bool{}
-	a.urlhausIPs = map[string]bool{}
-	a.urlhausHosts = map[string]bool{"malware.test": true}
+	a.feodoIPs = feodoIPs
+	a.urlhausIPs = urlhausIPs
+	a.urlhausHosts = urlhausHosts
 
 	got := projectFindings(a.Analyze(files))
 
