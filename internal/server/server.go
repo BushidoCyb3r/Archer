@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"path/filepath"
 	"sync"
@@ -67,16 +66,7 @@ func New(st *store.Store, us *store.UserStore, broker *Broker, webDir, logsDir, 
 // configured this is effectively a no-op (the reconciliation tick
 // finds nothing to schedule).
 func (s *Server) startFeedWorker() {
-	w := feeds.NewWorker(s.store, func(f feeds.Feed) (feeds.Adapter, error) {
-		switch f.SourceType {
-		case feeds.SourceMISP:
-			return feeds.NewMISPClient(f.URL, f.APIKey), nil
-		case feeds.SourceOpenCTI:
-			return feeds.NewOpenCTIClient(f.URL, f.APIKey), nil
-		default:
-			return nil, fmt.Errorf("unsupported feed source_type: %q", f.SourceType)
-		}
-	})
+	w := feeds.NewWorker(s.store, s.buildFeedAdapter)
 	ctx, cancel := context.WithCancel(context.Background())
 	s.feedWorkerCancel = cancel
 	go w.Run(ctx)
@@ -200,6 +190,13 @@ func (s *Server) routes() {
 
 	// Threat intel — read=any
 	s.mux.Handle("/api/ti/services", any(s.handleTIServices))
+
+	// Feed integration (Phase 7) — read=any, mutate=admin enforced inside.
+	// /api/feeds            GET (list) | POST (create, admin)
+	// /api/feeds/{id}       PUT (update, admin) | DELETE (remove, admin)
+	// /api/feeds/{id}/refresh  POST (manual fetch, admin)
+	s.mux.Handle("/api/feeds", any(s.handleFeeds))
+	s.mux.Handle("/api/feeds/", any(s.handleFeedItem))
 
 	// Quiver sensor-facing — no session auth, served over the TLS listener.
 	// install.sh is the curl-able installer body; enroll/checkin are the
