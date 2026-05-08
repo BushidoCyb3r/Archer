@@ -938,6 +938,8 @@ When an analysis run finishes, a centered dialog reports the total finding count
 
 All API endpoints require authentication. Role requirements are noted where applicable. The single exception is `/api/version`, which is unauthenticated diagnostic.
 
+> Full reference (every endpoint, request/response shapes, query parameters, error codes, deprecation policy): **[docs/API.md](docs/API.md)**. The summary tables below in this README are kept brief; `docs/API.md` is the contract for what counts as a breaking change.
+
 ### Build Identifier
 
 | Method | Path | Role | Description |

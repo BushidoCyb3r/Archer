@@ -30,7 +30,21 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
-*(future entries land here.)*
+### Added
+- **API contract reference (Phase 6).** New `docs/API.md` enumerates
+  every `/api/*` endpoint, plus `/login`, `/logout`, `/register`,
+  `/events`, and the three sensor-facing `/quiver/*` endpoints.
+  Documents the Finding model shape end-to-end, the `/api/findings`
+  query-parameter set (search/type/severity/min_score/delta/IPs/
+  ports/sensor/from-to/status/ioc_only/sort/dir), the Quiver
+  enrollment+checkin protocol and the structured
+  protocol-version-mismatch error, the SSE event catalog, and the
+  conventions for auth, roles, error format, and time formats.
+  Also documents the four breaking-change surfaces by name and lays
+  out a one-minor-version-cycle deprecation policy for field/endpoint
+  removals (RFC 7234 `Warning: 299 -` header on the deprecated
+  surface for one cycle, then removed under `### Breaking`). README
+  Operations section links to the new doc.
 
 ---
 
