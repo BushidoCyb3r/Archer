@@ -53,7 +53,10 @@ func (s *Server) crossAnnotateNewTIHits(findings []model.Finding) {
 	type key struct{ dst, source string }
 	rep := make(map[key]model.Finding)
 	for _, h := range findings {
-		if !h.IsNew || h.Type != "Threat Intel Hit" {
+		if !h.IsNew || !model.IsThreatIntelType(h.Type) || h.Type == model.TypeSuspiciousURL {
+			// Suspicious URL fires on http.host; the TI Hit (Domain) for the
+			// same host already carries the enrichment, so skipping URL here
+			// keeps the cross-annotation single-source.
 			continue
 		}
 		k := key{dst: h.DstIP, source: h.SourceFile}
@@ -69,7 +72,7 @@ func (s *Server) crossAnnotateNewTIHits(findings []model.Finding) {
 	all := s.store.GetFindings()
 	skipTI := make(map[int]bool, len(all))
 	for _, f := range all {
-		if f.Type == "Threat Intel Hit" {
+		if model.IsThreatIntelType(f.Type) {
 			skipTI[f.ID] = true
 		}
 	}

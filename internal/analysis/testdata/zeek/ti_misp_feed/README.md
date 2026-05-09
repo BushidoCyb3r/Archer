@@ -1,10 +1,12 @@
 # ti_misp_feed
 
-Exercises the **Threat Intel Hit** and **Suspicious URL** detectors
-against a stub MISP/OpenCTI feed. The analyzer normalizes both
-upstream source types to the same `feeds.SourcedIndicators` shape, so
-one scenario covers the per-source fan-out path regardless of which
-adapter produced the bucket.
+Exercises the **TI Hit (IP)**, **TI Hit (Domain)**, and
+**Suspicious URL** detectors against a stub MISP/OpenCTI feed. The
+analyzer normalizes both upstream source types to the same
+`feeds.SourcedIndicators` shape, so one scenario covers the
+per-source fan-out path regardless of which adapter produced the
+bucket. (Hash matches are exercised by the sibling `ti_misp_hash`
+scenario.)
 
 Distinct from the URLhaus / Feodo scenarios in two ways: feed-driven
 hits are HIGH/90 (built-in feeds are CRITICAL/97-99), and the per-hit
@@ -23,11 +25,12 @@ Detail line carries upstream tags inline when present.
 
 ## Findings produced
 
-- 4 × `Threat Intel Hit` (HIGH, 90):
+- 2 × `TI Hit (IP)` (HIGH, 90):
   - 198.51.100.55 — IP indicator with tags `malware:emotet`,
     `tlp:white`, observed via conn on port 443.
   - 203.0.113.42 — CIDR-matched, no tags, observed via conn on
     port 8080.
+- 2 × `TI Hit (Domain)` (HIGH, 90):
   - badactor.example — domain indicator with tag `c2:server`,
     observed via DNS A query.
   - malware.example — domain indicator, observed via HTTP request.
@@ -41,7 +44,7 @@ Detail line carries upstream tags inline when present.
 ## What this covers vs. `feedprovider_test.go`
 
 The unit tests in `feedprovider_test.go` exercise the inner match
-logic via in-memory stubs and assert one Threat Intel Hit per call.
+logic via in-memory stubs and assert one feed-driven hit per call.
 This scenario validates the higher-level wiring:
 
 - `prefetchFeeds` correctly snapshots the provider's buckets onto

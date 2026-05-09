@@ -1,11 +1,14 @@
 # ti_misp_hash
 
-Exercises the **Threat Intel Hit** detector via the new file-hash
-match path (`checkFileHashes` in `internal/analysis/files.go`).
-Hash matching against MISP / OpenCTI feed indicators landed in
-v0.7.0; before that, hash-typed feed entries were silently
-discarded by `Store.EnabledFeedIndicators` because no analyzer-side
-field carried a hash candidate.
+Exercises the **TI Hit (Hash)** detector via the file-hash match
+path (`checkFileHashes` in `internal/analysis/files.go`). Hash
+matching against MISP / OpenCTI feed indicators landed in v0.7.0;
+before that, hash-typed feed entries were silently discarded by
+`Store.EnabledFeedIndicators` because no analyzer-side field
+carried a hash candidate. The `TI Hit (Hash)` finding type was
+split out from the unified `Threat Intel Hit` in v0.7.0 so the
+Type filter dropdown surfaces hash matches separately from IP
+and domain matches.
 
 ## Inputs
 
@@ -19,7 +22,7 @@ field carried a hash candidate.
 
 ## Findings produced
 
-- 2 × `Threat Intel Hit` (HIGH, 90):
+- 2 × `TI Hit (Hash)` (HIGH, 90):
   - row 1: matched on md5, tags `malware:emotet` surfaced inline.
   - row 2: matched on sha256, no tags.
 - 2 × `Suspicious File Download` (HIGH, 72) — collateral from the

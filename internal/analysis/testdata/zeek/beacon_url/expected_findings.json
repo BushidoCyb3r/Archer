@@ -15,7 +15,7 @@
     "score": 65,
     "src_ip": "192.168.1.5",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 65 | Detections: [Beaconing Suspicious URL Threat Intel Hit]",
+    "detail": "Composite risk: 65 | Detections: [Beaconing Suspicious URL TI Hit (Domain)]",
     "timestamp": "2024-01-15 12:02:00"
   },
   {
@@ -29,7 +29,7 @@
     "timestamp": "2024-01-15 12:02:00"
   },
   {
-    "type": "Threat Intel Hit",
+    "type": "TI Hit (Domain)",
     "severity": "CRITICAL",
     "score": 97,
     "src_ip": "192.168.1.5",

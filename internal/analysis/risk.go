@@ -16,7 +16,10 @@ var riskWeights = map[string]int{
 	"C2 URI Pattern":    38,
 	"Domain Fronting":   32,
 	"Malicious JA3":     40,
-	"Threat Intel Hit":  35,
+	"TI Hit (IP)":       35,
+	"TI Hit (Domain)":   35,
+	"TI Hit (Hash)":     35,
+	"Threat Intel Hit":  35, // legacy pre-v0.7.0; pre-rename findings still in DB still contribute
 	"Data Exfiltration": 25,
 	"Lateral Movement":  20,
 	"Strobe":            15,

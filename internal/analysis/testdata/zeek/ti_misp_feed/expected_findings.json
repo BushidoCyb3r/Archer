@@ -1,11 +1,11 @@
 [
   {
     "type": "Host Risk Score",
-    "severity": "MEDIUM",
-    "score": 35,
+    "severity": "HIGH",
+    "score": 70,
     "src_ip": "192.168.8.30",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 35 | Detections: [Suspicious File Download Suspicious URL Threat Intel Hit]",
+    "detail": "Composite risk: 70 | Detections: [Suspicious File Download Suspicious URL TI Hit (Domain) TI Hit (IP)]",
     "timestamp": "2024-01-15 12:00:15"
   },
   {
@@ -29,27 +29,7 @@
     "timestamp": "2024-01-15 12:00:15"
   },
   {
-    "type": "Threat Intel Hit",
-    "severity": "HIGH",
-    "score": 90,
-    "src_ip": "192.168.8.30",
-    "dst_ip": "198.51.100.55",
-    "dst_port": "443",
-    "detail": "demo-misp indicator match: 198.51.100.55 — tags: malware:emotet, tlp:white — observed via conn on port 443 (1 session(s))",
-    "timestamp": "2024-01-15 12:00:00"
-  },
-  {
-    "type": "Threat Intel Hit",
-    "severity": "HIGH",
-    "score": 90,
-    "src_ip": "192.168.8.30",
-    "dst_ip": "203.0.113.42",
-    "dst_port": "8080",
-    "detail": "demo-misp indicator match: 203.0.113.42 — observed via conn on port 8080 (1 session(s))",
-    "timestamp": "2024-01-15 12:00:05"
-  },
-  {
-    "type": "Threat Intel Hit",
+    "type": "TI Hit (Domain)",
     "severity": "HIGH",
     "score": 90,
     "src_ip": "192.168.8.30",
@@ -59,7 +39,7 @@
     "timestamp": "2024-01-15 12:00:10"
   },
   {
-    "type": "Threat Intel Hit",
+    "type": "TI Hit (Domain)",
     "severity": "HIGH",
     "score": 90,
     "src_ip": "192.168.8.30",
@@ -67,5 +47,25 @@
     "dst_port": "80",
     "detail": "demo-misp indicator match: malware.example — HTTP request to /payload.bin (1 request(s))",
     "timestamp": "2024-01-15 12:00:15"
+  },
+  {
+    "type": "TI Hit (IP)",
+    "severity": "HIGH",
+    "score": 90,
+    "src_ip": "192.168.8.30",
+    "dst_ip": "198.51.100.55",
+    "dst_port": "443",
+    "detail": "demo-misp indicator match: 198.51.100.55 — tags: malware:emotet, tlp:white — observed via conn on port 443 (1 session(s))",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "TI Hit (IP)",
+    "severity": "HIGH",
+    "score": 90,
+    "src_ip": "192.168.8.30",
+    "dst_ip": "203.0.113.42",
+    "dst_port": "8080",
+    "detail": "demo-misp indicator match: 203.0.113.42 — observed via conn on port 8080 (1 session(s))",
+    "timestamp": "2024-01-15 12:00:05"
   }
 ]

@@ -574,9 +574,14 @@ func (a *Analyzer) checkTI(files []string) {
 			srcCount = len(dstDomains[h.dst])
 		}
 
+		tiType := model.TypeTIHitDomain
+		if isIP {
+			tiType = model.TypeTIHitIP
+		}
+
 		if srcCount == 0 {
 			a.add(model.Finding{
-				Type:       "Threat Intel Hit",
+				Type:       tiType,
 				Severity:   h.sev,
 				Score:      h.score,
 				SrcIP:      "(TI)",
@@ -596,7 +601,7 @@ func (a *Analyzer) checkTI(files []string) {
 					ts = fmtTS(obs.ts)
 				}
 				a.add(model.Finding{
-					Type:       "Threat Intel Hit",
+					Type:       tiType,
 					Severity:   h.sev,
 					Score:      h.score,
 					SrcIP:      src,
@@ -622,7 +627,7 @@ func (a *Analyzer) checkTI(files []string) {
 					ts = fmtTS(obs.ts)
 				}
 				a.add(model.Finding{
-					Type:       "Threat Intel Hit",
+					Type:       tiType,
 					Severity:   h.sev,
 					Score:      h.score,
 					SrcIP:      src,

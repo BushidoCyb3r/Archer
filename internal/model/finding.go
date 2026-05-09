@@ -40,14 +40,39 @@ type Finding struct {
 	// or "Feed: <feed name>". Computed at /api/findings read time from the
 	// current Store snapshot — not persisted, since feed indicators age
 	// out and can switch source on the next refresh. Empty when IOCMatch
-	// is false. Threat Intel Hit / Suspicious URL findings (intrinsic IOCs
-	// per the analyzer) get "Threat Intel Hit" as the source label.
+	// is false. TI Hit / Suspicious URL findings (intrinsic IOCs per
+	// the analyzer) get "Threat Intel" as the source label.
 	IOCSource string       `json:"ioc_source,omitempty"`
 	IsNew     bool         `json:"is_new"`
 	Sensor    string       `json:"sensor,omitempty"`
 	Intervals []float64    `json:"intervals,omitempty"`
 	TSData    [][3]float64 `json:"ts_data,omitempty"`
 	Notes     []Note       `json:"notes,omitempty"`
+}
+
+// Threat-intel finding types. Split into IP / Domain / Hash flavors in
+// v0.7.0 so the Type filter dropdown surfaces them separately. The
+// legacy "Threat Intel Hit" string is recognized too — it covers any
+// findings persisted from pre-v0.7.0 builds.
+const (
+	TypeTIHitIP       = "TI Hit (IP)"
+	TypeTIHitDomain   = "TI Hit (Domain)"
+	TypeTIHitHash     = "TI Hit (Hash)"
+	TypeSuspiciousURL = "Suspicious URL"
+	TypeTIHitLegacy   = "Threat Intel Hit" // pre-v0.7.0 — kept recognized so old DBs still classify correctly
+)
+
+// IsThreatIntelType reports whether a finding type is feed-driven —
+// the IOC Hits tab, notification eligibility, IOC export filter, and
+// the TI cross-annotator all hinge on this. Recognizing all flavors
+// (and the legacy unified type) keeps both new and old findings
+// classified consistently.
+func IsThreatIntelType(t string) bool {
+	switch t {
+	case TypeTIHitIP, TypeTIHitDomain, TypeTIHitHash, TypeSuspiciousURL, TypeTIHitLegacy:
+		return true
+	}
+	return false
 }
 
 // Fingerprint uniquely identifies a finding for delta/baseline comparison.
@@ -273,8 +298,9 @@ var ScoreExplanations = map[string]string{
 
 	"Protocol Anomaly": "Score: 65 (HIGH-interest) | 22 (general) from Zeek weird.log",
 
-	"Threat Intel Hit": "Score: 97-99 (CRITICAL) | variable for OTX/AbuseIPDB\n" +
-		"IP or domain matched against: FeodoTracker, URLhaus, OTX, AbuseIPDB.",
+	"TI Hit (IP)":     "Score: 97-99 (CRITICAL) for FeodoTracker / URLhaus | variable for OTX/AbuseIPDB | 90 (HIGH) for MISP/OpenCTI feed IP/CIDR matches.",
+	"TI Hit (Domain)": "Score: 97 (CRITICAL) for URLhaus host matches | 90 (HIGH) for MISP/OpenCTI feed domain matches.",
+	"TI Hit (Hash)":   "Score: 90 (HIGH). md5 / sha1 / sha256 from files.log matched against MISP/OpenCTI hash indicators.",
 
 	"Host Risk Score": "Composite weighted sum, capped at 99\n" +
 		"Beaconing +30 | HTTP Beaconing +28 | CS URI +40 | C2 URI Pattern +38\n" +

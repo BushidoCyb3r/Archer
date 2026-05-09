@@ -5,11 +5,11 @@
     "score": 35,
     "src_ip": "192.168.8.20",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 35 | Detections: [Threat Intel Hit]",
+    "detail": "Composite risk: 35 | Detections: [TI Hit (IP)]",
     "timestamp": "2024-01-15 12:00:00"
   },
   {
-    "type": "Threat Intel Hit",
+    "type": "TI Hit (IP)",
     "severity": "CRITICAL",
     "score": 97,
     "src_ip": "192.168.8.20",

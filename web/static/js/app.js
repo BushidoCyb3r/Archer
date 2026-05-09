@@ -1228,7 +1228,13 @@
 
   // ── Analyze ────────────────────────────────────────────────────────────────
   function _updateTIStatus() {
-    const tiTypes = new Set(['Threat Intel Hit', 'Suspicious URL']);
+    // Recognizes the v0.7.0 split types plus the legacy unified one so
+    // pre-v0.7.0 findings still in the DB count toward the TI status pill.
+    const tiTypes = new Set([
+      'TI Hit (IP)', 'TI Hit (Domain)', 'TI Hit (Hash)',
+      'Suspicious URL',
+      'Threat Intel Hit',
+    ]);
     const hits = _allFindings.filter(f => tiTypes.has(f.type)).length;
     const el = document.getElementById('ti-status');
     if (hits > 0) {
