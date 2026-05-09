@@ -591,7 +591,6 @@
             <th style="width:90px">Status</th>
             <th style="width:90px">Indicators</th>
             <th style="width:170px">Last refresh</th>
-            <th style="width:90px">Cadence</th>
             <th style="width:80px">Aging</th>
             <th></th>
           </tr>
@@ -630,19 +629,13 @@
       </label>
       <input id="feeds-edit-apikey" class="dlg-input" type="password" autocomplete="off">
     </div>
-    <div style="display:flex;gap:10px;margin-bottom:10px">
-      <div style="flex:1">
-        <label style="font-size:11px;color:var(--fg-dim);display:block;margin-bottom:4px">Refresh cadence (minutes)</label>
-        <input id="feeds-edit-cadence" class="dlg-input" type="number" min="1" value="60">
-      </div>
-      <div style="flex:1">
-        <label style="font-size:11px;color:var(--fg-dim);display:block;margin-bottom:4px">Aging window (days)</label>
-        <input id="feeds-edit-aging" class="dlg-input" type="number" min="0" value="30">
-      </div>
+    <div style="margin-bottom:10px">
+      <label style="font-size:11px;color:var(--fg-dim);display:block;margin-bottom:4px">Aging window (days)</label>
+      <input id="feeds-edit-aging" class="dlg-input" type="number" min="0" value="30">
     </div>
     <label style="display:flex;align-items:center;gap:6px;font-size:12px">
       <input id="feeds-edit-enabled" type="checkbox" checked>
-      Enabled (fetcher runs on cadence)
+      Enabled (refreshed automatically before each watch full pass)
     </label>
     <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-top:6px">
       <input id="feeds-edit-tls-skip-verify" type="checkbox">

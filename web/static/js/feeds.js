@@ -77,7 +77,6 @@ const Feeds = (() => {
         <td>${statusCol}</td>
         <td style="text-align:right">${(f.last_indicator_count || 0).toLocaleString()}</td>
         <td>${_fmtTS(f.last_refresh_at)}</td>
-        <td>${_esc(f.refresh_cadence_minutes)} min</td>
         <td>${_esc(f.indicator_aging_days)} d</td>
         <td style="text-align:right">${adminCtrls}</td>
       </tr>`;
@@ -94,7 +93,6 @@ const Feeds = (() => {
     document.getElementById('feeds-edit-url').value = feed ? feed.url : '';
     document.getElementById('feeds-edit-apikey').value = '';
     document.getElementById('feeds-edit-keyhint').style.display = feed ? '' : 'none';
-    document.getElementById('feeds-edit-cadence').value = feed ? feed.refresh_cadence_minutes : 60;
     document.getElementById('feeds-edit-aging').value = feed ? feed.indicator_aging_days : 30;
     document.getElementById('feeds-edit-enabled').checked = feed ? feed.enabled : true;
     document.getElementById('feeds-edit-tls-skip-verify').checked = feed ? !!feed.tls_skip_verify : false;
@@ -109,14 +107,13 @@ const Feeds = (() => {
     errEl.style.display = 'none';
 
     const body = {
-      source_type:             document.getElementById('feeds-edit-source-type').value,
-      name:                    document.getElementById('feeds-edit-name').value.trim(),
-      url:                     document.getElementById('feeds-edit-url').value.trim(),
-      api_key:                 document.getElementById('feeds-edit-apikey').value,
-      refresh_cadence_minutes: parseInt(document.getElementById('feeds-edit-cadence').value, 10) || 0,
-      indicator_aging_days:    parseInt(document.getElementById('feeds-edit-aging').value, 10) || 0,
-      enabled:                 document.getElementById('feeds-edit-enabled').checked,
-      tls_skip_verify:         document.getElementById('feeds-edit-tls-skip-verify').checked,
+      source_type:          document.getElementById('feeds-edit-source-type').value,
+      name:                 document.getElementById('feeds-edit-name').value.trim(),
+      url:                  document.getElementById('feeds-edit-url').value.trim(),
+      api_key:              document.getElementById('feeds-edit-apikey').value,
+      indicator_aging_days: parseInt(document.getElementById('feeds-edit-aging').value, 10) || 0,
+      enabled:              document.getElementById('feeds-edit-enabled').checked,
+      tls_skip_verify:      document.getElementById('feeds-edit-tls-skip-verify').checked,
     };
 
     try {

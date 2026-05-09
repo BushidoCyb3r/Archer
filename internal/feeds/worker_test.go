@@ -95,7 +95,7 @@ func (a *fakeAdapter) Fetch(ctx context.Context) ([]Indicator, error) {
 func TestWorker_RunsOneFetchPerFeedOnStart(t *testing.T) {
 	store := newFakeStore(Feed{
 		ID: 1, SourceType: SourceMISP, Name: "test", URL: "x", APIKey: "k",
-		RefreshCadenceMinutes: 60, IndicatorAgingDays: 30, Enabled: true,
+		IndicatorAgingDays: 30, Enabled: true,
 	})
 	adapter := &fakeAdapter{indicators: []Indicator{
 		{Indicator: "203.0.113.1", Type: IndicatorIP, SourceID: "1"},
@@ -139,7 +139,7 @@ func TestWorker_RunsOneFetchPerFeedOnStart(t *testing.T) {
 func TestWorker_SkipsDisabledFeeds(t *testing.T) {
 	store := newFakeStore(Feed{
 		ID: 1, SourceType: SourceMISP, Name: "test", URL: "x", APIKey: "k",
-		RefreshCadenceMinutes: 60, Enabled: false,
+		Enabled: false,
 	})
 	adapter := &fakeAdapter{indicators: []Indicator{{Indicator: "x", Type: IndicatorIP}}}
 	w := NewWorker(store, func(f Feed) (Adapter, error) { return adapter, nil })
@@ -163,7 +163,7 @@ func TestWorker_SkipsDisabledFeeds(t *testing.T) {
 func TestWorker_RecordsErrorOnAdapterFailure(t *testing.T) {
 	store := newFakeStore(Feed{
 		ID: 1, SourceType: SourceMISP, Name: "test", URL: "x", APIKey: "k",
-		RefreshCadenceMinutes: 60, Enabled: true,
+		Enabled: true,
 	})
 	adapter := &fakeAdapter{err: errors.New("simulated upstream failure")}
 	w := NewWorker(store, func(f Feed) (Adapter, error) { return adapter, nil })
@@ -207,7 +207,7 @@ func TestWorker_RecordsErrorOnAdapterFailure(t *testing.T) {
 func TestWorker_StopsLoopWhenFeedDisabled(t *testing.T) {
 	store := newFakeStore(Feed{
 		ID: 1, SourceType: SourceMISP, Name: "test", URL: "x", APIKey: "k",
-		RefreshCadenceMinutes: 60, Enabled: true,
+		Enabled: true,
 	})
 	adapter := &fakeAdapter{indicators: []Indicator{{Indicator: "x", Type: IndicatorIP}}}
 	w := NewWorker(store, func(f Feed) (Adapter, error) { return adapter, nil })

@@ -28,6 +28,35 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [Unreleased]
+
+### Removed
+
+- **Per-feed `refresh_cadence_minutes` field.** Dead since v0.6.0,
+  when feed refresh moved to the watch full-pass cadence. The
+  `feeds.refresh_cadence_minutes` column is dropped via migration
+  `0004_drop_refresh_cadence_minutes.sql` and the field is removed
+  from the wire shapes (`/api/feeds` request/response), the Feeds
+  dialog (column + edit input), the `feeds.Feed` Go struct, and
+  the per-feed worker code (which now ticks on a fixed 60-minute
+  cadence if anyone re-enables `startFeedWorker`).
+
+### Breaking
+
+- **`/api/feeds` request shape.** External scripts that POST or PUT
+  feeds with a `refresh_cadence_minutes` field will get a JSON
+  decode error. Drop the field from the request body. The default
+  validation that required `refresh_cadence_minutes ≥ 1` is gone.
+- **`/api/feeds` response shape.** External scripts that read
+  `refresh_cadence_minutes` from the response will get an
+  unmarshal-into-int-zero or KeyError. The field is no longer
+  emitted.
+- **DB schema.** The `feeds.refresh_cadence_minutes` column is
+  dropped. Existing values are lost. Forward-only — restoring
+  requires a new migration that adds the column back.
+
+---
+
 ## [v0.6.0] — 2026-05-09
 
 Working theme: usability and predictable cost. v0.5.0 was feature-complete
@@ -788,6 +817,7 @@ The baseline detection behavior is the in-tree state at this cut.
 
 [Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.6.0...HEAD
 [v0.6.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.5.0...v0.6.0
+
 [v0.5.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.3.0...v0.4.0
 [v0.3.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.2.0...v0.3.0

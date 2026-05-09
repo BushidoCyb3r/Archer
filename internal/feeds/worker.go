@@ -23,23 +23,35 @@ type Store interface {
 type AdapterFor func(f Feed) (Adapter, error)
 
 // Worker schedules per-feed refreshes. One Worker manages all
-// configured feeds; each feed gets its own goroutine that ticks on
-// its configured cadence. The Worker re-syncs its goroutine set
+// configured feeds; each feed gets its own goroutine that ticks on a
+// fixed 60-minute cadence. The Worker re-syncs its goroutine set
 // against the feeds table every reconcileInterval (default 30s) so
 // admin-UI add/remove/enable/disable changes propagate without a
 // server restart.
+//
+// As of v0.6.0 the Worker is no longer started by default — feed
+// refresh runs synchronously before each watch full-pass. This code
+// is kept for the rare deployment that wants the old per-feed
+// background loop; re-enable by uncommenting startFeedWorker in
+// server.New.
 type Worker struct {
 	store      Store
 	adapterFor AdapterFor
 
 	mu       sync.Mutex
 	cancels  map[int64]context.CancelFunc
-	versions map[int64]string // cadence|enabled signature; restart loop on change
+	versions map[int64]string // enabled signature; restart loop on change
 
 	now func() time.Time
 
 	reconcileInterval time.Duration
 }
+
+// workerCadence is the fixed per-feed refresh interval used by the
+// (now-disabled-by-default) background Worker. Was per-feed configurable
+// pre-v0.7.0; uniform here since the watch full-pass is the primary
+// refresh path and operators no longer need per-feed scheduling.
+const workerCadence = 60 * time.Minute
 
 // NewWorker constructs a Worker.
 func NewWorker(s Store, adapterFor AdapterFor) *Worker {
@@ -71,10 +83,8 @@ func (w *Worker) Run(ctx context.Context) {
 	}
 }
 
-// reconcile spawns a per-feed goroutine for any newly-enabled feed,
-// stops the goroutine for any newly-disabled or removed feed, and
-// restarts the goroutine for any feed whose cadence changed (the only
-// way to update the ticker interval is to rebuild the loop).
+// reconcile spawns a per-feed goroutine for any newly-enabled feed
+// and stops the goroutine for any newly-disabled or removed feed.
 func (w *Worker) reconcile(ctx context.Context) {
 	feeds := w.store.ListFeeds()
 
@@ -94,7 +104,7 @@ func (w *Worker) reconcile(ctx context.Context) {
 		if running && oldSig == sig {
 			continue
 		}
-		// Either not running, or cadence/enabled flipped — restart.
+		// Either not running, or enabled flipped — restart.
 		if running {
 			w.stop(f.ID)
 		}
@@ -142,28 +152,17 @@ func (w *Worker) stopAll() {
 }
 
 // runOne is the per-feed loop. Re-reads the feed row before each tick
-// so URL / API key / cadence changes the operator made via the admin
-// UI take effect without a worker restart. Cadence changes themselves
-// require a loop restart (handled by reconcile) because the ticker
-// interval is fixed at start; intra-tick changes to refresh_cadence
-// are noted but applied on the next reconcile.
+// so URL / API key changes the operator made via the admin UI take
+// effect without a worker restart.
 func (w *Worker) runOne(ctx context.Context, feedID int64) {
-	// Refresh feed config inside the loop so the first tick uses
-	// current state even if the row was updated between
-	// ListFeeds() and start().
-	cur := w.lookup(feedID)
-	if cur.ID == 0 {
+	if cur := w.lookup(feedID); cur.ID == 0 {
 		return
-	}
-	cadence := time.Duration(cur.RefreshCadenceMinutes) * time.Minute
-	if cadence <= 0 {
-		cadence = 60 * time.Minute
 	}
 
 	// First tick fires immediately on start so a freshly-added feed
 	// populates without waiting a full cycle.
 	w.tick(ctx, feedID)
-	t := time.NewTicker(cadence)
+	t := time.NewTicker(workerCadence)
 	defer t.Stop()
 	for {
 		select {
@@ -243,34 +242,11 @@ func (w *Worker) recordError(f Feed, msg string) {
 }
 
 // versionSig captures the fields whose change requires a loop
-// restart (cadence and enabled flag). URL/API-key changes are read
-// per-tick so they don't need a restart.
+// restart (just the enabled flag now). URL / API-key changes are
+// read per-tick so they don't need a restart.
 func versionSig(f Feed) string {
-	enabled := "0"
 	if f.Enabled {
-		enabled = "1"
+		return "1"
 	}
-	return enabled + ":" + itoa(f.RefreshCadenceMinutes)
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
+	return "0"
 }

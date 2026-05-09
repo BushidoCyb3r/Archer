@@ -21,40 +21,38 @@ import (
 // echoes them back, so a stolen session cookie can't be used to
 // scrape feed credentials.
 type feedResponse struct {
-	ID                    int64  `json:"id"`
-	SourceType            string `json:"source_type"`
-	Name                  string `json:"name"`
-	URL                   string `json:"url"`
-	RefreshCadenceMinutes int    `json:"refresh_cadence_minutes"`
-	IndicatorAgingDays    int    `json:"indicator_aging_days"`
-	LastRefreshAt         int64  `json:"last_refresh_at"`
-	LastIndicatorCount    int    `json:"last_indicator_count"`
-	LastError             string `json:"last_error,omitempty"`
-	Status                string `json:"status"`
-	Enabled               bool   `json:"enabled"`
-	TLSSkipVerify         bool   `json:"tls_skip_verify"`
-	CreatedAt             int64  `json:"created_at"`
-	UpdatedAt             int64  `json:"updated_at"`
-	HasAPIKey             bool   `json:"has_api_key"`
+	ID                 int64  `json:"id"`
+	SourceType         string `json:"source_type"`
+	Name               string `json:"name"`
+	URL                string `json:"url"`
+	IndicatorAgingDays int    `json:"indicator_aging_days"`
+	LastRefreshAt      int64  `json:"last_refresh_at"`
+	LastIndicatorCount int    `json:"last_indicator_count"`
+	LastError          string `json:"last_error,omitempty"`
+	Status             string `json:"status"`
+	Enabled            bool   `json:"enabled"`
+	TLSSkipVerify      bool   `json:"tls_skip_verify"`
+	CreatedAt          int64  `json:"created_at"`
+	UpdatedAt          int64  `json:"updated_at"`
+	HasAPIKey          bool   `json:"has_api_key"`
 }
 
 func toFeedResponse(f feeds.Feed) feedResponse {
 	return feedResponse{
-		ID:                    f.ID,
-		SourceType:            string(f.SourceType),
-		Name:                  f.Name,
-		URL:                   f.URL,
-		RefreshCadenceMinutes: f.RefreshCadenceMinutes,
-		IndicatorAgingDays:    f.IndicatorAgingDays,
-		LastRefreshAt:         f.LastRefreshAt,
-		LastIndicatorCount:    f.LastIndicatorCount,
-		LastError:             f.LastError,
-		Status:                f.Status,
-		Enabled:               f.Enabled,
-		TLSSkipVerify:         f.TLSSkipVerify,
-		CreatedAt:             f.CreatedAt,
-		UpdatedAt:             f.UpdatedAt,
-		HasAPIKey:             f.APIKey != "",
+		ID:                 f.ID,
+		SourceType:         string(f.SourceType),
+		Name:               f.Name,
+		URL:                f.URL,
+		IndicatorAgingDays: f.IndicatorAgingDays,
+		LastRefreshAt:      f.LastRefreshAt,
+		LastIndicatorCount: f.LastIndicatorCount,
+		LastError:          f.LastError,
+		Status:             f.Status,
+		Enabled:            f.Enabled,
+		TLSSkipVerify:      f.TLSSkipVerify,
+		CreatedAt:          f.CreatedAt,
+		UpdatedAt:          f.UpdatedAt,
+		HasAPIKey:          f.APIKey != "",
 	}
 }
 
@@ -65,14 +63,13 @@ func toFeedResponse(f feeds.Feed) feedResponse {
 // admin re-saves a feed config without the api_key field and
 // accidentally blanks out their secret.
 type feedRequest struct {
-	SourceType            string `json:"source_type"`
-	Name                  string `json:"name"`
-	URL                   string `json:"url"`
-	APIKey                string `json:"api_key"`
-	RefreshCadenceMinutes int    `json:"refresh_cadence_minutes"`
-	IndicatorAgingDays    int    `json:"indicator_aging_days"`
-	Enabled               bool   `json:"enabled"`
-	TLSSkipVerify         bool   `json:"tls_skip_verify"`
+	SourceType         string `json:"source_type"`
+	Name               string `json:"name"`
+	URL                string `json:"url"`
+	APIKey             string `json:"api_key"`
+	IndicatorAgingDays int    `json:"indicator_aging_days"`
+	Enabled            bool   `json:"enabled"`
+	TLSSkipVerify      bool   `json:"tls_skip_verify"`
 }
 
 // handleFeeds dispatches GET (list) and POST (create) on /api/feeds.
@@ -105,14 +102,13 @@ func (s *Server) handleFeeds(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		id, err := s.store.CreateFeed(feeds.Feed{
-			SourceType:            feeds.SourceType(req.SourceType),
-			Name:                  strings.TrimSpace(req.Name),
-			URL:                   strings.TrimSpace(req.URL),
-			APIKey:                req.APIKey,
-			RefreshCadenceMinutes: req.RefreshCadenceMinutes,
-			IndicatorAgingDays:    req.IndicatorAgingDays,
-			Enabled:               req.Enabled,
-			TLSSkipVerify:         req.TLSSkipVerify,
+			SourceType:         feeds.SourceType(req.SourceType),
+			Name:               strings.TrimSpace(req.Name),
+			URL:                strings.TrimSpace(req.URL),
+			APIKey:             req.APIKey,
+			IndicatorAgingDays: req.IndicatorAgingDays,
+			Enabled:            req.Enabled,
+			TLSSkipVerify:      req.TLSSkipVerify,
 		})
 		if err != nil {
 			jsonError(w, err.Error(), http.StatusInternalServerError)
@@ -176,7 +172,6 @@ func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 		if req.APIKey != "" {
 			current.APIKey = req.APIKey
 		}
-		current.RefreshCadenceMinutes = req.RefreshCadenceMinutes
 		current.IndicatorAgingDays = req.IndicatorAgingDays
 		current.Enabled = req.Enabled
 		current.TLSSkipVerify = req.TLSSkipVerify
@@ -369,9 +364,6 @@ func validateFeedRequest(req feedRequest, requireAPIKey bool) error {
 	}
 	if requireAPIKey && strings.TrimSpace(req.APIKey) == "" {
 		return fmt.Errorf("api_key is required")
-	}
-	if req.RefreshCadenceMinutes < 1 {
-		return fmt.Errorf("refresh_cadence_minutes must be >= 1")
 	}
 	if req.IndicatorAgingDays < 0 {
 		return fmt.Errorf("indicator_aging_days must be >= 0 (0 = no aging)")

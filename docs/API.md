@@ -448,7 +448,7 @@ refresh (`refreshFeedsBeforeFullPass` in `internal/server/watch.go`).
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
 | `GET` | `/api/feeds` | any | List configured feeds. `api_key` is redacted; the response carries a `has_api_key` boolean instead. |
-| `POST` | `/api/feeds` | admin | Create a feed. Required body fields: `source_type` (`misp`/`opencti`), `name`, `url` (with scheme), `api_key`, `refresh_cadence_minutes` (≥ 1, currently unused), `indicator_aging_days` (≥ 0). Optional: `enabled`, `tls_skip_verify`. |
+| `POST` | `/api/feeds` | admin | Create a feed. Required body fields: `source_type` (`misp`/`opencti`), `name`, `url` (with scheme), `api_key`, `indicator_aging_days` (≥ 0). Optional: `enabled`, `tls_skip_verify`. |
 | `PUT` | `/api/feeds/{id}` | admin | Update a feed. Empty `api_key` keeps the existing value (clearing requires delete + recreate). |
 | `DELETE` | `/api/feeds/{id}` | admin | Delete a feed. FK cascade drops its `feed_indicators`. |
 | `POST` | `/api/feeds/{id}/refresh` | admin | One-shot fetch + upsert + prune for one feed (60-second cap). Used to verify connectivity right after configuring a feed; backed by the per-row Refresh button in the Feeds dialog. Watch-tick auto-refresh covers the steady-state case. |

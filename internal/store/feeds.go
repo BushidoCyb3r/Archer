@@ -27,13 +27,13 @@ func (s *Store) CreateFeed(f feeds.Feed) (int64, error) {
 	res, err := s.db.Exec(
 		`INSERT INTO feeds (
 			source_type, name, url, api_key,
-			refresh_cadence_minutes, indicator_aging_days,
+			indicator_aging_days,
 			last_refresh_at, last_indicator_count,
 			last_error, status, enabled, tls_skip_verify,
 			created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, 0, 0, '', 'idle', ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, 0, 0, '', 'idle', ?, ?, ?, ?)`,
 		string(f.SourceType), f.Name, f.URL, f.APIKey,
-		f.RefreshCadenceMinutes, f.IndicatorAgingDays,
+		f.IndicatorAgingDays,
 		boolToInt(f.Enabled), boolToInt(f.TLSSkipVerify), now, now,
 	)
 	if err != nil {
@@ -49,7 +49,7 @@ func (s *Store) GetFeed(id int64) (feeds.Feed, error) {
 	}
 	row := s.db.QueryRow(`
 		SELECT id, source_type, name, url, api_key,
-			refresh_cadence_minutes, indicator_aging_days,
+			indicator_aging_days,
 			last_refresh_at, last_indicator_count, last_error,
 			status, enabled, tls_skip_verify, created_at, updated_at
 		FROM feeds WHERE id = ?`, id)
@@ -64,7 +64,7 @@ func (s *Store) ListFeeds() []feeds.Feed {
 	}
 	rows, err := s.db.Query(`
 		SELECT id, source_type, name, url, api_key,
-			refresh_cadence_minutes, indicator_aging_days,
+			indicator_aging_days,
 			last_refresh_at, last_indicator_count, last_error,
 			status, enabled, tls_skip_verify, created_at, updated_at
 		FROM feeds ORDER BY id`)
@@ -93,12 +93,12 @@ func (s *Store) UpdateFeed(f feeds.Feed) error {
 	_, err := s.db.Exec(`
 		UPDATE feeds SET
 			source_type = ?, name = ?, url = ?, api_key = ?,
-			refresh_cadence_minutes = ?, indicator_aging_days = ?,
+			indicator_aging_days = ?,
 			last_refresh_at = ?, last_indicator_count = ?, last_error = ?,
 			status = ?, enabled = ?, tls_skip_verify = ?, updated_at = ?
 		WHERE id = ?`,
 		string(f.SourceType), f.Name, f.URL, f.APIKey,
-		f.RefreshCadenceMinutes, f.IndicatorAgingDays,
+		f.IndicatorAgingDays,
 		f.LastRefreshAt, f.LastIndicatorCount, f.LastError,
 		f.Status, boolToInt(f.Enabled), boolToInt(f.TLSSkipVerify),
 		time.Now().Unix(), f.ID,
@@ -351,7 +351,7 @@ func scanFeed(r rowScanner) (feeds.Feed, error) {
 	var enabled, tlsSkipVerify int
 	if err := r.Scan(
 		&f.ID, &sourceType, &f.Name, &f.URL, &f.APIKey,
-		&f.RefreshCadenceMinutes, &f.IndicatorAgingDays,
+		&f.IndicatorAgingDays,
 		&f.LastRefreshAt, &f.LastIndicatorCount, &f.LastError,
 		&f.Status, &enabled, &tlsSkipVerify, &f.CreatedAt, &f.UpdatedAt,
 	); err != nil {
