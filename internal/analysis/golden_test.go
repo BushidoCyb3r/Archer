@@ -124,6 +124,7 @@ type scenarioMISP struct {
 	IPs     []string            `json:"ips"`
 	CIDRs   []string            `json:"cidrs"`
 	Domains []string            `json:"domains"`
+	Hashes  []string            `json:"hashes"`
 	Tags    map[string][]string `json:"tags"`
 }
 
@@ -168,6 +169,7 @@ func loadScenarioFeeds(dir string) (feodoIPs, urlhausIPs, urlhausHosts map[strin
 				Source:  mf.Source,
 				IPs:     map[string]bool{},
 				Domains: map[string]bool{},
+				Hashes:  map[string]bool{},
 				Tags:    map[string][]string{},
 			}
 			for _, ip := range mf.IPs {
@@ -180,6 +182,9 @@ func loadScenarioFeeds(dir string) (feodoIPs, urlhausIPs, urlhausHosts map[strin
 			}
 			for _, d := range mf.Domains {
 				b.Domains[strings.ToLower(d)] = true
+			}
+			for _, h := range mf.Hashes {
+				b.Hashes[strings.ToLower(h)] = true
 			}
 			for k, v := range mf.Tags {
 				b.Tags[strings.ToLower(k)] = v

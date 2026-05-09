@@ -1,0 +1,14 @@
+{
+  "misp_feeds": [
+    {
+      "source": "feed:demo-hash",
+      "hashes": [
+        "d41d8cd98f00b204e9800998ecf8427e",
+        "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+      ],
+      "tags": {
+        "d41d8cd98f00b204e9800998ecf8427e": ["malware:emotet"]
+      }
+    }
+  ]
+}
