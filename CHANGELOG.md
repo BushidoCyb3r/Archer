@@ -30,6 +30,194 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+Working theme: usability and predictable cost. v0.5.0 was feature-complete
+on Phase 7 but the dashboard hit a wall on real-world data — list responses
+ballooned to ~170 MB on six-figure finding counts, and the auto-cadence
+MISP worker was firing 10-minute fetches on the hour that pegged CPU
+during analyst sessions. This bundle fixes both, plus a long pass of UI
+polish, a major beacon-chart redesign, and per-tab pagination across the
+whole dashboard.
+
+### Added
+- **Server-side pagination on `/api/findings`.** New `limit` and `offset`
+  query params (default 1000, max 50000). Responses set
+  `X-Total-Count` and `X-Has-More` so the UI can drive paginated
+  navigation, and `Access-Control-Expose-Headers` is set so the headers
+  reach JS in CORS contexts.
+- **`GET /api/findings/counts`** returning `{open, ack, esc, ioc, total}`
+  honoring the active filter set (minus `status` / `ioc_only`). Powers
+  the info-line counters without forcing the UI to scan the full
+  finding set every render.
+- **`GET /api/findings/facets`** returning `{types, sensors}` — distinct
+  values across the entire dataset (subject to non-dropdown filters).
+  The Type and Sensor filter dropdowns now reflect every available
+  value across all data, not just what's on the currently-rendered
+  page. Type and sensor are stripped from the facets query so picking
+  one doesn't collapse the dropdown to that single option.
+- **Per-tab pagination on every tab** with first / previous / next / last
+  navigation buttons (« ‹ › »). Findings, Acknowledged, Escalated, and
+  IOC paginate server-side via `/api/findings`. Campaigns and Hosts
+  paginate client-side over the cached aggregate set — same UX,
+  different mechanics. Each tab maintains its own offset; switching
+  tabs is an O(1) cache hit. Footer reads "Showing 101–200 of 5,000 ·
+  Page 2 of 50" and disables boundary buttons.
+- **Sortable Campaigns / Hosts columns.** Click any of Score /
+  Destination / Port / Hosts on Campaigns, or Host IP / Risk Score /
+  Findings / Severity on Hosts, to sort. Clicking the same column
+  toggles ascending / descending. Sort indicator (↑/↓) appears next to
+  the active column header, mirroring the existing Findings-table
+  convention. Severity sorts by analyst-visible order
+  (CRITICAL < HIGH < MEDIUM < LOW < INFO) so descending lands worst-
+  first.
+- **Beacon Chart redesign — three views, one dialog.** The fixed
+  time-window presets (5m / 30m / 1h / …) are gone; every view auto-
+  fits the X axis to the full data span. View-mode tabs at the top
+  switch between:
+    - **Timeline** (default) — every connection event as a vertical
+      tick on a continuous time axis from first to last observation.
+      Density-modulated alpha so dense regions stay visible while
+      sparse ticks aren't washed out. The eye-test for "is this
+      regular?".
+    - **Interval histogram** — distribution of inter-arrival gaps
+      between consecutive connections, top 1% trimmed so a single
+      outlier gap doesn't squash the histogram. A dashed accent line
+      marks the mean-interval position so you can see whether the
+      peak lines up with the analyzer's reported mean. Tall single
+      peak = beacon's heartbeat.
+    - **Bytes** — the legacy bytes-sent-per-bucket chart, kept for
+      verifying whether a beacon also exfils alongside its heartbeat.
+  Plus a stats strip above the canvas: connections, mean interval,
+  jitter (CV), span. And a per-view PNG / JPEG export dropdown that
+  snaps the active canvas with a filename including the src→dst pair
+  and view name (mirrors the cytoscape graph export pattern).
+- **HTTP Beaconing findings now carry `TSData`.** The HTTP beacon
+  detector (`internal/analysis/http_analysis.go`) was tracking inter-
+  arrival intervals and byte values for the score, but didn't collect
+  the per-event `[ts, origBytes, respBytes]` triples the chart needs.
+  The state struct now reservoir-samples those triples (capped at
+  `beaconTsCap = 200`, same cap conn-level beacons use), and they're
+  attached to the emitted finding. Existing HTTP Beaconing findings
+  show empty timeline data until they're re-detected by the next
+  analysis run; the merge then overwrites the empty `TSData` field.
+- **Time-range preset dropdown** in the filter bar (All time / 1d / 7d /
+  1mo / 3mo / 6mo). Selecting a preset re-queries immediately; the
+  manual From / To inputs in the advanced filter panel are gone — the
+  preset is the only time-range control and defaults to "Last 1
+  month" on first load.
+- **WAL journaling** on the SQLite store (`PRAGMA journal_mode = WAL` in
+  `RunMigrations`). Concurrent reader/writer behavior matches what the
+  dashboard's read traffic actually does — reads no longer block on the
+  long writes from analysis runs and feed indicator upserts.
+- **Watch full-pass pre-flight feed refresh.** The first watch tick of
+  each UTC day (and every tick when `WatchAlwaysFull` is on) now calls
+  `refreshFeedsBeforeFullPass` synchronously before launching analysis.
+  Every enabled MISP / OpenCTI feed is fetched in parallel under a
+  two-minute global cap; failures log but do not block the analysis. A
+  status SSE event (`Watch: refreshing N feed(s) before full pass.`)
+  surfaces the pre-flight on the dashboard.
+- **Watch incremental ticks now match against cached MISP / OpenCTI
+  indicators.** `launchIncrementalAnalysis` sets `FeedProvider` so
+  `AnalyzeTIOnly` consults whichever indicators the most recent full
+  pass loaded. No fetch — incremental ticks remain network-free —
+  closes the "wait until tomorrow" gap on fresh hits from configured
+  feeds. Adds a few seconds per tick to rebuild the indicator buckets
+  from SQLite; the cost is bounded by total enabled-feed indicator
+  count, not log volume.
+
+### Changed
+- **Page layout reshuffle.** Sidebar runs full-height from the top of
+  the page to the bottom — no jog where the topbar used to interrupt
+  it. The Archer crosshairs + wordmark moved into the sidebar at the
+  top, with "Silent Hunter" centered underneath as a small uppercase
+  tagline. The topbar in the right column shrunk to 48px (action
+  buttons only: bell, Sensors, Feeds, Users, Settings, user-badge).
+- **Right-click menu auto-positions.** The static 220×200 fallback
+  margin under-counted the menu after font bumps; clicks near the
+  right or bottom edge cut it off. JS now measures the rendered menu
+  with `getBoundingClientRect()` and clamps into the viewport with an
+  8px margin. Click-anchor arrow at one of the menu's four corners
+  (↖↗↙↘) points back at the click — useful when the menu had to flip
+  away from the cursor to fit.
+- **Findings list responses are now projection-shaped.** New internal
+  `listFinding` type drops `TSData`, `Intervals`, and `Notes` from
+  every `/api/findings` row — those fields balloon to hundreds of KB
+  per row on beacon-rich datasets and are only consulted on detail
+  pages anyway. The detail endpoint (`/api/findings/{id}`) still
+  returns the full `model.Finding`, and a row click now upgrades
+  `_selectedFinding` via a follow-up fetch so the chart, intervals,
+  and notes render correctly without bloating the list. Beacon-Chart
+  visibility on the right-click menu and detail-pane button now gates
+  on finding type (`Beaconing` / `HTTP Beaconing`) instead of
+  ts_data presence — type is in the projection, ts_data is not.
+- **Right-click menu on Campaigns / Hosts** hides Acknowledge,
+  Escalate, and Suppress (and the separator above them). Those
+  actions operate on a single finding's status and don't make sense
+  on a synthesised aggregate row. They still appear on Findings,
+  Acknowledged, Escalated, and IOC tabs.
+- **Feed indicator upserts now batch in 1000-row chunks.** Each batch is
+  its own transaction (`upsertFeedIndicatorBatch`) so a 100k-row MISP
+  refresh no longer holds the writer for the whole upsert duration.
+- **Per-feed `RefreshCadenceMinutes`** is now effectively unused. The
+  field stays on the row for forward compatibility (and the validator
+  still requires `≥ 1`), but no scheduler reads it. Refreshes are
+  driven by the watch full-pass cadence — see `docs/FEEDS.md`.
+- **Settings → Watch Mode** "Always run full scan on every watch tick"
+  now also forces a feed refresh on every tick (because every tick is
+  a full pass under the override). Previously this checkbox only
+  affected the analyzer phase selection.
+- **UI text and chrome polish.** Body font bumped 13 → 17 px; every
+  explicit `font-size` in `archer.css` bumped by 2 px. Filter
+  dropdowns and dialog inputs got thicker (taller padding, larger
+  text) without growing wider. Sidebar inputs (`.sidebar-input`)
+  bumped to match (`padding: 9px 10px`, `font-size: 16px`). Findings
+  table cells normalize to the body font size — the previous explicit
+  `font-size: 11px` on src-ip / dst-ip / sensor / detail cells is
+  removed. The Findings table's first column (icon) widened 38 → 56
+  px so the icon no longer clips next to "icon…". The pagination
+  control moved inline with the tab bar instead of its own row,
+  right-justified. Sortable column widths bumped on Campaigns and
+  Hosts so the sort-indicator arrow doesn't truncate the header text.
+  Sensors-dialog Pending Tokens "Override name" 130 → 180 px;
+  Unauthorized Attempts "Count" 80 → 110 px so longer values render
+  without ellipsis.
+
+### Removed
+- **`POST /api/feeds/refresh-all`** and the dashboard sidebar "Refresh
+  feeds" button that called it. Watch-tick auto-refresh covers the
+  steady-state case; the per-feed Refresh button (still in the Feeds
+  dialog) covers admin one-shot validation.
+- **From / To time-range inputs** in the advanced filter panel — the
+  filter-bar preset dropdown is the only time-range control now.
+- **Auto-cadence MISP / OpenCTI fetcher worker.** `s.startFeedWorker()`
+  in `server.New` was already commented out behind a feature comment;
+  this release commits to the watch-driven model and updates the
+  surrounding documentation. Re-enabling is still a one-line change
+  if a deployment wants per-feed cadence back.
+- **Beacon-chart preset time-window buttons** (5m / 30m / 1h / 6h / 24h
+  / 7d / 1mo / 1y). Replaced by the auto-fit X axis and the three
+  view-mode tabs described above.
+
+### Breaking
+- `POST /api/feeds/refresh-all` removed — no replacement. Force a
+  refresh by triggering a full-pass watch tick (`WatchAlwaysFull`
+  toggle, or *Discard findings & re-analyze* which runs as a full
+  pass), or use the per-feed `/api/feeds/{id}/refresh` endpoint
+  for one-shot validation. Endpoint existed only in v0.5.0 and was
+  admin-gated, so practical blast radius is operator scripts only.
+
+### Detection changes
+None. Detection semantics are unchanged from v0.5.0 — same score
+formulas, same thresholds, same finding types. Two non-semantic
+data-shape changes:
+- HTTP Beaconing findings now carry `TSData` (previously empty).
+  Affects `/api/findings/{id}` and `/api/export/json`; the value is
+  reservoir-sampled chart data, not a detection signal.
+- Incremental ticks now *see* MISP / OpenCTI indicators that they
+  didn't see in v0.5.0, but the matching logic is the same
+  `checkTI` / `checkSuspiciousURLs` code path; an indicator that
+  produces a Threat Intel Hit in a full pass will produce the same
+  Threat Intel Hit in an incremental pass.
+
 ---
 
 ## [v0.5.0] — 2026-05-08

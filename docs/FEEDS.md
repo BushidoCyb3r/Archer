@@ -18,22 +18,21 @@ deployments.
                   ┌──────────────────── Archer host ────────────────────┐
                   │                                                     │
  [admin browser]──HTTP──►  /api/feeds  (CRUD)                           │
-                          /api/feeds/{id}/refresh  (manual)             │
+                          /api/feeds/{id}/refresh  (admin one-shot)     │
                                        │                                │
                                        ▼                                │
                   ┌─────────── feeds (sqlite) ───────────┐              │
                   │  one row per configured upstream     │              │
-                  │  source_type, url, api_key, cadence, │              │
+                  │  source_type, url, api_key,          │              │
                   │  aging, tls_skip_verify, status      │              │
                   └──────┬───────────────────────────────┘              │
                          │                                              │
                          ▼                                              │
-                  ┌─── feeds.Worker ────┐                               │
-                  │  reconciles every   │                               │
-                  │  30s; per-feed      │                               │
-                  │  goroutine on       │                               │
-                  │  cadence            │                               │
-                  └──────┬──────────────┘                               │
+                  ┌─── watch full-pass tick ───┐                        │
+                  │  fires the pre-analysis    │                        │
+                  │  refresh once per UTC day  │                        │
+                  │  (refreshFeedsBeforeFull)  │                        │
+                  └──────┬─────────────────────┘                        │
                          │                                              │
        ┌─── HTTPS ───────┴────────────┐                                 │
        │                              │                                 │
@@ -60,16 +59,31 @@ deployments.
 Three independent stages, loosely coupled through SQLite:
 
 1. **Operator config** writes rows to `feeds`.
-2. **Fetcher worker** reads `feeds`, calls upstream APIs, writes
-   `feed_indicators`. Each feed has its own goroutine + cadence; workers
-   reconcile against the table every 30s so config changes propagate
-   without a server restart.
+2. **Refresh** has two paths, both feeding the same upsert/prune body:
+   - **Watch full-pass refresh** is the steady-state path. The first
+     watch tick of each UTC calendar day (or every tick if
+     `WatchAlwaysFull` is on) calls `refreshFeedsBeforeFullPass`
+     synchronously before launching analysis: every enabled feed is
+     fetched in parallel under a 2-minute cap, indicators are upserted
+     into `feed_indicators`, and stale rows are aged out. Failures log
+     but do not block the analysis.
+   - **Per-feed manual refresh** (`POST /api/feeds/{id}/refresh`,
+     admin-only, 60-second cap) is the on-demand path admins use right
+     after configuring or editing a feed to verify connectivity. The
+     **Refresh** button on each row of the Feeds dialog calls this.
+     The dashboard sidebar's all-feeds button is intentionally absent
+     — operators who want "refresh everything now" trigger a full
+     analysis instead.
 3. **Analyzer** reads `feed_indicators` once per analysis run during
    phase-0 prefetch, snapshots indicators into typed buckets per feed,
    and tests dst-IP / DNS-query / HTTP-host candidates against them.
+   Both full-pass and incremental ticks consult the cached indicator
+   set; only full-pass ticks trigger the upstream fetch above.
 
 The fetch and analyze paths never block on each other — a slow upstream
-fetch just means the *next* analysis run sees yesterday's snapshot.
+fetch in stage 2 only delays the analysis it precedes; subsequent
+incremental ticks within the same UTC day match against whatever's
+already in `feed_indicators`.
 
 ---
 
@@ -85,13 +99,18 @@ Click the **Feeds** topbar button (admin role required) → **Add feed**.
 | Name | Human label. Surfaces in finding details as `feed:<name>`. |
 | URL | Base URL of the upstream. MISP: `https://misp.example/`. OpenCTI: `https://opencti.example/`. No trailing path. |
 | API key | MISP: per-user authkey. OpenCTI: bearer token. **Stored in the DB; redacted on subsequent reads.** |
-| Refresh cadence (min) | How often the worker re-fetches. 60 is a sane default — most upstream feeds refresh hourly anyway. |
+| Refresh cadence (min) | **Currently unused** — the auto-cadence worker is disabled. Refreshes happen at the watch full-pass tick (typically once per UTC day; every tick when `WatchAlwaysFull` is on). Field is preserved on the row for forward compatibility if per-feed cadence is ever reinstated; pick any value that satisfies the validator (≥ 1). |
 | Indicator aging (days) | Indicators not seen in a fetch for this many days drop out of the matcher. 30 is a sane default; 0 disables aging entirely. |
 | Skip TLS certificate verification | Off by default. Tick only for internal MISP / OpenCTI deployments running self-signed or internal-CA certs. |
 
-Save and the worker picks up the new feed within 30 seconds. Status flips
-through `idle → fetching → ok` (or `error` on failure, with the upstream
-error in the feed row's `last_error`).
+Save. The new feed's indicators load on the next watch full-pass tick.
+If you've just added a feed and want it to participate immediately,
+trigger a full pass — either flip on `WatchAlwaysFull` in
+Settings → Watch Mode, or run **Discard findings & re-analyze** which
+runs as a full pass (with the pre-flight feed refresh) and resets the
+two-tier timestamps. Feed status flips through `idle → fetching → ok`
+(or `error` on failure, with the upstream error in the feed row's
+`last_error`).
 
 ### 2. Edit a feed
 
@@ -100,18 +119,43 @@ edit (the stored key is never echoed back); leave it blank to keep the
 existing key, or paste a new one to replace it. Saving a config with the
 field blank does **not** clear the key.
 
-### 3. Manual refresh
+### 3. Refresh cadence
 
-**Refresh** on a feed row triggers an immediate fetch + upsert + prune
-cycle, bypassing the cadence. Synchronous — the dialog waits for the
-upstream call to return (capped at 60s). Useful for verifying connectivity
-right after configuring a feed.
+Feed fetching runs in two paths, both producing identical
+fetch/upsert/prune cycles:
+
+**Automatic** — watch full-pass tick. The first watch tick of each UTC
+calendar day (or every tick if `WatchAlwaysFull` is on) calls
+`refreshFeedsBeforeFullPass` before launching analysis. Every enabled
+feed is fetched in parallel under a 2-minute global cap; per-feed
+status flips through `idle → fetching → ok`/`error` and the
+`last_refresh_at` timestamp updates so the dialog reflects what
+happened. This is the steady-state path — the indicator set stays
+current without any manual operator action.
+
+**Manual per-feed** — `POST /api/feeds/{id}/refresh`, admin-only,
+60-second cap, reachable through the **Refresh** button on each row of
+the Feeds dialog. Use this right after configuring or editing a feed
+to verify connectivity without waiting for the next watch tick. The
+button reports the indicator add / refresh count inline (e.g.
+`+147 / ~98253`) and rolls back the label after a few seconds.
+
+There is intentionally no all-feeds dashboard button. If you want to
+force a refresh of every configured feed at once, the supported
+paths are:
+
+- Flip on **Settings → Watch Mode → Always run full scan on every
+  watch tick** for the duration of an active hunt — every subsequent
+  tick (down to hourly) becomes a full pass and fetches feeds first.
+- Trigger **Discard findings & re-analyze** from the analyst dashboard
+  — it runs as a full pass with the pre-flight feed refresh, and
+  resets the two-tier timestamps so the cycle restarts cleanly.
 
 ### 4. Disable vs. delete
 
 | | |
 |---|---|
-| Disable | Keeps the feed row and its indicators; just stops the worker from refreshing it and stops the analyzer from consulting it. The next analysis after disable produces zero matches from this feed. Re-enable to resume. |
+| Disable | Keeps the feed row and its indicators; just stops the watch scheduler from refreshing it and stops the analyzer from consulting it. The next analysis after disable produces zero matches from this feed. Re-enable to resume. |
 | Delete | Drops the feed row and (via FK cascade) its indicators. Forward-only; no undo. |
 
 ---
@@ -402,6 +446,6 @@ matches feeds against the logs centrally.
 | `/api/feeds` | POST | admin | Create a feed |
 | `/api/feeds/{id}` | PUT | admin | Update a feed (empty api_key keeps existing) |
 | `/api/feeds/{id}` | DELETE | admin | Delete a feed (cascades to indicators) |
-| `/api/feeds/{id}/refresh` | POST | admin | Trigger immediate fetch (60s cap) |
+| `/api/feeds/{id}/refresh` | POST | admin | One-shot fetch + upsert + prune for one feed (60-second cap). |
 
 Full request/response shapes are in `docs/API.md`.

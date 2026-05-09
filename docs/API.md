@@ -7,8 +7,11 @@ shapes. **Pre-1.0:** any field documented here may break between minor
 versions, but a breaking change is announced explicitly in CHANGELOG —
 see *Breaking-change surfaces* and *Deprecation policy* below.
 
-> Phase 6 deliverable. Phase 7 (TI feed integration) will add new
-> endpoints under `/api/feeds/*`; until then this is the full surface.
+> Phase 6 deliverable. Phase 7 (TI feed integration) shipped in
+> v0.5.0 and added the CRUD endpoints under `/api/feeds/*`; their
+> shapes and roles are documented in `docs/FEEDS.md`. There is no
+> manual-fetch endpoint — feed refreshes are driven by the watch
+> scheduler's pre-full-pass refresh.
 
 ---
 
@@ -211,8 +214,10 @@ The most-used surface. Findings are detector outputs, persisted in
 
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
-| `GET` | `/api/findings` | any | List with filters. Returns array of Finding. |
-| `GET` | `/api/findings/{id}` | any | Single finding. |
+| `GET` | `/api/findings` | any | List with filters + pagination. Returns array of (projected) Finding. Sets `X-Total-Count` and `X-Has-More` response headers. |
+| `GET` | `/api/findings/counts` | any | `{open, ack, esc, ioc, total}` aggregate counts honoring the active filter set (`status` and `ioc_only` are stripped — the counts span all status buckets). Drives the dashboard's info-line counters without forcing a full-set scan from the client. |
+| `GET` | `/api/findings/facets` | any | `{types, sensors}` — distinct values across the filter set. `status`, `ioc_only`, `delta`, `type`, `sensor`, `limit`, `offset` are stripped so the dropdowns reflect every available type/sensor regardless of what's currently selected. Powers the Type and Sensor filter dropdowns. |
+| `GET` | `/api/findings/{id}` | any | Single finding (full shape including `ts_data`/`intervals`/`notes`). |
 | `PUT` | `/api/findings/{id}` | analyst+ | Update status/analyst-note. |
 | `POST` | `/api/findings/{id}/escalate` | analyst+ | Run TI escalation; emits `ti_result` SSE events. |
 | `POST` | `/api/findings/{id}/notes` | analyst+ | Append a note to the finding. |
@@ -251,6 +256,13 @@ The most-used surface. Findings are detector outputs, persisted in
   expect their absence on findings that don't carry that data.
 - `ts_data` rows are `[ts_unix, orig_bytes, resp_bytes]` triples used
   for the beacon chart on the analyst UI.
+- **`GET /api/findings` returns a projected list** that drops
+  `ts_data`, `intervals`, and `notes` regardless of whether they're
+  populated — those fields balloon to hundreds of KB per row on
+  beacon-rich findings and aren't consulted on the list view. To get
+  the full shape, fetch the single-finding endpoint
+  (`/api/findings/{id}`). `/api/export/json` similarly strips
+  chart-data on the way out (separate code path; same intent).
 
 **`GET /api/findings` query parameters** (all optional):
 
@@ -270,8 +282,24 @@ The most-used surface. Findings are detector outputs, persisted in
 | `ioc_only` | `true` | Only findings whose `src_ip` or `dst_ip` is in the IOC list. |
 | `sort` | `score`/`severity`/`type`/`src_ip`/`dst_ip`/`timestamp` | Sort key (default `score`). |
 | `dir` | `asc`/`desc` | Sort direction (default `desc`). |
+| `limit` | int 1–50000 | Max rows in the response. Default `1000`. |
+| `offset` | int ≥ 0 | Skip the first N rows of the filtered+sorted set. Default `0`. |
 
 Multiple filters compose freely (AND).
+
+**Pagination response headers** (`GET /api/findings`):
+
+| Header | Value |
+|---|---|
+| `X-Total-Count` | Total rows matching the filter set (before `limit`/`offset`). |
+| `X-Has-More` | `true` if `offset + len(returned) < total`, else `false`. |
+| `Access-Control-Expose-Headers` | Lists the two headers above so JS clients in CORS contexts can read them. |
+
+The dashboard uses these to drive the per-tab first / previous / next
+/ last navigation buttons and the "Showing X–Y of Z · Page N of M"
+footer. Findings, Acknowledged, Escalated, and IOC tabs paginate
+server-side via this endpoint; Campaigns and Hosts paginate client-
+side over a separate full-set fetch.
 
 **`PUT /api/findings/{id}` body**:
 
@@ -408,6 +436,26 @@ Progress events stream over SSE as `progress` events with
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
 | `GET` | `/api/ti/services` | any | Which third-party services are configured. Returns `{vt: bool, otx: bool, abuseipdb: bool, greynoise: bool, censys: bool, crowdsec: bool}`. UI uses this to show/hide service checkboxes on the escalate dialog. |
+
+### Threat-intel feeds (MISP / OpenCTI)
+
+CRUD over operator-curated MISP / OpenCTI feed configurations. Read
+is open to any authenticated user; mutation is admin-only and
+enforced inside each handler. There is intentionally no manual-fetch
+endpoint — refreshes are driven by the watch scheduler's pre-full-pass
+refresh (`refreshFeedsBeforeFullPass` in `internal/server/watch.go`).
+
+| Method | Path | Role | Notes |
+|--------|------|------|-------|
+| `GET` | `/api/feeds` | any | List configured feeds. `api_key` is redacted; the response carries a `has_api_key` boolean instead. |
+| `POST` | `/api/feeds` | admin | Create a feed. Required body fields: `source_type` (`misp`/`opencti`), `name`, `url` (with scheme), `api_key`, `refresh_cadence_minutes` (≥ 1, currently unused), `indicator_aging_days` (≥ 0). Optional: `enabled`, `tls_skip_verify`. |
+| `PUT` | `/api/feeds/{id}` | admin | Update a feed. Empty `api_key` keeps the existing value (clearing requires delete + recreate). |
+| `DELETE` | `/api/feeds/{id}` | admin | Delete a feed. FK cascade drops its `feed_indicators`. |
+| `POST` | `/api/feeds/{id}/refresh` | admin | One-shot fetch + upsert + prune for one feed (60-second cap). Used to verify connectivity right after configuring a feed; backed by the per-row Refresh button in the Feeds dialog. Watch-tick auto-refresh covers the steady-state case. |
+
+Full operator-facing details (architecture, how to wire up MISP /
+OpenCTI, what indicator types match, troubleshooting) live in
+[`docs/FEEDS.md`](FEEDS.md).
 
 ### Sensors (analyst-facing)
 

@@ -123,7 +123,7 @@ in the background overlapping phase 1; phases 2-4 are sequential.
 
 | Phase | Work | Files |
 |-------|------|-------|
-| 0 | Threat-intel feed prefetch (Feodo, URLhaus). Network I/O — overlaps with phase 1. | `ti.go: prefetchFeeds` |
+| 0 | Threat-intel feed prefetch. Built-in feeds (Feodo, URLhaus) fetch over the network; configured MISP/OpenCTI feeds load their cached indicators from SQLite via `FeedProvider`. Overlaps with phase 1. | `ti.go: prefetchFeeds` |
 | 1 | All log-type analyzers in parallel — they're independent. Conn (beacon/strobe/exfil/long-conn), DNS, SSL, X.509, Files, Weird, Notice. | `conn.go`, `dns.go`, `ssl.go`, `x509.go`, `files.go`, `weird.go`, `notice.go` |
 | 2 | HTTP analysis (sequential — needs `sslUIDIndex` populated by `analyzeSSL` in phase 1). | `http_analysis.go` |
 | 3 | URL + TI checks in parallel (need cached feeds from phase 0, plus the per-file dst sets). Two-phase TI scan: cheap dst-only sweep, then targeted per-source for "winners" only. | `ti.go`, `http_analysis.go: analyzeURLs` |
@@ -135,7 +135,10 @@ each pulling from a file channel.
 
 `AnalyzeTIOnly(files)` is the incremental path used by watch's
 non-full ticks: only phase 0 and phase 3, over the mtime-filtered
-file subset.
+file subset. Phase 0 still loads the cached MISP/OpenCTI indicator
+buckets so cached-feed matches surface within one tick interval —
+the upstream HTTPS fetch, however, only runs in the watch full-pass
+path (`refreshFeedsBeforeFullPass` in `internal/server/watch.go`).
 
 See [DETECTION_METHODS.md](DETECTION_METHODS.md) for the math behind
 each detector.
@@ -360,20 +363,31 @@ Two-tier decision (`triggerWatchAnalysis`):
 
 ```go
 if config.WatchAlwaysFull {
-    // Every tick is a full analysis.
-    return launchAnalysisWithOptions(...)
+    refreshFeedsBeforeFullPass()           // synchronous, 2-min cap
+    return launchAnalysisWithOptions(...)  // every tick is a full analysis
 }
 now := time.Now().UTC()
 needFull := lastFull.IsZero() ||
             lastFull.Year()    != now.Year() ||
             lastFull.YearDay() != now.YearDay()
 if needFull {
+    refreshFeedsBeforeFullPass()           // synchronous, 2-min cap
     return launchAnalysisWithOptions(...)  // sets LastFullAnalysisUnix + LastAnalysisUnix
 }
 // Otherwise: incremental. Filter files by mtime > LastAnalysisUnix - 5min,
-// run AnalyzeTIOnly, update LastAnalysisUnix only.
+// run AnalyzeTIOnly with FeedProvider set so MISP/OpenCTI cached
+// indicators participate (no fetch). Updates LastAnalysisUnix only.
 return launchIncrementalAnalysis(filteredFiles)
 ```
+
+`refreshFeedsBeforeFullPass` is the only path that fetches MISP /
+OpenCTI feeds — every enabled feed is refreshed in parallel under a
+two-minute cap, status updates per-feed, failures log without
+blocking analysis. The auto-cadence feed worker is intentionally
+disabled (see `server.go`'s `New` comment) and there is no manual
+refresh endpoint, so a full pass is the *only* way to bring feed
+indicators current. Incremental ticks consult whatever's already in
+`feed_indicators`.
 
 Manual "Discard findings & re-analyze" runs as a full pass and resets
 both timestamps so the cycle restarts cleanly.
