@@ -39,6 +39,7 @@ func (s *Store) CreateFeed(f feeds.Feed) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("store: insert feed: %w", err)
 	}
+	s.invalidateFeedBuckets()
 	return res.LastInsertId()
 }
 
@@ -106,6 +107,7 @@ func (s *Store) UpdateFeed(f feeds.Feed) error {
 	if err != nil {
 		return fmt.Errorf("store: update feed %d: %w", f.ID, err)
 	}
+	s.invalidateFeedBuckets()
 	return nil
 }
 
@@ -121,6 +123,7 @@ func (s *Store) DeleteFeed(id int64) error {
 		return fmt.Errorf("store: delete feed %d: %w", id, err)
 	}
 	s.invalidateFeedMatcher(id)
+	s.invalidateFeedBuckets()
 	return nil
 }
 
@@ -160,10 +163,12 @@ func (s *Store) UpsertFeedIndicators(feedID int64, inds []feeds.Indicator, now i
 		refreshed += r
 		if batchErr != nil {
 			s.invalidateFeedMatcher(feedID)
+			s.invalidateFeedBuckets()
 			return added, refreshed, batchErr
 		}
 	}
 	s.invalidateFeedMatcher(feedID)
+	s.invalidateFeedBuckets()
 	return added, refreshed, nil
 }
 
@@ -242,6 +247,7 @@ func (s *Store) RemoveStaleIndicators(feedID int64, before int64) (int, error) {
 	n, _ := res.RowsAffected()
 	if n > 0 {
 		s.invalidateFeedMatcher(feedID)
+		s.invalidateFeedBuckets()
 	}
 	return int(n), nil
 }
@@ -290,10 +296,37 @@ func (s *Store) ListFeedIndicators(feedID int64) []feeds.Indicator {
 //
 // Disabled feeds are skipped entirely — operators turning a feed off
 // should immediately stop seeing matches from it on the next analysis.
+//
+// Cached: the rebuild cost (ListFeeds + per-feed ListFeedIndicators +
+// CIDR-parse) ran on every analyze tick before. invalidateFeedBuckets
+// drops the cache on feed CRUD and indicator writes; everything else
+// hits the cache.
 func (s *Store) EnabledFeedIndicators() []feeds.SourcedIndicators {
 	if s.db == nil {
 		return nil
 	}
+	s.feedBucketsMu.Lock()
+	if s.feedBucketsOK {
+		out := s.feedBuckets
+		s.feedBucketsMu.Unlock()
+		return out
+	}
+	s.feedBucketsMu.Unlock()
+
+	rebuilt := s.buildEnabledFeedIndicators()
+
+	s.feedBucketsMu.Lock()
+	s.feedBuckets = rebuilt
+	s.feedBucketsOK = true
+	s.feedBucketsMu.Unlock()
+	return rebuilt
+}
+
+// buildEnabledFeedIndicators is the uncached body of
+// EnabledFeedIndicators. Held separate so the cache front can stay
+// minimal. Caller (the cache front) is responsible for storing the
+// result.
+func (s *Store) buildEnabledFeedIndicators() []feeds.SourcedIndicators {
 	all := s.ListFeeds()
 	out := make([]feeds.SourcedIndicators, 0, len(all))
 	for _, f := range all {
@@ -338,6 +371,16 @@ func (s *Store) EnabledFeedIndicators() []feeds.SourcedIndicators {
 		out = append(out, bucket)
 	}
 	return out
+}
+
+// invalidateFeedBuckets drops the EnabledFeedIndicators() cache so
+// the next read rebuilds. Called by every feed CRUD and indicator-
+// write path.
+func (s *Store) invalidateFeedBuckets() {
+	s.feedBucketsMu.Lock()
+	s.feedBuckets = nil
+	s.feedBucketsOK = false
+	s.feedBucketsMu.Unlock()
 }
 
 // scanFeed unifies the row-scan for QueryRow and Query callers.

@@ -30,6 +30,19 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Changed
+
+- **Cached `EnabledFeedIndicators` on the store.** The analyzer-side
+  feed-bucket snapshot used to rebuild on every analyze tick — a
+  `ListFeeds` + per-feed `ListFeedIndicators` + CIDR-parse pass that
+  ran whether or not feed state had actually changed. The result is
+  now memoized on `Store`; feed CRUD (`CreateFeed`, `UpdateFeed`,
+  `DeleteFeed`) and indicator writes (`UpsertFeedIndicators`,
+  `RemoveStaleIndicators`) drop the cache so the next read rebuilds.
+  Invisible from the outside — every analyze pass sees the same
+  bucket shape it always did, just without the redundant
+  reconstruction.
+
 ### Added
 
 - **Interactive zoom on the beacon chart Timeline view.** Click-drag
