@@ -41,7 +41,10 @@ var logTypesForFinding = map[string][]string{
 	"Suspicious Certificate":   {"x509"},
 	"Weird Event":              {"weird"},
 	"Zeek Notice":              {"notice"},
-	"Threat Intel Hit":         {"conn", "http", "dns", "ssl"},
+	"TI Hit (IP)":              {"conn", "http", "ssl"},
+	"TI Hit (Domain)":          {"dns", "http"},
+	"TI Hit (Hash)":            {"files", "http"},
+	"Threat Intel Hit":         {"conn", "http", "dns", "ssl"}, // legacy pre-v0.7.0
 }
 
 // handleFindingRaw serves GET /api/findings/{id}/raw. It walks the scan root

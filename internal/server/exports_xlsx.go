@@ -51,11 +51,11 @@ func (s *Server) handleExportXLSX(w http.ResponseWriter, r *http.Request) {
 	iocSources := s.store.IOCSources()
 	for i := range visible {
 		f := &visible[i]
-		isTI := f.Type == "Threat Intel Hit" || f.Type == "Suspicious URL"
+		isTI := model.IsThreatIntelType(f.Type)
 		ioMatch := isTI
 		ioSource := ""
 		if isTI {
-			ioSource = "Threat Intel Hit"
+			ioSource = "Threat Intel"
 		}
 		for _, sm := range iocSources {
 			if sm.Matcher.Matches(f.DstIP) || sm.Matcher.Matches(f.SrcIP) {

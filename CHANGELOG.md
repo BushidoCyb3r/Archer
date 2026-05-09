@@ -52,6 +52,33 @@ relevant, `### Detection changes` in each release entry.
 
 ### Detection changes
 
+- **`Threat Intel Hit` finding type split.** Pre-v0.7.0 every
+  feed-driven match (FeodoTracker IP, URLhaus IP/domain, OTX,
+  AbuseIPDB, MISP/OpenCTI IP/CIDR, MISP/OpenCTI domain) collapsed
+  into a single `Threat Intel Hit` type, which made the Type
+  filter dropdown useless for narrowing down "show me only domain
+  hits" or "show me only the new file-hash matches." The type now
+  splits three ways based on what was matched:
+  `TI Hit (IP)` / `TI Hit (Domain)` / `TI Hit (Hash)`. Suspicious
+  URL is unchanged. The IOC Hits tab continues to surface all of
+  them together (notification bell, host-risk weighting, IOC tab
+  inclusion all updated to recognize the three new types).
+  Old findings with the legacy `Threat Intel Hit` type still
+  classify correctly via a backwards-compat helper (`IsThreatIntelType`),
+  so pre-v0.7.0 findings persisted in operator DBs continue to
+  land in the right tab and trigger notifications.
+
+  **Re-baseline note.** The fingerprint includes Type, so old
+  `Threat Intel Hit` findings will NOT merge with newly-emitted
+  `TI Hit (IP)/(Domain)/(Hash)` findings on the next Analyze —
+  fresh entries appear alongside the old ones. Two upgrade paths:
+  (a) accept the temporary duplication; old findings age out via
+  archive prune, or the operator can manually clean them up; or
+  (b) run **Discard findings & re-analyze** once after upgrade to
+  start clean (loses analyst state on existing TI findings, but
+  the new fingerprints are stable going forward). Phase 4 golden
+  fixtures regenerated to match the new type strings.
+
 - **File-hash matching against MISP / OpenCTI feeds.** Pre-v0.7.0,
   hash-typed feed indicators (md5 / sha1 / sha256) were persisted
   to `feed_indicators` correctly but `Store.EnabledFeedIndicators`

@@ -73,7 +73,7 @@ func TestFeedIPIndicatorEmitsThreatIntelHit(t *testing.T) {
 
 	hit := false
 	for _, f := range findings {
-		if f.Type != "Threat Intel Hit" {
+		if f.Type != "TI Hit (IP)" {
 			continue
 		}
 		if f.SourceFile != "feed:smoke-test" {
@@ -96,7 +96,7 @@ func TestFeedIPIndicatorEmitsThreatIntelHit(t *testing.T) {
 		for _, f := range findings {
 			got = append(got, f.Type+" "+f.SrcIP+"→"+f.DstIP+" ["+f.SourceFile+"]")
 		}
-		t.Fatalf("no Threat Intel Hit attributed to feed:smoke-test; got: %v", got)
+		t.Fatalf("no TI Hit (IP) attributed to feed:smoke-test; got: %v", got)
 	}
 }
 
@@ -127,7 +127,7 @@ func TestFeedDomainIndicatorEmitsThreatIntelHit(t *testing.T) {
 
 	hit := false
 	for _, f := range findings {
-		if f.Type == "Threat Intel Hit" && f.SourceFile == "feed:smoke-test" && f.DstIP == "badguy.example" {
+		if f.Type == "TI Hit (Domain)" && f.SourceFile == "feed:smoke-test" && f.DstIP == "badguy.example" {
 			hit = true
 			break
 		}
@@ -137,6 +137,6 @@ func TestFeedDomainIndicatorEmitsThreatIntelHit(t *testing.T) {
 		for _, f := range findings {
 			got = append(got, f.Type+" "+f.SrcIP+"→"+f.DstIP+" ["+f.SourceFile+"]")
 		}
-		t.Fatalf("no Threat Intel Hit attributed to feed:smoke-test for domain match; got: %v", got)
+		t.Fatalf("no TI Hit (Domain) attributed to feed:smoke-test for domain match; got: %v", got)
 	}
 }

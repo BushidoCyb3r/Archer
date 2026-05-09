@@ -20,5 +20,5 @@ fan-out) and Suspicious URL (URLhaus host match).
 
 - `Beaconing` (HIGH, 50)
 - `Suspicious URL` (CRITICAL, 96)
-- `Threat Intel Hit` (CRITICAL, 97) — URLhaus domain match in `checkTI`
+- `TI Hit (Domain)` (CRITICAL, 97) — URLhaus domain match in `checkTI`
 - `Host Risk Score` (HIGH, 65) — composite roll-up of the above

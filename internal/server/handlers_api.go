@@ -364,7 +364,7 @@ func (s *Server) handleFindingsCounts(w http.ResponseWriter, r *http.Request) {
 		case "escalated":
 			esc++
 		}
-		if f.IOCMatch || f.Type == "Threat Intel Hit" || f.Type == "Suspicious URL" {
+		if f.IOCMatch || model.IsThreatIntelType(f.Type) {
 			ioc++
 		}
 	}

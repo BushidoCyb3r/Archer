@@ -367,7 +367,7 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 		if f.Type == "Host Risk Score" {
 			continue
 		}
-		if f.IsNew && (f.Severity == model.SevCritical || f.Type == "Threat Intel Hit" || f.Type == "Suspicious URL") {
+		if f.IsNew && (f.Severity == model.SevCritical || model.IsThreatIntelType(f.Type)) {
 			s.notifCounter++
 			n := model.Notification{
 				ID:        s.notifCounter,

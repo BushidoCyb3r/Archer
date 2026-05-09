@@ -130,7 +130,9 @@ Archer runs five parallel analysis phases across all supported log types.
 
 | Detection Type | Description | Severity |
 |---|---|---|
-| **Threat Intel Hit** | Source or destination IP/domain matched against Feodo Tracker C2 IPs, URLhaus malware hosts, or any configured MISP/OpenCTI feed during analysis; or confirmed malicious by a TI service during analyst escalation | CRITICAL (built-in feeds) / HIGH (MISP/OpenCTI feeds) |
+| **TI Hit (IP)** | Source or destination IP matched against Feodo Tracker C2 IPs, URLhaus malware-distribution IPs, OTX / AbuseIPDB lookups, or any configured MISP/OpenCTI feed's IP/CIDR indicators during analysis; or confirmed malicious by a TI service during analyst escalation | CRITICAL (built-in feeds) / HIGH (MISP/OpenCTI feeds) |
+| **TI Hit (Domain)** | DNS query name or HTTP host matched against URLhaus malware-distribution domains or any configured MISP/OpenCTI feed's domain indicators | CRITICAL (URLhaus) / HIGH (MISP/OpenCTI feeds) |
+| **TI Hit (Hash)** | `files.log` md5 / sha1 / sha256 matched against any configured MISP/OpenCTI feed's hash indicators. Only fires when Zeek's hashing analyzers are loaded *and* the file traverses an unencrypted protocol Zeek can reassemble (HTTP, SMB, FTP, SMTP, IRC) — see [docs/FEEDS.md](docs/FEEDS.md) for the full coverage map | HIGH |
 | **Suspicious URL** | HTTP destination host matched against URLhaus malware distribution hosts or any configured MISP/OpenCTI feed's domain indicators | CRITICAL (URLhaus) / HIGH (MISP/OpenCTI feeds) |
 
 For MISP/OpenCTI integration — adding a feed, configuration options, the per-feed TLS-verify bypass, indicator types that match (and ones that don't), aging behavior, and troubleshooting — see **[docs/FEEDS.md](docs/FEEDS.md)**. Feeds are admin-curated through the Feeds topbar dialog; findings carry per-feed provenance via the `SourceFile: feed:<name>` field.
@@ -139,7 +141,7 @@ For MISP/OpenCTI integration — adding a feed, configuration options, the per-f
 
 | Detection Type | Description | Severity |
 |---|---|---|
-| **Host Risk Score** | Weighted composite score (0–100) aggregated across all findings for a given source IP. Weights: Cobalt Strike URI +40, Malicious JA3 +40, Domain Fronting +32, Threat Intel Hit +35, HTTP Beaconing +28, Beaconing +30, Data Exfiltration +25, Lateral Movement +20, Strobe +15, Long Connection +10. Surfaced in the **Hosts** tab (not the Findings tab — that tab is reserved for discrete network events). Click any host row to open the underlying score breakdown. | CRITICAL / HIGH / MEDIUM / LOW |
+| **Host Risk Score** | Weighted composite score (0–100) aggregated across all findings for a given source IP. Weights: Cobalt Strike URI +40, Malicious JA3 +40, Domain Fronting +32, TI Hit (IP/Domain/Hash) +35 each, HTTP Beaconing +28, Beaconing +30, Data Exfiltration +25, Lateral Movement +20, Strobe +15, Long Connection +10. Surfaced in the **Hosts** tab (not the Findings tab — that tab is reserved for discrete network events). Click any host row to open the underlying score breakdown. | CRITICAL / HIGH / MEDIUM / LOW |
 
 ---
 
@@ -855,7 +857,7 @@ The first four tabs (Findings / Acknowledged / Escalated / IOC Hits) all view th
 | **Findings** | All open (unacknowledged, non-escalated) network-event findings |
 | **Acknowledged** | Network-event findings marked as reviewed |
 | **Escalated** | Network-event findings sent to threat intelligence or escalated for response |
-| **IOC Hits** | Network-event findings where src or dst IP matches the IOC list, plus all Threat Intel Hit type findings |
+| **IOC Hits** | Network-event findings where src or dst IP matches the IOC list, plus all `TI Hit (IP)` / `TI Hit (Domain)` / `TI Hit (Hash)` / `Suspicious URL` findings |
 | **Campaigns** | Destinations contacted by two or more distinct internal source IPs — potential shared C2 infrastructure |
 | **Hosts** | Per-host composite risk scores aggregated across all finding types. Click any row to open the underlying `Host Risk Score` finding's detail panel (composite score, contributing detection types, weighting breakdown). Right-click for the standard pivots. |
 
@@ -1048,7 +1050,7 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 ### Notifications
 
-The bell fires for new findings that are CRITICAL or of type `Threat Intel Hit` / `Suspicious URL`. `Host Risk Score` is intentionally excluded — it's a per-host roll-up, not a discrete event, and the underlying network detections that pushed the host's score over the line have already generated their own notifications.
+The bell fires for new findings that are CRITICAL or of type `TI Hit (IP)` / `TI Hit (Domain)` / `TI Hit (Hash)` / `Suspicious URL`. `Host Risk Score` is intentionally excluded — it's a per-host roll-up, not a discrete event, and the underlying network detections that pushed the host's score over the line have already generated their own notifications.
 
 | Method | Path | Role | Description |
 |---|---|---|---|

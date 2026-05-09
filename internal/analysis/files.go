@@ -73,7 +73,7 @@ func (a *Analyzer) checkFileHashes(files []string) {
 						detail += " | tags: " + strings.Join(tags, ", ")
 					}
 					a.add(model.Finding{
-						Type:       "Threat Intel Hit",
+						Type:       model.TypeTIHitHash,
 						Severity:   model.SevHigh,
 						Score:      90,
 						SrcIP:      rx, // downloader is the src in our convention (matches Suspicious File Download)
