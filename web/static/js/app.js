@@ -1103,7 +1103,10 @@
   }
 
   function _downloadHostsCSV(hosts) {
-    const header = ['host_ip','risk_score','findings','severity','finding_types'];
+    // Column order matches the Hosts tab UI (risk_score first, then host_ip)
+    // — analysts pivot off risk score as the leading sort, so the export
+    // mirrors what's on screen.
+    const header = ['risk_score','host_ip','findings','severity','finding_types'];
     let out = _csvRow(header);
     hosts.forEach(h => {
       const r = _hostToRow(h);
