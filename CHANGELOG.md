@@ -28,7 +28,7 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
-## [Unreleased]
+## [v0.6.0] — 2026-05-09
 
 Working theme: usability and predictable cost. v0.5.0 was feature-complete
 on Phase 7 but the dashboard hit a wall on real-world data — list responses
@@ -786,7 +786,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.6.0...HEAD
+[v0.6.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.5.0...v0.6.0
 [v0.5.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.3.0...v0.4.0
 [v0.3.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.2.0...v0.3.0
