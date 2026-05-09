@@ -267,7 +267,7 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 func parseListPagination(q url.Values) (limit, offset int) {
 	const (
 		defaultLimit = 1000
-		maxLimit     = 5000
+		maxLimit     = 50000
 	)
 	limit = defaultLimit
 	if v := q.Get("limit"); v != "" {
@@ -329,6 +329,108 @@ func projectFindingList(in []model.Finding) []listFinding {
 		}
 	}
 	return out
+}
+
+// handleFindingsCounts returns per-status totals (open / acknowledged /
+// escalated / ioc-matched) under the current filter. Used by the
+// dashboard's tab counter so analysts see accurate totals on every
+// tab without having to visit each one. Filters honored: search, type,
+// severity, min_score, src_ip, dst_ip, dst_port, sensor, from, to,
+// delta. Status / ioc_only filters are stripped — the endpoint
+// computes those buckets internally.
+func (s *Server) handleFindingsCounts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	q := r.URL.Query()
+	// Strip the bucket-defining params so filterFindings doesn't apply
+	// them — we want every finding the broader filter accepts so we can
+	// bucket by status.
+	q.Del("status")
+	q.Del("ioc_only")
+	q.Del("limit")
+	q.Del("offset")
+
+	all := s.filterFindings(s.store.GetFindings(), q)
+	var open, ack, esc, ioc int
+	for _, f := range all {
+		switch string(f.Status) {
+		case "":
+			open++
+		case "acknowledged":
+			ack++
+		case "escalated":
+			esc++
+		}
+		if f.IOCMatch || f.Type == "Threat Intel Hit" || f.Type == "Suspicious URL" {
+			ioc++
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int{
+		"open":  open,
+		"ack":   ack,
+		"esc":   esc,
+		"ioc":   ioc,
+		"total": len(all),
+	})
+}
+
+// handleFindingsFacets returns the distinct values of low-cardinality
+// columns (type, sensor) across the *entire* findings set, ignoring
+// pagination and current type/sensor selection. The dashboard's filter
+// dropdowns use this so they always show every available type / sensor,
+// not just the ones present on the currently-rendered page.
+//
+// Status / ioc_only / delta / type / sensor query params are stripped —
+// the rest of the filter set still applies (so a time-range or score
+// filter narrows the dropdown options to "types observed in this
+// window"). That keeps the dropdown options consistent with what the
+// rest of the filter bar will surface.
+func (s *Server) handleFindingsFacets(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	q := r.URL.Query()
+	q.Del("status")
+	q.Del("ioc_only")
+	q.Del("delta")
+	q.Del("type")
+	q.Del("sensor")
+	q.Del("limit")
+	q.Del("offset")
+
+	all := s.filterFindings(s.store.GetFindings(), q)
+	typeSet := make(map[string]struct{})
+	sensorSet := make(map[string]struct{})
+	for _, f := range all {
+		if f.Type != "" {
+			typeSet[f.Type] = struct{}{}
+		}
+		if f.Sensor != "" {
+			sensorSet[f.Sensor] = struct{}{}
+		}
+	}
+	types := make([]string, 0, len(typeSet))
+	for t := range typeSet {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	sensors := make([]string, 0, len(sensorSet))
+	for s := range sensorSet {
+		sensors = append(sensors, s)
+	}
+	sort.Strings(sensors)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"types":   types,
+		"sensors": sensors,
+	})
 }
 
 func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
