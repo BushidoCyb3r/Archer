@@ -30,6 +30,8 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.7.0] — 2026-05-09
+
 ### Fixed
 
 - **`Store.SetFindings` ID-collision bug.** The analyzer assigns
