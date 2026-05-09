@@ -230,6 +230,7 @@ func (s *Server) routes() {
 	// Export / Import — analyst+
 	s.mux.Handle("/api/export/json", any(s.handleExportJSON))
 	s.mux.Handle("/api/export/csv", any(s.handleExportCSV))
+	s.mux.Handle("/api/export/xlsx", any(s.handleExportXLSX))
 	s.mux.Handle("/api/import", write(s.handleImportJSON))
 }
 

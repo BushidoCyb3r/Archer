@@ -514,6 +514,7 @@ to update sensors before the server.
 |--------|------|------|-------|
 | `GET` | `/api/export/json` | any | Full findings dump. Same query params as `/api/findings`. Includes `archer_version` field at the top of the JSON object. |
 | `GET` | `/api/export/csv` | any | CSV variant — flattened columns, no `intervals`/`ts_data`/`notes`. |
+| `GET` | `/api/export/xlsx` | any | Multi-sheet workbook (xlsx). Six sheets — `Findings` (open), `Acknowledged`, `Escalated`, `IOC Hits`, `Campaigns`, `Hosts` — all driven from the full database, ignoring filters and tab state. Used by the **Export all** button's XLSX option. |
 | `POST` | `/api/import` | analyst+ | Restore from a `/api/export/json` dump. Fingerprint-merges with existing findings: existing-by-fingerprint findings keep their analyst data, new ones land as `is_new=true`. |
 
 ### Server-Sent Events

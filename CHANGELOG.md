@@ -30,6 +30,26 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-sheet XLSX export.** New "XLSX (multi-sheet)" option on
+  the **Export all** dropdown produces an `.xlsx` workbook with six
+  sheets — `Findings` (open), `Acknowledged`, `Escalated`,
+  `IOC Hits`, `Campaigns`, `Hosts` — that opens cleanly in Excel,
+  Numbers, and LibreOffice. Driven server-side via
+  `/api/export/xlsx`; the campaigns and hosts roll-ups are
+  computed in Go (mirrors the JS UI logic) so the file is
+  self-contained. CSV and JSON options unchanged. Adds the
+  `github.com/xuri/excelize/v2` dependency (pure-Go, no CGO, MIT).
+
+### Changed
+
+- **Hosts CSV column order matches the UI.** `archer_hosts_*.csv`
+  now leads with `risk_score`, then `host_ip`, `findings`,
+  `severity`, `finding_types` — same order as the Hosts tab.
+  Pre-v0.7.0 the CSV led with `host_ip`. The XLSX export's Hosts
+  sheet uses the same order.
+
 ### Detection changes
 
 - **File-hash matching against MISP / OpenCTI feeds.** Pre-v0.7.0,
