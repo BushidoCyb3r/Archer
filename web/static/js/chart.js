@@ -24,6 +24,20 @@ const BeaconChart = (() => {
   let _finding = null;
   let _viewMode = 'timeline'; // 'timeline' | 'intervals' | 'bytes'
 
+  // Interactive zoom on the Timeline view. _xRange = [tMin, tMax] in
+  // unix-second floats; null means auto-fit. Click-drag on the canvas
+  // selects a range; right-click resets. Only applies to the Timeline
+  // view (the histogram and bytes views have their own X mappings).
+  let _xRange = null;
+  let _brushing = false;
+  let _brushStartX = 0;
+  let _brushCurrentX = 0;
+
+  // Last-rendered Timeline plot geometry. Captured during _drawTimeline
+  // so the brush handlers can map canvas X coordinates back to data
+  // timestamps without re-running the stats pipeline.
+  let _timelinePlot = null; // { padLeft, plotW, tMin, tMax }
+
   const PALETTE = {
     bg:    '#1e1e2e',
     panel: '#2a2a3e',
@@ -141,14 +155,33 @@ const BeaconChart = (() => {
   function _drawTimeline(ctx, W, H, stats) {
     if (stats.count === 0) {
       _drawEmpty(ctx, W, H, 'No timeline data for this finding');
+      _timelinePlot = null;
       return;
     }
     const PAD = { top: 28, right: 16, bottom: 54, left: 72 };
     const plotW = W - PAD.left - PAD.right;
     const plotH = H - PAD.top  - PAD.bottom;
 
-    const span = Math.max(stats.span, 1);
-    const ptsX = stats.sorted.map(r => PAD.left + ((r[0] - stats.tMin) / span) * plotW);
+    // Apply zoom if the analyst brush-selected a sub-range. Falls back
+    // to the full data span when _xRange is null. Filtering the sorted
+    // array means dense regions render at the new pixel-density and
+    // sparse regions stretch.
+    let tMin = stats.tMin, tMax = stats.tMax, sorted = stats.sorted;
+    if (_xRange) {
+      tMin = Math.max(_xRange[0], stats.tMin);
+      tMax = Math.min(_xRange[1], stats.tMax);
+      if (tMax <= tMin) {
+        // Nonsense range — drop the zoom, go back to auto-fit.
+        _xRange = null;
+        tMin = stats.tMin; tMax = stats.tMax;
+      } else {
+        sorted = stats.sorted.filter(r => r[0] >= tMin && r[0] <= tMax);
+      }
+    }
+    const span = Math.max(tMax - tMin, 1);
+    _timelinePlot = { padLeft: PAD.left, plotW, tMin, tMax };
+
+    const ptsX = sorted.map(r => PAD.left + ((r[0] - tMin) / span) * plotW);
 
     // Density alpha: collapse alpha when many ticks fall in one pixel
     const buckets = new Array(plotW).fill(0);
@@ -212,7 +245,7 @@ const BeaconChart = (() => {
     ctx.font = '9px Helvetica';
     ctx.textAlign = 'center';
     for (let i = 0; i <= xTicks; i++) {
-      const t = stats.tMin + (i / xTicks) * span;
+      const t = tMin + (i / xTicks) * span;
       const x = PAD.left + (i / xTicks) * plotW;
       ctx.save();
       ctx.translate(x, PAD.top + plotH + 10);
@@ -224,7 +257,22 @@ const BeaconChart = (() => {
     ctx.fillStyle = PALETTE.label;
     ctx.font = '10px Helvetica';
     ctx.textAlign = 'center';
-    ctx.fillText('Time (UTC)', PAD.left + plotW / 2, H - 4);
+    const axisLabel = _xRange
+      ? `Time (UTC) — zoomed: ${sorted.length} of ${stats.count} connections`
+      : 'Time (UTC)';
+    ctx.fillText(axisLabel, PAD.left + plotW / 2, H - 4);
+
+    // Brush selection rectangle, drawn last so it sits on top of ticks.
+    if (_brushing) {
+      const x0 = Math.min(_brushStartX, _brushCurrentX);
+      const x1 = Math.max(_brushStartX, _brushCurrentX);
+      const w = Math.max(1, x1 - x0);
+      ctx.fillStyle = 'rgba(137,180,250,0.18)';
+      ctx.fillRect(x0, PAD.top, w, plotH);
+      ctx.strokeStyle = 'rgba(137,180,250,0.6)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x0 + 0.5, PAD.top + 0.5, w, plotH);
+    }
   }
 
   // ── Phase 2: Interval histogram ──────────────────────────────────
@@ -478,12 +526,15 @@ const BeaconChart = (() => {
 
   function show(finding) {
     _finding = finding;
+    _xRange = null;
+    _brushing = false;
     const dialog = document.getElementById('chart-dialog');
     document.getElementById('chart-title').textContent =
       `Beacon — ${finding.src_ip} → ${finding.dst_ip || '?'}${finding.dst_port ? ':' + finding.dst_port : ''}`;
     document.querySelectorAll('.chart-view-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.view === _viewMode);
     });
+    _updateZoomUI();
     dialog.showModal();
     _render();
   }
@@ -528,18 +579,97 @@ const BeaconChart = (() => {
     }, mime, isJpeg ? 0.95 : undefined);
   }
 
+  function _updateZoomUI() {
+    const btn = document.getElementById('chart-reset-zoom');
+    if (btn) btn.style.display = (_xRange && _viewMode === 'timeline') ? '' : 'none';
+    const cv = document.getElementById('chart-canvas');
+    if (cv) cv.style.cursor = (_viewMode === 'timeline') ? 'crosshair' : 'default';
+  }
+
+  function _canvasX(ev) {
+    const cv = document.getElementById('chart-canvas');
+    const rect = cv.getBoundingClientRect();
+    // Canvas can be CSS-scaled relative to its drawing-buffer width
+    const scale = cv.width / rect.width;
+    return (ev.clientX - rect.left) * scale;
+  }
+
+  function _onMouseDown(ev) {
+    if (_viewMode !== 'timeline' || !_timelinePlot) return;
+    if (ev.button !== 0) return;
+    _brushing = true;
+    _brushStartX = _canvasX(ev);
+    _brushCurrentX = _brushStartX;
+    ev.preventDefault();
+  }
+
+  function _onMouseMove(ev) {
+    if (!_brushing) return;
+    _brushCurrentX = _canvasX(ev);
+    _render();
+  }
+
+  function _onMouseUp(ev) {
+    if (!_brushing) return;
+    _brushing = false;
+    if (!_timelinePlot) { _render(); return; }
+    const x0 = Math.min(_brushStartX, _brushCurrentX);
+    const x1 = Math.max(_brushStartX, _brushCurrentX);
+    // Ignore tiny drags (treat as a click, no zoom change)
+    if (x1 - x0 < 6) { _render(); return; }
+    const { padLeft, plotW, tMin, tMax } = _timelinePlot;
+    const fracStart = Math.max(0, Math.min(1, (x0 - padLeft) / plotW));
+    const fracEnd   = Math.max(0, Math.min(1, (x1 - padLeft) / plotW));
+    const span = tMax - tMin;
+    _xRange = [tMin + fracStart * span, tMin + fracEnd * span];
+    _updateZoomUI();
+    _render();
+  }
+
+  function _onContextMenu(ev) {
+    if (_viewMode !== 'timeline') return;
+    if (!_xRange) return;
+    ev.preventDefault();
+    _xRange = null;
+    _updateZoomUI();
+    _render();
+  }
+
+  function _resetZoom() {
+    _xRange = null;
+    _updateZoomUI();
+    _render();
+  }
+
   function init() {
     document.querySelectorAll('.chart-view-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         _viewMode = btn.dataset.view;
+        // Switching away from Timeline drops any active zoom — the
+        // other views have their own X mappings and the zoom range
+        // would be meaningless on them.
+        if (_viewMode !== 'timeline') _xRange = null;
         document.querySelectorAll('.chart-view-btn').forEach(b =>
           b.classList.toggle('active', b === btn));
+        _updateZoomUI();
         if (_finding) _render();
       });
     });
     document.getElementById('chart-close').addEventListener('click', () => {
       document.getElementById('chart-dialog').close();
     });
+    const resetBtn = document.getElementById('chart-reset-zoom');
+    if (resetBtn) resetBtn.addEventListener('click', _resetZoom);
+
+    const cv = document.getElementById('chart-canvas');
+    if (cv) {
+      cv.addEventListener('mousedown', _onMouseDown);
+      cv.addEventListener('contextmenu', _onContextMenu);
+      // Mouse-up and move bind to window so dragging off the canvas
+      // still completes the brush cleanly.
+      window.addEventListener('mousemove', _onMouseMove);
+      window.addEventListener('mouseup', _onMouseUp);
+    }
   }
 
   return { init, show, exportImage };
