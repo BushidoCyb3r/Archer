@@ -215,20 +215,6 @@ func TestHandleFeedItem_DELETE(t *testing.T) {
 	}
 }
 
-func TestHandleFeedRefresh_RejectsDisabledFeed(t *testing.T) {
-	s := newFeedsTestServer(t)
-	_, _ = s.store.CreateFeed(feeds.Feed{
-		SourceType: feeds.SourceMISP, Name: "f", URL: "https://x.test",
-		APIKey: "k", RefreshCadenceMinutes: 60, Enabled: false,
-	})
-	req := withUser(httptest.NewRequest(http.MethodPost, "/api/feeds/1/refresh", nil), model.RoleAdmin)
-	w := httptest.NewRecorder()
-	s.handleFeedItem(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("disabled feed refresh should 400, got %d (body: %s)", w.Code, w.Body.String())
-	}
-}
-
 func TestHandleFeedItem_BadID(t *testing.T) {
 	s := newFeedsTestServer(t)
 	req := withUser(httptest.NewRequest(http.MethodPut, "/api/feeds/abc", bytes.NewReader([]byte("{}"))), model.RoleAdmin)

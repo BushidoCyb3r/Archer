@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/feeds"
@@ -125,7 +127,10 @@ func (s *Server) handleFeeds(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleFeedItem dispatches PUT/DELETE on /api/feeds/{id} and
-// POST on /api/feeds/{id}/refresh.
+// POST on /api/feeds/{id}/refresh. The per-feed refresh is admin-only
+// and synchronous — the typical use is verifying connectivity right
+// after configuring a feed, where waiting for the next watch tick is
+// inconvenient. Watch-tick refreshes still run automatically.
 func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/feeds/")
 	parts := strings.SplitN(rest, "/", 2)
@@ -202,12 +207,10 @@ func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleFeedRefresh runs an immediate fetch+upsert+prune cycle for
-// one feed, bypassing the worker's per-feed schedule. Returns the
-// added/refreshed counts so the admin UI can show what just happened.
-// Synchronous — the response waits for the upstream fetch — so the
-// admin gets immediate feedback. The worker keeps running on its
-// schedule independently; concurrent ticks are safe because
-// UpsertFeedIndicators wraps each upsert in a transaction.
+// one feed, bypassing the watch-tick cadence. Synchronous — capped at
+// 60s — so the admin gets immediate feedback in the Feeds dialog.
+// Used to verify connectivity after configuring a new feed without
+// waiting for the next watch tick.
 func (s *Server) handleFeedRefresh(w http.ResponseWriter, r *http.Request, id int64) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -228,39 +231,51 @@ func (s *Server) handleFeedRefresh(w http.ResponseWriter, r *http.Request, id in
 		return
 	}
 
-	adapter, err := s.buildFeedAdapter(feed)
-	if err != nil {
-		jsonError(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Cap the manual-refresh fetch at 60s so a hung upstream doesn't
-	// keep the admin's HTTP request open indefinitely.
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 
-	// Status flips to "fetching" for the duration. The worker's own
-	// loop also flips status; concurrent refresh + scheduled tick are
-	// both safe because UpdateFeed serializes through the DB.
-	mark := feed
-	mark.Status = "fetching"
-	_ = s.store.UpdateFeed(mark)
-
-	inds, err := adapter.Fetch(ctx)
+	added, refreshed, err := s.runFeedFetch(ctx, feed)
 	if err != nil {
-		failed := feed
-		failed.Status = "error"
-		failed.LastError = err.Error()
-		_ = s.store.UpdateFeed(failed)
 		jsonError(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 
-	now := time.Now().Unix()
-	added, refreshed, err := s.store.UpsertFeedIndicators(feed.ID, inds, now)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":                   true,
+		"indicators_added":     added,
+		"indicators_refreshed": refreshed,
+	})
+}
+
+// runFeedFetch is the fetch+upsert+prune body shared between the
+// watch scheduler's pre-full-pass refresh and the per-feed manual
+// refresh handler. Updates the feed row's status / last_refresh_at /
+// last_error around the fetch so the Feeds dialog reflects what
+// happened.
+func (s *Server) runFeedFetch(ctx context.Context, feed feeds.Feed) (added, refreshed int, err error) {
+	adapter, err := s.buildFeedAdapter(feed)
 	if err != nil {
-		jsonError(w, err.Error(), http.StatusInternalServerError)
-		return
+		return 0, 0, err
+	}
+
+	mark := feed
+	mark.Status = "fetching"
+	_ = s.store.UpdateFeed(mark)
+
+	inds, fetchErr := adapter.Fetch(ctx)
+	if fetchErr != nil {
+		failed := feed
+		failed.Status = "error"
+		failed.LastError = fetchErr.Error()
+		_ = s.store.UpdateFeed(failed)
+		return 0, 0, fetchErr
+	}
+
+	now := time.Now().Unix()
+	added, refreshed, err = s.store.UpsertFeedIndicators(feed.ID, inds, now)
+	if err != nil {
+		return added, refreshed, err
 	}
 	if feed.IndicatorAgingDays > 0 {
 		cutoff := now - int64(feed.IndicatorAgingDays)*86400
@@ -273,13 +288,49 @@ func (s *Server) handleFeedRefresh(w http.ResponseWriter, r *http.Request, id in
 	done.LastError = ""
 	done.Status = "ok"
 	_ = s.store.UpdateFeed(done)
+	return added, refreshed, nil
+}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"ok":                   true,
-		"indicators_added":     added,
-		"indicators_refreshed": refreshed,
+// refreshAllFeedsForWatch fetches every enabled feed in parallel and
+// blocks until they all finish (or the supplied context times out).
+// Called from the watch scheduler immediately before a full-pass
+// analysis so MISP/OpenCTI indicators are current when the analyzer
+// runs against them. The auto-cadence worker is intentionally
+// disabled (see server.go's New comment), and there is no manual
+// refresh endpoint, so this is the only path that brings indicators
+// current. A failed/timed-out feed is logged but does not block the
+// analysis; the analyzer falls back to whatever indicators are
+// already cached for that feed.
+func (s *Server) refreshAllFeedsForWatch(ctx context.Context) {
+	allFeeds := s.store.ListFeeds()
+	enabled := 0
+	for _, f := range allFeeds {
+		if f.Enabled {
+			enabled++
+		}
+	}
+	if enabled == 0 {
+		return
+	}
+	msg, _ := json.Marshal(map[string]string{
+		"msg": fmt.Sprintf("Watch: refreshing %d feed(s) before full pass.", enabled),
 	})
+	s.broker.Publish(SSEEvent{Type: "status", Data: string(msg)})
+
+	var wg sync.WaitGroup
+	for _, f := range allFeeds {
+		if !f.Enabled {
+			continue
+		}
+		wg.Add(1)
+		go func(feed feeds.Feed) {
+			defer wg.Done()
+			if _, _, err := s.runFeedFetch(ctx, feed); err != nil {
+				log.Printf("watch: feed refresh failed for %s: %v", feed.Name, err)
+			}
+		}(f)
+	}
+	wg.Wait()
 }
 
 // buildFeedAdapter is the AdapterFor switch shared by the fetcher

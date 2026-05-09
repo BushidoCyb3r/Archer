@@ -236,6 +236,7 @@ func (s *Server) triggerWatchAnalysis() {
 	// from Settings → Watch Mode when they want statistical detectors
 	// refreshing every tick (active hunt) instead of once a day.
 	if s.store.GetConfig().WatchAlwaysFull {
+		s.refreshFeedsBeforeFullPass()
 		s.store.SetUploadedFiles(files)
 		s.launchAnalysisWithOptions(files, false)
 		return
@@ -248,6 +249,7 @@ func (s *Server) triggerWatchAnalysis() {
 		lastFull.YearDay() != now.YearDay()
 
 	if needFull {
+		s.refreshFeedsBeforeFullPass()
 		s.store.SetUploadedFiles(files)
 		s.launchAnalysisWithOptions(files, false)
 		return
@@ -286,6 +288,21 @@ func (s *Server) triggerWatchAnalysis() {
 	s.launchIncrementalAnalysis(newFiles)
 }
 
+// refreshFeedsBeforeFullPass runs a synchronous, all-feeds refresh
+// before the watch scheduler launches a full-pass analysis. Capped at
+// two minutes — beyond that, a stuck upstream is more likely than a
+// genuinely-slow fetch, and the analysis should not be held up. The
+// auto-cadence feed worker is intentionally disabled, so this is the
+// path that keeps MISP/OpenCTI indicators in sync with the watch
+// schedule. Incremental ticks deliberately skip this — they only use
+// the built-in Feodo Tracker / URLhaus indicators (see
+// launchIncrementalAnalysis).
+func (s *Server) refreshFeedsBeforeFullPass() {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	s.refreshAllFeedsForWatch(ctx)
+}
+
 // launchIncrementalAnalysis runs Phase 0 (feed prefetch) + Phase 3 (TI
 // matching with per-source fan-out) over the supplied file subset — no
 // statistical detectors, no host-risk aggregation. Used by the watch
@@ -320,6 +337,15 @@ func (s *Server) launchIncrementalAnalysis(files []string) {
 	logsDir := s.logsDir
 	go func() {
 		az := analysis.New(cfg, progressCh, statusCh)
+		// Match against MISP/OpenCTI indicators on incremental ticks
+		// using whatever's currently in the DB — no fetch. The watch
+		// full-pass tick is the only path that refreshes upstream feeds
+		// (refreshFeedsBeforeFullPass), so an incremental pass between
+		// full passes sees a stable indicator set. This closes the
+		// "wait until tomorrow's full pass" gap on fresh IOC matches at
+		// the cost of a few seconds per tick rebuilding the indicator
+		// buckets from SQLite. Built-in Feodo/URLhaus also load via
+		// prefetchFeeds inside AnalyzeTIOnly.
 		az.SetFeedProvider(s.store)
 
 		s.analyzerMu.Lock()
