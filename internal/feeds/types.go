@@ -35,21 +35,21 @@ const (
 )
 
 // Feed is the operator-configured upstream-source row from the `feeds`
-// SQLite table. The fetcher worker reads these to know what to refresh
-// on what cadence.
+// SQLite table. Refresh runs synchronously before each watch full-pass
+// (see server.refreshAllFeedsForWatch) plus on demand via the per-feed
+// Refresh button.
 type Feed struct {
-	ID                    int64
-	SourceType            SourceType
-	Name                  string
-	URL                   string
-	APIKey                string
-	RefreshCadenceMinutes int
-	IndicatorAgingDays    int
-	LastRefreshAt         int64 // unix seconds; 0 = never
-	LastIndicatorCount    int
-	LastError             string
-	Status                string // "idle" | "fetching" | "ok" | "error"
-	Enabled               bool
+	ID                 int64
+	SourceType         SourceType
+	Name               string
+	URL                string
+	APIKey             string
+	IndicatorAgingDays int
+	LastRefreshAt      int64 // unix seconds; 0 = never
+	LastIndicatorCount int
+	LastError          string
+	Status             string // "idle" | "fetching" | "ok" | "error"
+	Enabled            bool
 	// TLSSkipVerify disables certificate verification on the upstream
 	// HTTPS request. Off by default. Internal MISP / OpenCTI deployments
 	// commonly run with self-signed or internal-CA certs that the Archer

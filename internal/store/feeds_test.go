@@ -25,13 +25,12 @@ func TestFeedCRUD(t *testing.T) {
 	s := newTestStore(t)
 
 	id, err := s.CreateFeed(feeds.Feed{
-		SourceType:            feeds.SourceMISP,
-		Name:                  "test-misp",
-		URL:                   "https://misp.example.test",
-		APIKey:                "key",
-		RefreshCadenceMinutes: 60,
-		IndicatorAgingDays:    30,
-		Enabled:               true,
+		SourceType:         feeds.SourceMISP,
+		Name:               "test-misp",
+		URL:                "https://misp.example.test",
+		APIKey:             "key",
+		IndicatorAgingDays: 30,
+		Enabled:            true,
 	})
 	if err != nil {
 		t.Fatalf("CreateFeed: %v", err)
@@ -77,7 +76,7 @@ func TestFeedIndicators_UpsertAndPrune(t *testing.T) {
 
 	id, err := s.CreateFeed(feeds.Feed{
 		SourceType: feeds.SourceMISP, Name: "f1", URL: "x",
-		RefreshCadenceMinutes: 60, IndicatorAgingDays: 30,
+		IndicatorAgingDays: 30,
 	})
 	if err != nil {
 		t.Fatalf("CreateFeed: %v", err)
@@ -140,7 +139,6 @@ func TestFeedDelete_CascadesIndicators(t *testing.T) {
 
 	id, _ := s.CreateFeed(feeds.Feed{
 		SourceType: feeds.SourceMISP, Name: "f1", URL: "x",
-		RefreshCadenceMinutes: 60,
 	})
 	_, _, _ = s.UpsertFeedIndicators(id, []feeds.Indicator{
 		{Indicator: "1.2.3.4", Type: feeds.IndicatorIP},

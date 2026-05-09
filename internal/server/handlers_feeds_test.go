@@ -70,7 +70,7 @@ func TestHandleFeeds_POST_RequiresAdmin(t *testing.T) {
 	s := newFeedsTestServer(t)
 	body, _ := json.Marshal(feedRequest{
 		SourceType: "misp", Name: "f", URL: "https://x.test", APIKey: "k",
-		RefreshCadenceMinutes: 60, IndicatorAgingDays: 30, Enabled: true,
+		IndicatorAgingDays: 30, Enabled: true,
 	})
 	req := withUser(httptest.NewRequest(http.MethodPost, "/api/feeds", bytes.NewReader(body)), model.RoleAnalyst)
 	w := httptest.NewRecorder()
@@ -84,13 +84,12 @@ func TestHandleFeeds_POST_RequiresAdmin(t *testing.T) {
 func TestHandleFeeds_POST_CreatesFeed(t *testing.T) {
 	s := newFeedsTestServer(t)
 	body, _ := json.Marshal(feedRequest{
-		SourceType:            "misp",
-		Name:                  "test-misp",
-		URL:                   "https://misp.example.test",
-		APIKey:                "secret-key",
-		RefreshCadenceMinutes: 60,
-		IndicatorAgingDays:    30,
-		Enabled:               true,
+		SourceType:         "misp",
+		Name:               "test-misp",
+		URL:                "https://misp.example.test",
+		APIKey:             "secret-key",
+		IndicatorAgingDays: 30,
+		Enabled:            true,
 	})
 	req := withUser(httptest.NewRequest(http.MethodPost, "/api/feeds", bytes.NewReader(body)), model.RoleAdmin)
 	w := httptest.NewRecorder()
@@ -135,14 +134,13 @@ func TestHandleFeeds_POST_RejectsInvalid(t *testing.T) {
 		name string
 		req  feedRequest
 	}{
-		{"empty source_type", feedRequest{Name: "n", URL: "https://x.test", APIKey: "k", RefreshCadenceMinutes: 60}},
-		{"unknown source_type", feedRequest{SourceType: "stix", Name: "n", URL: "https://x.test", APIKey: "k", RefreshCadenceMinutes: 60}},
-		{"empty name", feedRequest{SourceType: "misp", URL: "https://x.test", APIKey: "k", RefreshCadenceMinutes: 60}},
-		{"empty url", feedRequest{SourceType: "misp", Name: "n", APIKey: "k", RefreshCadenceMinutes: 60}},
-		{"url no scheme", feedRequest{SourceType: "misp", Name: "n", URL: "x.test", APIKey: "k", RefreshCadenceMinutes: 60}},
-		{"empty api_key on create", feedRequest{SourceType: "misp", Name: "n", URL: "https://x.test", RefreshCadenceMinutes: 60}},
-		{"zero cadence", feedRequest{SourceType: "misp", Name: "n", URL: "https://x.test", APIKey: "k"}},
-		{"negative aging", feedRequest{SourceType: "misp", Name: "n", URL: "https://x.test", APIKey: "k", RefreshCadenceMinutes: 60, IndicatorAgingDays: -1}},
+		{"empty source_type", feedRequest{Name: "n", URL: "https://x.test", APIKey: "k"}},
+		{"unknown source_type", feedRequest{SourceType: "stix", Name: "n", URL: "https://x.test", APIKey: "k"}},
+		{"empty name", feedRequest{SourceType: "misp", URL: "https://x.test", APIKey: "k"}},
+		{"empty url", feedRequest{SourceType: "misp", Name: "n", APIKey: "k"}},
+		{"url no scheme", feedRequest{SourceType: "misp", Name: "n", URL: "x.test", APIKey: "k"}},
+		{"empty api_key on create", feedRequest{SourceType: "misp", Name: "n", URL: "https://x.test"}},
+		{"negative aging", feedRequest{SourceType: "misp", Name: "n", URL: "https://x.test", APIKey: "k", IndicatorAgingDays: -1}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -161,7 +159,7 @@ func TestHandleFeedItem_PUT_PreservesAPIKeyOnEmptyField(t *testing.T) {
 	s := newFeedsTestServer(t)
 	id, err := s.store.CreateFeed(feeds.Feed{
 		SourceType: feeds.SourceMISP, Name: "f", URL: "https://x.test",
-		APIKey: "original-key", RefreshCadenceMinutes: 60, IndicatorAgingDays: 30, Enabled: true,
+		APIKey: "original-key", IndicatorAgingDays: 30, Enabled: true,
 	})
 	if err != nil {
 		t.Fatalf("CreateFeed: %v", err)
@@ -169,13 +167,12 @@ func TestHandleFeedItem_PUT_PreservesAPIKeyOnEmptyField(t *testing.T) {
 
 	// PUT with api_key omitted ("") should keep the original.
 	body, _ := json.Marshal(feedRequest{
-		SourceType:            "misp",
-		Name:                  "f-renamed",
-		URL:                   "https://x.test",
-		APIKey:                "",
-		RefreshCadenceMinutes: 30,
-		IndicatorAgingDays:    7,
-		Enabled:               true,
+		SourceType:         "misp",
+		Name:               "f-renamed",
+		URL:                "https://x.test",
+		APIKey:             "",
+		IndicatorAgingDays: 7,
+		Enabled:            true,
 	})
 	req := withUser(httptest.NewRequest(http.MethodPut, "/api/feeds/1", bytes.NewReader(body)), model.RoleAdmin)
 	w := httptest.NewRecorder()
@@ -191,8 +188,8 @@ func TestHandleFeedItem_PUT_PreservesAPIKeyOnEmptyField(t *testing.T) {
 	if got.Name != "f-renamed" {
 		t.Errorf("Name not updated: %q", got.Name)
 	}
-	if got.RefreshCadenceMinutes != 30 {
-		t.Errorf("cadence not updated: %d", got.RefreshCadenceMinutes)
+	if got.IndicatorAgingDays != 7 {
+		t.Errorf("aging not updated: %d", got.IndicatorAgingDays)
 	}
 }
 
@@ -200,7 +197,7 @@ func TestHandleFeedItem_DELETE(t *testing.T) {
 	s := newFeedsTestServer(t)
 	id, _ := s.store.CreateFeed(feeds.Feed{
 		SourceType: feeds.SourceMISP, Name: "f", URL: "https://x.test",
-		APIKey: "k", RefreshCadenceMinutes: 60, Enabled: true,
+		APIKey: "k", Enabled: true,
 	})
 
 	req := withUser(httptest.NewRequest(http.MethodDelete, "/api/feeds/1", nil), model.RoleAdmin)

@@ -31,11 +31,11 @@ func TestIOCSources_IncludesEnabledFeedsOnly(t *testing.T) {
 
 	enabledID, _ := s.CreateFeed(feeds.Feed{
 		SourceType: feeds.SourceMISP, Name: "enabled-feed", URL: "x",
-		RefreshCadenceMinutes: 60, Enabled: true,
+		Enabled: true,
 	})
 	disabledID, _ := s.CreateFeed(feeds.Feed{
 		SourceType: feeds.SourceMISP, Name: "disabled-feed", URL: "y",
-		RefreshCadenceMinutes: 60, Enabled: false,
+		Enabled: false,
 	})
 
 	_, _, _ = s.UpsertFeedIndicators(enabledID, []feeds.Indicator{
@@ -68,7 +68,7 @@ func TestIOCSources_FeedMatcherInvalidatesOnUpsert(t *testing.T) {
 	s := newTestStore(t)
 	id, _ := s.CreateFeed(feeds.Feed{
 		SourceType: feeds.SourceMISP, Name: "f", URL: "x",
-		RefreshCadenceMinutes: 60, Enabled: true,
+		Enabled: true,
 	})
 
 	// First snapshot: 1.2.3.4 only.
@@ -99,7 +99,7 @@ func TestIOCSources_FeedMatcherDropsOnDelete(t *testing.T) {
 	s := newTestStore(t)
 	id, _ := s.CreateFeed(feeds.Feed{
 		SourceType: feeds.SourceMISP, Name: "f", URL: "x",
-		RefreshCadenceMinutes: 60, Enabled: true,
+		Enabled: true,
 	})
 	_, _, _ = s.UpsertFeedIndicators(id, []feeds.Indicator{
 		{Indicator: "9.9.9.9", Type: feeds.IndicatorIP},

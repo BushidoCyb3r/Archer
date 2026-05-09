@@ -99,7 +99,6 @@ Click the **Feeds** topbar button (admin role required) → **Add feed**.
 | Name | Human label. Surfaces in finding details as `feed:<name>`. |
 | URL | Base URL of the upstream. MISP: `https://misp.example/`. OpenCTI: `https://opencti.example/`. No trailing path. |
 | API key | MISP: per-user authkey. OpenCTI: bearer token. **Stored in the DB; redacted on subsequent reads.** |
-| Refresh cadence (min) | **Currently unused** — the auto-cadence worker is disabled. Refreshes happen at the watch full-pass tick (typically once per UTC day; every tick when `WatchAlwaysFull` is on). Field is preserved on the row for forward compatibility if per-feed cadence is ever reinstated; pick any value that satisfies the validator (≥ 1). |
 | Indicator aging (days) | Indicators not seen in a fetch for this many days drop out of the matcher. 30 is a sane default; 0 disables aging entirely. |
 | Skip TLS certificate verification | Off by default. Tick only for internal MISP / OpenCTI deployments running self-signed or internal-CA certs. |
 
@@ -119,7 +118,7 @@ edit (the stored key is never echoed back); leave it blank to keep the
 existing key, or paste a new one to replace it. Saving a config with the
 field blank does **not** clear the key.
 
-### 3. Refresh cadence
+### 3. When refresh runs
 
 Feed fetching runs in two paths, both producing identical
 fetch/upsert/prune cycles:
