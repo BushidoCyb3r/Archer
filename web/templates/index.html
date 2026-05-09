@@ -33,21 +33,17 @@
     <span class="brand-tagline">Silent Hunter</span>
   </div>
 
-    <div class="sidebar-section-title">Zeek Logs</div>
+    <div class="sidebar-section-title">Logs</div>
     <div id="logs-dir-hint" style="font-size:9px;color:var(--fg-dim);padding:0 12px 4px;line-height:1.5">
       Scanning <em id="logs-dir-path">/logs</em>
     </div>
+    <div id="logs-tree" class="logs-tree"></div>
     <div class="sidebar-btn-row">
-      <button class="sb-btn" id="import-logs-btn">Import</button>
-      <button class="sb-btn dim" id="clear-files-btn">Clear</button>
+      <button class="sb-btn" id="analyze-btn">Analyze logs</button>
     </div>
-    <ul id="file-list"></ul>
 
     <div class="sidebar-divider"></div>
-    <div class="sidebar-section-title">Analysis</div>
-    <div class="sidebar-btn-row">
-      <button class="sb-btn" id="analyze-btn">Analyze</button>
-    </div>
+    <div class="sidebar-section-title">Analysis Status</div>
     <progress id="progress-bar" value="0" max="100"></progress>
     <span class="sidebar-status" id="analysis-status"></span>
     <div id="analysis-controls" style="display:none;gap:6px;margin-top:6px;display:none">

@@ -156,9 +156,7 @@ func (s *Server) routes() {
 	s.mux.Handle("/events", any(s.handleSSE))
 
 	// File management — scan/clear require analyst+; plain file list is read-only
-	s.mux.Handle("/api/logs/scan", any(s.handleLogsScan)) // GET=any, POST enforced inside handler
-	s.mux.Handle("/api/files", any(s.handleFiles))
-	s.mux.Handle("/api/files/clear", write(s.handleClearFiles))
+	s.mux.Handle("/api/logs/tree", any(s.handleLogsTree))
 
 	// Analysis — analyst+
 	s.mux.Handle("/api/analyze", write(s.handleAnalyze))

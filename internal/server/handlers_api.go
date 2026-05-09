@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -38,7 +39,10 @@ func sensorFromPath(logsDir, filePath string) string {
 	return ""
 }
 
-// handleAnalyze starts analysis in a background goroutine.
+// handleAnalyze runs a full analysis pass over the configured /logs
+// directory. Findings are merged via fingerprint, so analyst notes/status
+// survive. The single source of input is /logs — operators wanting to
+// analyze ad-hoc bundles drop them into /logs/<name>/<date>/ first.
 func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -50,20 +54,18 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Files  []string        `json:"files"`
 		Config json.RawMessage `json:"config"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, err.Error(), http.StatusBadRequest)
-		return
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 
-	files := req.Files
+	files := s.scanLogsDir()
 	if len(files) == 0 {
-		files = s.store.GetUploadedFiles()
-	}
-	if len(files) == 0 {
-		jsonError(w, "no files to analyze", http.StatusBadRequest)
+		jsonError(w, "no logs found in /logs", http.StatusBadRequest)
 		return
 	}
 
@@ -94,12 +96,9 @@ func (s *Server) handleAnalyzeReset(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "analysis already running", http.StatusConflict)
 		return
 	}
-	files := s.store.GetUploadedFiles()
+	files := s.scanLogsDir()
 	if len(files) == 0 {
-		files = s.scanLogsDir()
-	}
-	if len(files) == 0 {
-		jsonError(w, "no files to analyze", http.StatusBadRequest)
+		jsonError(w, "no logs found in /logs", http.StatusBadRequest)
 		return
 	}
 	cleared := s.store.ClearFindings()
@@ -1463,12 +1462,106 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w)
 }
 
-func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(s.store.GetUploadedFiles())
+// handleLogsTree returns the sensor/date layout under the configured logs
+// directory so the dashboard can render a read-only preview of what watch
+// mode and "Analyze sensor logs" will pick up.
+func (s *Server) handleLogsTree(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
+
+	type dateNode struct {
+		Date        string `json:"date"`
+		Files       int    `json:"files"`
+		SizeBytes   int64  `json:"size_bytes"`
+		NewestMtime int64  `json:"newest_mtime"`
+	}
+	type sensorNode struct {
+		Name           string     `json:"name"`
+		Dates          []dateNode `json:"dates"`
+		TotalFiles     int        `json:"total_files"`
+		TotalSizeBytes int64      `json:"total_size_bytes"`
+	}
+	type response struct {
+		LogsDir string       `json:"logs_dir"`
+		Sensors []sensorNode `json:"sensors"`
+	}
+
+	out := response{LogsDir: s.logsDir, Sensors: []sensorNode{}}
+	if s.logsDir == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out)
+		return
+	}
+
+	sensorEntries, err := os.ReadDir(s.logsDir)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out)
+		return
+	}
+
+	for _, se := range sensorEntries {
+		if !se.IsDir() {
+			continue
+		}
+		sensor := sensorNode{Name: se.Name(), Dates: []dateNode{}}
+		sensorPath := filepath.Join(s.logsDir, se.Name())
+		dateEntries, err := os.ReadDir(sensorPath)
+		if err != nil {
+			continue
+		}
+		for _, de := range dateEntries {
+			if !de.IsDir() {
+				continue
+			}
+			node := dateNode{Date: de.Name()}
+			datePath := filepath.Join(sensorPath, de.Name())
+			fileEntries, err := os.ReadDir(datePath)
+			if err != nil {
+				continue
+			}
+			for _, fe := range fileEntries {
+				if fe.IsDir() {
+					continue
+				}
+				name := fe.Name()
+				if !(strings.HasSuffix(name, ".log") ||
+					strings.HasSuffix(name, ".log.gz") ||
+					strings.HasSuffix(name, ".gz") ||
+					strings.HasSuffix(name, ".json") ||
+					strings.HasSuffix(name, ".ndjson")) {
+					continue
+				}
+				info, err := fe.Info()
+				if err != nil {
+					continue
+				}
+				node.Files++
+				node.SizeBytes += info.Size()
+				if mt := info.ModTime().Unix(); mt > node.NewestMtime {
+					node.NewestMtime = mt
+				}
+			}
+			if node.Files == 0 {
+				continue
+			}
+			sensor.Dates = append(sensor.Dates, node)
+			sensor.TotalFiles += node.Files
+			sensor.TotalSizeBytes += node.SizeBytes
+		}
+		sort.Slice(sensor.Dates, func(i, j int) bool {
+			return sensor.Dates[i].Date > sensor.Dates[j].Date
+		})
+		out.Sensors = append(out.Sensors, sensor)
+	}
+	sort.Slice(out.Sensors, func(i, j int) bool {
+		return out.Sensors[i].Name < out.Sensors[j].Name
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
 }
 
 func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {

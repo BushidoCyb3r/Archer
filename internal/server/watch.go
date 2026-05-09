@@ -237,7 +237,6 @@ func (s *Server) triggerWatchAnalysis() {
 	// refreshing every tick (active hunt) instead of once a day.
 	if s.store.GetConfig().WatchAlwaysFull {
 		s.refreshFeedsBeforeFullPass()
-		s.store.SetUploadedFiles(files)
 		s.launchAnalysisWithOptions(files, false)
 		return
 	}
@@ -250,7 +249,6 @@ func (s *Server) triggerWatchAnalysis() {
 
 	if needFull {
 		s.refreshFeedsBeforeFullPass()
-		s.store.SetUploadedFiles(files)
 		s.launchAnalysisWithOptions(files, false)
 		return
 	}
@@ -263,7 +261,6 @@ func (s *Server) triggerWatchAnalysis() {
 	if lastRun.IsZero() {
 		// Defensive: shouldn't happen if lastFull is set, but if it does
 		// fall through to a full run rather than silently skipping.
-		s.store.SetUploadedFiles(files)
 		s.launchAnalysisWithOptions(files, false)
 		return
 	}
