@@ -160,7 +160,7 @@ CREATE TABLE ioc_list  (entry TEXT PRIMARY KEY);
 
 CREATE TABLE findings (
     id           INTEGER PRIMARY KEY,
-    type         TEXT,         -- 'Beaconing', 'Threat Intel Hit', etc.
+    type         TEXT,         -- 'Beaconing', 'TI Hit (IP)', etc.
     severity     TEXT,         -- 'low'/'medium'/'high'/'critical'
     score        INTEGER,      -- 0-100
     src_ip       TEXT,
