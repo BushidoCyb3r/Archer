@@ -17,15 +17,62 @@
   let _currentUser     = null;
   let _orgCIDRs        = []; // admin-supplied CIDRs that augment the built-in private ranges for the Hosts tab
 
-  // Pagination state for /api/findings. The page-size selector lets the
-  // analyst pick 100/200/500/1000 rows per fetch; Load More appends the
-  // next page rather than replacing. Defaults to 100 because hunt
-  // workflows go top-down by score and the first 100 cover most of the
-  // immediate triage; analysts widen explicitly when they need to dig.
-  let _pageSize        = 100;
-  let _pageOffset      = 0;
-  let _totalFindings   = 0;
-  let _hasMore         = false;
+  // Per-tab state. Each findings-style tab (findings / ack / esc / ioc)
+  // keeps its own loaded findings, pagination position, and total count.
+  // Tab switches read from cache when loaded=true (instant), fetch when
+  // loaded=false (first visit) or when a global invalidation has set
+  // loaded back to false (filter change, delta toggle, SSE done event).
+  // Page size is shared across tabs — it's a per-session display
+  // preference, not per-tab.
+  function _newTabState() {
+    return {
+      findings: [],
+      offset:   0,
+      total:    0,
+      hasMore:  false,
+      loaded:   false,
+    };
+  }
+  const _tabState = {
+    findings: _newTabState(),
+    ack:      _newTabState(),
+    esc:      _newTabState(),
+    ioc:      _newTabState(),
+  };
+  function _curTab() { return _tabState[_tabMode] || _tabState.findings; }
+  function _invalidateAllTabs() {
+    Object.values(_tabState).forEach(t => {
+      t.loaded   = false;
+      t.findings = [];
+      t.offset   = 0;
+      t.total    = 0;
+      t.hasMore  = false;
+    });
+    _invalidateAggregate();
+    _countsLoaded = false;
+  }
+  let _pageSize = 100;
+
+  // Aggregate cache: every finding within the current time range, no
+  // status / ioc_only filter. Powers Campaigns and Hosts views — those
+  // are roll-ups, so they need the full set to be accurate. Loaded
+  // lazily when either tab is first visited; invalidated alongside
+  // _tabState on every filter change.
+  let _aggregateState = { findings: [], loaded: false };
+  // Per-tab render-pagination state for the aggregate tabs. offset is the
+  // 0-based start index of the current page in the full _campaigns /
+  // _hosts arrays; total is the full aggregated row count. Independent
+  // per tab so paging on Campaigns doesn't affect Hosts.
+  const _aggTabState = {
+    campaigns: { offset: 0, total: 0 },
+    hosts:     { offset: 0, total: 0 },
+  };
+  function _invalidateAggregate() {
+    _aggregateState = { findings: [], loaded: false };
+    _aggTabState.campaigns = { offset: 0, total: 0 };
+    _aggTabState.hosts     = { offset: 0, total: 0 };
+  }
+  let _countsLoaded = false;
 
   // Cached Archer version metadata fetched from /api/version. Populated by
   // _loadVersion() during init so JSON exports and the statusbar/About dialog
@@ -103,23 +150,40 @@
   }
 
   // ── Load findings ──────────────────────────────────────────────────────────
-  // loadFindings is the single entry-point for refreshing the table. The
-  // optional second arg controls pagination behavior:
-  //   { append: false } (default) — fresh page-1 fetch; resets offset and
-  //     replaces the in-memory finding set.
-  //   { append: true } — Load More: increments offset, appends the new
-  //     rows to the existing finding set.
-  // Reads X-Total-Count and X-Has-More from the response headers so the
-  // pagination footer shows accurate "Showing N of M" and toggles the
-  // Load More button without a second round-trip.
+  // Pagination is Findings-tab-only — the other tabs (Ack / Esc / IOC)
+  // hold tiny result sets that fit comfortably in a single fetch, and
+  // the per-page selector + Load More button only make sense for the
+  // big slab. Non-Findings tabs request limit=50000 (server cap) which
+  // returns the entire matching set in one round-trip.
+  // Findings/Ack/Esc/IOC paginate server-side via /api/findings; each tab
+  // owns its own offset/total/loaded state in _tabState. Campaigns and
+  // Hosts paginate client-side over _aggregateState (the full unfiltered
+  // set) by slicing the rendered output — see _renderCampaignsPage /
+  // _renderHostsPage. _isPaginatedTab is true for both groups; the
+  // pagination footer shows for every tab.
+  const _findingsTabs = new Set(['findings', 'ack', 'esc', 'ioc']);
+  const _aggregateTabs = new Set(['campaigns', 'hosts']);
+  function _isPaginatedTab(tab) { return _findingsTabs.has(tab) || _aggregateTabs.has(tab); }
+  function _isFindingsTab(tab)  { return _findingsTabs.has(tab); }
+  function _isAggregateTab(tab) { return _aggregateTabs.has(tab); }
+  const _FULL_FETCH_LIMIT = 50000;
+
+  // loadFindings fetches one page of findings for the active tab and
+  // replaces ts.findings with the result. Page selection is offset-based:
+  // pass opts.gotoOffset to navigate to a specific page (used by the
+  // first/back/next/last buttons). The default (no opts) loads page 1.
   async function loadFindings(params = {}, opts = {}) {
-    const append = !!opts.append;
-    if (!append) {
-      _pageOffset = 0;
+    const ts = _curTab();
+    const paginated = _isFindingsTab(_tabMode);
+    if (typeof opts.gotoOffset === 'number') {
+      ts.offset = Math.max(0, opts.gotoOffset);
+    } else {
+      ts.offset = 0;
     }
+
     const merged = Object.assign({}, params, {
-      limit: String(_pageSize),
-      offset: String(_pageOffset),
+      limit:  String(paginated ? _pageSize : _FULL_FETCH_LIMIT),
+      offset: String(paginated ? ts.offset : 0),
     });
     const qs = new URLSearchParams(merged).toString();
     const r = await fetch('/api/findings' + (qs ? '?' + qs : ''));
@@ -128,72 +192,307 @@
       throw (e.error || r.statusText);
     }
     const page = await r.json();
-    _totalFindings = parseInt(r.headers.get('X-Total-Count') || '0', 10) || 0;
-    _hasMore = (r.headers.get('X-Has-More') || '').toLowerCase() === 'true';
+    ts.total   = parseInt(r.headers.get('X-Total-Count') || '0', 10) || 0;
+    ts.findings = Array.isArray(page) ? page : [];
+    ts.loaded = true;
 
-    if (append) {
-      _allFindings = _allFindings.concat(Array.isArray(page) ? page : []);
-    } else {
-      _allFindings = Array.isArray(page) ? page : [];
-    }
-    _updatePaginationFooter();
-
-    // Type dropdown and Campaigns are network-event views; the per-host
-    // roll-up never appears in either, so feed both the network-only list.
-    const networkOnly = _networkFindings(_allFindings);
-    Table.populateTypeFilter(networkOnly);
-    _updateSensorFilter(_allFindings);
-    Campaigns.build(_allFindings);
-    _applyTabFilter();
+    _allFindings = ts.findings;
+    _renderCurrentTab();
   }
 
+  // _renderCurrentTab paints whatever the current tab's cache holds.
+  // The findings table view excludes Host Risk Score rows — those are
+  // a per-host roll-up surfaced through the Hosts tab, not a network
+  // event. Status / ioc_only / delta / date filters were already
+  // applied server-side via _currentFilterParams.
+  function _renderCurrentTab(opts) {
+    const ts = _curTab();
+    _allFindings = ts.findings;
+    _updatePaginationFooter();
+    const networkOnly = _networkFindings(ts.findings);
+    // Type and sensor dropdowns are populated by _loadFacets from a
+    // dedicated /api/findings/facets call so they reflect every
+    // distinct value across the dataset — not just what's on the
+    // current paginated page.
+    Table.load(networkOnly, opts);
+    updateInfoLine();
+  }
+
+  // _ensureAggregate fetches every finding within the current time
+  // range (no status / ioc_only filter, no pagination beyond the
+  // server's 50k cap) and rebuilds the Campaigns + Hosts roll-ups.
+  // Cached for the rest of the session until something invalidates it.
+  // Each aggregate tab maintains its own page offset in _aggTabState;
+  // build() renders the current page slice for both tables, and the
+  // first/back/next/last buttons drive _renderAggregatePage to advance.
+  async function _ensureAggregate() {
+    if (!_aggregateState.loaded) {
+      const params = _currentFilterParams();
+      delete params.status;
+      delete params.ioc_only;
+      delete params.delta;
+      params.limit = String(_FULL_FETCH_LIMIT);
+      params.offset = '0';
+      const qs = new URLSearchParams(params).toString();
+      try {
+        const r = await fetch('/api/findings' + (qs ? '?' + qs : ''));
+        if (!r.ok) return;
+        const all = await r.json();
+        _aggregateState.findings = Array.isArray(all) ? all : [];
+        _aggregateState.loaded = true;
+      } catch (e) { /* swallow — stale cache is OK */ return; }
+    }
+    Campaigns.build(_aggregateState.findings, {
+      campaignsOffset: _aggTabState.campaigns.offset,
+      campaignsLimit:  _pageSize,
+      hostsOffset:     _aggTabState.hosts.offset,
+      hostsLimit:      _pageSize,
+    });
+    _aggTabState.campaigns.total = Campaigns.getCampaigns().length;
+    _aggTabState.hosts.total     = Campaigns.getHosts().length;
+    _clampAggOffset(_aggTabState.campaigns);
+    _clampAggOffset(_aggTabState.hosts);
+    _updatePaginationFooter();
+  }
+
+  // _clampAggOffset keeps an aggregate tab's offset within [0, total).
+  // Page-size changes or filter shifts can leave a stale offset past the
+  // last page; this snaps it to the last full page.
+  function _clampAggOffset(state) {
+    if (state.total <= 0) { state.offset = 0; return; }
+    const lastPageOffset = Math.max(0, Math.floor((state.total - 1) / _pageSize) * _pageSize);
+    if (state.offset > lastPageOffset) state.offset = lastPageOffset;
+    if (state.offset < 0) state.offset = 0;
+  }
+
+  // _renderAggregatePage re-renders just the active aggregate tab from
+  // the cached _campaigns / _hosts arrays. Used by the page-nav buttons
+  // so navigation doesn't recompute the aggregation.
+  function _renderAggregatePage() {
+    if (_tabMode === 'campaigns') {
+      Campaigns.renderCampaignsPage(_aggTabState.campaigns.offset, _pageSize);
+    } else if (_tabMode === 'hosts') {
+      Campaigns.renderHostsPage(_aggTabState.hosts.offset, _pageSize);
+    }
+    _updatePaginationFooter();
+  }
+
+  // _loadFacets populates the Type and Sensor filter dropdowns with
+  // *every* distinct value across the dataset (subject to the
+  // non-dropdown filters — search, severity, score, src/dst, port,
+  // time). Without this the dropdowns showed only the values present
+  // on the current paginated page, which let an analyst miss types
+  // that existed elsewhere in the dataset. Called on init and after
+  // every analysis completes; refresh-on-filter-change is intentionally
+  // omitted so the dropdowns don't reshape under the cursor.
+  async function _loadFacets() {
+    const params = _currentFilterParams();
+    delete params.status;
+    delete params.ioc_only;
+    delete params.delta;
+    delete params.type;
+    delete params.sensor;
+    delete params.limit;
+    delete params.offset;
+    const qs = new URLSearchParams(params).toString();
+    try {
+      const r = await fetch('/api/findings/facets' + (qs ? '?' + qs : ''));
+      if (!r.ok) return;
+      const data = await r.json();
+      _populateTypeDropdown(Array.isArray(data.types) ? data.types : []);
+      _populateSensorDropdown(Array.isArray(data.sensors) ? data.sensors : []);
+    } catch (e) { /* swallow — stale dropdown is acceptable */ }
+  }
+
+  function _populateTypeDropdown(types) {
+    const sel = document.getElementById('filter-type');
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">All Types</option>';
+    types.forEach(t => {
+      // Host Risk Score is a per-host roll-up surfaced through the
+      // Hosts tab — not a network event the Findings filter should
+      // expose as a discrete option.
+      if (HOST_FINDING_TYPES.has(t)) return;
+      const opt = document.createElement('option');
+      opt.value = t; opt.textContent = t;
+      if (t === cur) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  function _populateSensorDropdown(sensors) {
+    const sel = document.getElementById('filter-sensor');
+    if (!sel) return;
+    const cur = sel.value;
+    while (sel.options.length > 1) sel.remove(1);
+    sensors.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s; opt.textContent = s;
+      if (s === cur) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  // _loadCounts fetches the per-status totals for the info line so the
+  // tab counters ("23 open • 1 ack'd • 0 escalated") are accurate
+  // without requiring a visit to each tab. Cheap server-side aggregation.
+  async function _loadCounts() {
+    const params = _currentFilterParams();
+    delete params.status;
+    delete params.ioc_only;
+    params.limit = '1';
+    params.offset = '0';
+    const qs = new URLSearchParams(params).toString();
+    try {
+      const r = await fetch('/api/findings/counts' + (qs ? '?' + qs : ''));
+      if (!r.ok) return;
+      const c = await r.json();
+      _tabState.findings.total = c.open || 0;
+      _tabState.ack.total      = c.ack  || 0;
+      _tabState.esc.total      = c.esc  || 0;
+      _tabState.ioc.total      = c.ioc  || 0;
+      _countsLoaded = true;
+      // Per-tab `loaded` is reserved for "findings rows fetched". The
+      // counts endpoint only populates totals; the row data arrives on
+      // first visit. updateInfoLine reads totals directly from the
+      // counts response.
+      updateInfoLine();
+    } catch (e) { /* swallow */ }
+  }
+
+  // _showCurrentTab is the entry point for tab clicks. Renders from the
+  // tab's cache when it's already loaded; fetches on first visit.
+  async function _showCurrentTab(opts) {
+    const ts = _curTab();
+    if (ts.loaded) {
+      _renderCurrentTab(opts);
+    } else {
+      await loadFindings(_currentFilterParams(), opts);
+    }
+  }
+
+  // _updatePaginationFooter updates the "Showing X–Y of Z", "Page N of M",
+  // and the four page-nav buttons' enabled state for the active tab.
+  // The shown range is offset+1 .. offset+slice.length so the analyst
+  // sees what window of the full set is currently rendered.
   function _updatePaginationFooter() {
-    const shown  = document.getElementById('page-shown');
-    const total  = document.getElementById('page-total');
-    const more   = document.getElementById('page-load-more');
-    if (shown)  shown.textContent = _allFindings.length.toLocaleString();
-    if (total)  total.textContent = _totalFindings.toLocaleString();
-    if (more)   more.style.display = _hasMore ? '' : 'none';
+    const wrap = document.getElementById('findings-pagination');
+    const paginated = _isPaginatedTab(_tabMode);
+    if (wrap) wrap.style.display = paginated ? '' : 'none';
+    if (!paginated) return;
+
+    let offset, total, sliceLen;
+    if (_isAggregateTab(_tabMode)) {
+      const a = _aggTabState[_tabMode];
+      offset = a.offset;
+      total  = a.total;
+      sliceLen = Math.min(_pageSize, Math.max(0, total - offset));
+    } else {
+      const ts = _curTab();
+      offset = ts.offset;
+      total  = ts.total;
+      sliceLen = ts.findings.length;
+    }
+
+    const shownEl = document.getElementById('page-shown');
+    const totalEl = document.getElementById('page-total');
+    const curEl   = document.getElementById('page-current');
+    const lastEl  = document.getElementById('page-last-num');
+    const first   = document.getElementById('page-first');
+    const prev    = document.getElementById('page-prev');
+    const next    = document.getElementById('page-next');
+    const last    = document.getElementById('page-last');
+
+    const start = total === 0 ? 0 : offset + 1;
+    const end   = offset + sliceLen;
+    if (shownEl) shownEl.textContent = total === 0 ? '0' : `${start.toLocaleString()}–${end.toLocaleString()}`;
+    if (totalEl) totalEl.textContent = total.toLocaleString();
+
+    const totalPages   = Math.max(1, Math.ceil(total / _pageSize));
+    const currentPage  = total === 0 ? 1 : Math.floor(offset / _pageSize) + 1;
+    if (curEl)  curEl.textContent  = currentPage.toLocaleString();
+    if (lastEl) lastEl.textContent = totalPages.toLocaleString();
+
+    const atFirst = currentPage <= 1;
+    const atLast  = currentPage >= totalPages;
+    if (first) first.disabled = atFirst;
+    if (prev)  prev.disabled  = atFirst;
+    if (next)  next.disabled  = atLast;
+    if (last)  last.disabled  = atLast;
+  }
+
+  // _currentPageNumber returns the 1-based page index for the active
+  // tab — derived from offset / _pageSize for findings tabs and from
+  // _aggTabState for aggregate tabs.
+  function _currentPageNumber() {
+    if (_isAggregateTab(_tabMode)) {
+      const a = _aggTabState[_tabMode];
+      return a.total === 0 ? 1 : Math.floor(a.offset / _pageSize) + 1;
+    }
+    const ts = _curTab();
+    return ts.total === 0 ? 1 : Math.floor(ts.offset / _pageSize) + 1;
+  }
+  function _totalPagesForActiveTab() {
+    if (_isAggregateTab(_tabMode)) {
+      return Math.max(1, Math.ceil(_aggTabState[_tabMode].total / _pageSize));
+    }
+    const ts = _curTab();
+    return Math.max(1, Math.ceil(ts.total / _pageSize));
+  }
+
+  // _gotoPage navigates the active tab to a specific 1-based page.
+  // Findings tabs trigger a server-side fetch; aggregate tabs re-render
+  // the cached slice. Out-of-range pages clamp to the valid window.
+  async function _gotoPage(page) {
+    if (_isAggregateTab(_tabMode)) {
+      const a = _aggTabState[_tabMode];
+      const totalPages = Math.max(1, Math.ceil(a.total / _pageSize));
+      const p = Math.min(Math.max(1, page | 0), totalPages);
+      a.offset = (p - 1) * _pageSize;
+      _renderAggregatePage();
+    } else {
+      const ts = _curTab();
+      const totalPages = Math.max(1, Math.ceil(ts.total / _pageSize));
+      const p = Math.min(Math.max(1, page | 0), totalPages);
+      const targetOffset = (p - 1) * _pageSize;
+      try {
+        await loadFindings(_currentFilterParams(), { gotoOffset: targetOffset });
+      } catch (e) {
+        console.error('page navigation failed', e);
+      }
+    }
   }
 
   // Apply the current tab mode filter to the table. All four tab modes
   // operate on network events only — Host Risk Score is excluded up front
   // and surfaced through the Hosts tab instead.
-  function _applyTabFilter() {
-    const base = _networkFindings(_allFindings);
-    let shown = base;
-    if (_tabMode === 'ack') {
-      shown = base.filter(f => f.status === 'acknowledged');
-    } else if (_tabMode === 'esc') {
-      shown = base.filter(f => f.status === 'escalated');
-    } else if (_tabMode === 'ioc') {
-      const TI_TYPES = new Set(['Threat Intel Hit', 'Suspicious URL']);
-      shown = base.filter(f => f.ioc_match || TI_TYPES.has(f.type) ||
-        (f.src_ip && _iocSet.has(f.src_ip)) || (f.dst_ip && _iocSet.has(f.dst_ip)));
-    } else {
-      // 'findings' = open only
-      shown = base.filter(f => !f.status || f.status === '');
-    }
-    if (_deltaMode) shown = shown.filter(f => f.is_new);
-    Table.load(shown);
-    updateInfoLine();
+  // _applyTabFilter is a back-compat shim — every existing call site
+  // ultimately wants "render the current tab". With per-tab caches it's
+  // just a render trigger; client-side filtering is gone because the
+  // server returns exactly the tab's slice.
+  function _applyTabFilter(opts) {
+    _showCurrentTab(opts);
   }
 
   function updateInfoLine() {
-    const base = _networkFindings(_allFindings);
-    let open  = base.filter(f => !f.status || f.status === '').length;
-    let acked = base.filter(f => f.status === 'acknowledged').length;
-    let esc   = base.filter(f => f.status === 'escalated').length;
-    const _TI_TYPES = new Set(['Threat Intel Hit', 'Suspicious URL']);
-    let ioc   = base.filter(f => f.ioc_match || _TI_TYPES.has(f.type) ||
-      (f.src_ip && _iocSet.has(f.src_ip)) || (f.dst_ip && _iocSet.has(f.dst_ip))).length;
-    const parts = [`${open} open`, `${acked} ack'd`, `${esc} escalated`];
-    if (ioc) parts.push(`${ioc} IOC`);
-    const newCount = base.filter(f => f.is_new).length;
-    if (newCount) parts.push(`${newCount} new`);
+    // Counts come from /api/findings/counts populated by _loadCounts —
+    // accurate even before any tab's row data has been fetched. Until
+    // counts have loaded the first time, fall back to dashes.
+    const fmt = n => _countsLoaded ? n.toLocaleString() : '—';
+    const ts  = _tabState;
+    const parts = [
+      `${fmt(ts.findings.total)} open`,
+      `${fmt(ts.ack.total)} ack'd`,
+      `${fmt(ts.esc.total)} escalated`,
+    ];
+    if (_countsLoaded && ts.ioc.total > 0) parts.push(`${fmt(ts.ioc.total)} IOC`);
     document.getElementById('info-line').textContent = parts.join('  •  ');
+
+    // findings-count reflects the active tab — what's currently rendered.
+    const cur = _curTab();
     document.getElementById('findings-count').textContent =
-      `${base.length} total`;
+      cur.loaded ? `${cur.total.toLocaleString()} total` : '';
   }
 
   // Fetch IOC list into _iocSet; re-applies tab filter if IOC tab is active.
@@ -227,15 +526,26 @@
 
         const findingsTab = tab === 'findings' || tab === 'ack' || tab === 'esc' || tab === 'ioc';
         if (findingsTab) {
-          // All four share #tab-findings panel; just change the filter
+          // All four share #tab-findings panel; just change the cache slot.
+          // Cached tabs render instantly; first-visit tabs fetch their
+          // own page with the right server-side filter.
           document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
           document.getElementById('tab-findings').classList.add('active');
           _tabMode = tab;
-          _applyTabFilter();
+          _showCurrentTab();
         } else {
           document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
           const panel = document.getElementById('tab-' + tab);
           if (panel) panel.classList.add('active');
+          // Campaigns / Hosts are roll-ups — they need every finding in
+          // the time range, not whatever's loaded for the current
+          // findings tab. Lazy-fetch the aggregate cache on first visit.
+          // Setting _tabMode here lets the pagination footer pick the
+          // right per-tab Load More state.
+          if (tab === 'campaigns' || tab === 'hosts') {
+            _tabMode = tab;
+            _ensureAggregate();
+          }
         }
       });
     });
@@ -243,30 +553,36 @@
 
   // ── Filter bar ─────────────────────────────────────────────────────────────
   function initFilterBar() {
-    // Default the "From" date to 7 days ago. Most hunt workflows look at
-    // recent activity, and an unbounded fetch over a multi-month corpus
-    // is what made the dashboard slow in the first place. The analyst
-    // can still clear the field to widen the window — this is just a
-    // sane initial value, not a hard floor.
-    const fromInput = document.getElementById('filter-from');
-    if (fromInput && !fromInput.value) {
-      const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      const iso = d.toISOString().slice(0, 16); // datetime-local format
-      fromInput.value = iso;
+    // Time-range preset dropdown. Independent of the From/To inputs in
+    // the Advanced bar — selecting a preset applies it immediately and
+    // doesn't touch any other filter field. Power users wanting a
+    // specific date window open Advanced and set From/To, which
+    // override the preset when present.
+    const rangeSel = document.getElementById('filter-range');
+    if (rangeSel) {
+      rangeSel.addEventListener('change', () => {
+        _invalidateAllTabs();
+        applyFilter();
+      });
     }
 
     document.getElementById('apply-filter-btn').addEventListener('click', applyFilter);
     document.getElementById('reset-filter-btn').addEventListener('click', () => {
-      ['filter-search','filter-src','filter-dst','filter-port','filter-from','filter-to'].forEach(id => {
+      ['filter-search','filter-src','filter-dst','filter-port'].forEach(id => {
         const el = document.getElementById(id); if (el) el.value = '';
       });
       document.getElementById('filter-sev').value = '';
       document.getElementById('filter-type').value = '';
       document.getElementById('filter-sensor').value = '';
       document.getElementById('filter-score').value = '0';
-      _applyTabFilter();
+      const rs = document.getElementById('filter-range');
+      if (rs) rs.value = '1mo';
+      // Reset goes through the same path as applyFilter so the active
+      // tab refetches and the info-line counts repopulate (instead of
+      // sticking on the dashes left by _invalidateAllTabs).
+      applyFilter();
     });
-    ['filter-search','filter-src','filter-dst','filter-port','filter-from','filter-to'].forEach(id => {
+    ['filter-search','filter-src','filter-dst','filter-port'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') applyFilter(); });
     });
@@ -280,28 +596,41 @@
         const v = parseInt(pageSizeSel.value, 10);
         if (v > 0) {
           _pageSize = v;
-          loadFindings(_currentFilterParams());
+          // Page-size shifts which page contains the analyst's current
+          // window. Snap every tab back to page 1 — staying on a stale
+          // mid-set offset would surface arbitrary rows. Cheaper than
+          // computing a "keep the first row visible" mapping per tab.
+          _invalidateAllTabs();
+          _loadCounts();
+          if (_isAggregateTab(_tabMode)) {
+            _ensureAggregate();
+          } else {
+            loadFindings(_currentFilterParams());
+          }
         }
       });
     }
-    const loadMoreBtn = document.getElementById('page-load-more');
-    if (loadMoreBtn) {
-      loadMoreBtn.addEventListener('click', async () => {
-        loadMoreBtn.disabled = true;
-        const orig = loadMoreBtn.textContent;
-        loadMoreBtn.textContent = 'Loading…';
-        try {
-          _pageOffset += _pageSize;
-          await loadFindings(_currentFilterParams(), { append: true });
-        } catch (e) {
-          console.error('load more failed', e);
-          _pageOffset -= _pageSize; // roll back so retry doesn't skip
-        } finally {
-          loadMoreBtn.disabled = false;
-          loadMoreBtn.textContent = orig;
-        }
-      });
-    }
+    // Page-nav buttons (« ‹ › »). Findings/Ack/Esc/IOC navigate via a
+    // server fetch with the new offset; Campaigns/Hosts re-slice the
+    // cached aggregate. Disabled state is driven from the footer
+    // updater based on current/total page.
+    const pageFirst = document.getElementById('page-first');
+    const pagePrev  = document.getElementById('page-prev');
+    const pageNext  = document.getElementById('page-next');
+    const pageLast  = document.getElementById('page-last');
+    if (pageFirst) pageFirst.addEventListener('click', () => _gotoPage(1));
+    if (pagePrev)  pagePrev .addEventListener('click', () => {
+      const cur = _currentPageNumber();
+      _gotoPage(cur - 1);
+    });
+    if (pageNext)  pageNext .addEventListener('click', () => {
+      const cur = _currentPageNumber();
+      _gotoPage(cur + 1);
+    });
+    if (pageLast)  pageLast .addEventListener('click', () => {
+      const totalPages = _totalPagesForActiveTab();
+      _gotoPage(totalPages);
+    });
 
     // "Export current tab" dispatches on the active tab. Findings-style
     // tabs go through the server (server-side filters apply); Campaigns
@@ -346,6 +675,27 @@
     } catch (e) {}
   }
 
+  // _rangeFromDate translates a preset key (1d/7d/1mo/3mo/6mo/all) into
+  // an ISO datetime string for the matching window's start, or '' for
+  // "all time". The dropdown is independent of the From/To inputs in
+  // the Advanced bar — those override the preset when set, but the
+  // dropdown does NOT write to them. Selecting a preset applies
+  // immediately without touching anything else in the filter bar.
+  function _rangeFromDate(key) {
+    if (key === 'all' || !key) return '';
+    const day = 24 * 60 * 60 * 1000;
+    const offsets = {
+      '1d':  1 * day,
+      '7d':  7 * day,
+      '1mo': 30 * day,
+      '3mo': 91 * day,
+      '6mo': 182 * day,
+    };
+    const off = offsets[key];
+    if (!off) return '';
+    return new Date(Date.now() - off).toISOString().slice(0, 16);
+  }
+
   // Build the query string representing the current filter state. Shared by
   // applyFilter (for /api/findings) and the export buttons so the exported
   // file matches the on-screen view exactly.
@@ -362,8 +712,13 @@
     const dst = g('filter-dst').trim(); if (dst) params.dst_ip = dst;
     const port = g('filter-port').trim(); if (port) params.dst_port = port;
     const sn  = g('filter-sensor');     if (sn)  params.sensor = sn;
-    const from = g('filter-from');      if (from) params.from = from;
-    const to   = g('filter-to');        if (to)   params.to   = to;
+    // Date filter comes from the Time-range dropdown only. Custom
+    // From/To inputs were removed from the Advanced bar — the dropdown
+    // covers every common hunt window and the perf cost of a date
+    // walking heuristic on each fetch isn't worth a power-user knob.
+    const rangeKey = g('filter-range');
+    const computed = _rangeFromDate(rangeKey);
+    if (computed) params.from = computed;
 
     // Tab-aware status filter, mirrored server-side. Without this, the
     // Findings tab fetches every status (including acknowledged and
@@ -767,23 +1122,18 @@
   }
 
   function applyFilter() {
-    loadFindings(_currentFilterParams());
-  }
-
-  // Populate the Sensor filter dropdown from the distinct sensors present
-  // in the current findings list.
-  function _updateSensorFilter(findings) {
-    const sel = document.getElementById('filter-sensor');
-    if (!sel) return;
-    const current = sel.value;
-    const sensors = [...new Set((findings || []).map(f => f.sensor).filter(Boolean))].sort();
-    while (sel.options.length > 1) sel.remove(1);
-    sensors.forEach(s => {
-      const o = document.createElement('option');
-      o.value = s; o.textContent = s;
-      sel.appendChild(o);
-    });
-    if (sensors.includes(current)) sel.value = current;
+    // A filter change can affect every tab's result set, so invalidate
+    // all caches. Other tabs will re-fetch lazily when the analyst
+    // visits them. The active tab refetches now. _loadCounts always
+    // fires regardless of active tab — the info-line is global, so
+    // skipping it on Campaigns/Hosts left dashes on screen.
+    _invalidateAllTabs();
+    _loadCounts();
+    if (_isAggregateTab(_tabMode)) {
+      _ensureAggregate();
+    } else {
+      loadFindings(_currentFilterParams());
+    }
   }
 
   // ── Delta mode ─────────────────────────────────────────────────────────────
@@ -792,13 +1142,17 @@
       _deltaMode = true;
       document.getElementById('delta-btn').classList.add('active');
       document.getElementById('show-all-btn').classList.remove('active');
-      _applyTabFilter();
+      _invalidateAllTabs();
+      _loadCounts();
+      loadFindings(_currentFilterParams());
     });
     document.getElementById('show-all-btn').addEventListener('click', () => {
       _deltaMode = false;
       document.getElementById('show-all-btn').classList.add('active');
       document.getElementById('delta-btn').classList.remove('active');
-      _applyTabFilter();
+      _invalidateAllTabs();
+      _loadCounts();
+      loadFindings(_currentFilterParams());
     });
   }
 
@@ -1014,7 +1368,16 @@
         ? `Analysis stopped — ${evt.count || 0} partial findings`
         : `Analysis complete — ${evt.count || 0} findings (${evt.new_count || 0} new)`);
       document.getElementById('analysis-status').textContent = '';
-      await loadFindings(_currentFilterParams());
+      // Analysis just finished: every tab's cache is potentially stale
+      // (new findings emitted, existing ones may have shifted scores).
+      _invalidateAllTabs();
+      if (_isAggregateTab(_tabMode)) {
+        await _ensureAggregate();
+      } else {
+        await loadFindings(_currentFilterParams());
+      }
+      _loadCounts();
+      _loadFacets();
       _updateTIStatus();
       // Catch any notifications missed if SSE connection dropped during analysis
       fetch('/api/notifications')
@@ -1699,9 +2062,21 @@
           body: JSON.stringify(_collectArchive()),
         });
         // Refresh the in-memory org CIDR list and rebuild the Hosts panel so
-        // the new filter is reflected without a page reload.
+        // the new filter is reflected without a page reload. Honor the
+        // active per-tab pagination so this re-render doesn't dump
+        // every row into the DOM.
         _orgCIDRs = Array.isArray(payload.org_internal_cidrs) ? payload.org_internal_cidrs : [];
-        Campaigns.build(_allFindings);
+        Campaigns.build(_allFindings, {
+          campaignsOffset: _aggTabState.campaigns.offset,
+          campaignsLimit:  _pageSize,
+          hostsOffset:     _aggTabState.hosts.offset,
+          hostsLimit:      _pageSize,
+        });
+        _aggTabState.campaigns.total = Campaigns.getCampaigns().length;
+        _aggTabState.hosts.total     = Campaigns.getHosts().length;
+        _clampAggOffset(_aggTabState.campaigns);
+        _clampAggOffset(_aggTabState.hosts);
+        _updatePaginationFooter();
         setStatus('Settings saved');
       } catch (e) {
         setStatus('Error: ' + e);
@@ -2364,14 +2739,14 @@
         }
       }
 
-      // Top-left arrow visually anchors the menu to the click point.
-      // The verbose "[crit] Beaconing — src → dst:port" header used to
-      // live here but pushed the menu wider than the longest finding
-      // description; menu item labels already include the resolved IP
-      // ("Add 192.0.2.5 to Allowlist", "Pivot to 192.0.2.5", etc.), so
-      // the banner was redundant.
-      const hdr = document.getElementById('ctx-header');
-      if (hdr) hdr.textContent = '↖';
+      // The click-anchor arrow is positioned per right-click below,
+      // after the menu has been measured. Default it to top-left so
+      // the first paint isn't off in an unrelated corner.
+      const arrow = document.getElementById('ctx-arrow');
+      if (arrow) {
+        arrow.textContent = '↖';
+        arrow.setAttribute('data-corner', 'tl');
+      }
 
       // Column-aware section: hide entirely on cells that aren't Src or Dst.
       // The user explicitly asked for non-IP cells to show only row-level
@@ -2391,12 +2766,20 @@
 
       // Role gate: viewers can't perform any write action, so hide them
       // entirely instead of letting the user click into a 403.
+      // Tab gate: Acknowledge / Escalate / Suppress operate on a single
+      // finding's status. Right-clicks on Campaigns or Hosts rows reach
+      // here with a synthesised "row" that doesn't represent a finding
+      // those actions can target — hide them on those tabs to keep the
+      // menu honest.
       const role = (_currentUser && _currentUser.role) || 'viewer';
       const isViewer = role === 'viewer';
+      const onAggregateTab = _isAggregateTab(_tabMode);
       document.querySelectorAll('.ctx-write').forEach(el => {
-        // Only hide for viewers; analyst+ keeps the items, possibly disabled by state-aware logic below.
-        if (isViewer) el.style.display = 'none';
+        if (isViewer || onAggregateTab) el.style.display = 'none';
         else if (!el.classList.contains('ctx-target-aware') || showColAware) el.style.display = '';
+      });
+      document.querySelectorAll('.ctx-write-sep').forEach(el => {
+        el.style.display = (isViewer || onAggregateTab) ? 'none' : '';
       });
 
       // State-aware: don't offer actions that no longer apply.
@@ -2412,10 +2795,13 @@
         _disable('ctx-ioc-add',   _iocSet.has(_ctxTarget),   'Already on IOC list');
       }
 
-      // Beacon Chart only matters for findings carrying timeseries data.
-      // The detail-pane button uses the same gate (see chart-btn enable logic).
+      // Beacon Chart only matters for findings carrying timeseries data —
+      // the analyzer attaches TSData to "Beaconing" and "HTTP Beaconing"
+      // findings only. The list-response projection strips ts_data
+      // (see handlers_api.go's listFinding), so we can't gate on its
+      // presence here; type is a reliable proxy and always available.
       const chartItem = document.getElementById('ctx-chart');
-      const hasChart = !!(f && Array.isArray(f.ts_data) && f.ts_data.length > 0);
+      const hasChart = !!(f && (f.type === 'Beaconing' || f.type === 'HTTP Beaconing'));
       if (chartItem) chartItem.style.display = hasChart ? '' : 'none';
 
       // Campaign-only items: revealed when campaigns.js attached _campaign.
@@ -2424,9 +2810,39 @@
         el.style.display = showCampaign ? '' : 'none';
       });
 
-      menu.style.left = Math.min(e.clientX, window.innerWidth - 220) + 'px';
-      menu.style.top  = Math.min(e.clientY, window.innerHeight - 200) + 'px';
+      // Position the menu, then measure and clamp into the viewport.
+      // The static 220×200 fallback under-counts the actual menu — items
+      // are dynamically shown/hidden and the larger UI font has pushed
+      // the rendered size past those numbers, so a click near the right
+      // or bottom edge cut the menu off. Measuring after reveal lets us
+      // place it correctly regardless of which items are visible.
+      menu.style.left = '0px';
+      menu.style.top  = '0px';
       menu.classList.remove('hidden');
+      const margin = 8;
+      const r = menu.getBoundingClientRect();
+
+      // Decide whether the menu opens down-right, down-left, up-right,
+      // or up-left of the click. The chosen corner anchors at the click.
+      const openLeft = (e.clientX + r.width  > window.innerWidth  - margin);
+      const openUp   = (e.clientY + r.height > window.innerHeight - margin);
+      let left = openLeft ? Math.max(margin, e.clientX - r.width)  : e.clientX;
+      let top  = openUp   ? Math.max(margin, e.clientY - r.height) : e.clientY;
+      if (left < margin) left = margin;
+      if (top  < margin) top  = margin;
+      menu.style.left = left + 'px';
+      menu.style.top  = top  + 'px';
+
+      // Place the click-anchor arrow at whichever corner of the menu
+      // sits closest to the click point, with a glyph pointing back
+      // toward the click. ↖↗↙↘ correspond to top-left / top-right /
+      // bottom-left / bottom-right respectively.
+      if (arrow) {
+        const corner = (openUp ? 'b' : 't') + (openLeft ? 'r' : 'l');
+        const glyph  = { tl: '↖', tr: '↗', bl: '↙', br: '↘' }[corner];
+        arrow.setAttribute('data-corner', corner);
+        arrow.textContent = glyph;
+      }
     }
 
     document.addEventListener('click', () => menu.classList.add('hidden'));
@@ -2581,7 +2997,14 @@
       const c = _ctxFinding._campaign;
       const srcs = c.srcs instanceof Set ? c.srcs : new Set(c.srcs || []);
       const port = String(c.port || '');
-      const findings = _allFindings.filter(f =>
+      // Source from the aggregate cache when available — the active
+      // findings tab may be paginated to a small slice (or empty if the
+      // analyst opened Campaigns directly), and the graph needs every
+      // finding belonging to this campaign to render the full host set.
+      const pool = (_aggregateState.loaded && _aggregateState.findings.length > 0)
+        ? _aggregateState.findings
+        : _allFindings;
+      const findings = pool.filter(f =>
         f.dst_ip === c.dst &&
         String(f.dst_port || '') === port &&
         srcs.has(f.src_ip)
@@ -2792,7 +3215,21 @@
     const showMenu = initContextMenu();
 
     Table.init(
-      f => { _selectedFinding = f; Detail.render(f); },
+      // Row select: render the projected row immediately so the detail
+      // pane responds without a roundtrip, then upgrade to the full
+      // finding (which carries ts_data / intervals / notes that the
+      // list projection strips). The chart and notes affordances only
+      // light up after the upgrade lands.
+      f => {
+        _selectedFinding = f;
+        Detail.render(f);
+        if (!f || !f.id) return;
+        fetchFinding(f.id).then(full => {
+          if (!_selectedFinding || _selectedFinding.id !== full.id) return;
+          _selectedFinding = full;
+          Detail.render(full);
+        }).catch(() => {});
+      },
       (e, f) => showMenu(e, f)
     );
 
@@ -2870,7 +3307,8 @@
         Sensors.init(u.role === 'admin');
       }
       // Feeds menu mirrors Sensors: admin + analyst can read; admin
-      // gets the add/edit/delete/refresh actions.
+      // gets the add/edit/delete actions. Feed fetching itself is
+      // automatic — runs at watch full-pass cadence, not on demand.
       if (typeof Feeds !== 'undefined' && (u.role === 'admin' || u.role === 'analyst')) {
         Feeds.init(u.role === 'admin');
       }
@@ -2892,6 +3330,7 @@
     initUserManagement();
 
     BeaconChart.init();
+    _initExportDropdown('chart-export-btn', 'chart-export-menu', BeaconChart.exportImage);
     initTabs();
     initFilterBar();
     initDeltaBar();
@@ -2926,9 +3365,11 @@
     // caches identically, so this is essentially free after the first call.
     _refreshDiskUsage();
     setInterval(_refreshDiskUsage, 5 * 60 * 1000);
-    loadFindings()
+    loadFindings(_currentFilterParams())
       .then(() => _updateTIStatus())
       .catch(() => setStatus('Ready — click Import then Analyze'));
+    _loadCounts();
+    _loadFacets();
     setStatus('Ready');
   }
 

@@ -73,7 +73,12 @@ const Detail = (() => {
     escBtn.disabled  = f.status === 'escalated';
     suppBtn.disabled = false;
     pcapBtn.disabled = !(f.src_ip && f.dst_ip);
-    chartBtn.disabled = !(f.ts_data && f.ts_data.length > 0);
+    // Beacon Chart is meaningful only for the two finding types that
+    // carry TSData. Gate on type instead of f.ts_data presence — list
+    // responses are projected (no ts_data) and the row-click upgrade
+    // fetch arrives a tick later, leaving the button momentarily
+    // disabled if we gated on the field directly.
+    chartBtn.disabled = !(f.type === 'Beaconing' || f.type === 'HTTP Beaconing');
     if (rawBtn) {
       rawBtn.disabled = !(f.src_ip && f.dst_ip);
       rawBtn.dataset.findingId = f.id;

@@ -2,8 +2,10 @@
 //
 // Renders the list of configured MISP / OpenCTI feeds with status,
 // indicator count, and last-refresh timestamp. Admin gestures:
-// add a feed, edit, delete, enable/disable, manual refresh. The
-// Feeds button in the topbar is the entry point; only admins see it.
+// add a feed, edit, delete, enable/disable, and per-row manual refresh.
+// Feed fetching also runs automatically at every full-pass watch tick;
+// the per-row Refresh is the on-demand path admins use to verify a
+// freshly configured feed without waiting for the next watch tick.
 
 'use strict';
 

@@ -76,7 +76,7 @@ html, body {
   color: var(--fg-primary);
   font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI",
                "Helvetica Neue", Arial, sans-serif;
-  font-size: 13px;
+  font-size: 17px;
   line-height: 1.5;
   font-feature-settings: "ss01", "cv11";
   -webkit-font-smoothing: antialiased;
@@ -102,37 +102,76 @@ button, input, select, textarea {
 /* ============================================================================
    Top bar
 ============================================================================ */
+/* App frame: full-height left sidebar + right column for topbar /
+   content / statusbar. The sidebar's right border now runs from the
+   top of the page to the bottom — there is no topbar segment above
+   the sidebar. */
+#app-frame {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+#main-column {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
 #topbar {
   display: flex;
   align-items: center;
   background: var(--bg-elev-1);
-  height: 56px;
-  padding: 0 18px;
+  /* Just tall enough for the action buttons + comfortable padding.
+     The sidebar-brand block is independently sized (it carries the
+     Archer + Silent Hunter stack) — there's no horizontal divider
+     between them, so the two columns don't need to share height. */
+  height: 48px;
+  padding: 0 22px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
-  gap: 14px;
+  gap: 18px;
   position: relative;
   z-index: 100;
 }
-.app-title {
-  display: inline-flex;
+/* Sidebar-brand: Archer crosshairs + wordmark at the very top of the
+   sidebar, with "Silent Hunter" centered underneath. No border-bottom —
+   the section dividers below carry the visual rhythm; this block flows
+   straight into the first sidebar section. */
+.sidebar-brand {
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
-  font-size: 15px;
-  font-weight: 600;
+  justify-content: center;
+  gap: 4px;
+  padding: 14px 8px 16px;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+.sidebar-brand .brand-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sidebar-brand .brand-row svg {
+  color: var(--accent);
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+}
+.sidebar-brand .brand-name {
+  font-size: 30px;
+  font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--fg-primary);
-  white-space: nowrap;
+  line-height: 1;
 }
-.app-title svg { color: var(--accent); flex-shrink: 0; }
-.subtitle {
+.sidebar-brand .brand-tagline {
   font-size: 11px;
+  font-weight: 600;
   color: var(--fg-muted);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  padding-left: 12px;
-  border-left: 1px solid var(--border);
-  white-space: nowrap;
+  text-align: center;
 }
 #topbar .spacer { flex: 1; }
 
@@ -141,7 +180,7 @@ button, input, select, textarea {
 #bell-btn {
   background: transparent;
   border: 1px solid transparent;
-  font-size: 15px;
+  font-size: 17px;
   cursor: pointer;
   color: var(--fg-secondary);
   width: 32px;
@@ -159,7 +198,7 @@ button, input, select, textarea {
 .badge {
   background: var(--sev-critical);
   color: #fff;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   border-radius: 99px;
   padding: 1px 5px;
@@ -183,7 +222,7 @@ button, input, select, textarea {
   padding: 6px 12px;
   border-radius: var(--radius);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.01em;
   transition: background .12s, color .12s, border-color .12s;
@@ -203,7 +242,7 @@ button, input, select, textarea {
   background: var(--sev-critical);
   color: #fff;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1.4;
   vertical-align: middle;
@@ -218,14 +257,14 @@ button, input, select, textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 5px 12px;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--fg-muted);
 }
 #user-display { color: var(--fg-primary); font-weight: 500; }
 #logout-link {
   color: var(--fg-muted);
   text-decoration: none;
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1;
   padding: 0 2px;
   transition: color .12s;
@@ -257,7 +296,7 @@ button, input, select, textarea {
   background: var(--bg-elev-1);
   border-bottom: 1px solid var(--border);
   font-weight: 600;
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--fg-secondary);
@@ -269,7 +308,7 @@ button, input, select, textarea {
   border: none;
   color: var(--fg-muted);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   text-transform: none;
   letter-spacing: 0;
@@ -280,8 +319,8 @@ button, input, select, textarea {
   border-bottom: 1px solid var(--border-subtle);
 }
 .notif-item:last-child { border-bottom: none; }
-.notif-sev { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
-.notif-addr { font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 11px; color: var(--fg-primary); margin: 4px 0; }
+.notif-sev { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.notif-addr { font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 13px; color: var(--fg-primary); margin: 4px 0; }
 .notif-actions { display: flex; gap: 6px; margin-top: 6px; }
 .btn-jump {
   background: var(--accent);
@@ -290,7 +329,7 @@ button, input, select, textarea {
   padding: 3px 10px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   transition: background .12s;
 }
@@ -302,26 +341,32 @@ button, input, select, textarea {
   padding: 2px 10px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 13px;
   transition: color .12s, border-color .12s;
 }
 .btn-dismiss-notif:hover { color: var(--fg-primary); border-color: var(--border-strong); }
 
 /* ============================================================================
-   Body layout
+   Main content area (right of sidebar, between topbar and statusbar)
 ============================================================================ */
-#body {
+#main {
+  flex: 1;
   display: flex;
-  height: calc(100vh - 56px - 28px);
+  flex-direction: column;
   overflow: hidden;
+  min-height: 0;
 }
 
 /* ============================================================================
-   Sidebar
+   Sidebar — full-height, left-most column. Brand block sits at the top
+   (height matches #topbar so the page is split cleanly into a 2x2 grid:
+   sidebar-brand + topbar on the top row, sidebar body + main on the body
+   row).
 ============================================================================ */
 #sidebar {
-  width: 248px;
-  min-width: 248px;
+  width: 210px;
+  min-width: 210px;
+  flex-shrink: 0;
   background: var(--bg-elev-1);
   border-right: 1px solid var(--border);
   display: flex;
@@ -331,7 +376,7 @@ button, input, select, textarea {
   padding-bottom: 12px;
 }
 .sidebar-section-title {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--fg-muted);
   letter-spacing: 0.12em;
@@ -356,7 +401,7 @@ button, input, select, textarea {
   padding: 6px 10px;
   border-radius: var(--radius);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.01em;
   transition: background .12s, border-color .12s, color .12s;
@@ -398,7 +443,7 @@ button, input, select, textarea {
 }
 #file-list li {
   font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--fg-muted);
   padding: 2px 6px;
   white-space: nowrap;
@@ -424,19 +469,19 @@ button, input, select, textarea {
 #progress-bar::-moz-progress-bar { background: var(--accent); border-radius: 2px; }
 
 .ti-label {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--fg-muted);
   padding: 4px 14px;
   display: block;
 }
 .sidebar-status {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--fg-muted);
   padding: 2px 14px;
   word-break: break-all;
 }
 .sidebar-label {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--fg-muted);
   padding: 4px 14px 0;
 }
@@ -451,9 +496,9 @@ button, input, select, textarea {
   background: var(--bg-input);
   border: 1px solid var(--border);
   color: var(--fg-primary);
-  padding: 5px 8px;
+  padding: 9px 10px;
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: 16px;
   min-width: 0;
   transition: border-color .12s, background .12s;
 }
@@ -467,14 +512,15 @@ button, input, select, textarea {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--fg-secondary);
-  padding: 4px 10px;
+  padding: 9px 14px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 500;
   transition: background .12s, color .12s, border-color .12s;
 }
 .sidebar-small-btn:hover { background: var(--bg-elev-3); color: var(--fg-primary); border-color: var(--border-strong); }
+.sidebar-bottom { margin-top: auto; }
 
 /* ============================================================================
    Main panel
@@ -510,9 +556,9 @@ button, input, select, textarea {
 #filter-bar-advanced label {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   color: var(--fg-secondary);
-  font-size: 11px;
+  font-size: 15px;
   white-space: nowrap;
   font-weight: 500;
 }
@@ -520,9 +566,9 @@ button, input, select, textarea {
   background: var(--bg-input);
   border: 1px solid var(--border);
   color: var(--fg-primary);
-  padding: 5px 9px;
+  padding: 9px 10px;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: 16px;
   min-width: 0;
   transition: border-color .12s, background .12s, box-shadow .12s;
 }
@@ -539,15 +585,16 @@ button, input, select, textarea {
 .filter-select          { width: 140px; }
 .filter-select.narrow   { width: 110px; }
 .filter-score           { width: 56px; }
+#filter-range           { width: 150px; font-weight: 500; }
 
 .filter-btn {
   background: var(--accent);
   border: 1px solid transparent;
   color: #fff;
-  padding: 5px 12px;
+  padding: 9px 14px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 500;
   letter-spacing: 0.01em;
   white-space: nowrap;
@@ -568,6 +615,11 @@ button, input, select, textarea {
 .filter-btn.right { margin-left: auto; }
 .filter-spacer { flex-grow: 1; }
 
+/* Time-range preset dropdown sits in the right-justified area of the
+   filter bar (after .filter-spacer). Slight right margin separates it
+   from the export buttons that follow. */
+.filter-range-label { margin-right: 10px; }
+
 /* ============================================================================
    Delta bar
 ============================================================================ */
@@ -584,7 +636,7 @@ button, input, select, textarea {
   padding: 5px 14px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   display: inline-flex;
   align-items: center;
@@ -614,7 +666,7 @@ button, input, select, textarea {
 
 #info-line {
   padding: 0 18px 4px;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--fg-muted);
   min-height: 18px;
 }
@@ -624,10 +676,20 @@ button, input, select, textarea {
 ============================================================================ */
 #tabs {
   display: flex;
+  align-items: center;
   padding: 0 18px;
   gap: 2px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-base);
+}
+/* Findings-tab pagination controls live in the tabs row, pushed
+   right-of-center so they sit visually with the table they control.
+   Hidden by JS for non-Findings tabs. */
+#tabs #findings-pagination {
+  margin-left: auto;
+  border-bottom: none;
+  background: transparent;
+  padding: 6px 0;
 }
 .tab-btn {
   background: transparent;
@@ -636,7 +698,7 @@ button, input, select, textarea {
   color: var(--fg-muted);
   padding: 10px 16px 9px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -667,7 +729,7 @@ button, input, select, textarea {
 .tab-panel { display: none; flex: 1; overflow: hidden; flex-direction: column; }
 .tab-panel.active { display: flex; }
 .hint {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--fg-muted);
   padding: 10px 18px 6px;
   line-height: 1.5;
@@ -693,7 +755,7 @@ thead th {
   top: 0;
   background: var(--bg-elev-1);
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -708,8 +770,8 @@ thead th {
   transition: color .12s, background .12s;
 }
 thead th:hover { color: var(--fg-secondary); background: var(--bg-elev-2); }
-thead th.sort-asc::after  { content: ' ↑'; font-size: 10px; color: var(--accent); }
-thead th.sort-desc::after { content: ' ↓'; font-size: 10px; color: var(--accent); }
+thead th.sort-asc::after  { content: ' ↑'; font-size: 12px; color: var(--accent); }
+thead th.sort-desc::after { content: ' ↓'; font-size: 12px; color: var(--accent); }
 
 /* Column resize handle */
 .col-resize-handle {
@@ -749,7 +811,7 @@ tbody tr.selected {
 
 td {
   padding: 8px 12px;
-  font-size: 12px;
+  font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -764,7 +826,7 @@ td {
   height: 32px;
   box-sizing: border-box;
 }
-td.status-icon { text-align: center; width: 32px; color: var(--fg-muted); font-size: 15px; line-height: 1; }
+td.status-icon { text-align: center; width: 32px; color: var(--fg-muted); font-size: 17px; line-height: 1; }
 td.status-icon .si-esc { color: var(--sev-critical); }
 td.status-icon .si-ack { color: var(--sev-low); }
 td.status-icon .si-new { color: var(--accent); }
@@ -772,7 +834,7 @@ td.status-icon .si-ioc { color: var(--ioc); }
 td.score { text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
 td.severity {
   text-align: center;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -811,7 +873,7 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
   flex-shrink: 0;
 }
 #detail-header {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--fg-muted);
   padding: 10px 18px 6px;
@@ -846,7 +908,7 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
   padding: 5px 12px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   transition: background .12s, color .12s, border-color .12s;
 }
@@ -862,7 +924,7 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
 .action-btn.pcap:not(:disabled)  { color: var(--sev-low); }
 .action-btn.supp:not(:disabled)  { color: var(--sev-high); }
 #analyst-rec {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--fg-muted);
   margin-left: 8px;
   font-style: italic;
@@ -877,7 +939,7 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
   padding: 12px 18px;
 }
 #notes-header {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.12em;
   color: var(--fg-muted);
@@ -892,12 +954,12 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
   padding: 8px 12px;
 }
 .note-meta {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--fg-muted);
   margin-bottom: 4px;
 }
 .note-author { color: var(--fg-secondary); font-weight: 600; }
-.note-text { font-size: 12px; color: var(--fg-primary); white-space: pre-wrap; line-height: 1.5; }
+.note-text { font-size: 14px; color: var(--fg-primary); white-space: pre-wrap; line-height: 1.5; }
 #add-note-row { display: flex; gap: 6px; align-items: flex-start; }
 #inline-note-input {
   flex: 1;
@@ -905,7 +967,7 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--fg-primary);
-  font-size: 12px;
+  font-size: 14px;
   padding: 7px 10px;
   resize: vertical;
   font-family: inherit;
@@ -922,7 +984,7 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
   border-radius: var(--radius);
   color: #fff;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   padding: 7px 14px;
   white-space: nowrap;
@@ -942,7 +1004,7 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
   padding: 0 18px;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: 14px;
 }
 #status-msg {
   color: var(--fg-muted);
@@ -972,7 +1034,7 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
 #version-pill {
   color: var(--fg-dim);
   font-family: ui-monospace, monospace;
-  font-size: 11px;
+  font-size: 13px;
   padding: 2px 8px;
   border: 1px solid var(--border-subtle, var(--border));
   border-radius: 10px;
@@ -1008,7 +1070,7 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
 .export-menu li {
   padding: 7px 16px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   white-space: nowrap;
   color: var(--fg-secondary);
   transition: background .08s, color .08s;
@@ -1033,7 +1095,7 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
 .ctx-menu li {
   padding: 7px 16px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   white-space: nowrap;
   color: var(--fg-secondary);
   transition: background .08s, color .08s;
@@ -1047,23 +1109,35 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
   padding: 0;
 }
 .ctx-menu .ctx-separator:hover { background: var(--border-subtle); }
-/* Non-clickable top-left arrow that visually anchors the menu to the
-   click point. The previous full-text banner ("[crit] Beaconing —
-   src → dst:port") forced the menu wider than the longest finding
-   description; menu item labels carry the IP already, so the arrow
-   alone is enough indication. */
-.ctx-menu .ctx-header {
-  padding: 4px 12px 2px 12px;
-  font-size: 13px;
+/* Non-clickable click-anchor arrow. Positioned absolutely at one of the
+   menu's four corners — whichever the right-click point landed at — with
+   a glyph that points back toward the click. JS sets the data-corner
+   attribute after measuring so the menu always has a visual reference
+   to the click, no matter which way the menu had to flip to fit on
+   screen. */
+.ctx-menu .ctx-arrow {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
   line-height: 1;
-  color: var(--fg-dim);
-  cursor: default;
+  color: var(--accent);
+  pointer-events: none;
   user-select: none;
 }
-.ctx-menu .ctx-header:hover {
+.ctx-menu .ctx-arrow:hover {
   background: transparent;
-  color: var(--fg-dim);
+  color: var(--accent);
 }
+.ctx-menu .ctx-arrow[data-corner="tl"] { top: -10px; left:  -10px; }
+.ctx-menu .ctx-arrow[data-corner="tr"] { top: -10px; right: -10px; }
+.ctx-menu .ctx-arrow[data-corner="bl"] { bottom: -10px; left:  -10px; }
+.ctx-menu .ctx-arrow[data-corner="br"] { bottom: -10px; right: -10px; }
 /* State-aware items use this class when an action is no longer applicable
    (already acknowledged, IP already on a list, etc.). The item stays in
    place so the menu doesn't reflow but is visually muted and unclickable. */
@@ -1081,7 +1155,7 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
   content: '›';
   float: right;
   color: var(--fg-muted);
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1;
   margin-left: 12px;
 }
@@ -1101,7 +1175,7 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
 }
 .ctx-submenu-panel li {
   padding: 7px 16px;
-  font-size: 12px;
+  font-size: 14px;
   cursor: pointer;
   color: var(--fg-secondary);
   transition: background .08s, color .08s;
@@ -1182,7 +1256,7 @@ dialog::backdrop {
 }
 #graph-info {
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 13px;
   flex: 1;
   text-align: right;
   font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
@@ -1200,7 +1274,7 @@ dialog::backdrop {
   align-items: center;
   justify-content: center;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 14px;
   background: var(--bg-base);
   pointer-events: none;
   z-index: 2;
@@ -1208,7 +1282,7 @@ dialog::backdrop {
 #graph-loading.visible { display: flex; }
 
 .dlg-header {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.02em;
   padding: 14px 22px 12px;
@@ -1227,7 +1301,7 @@ dialog::backdrop {
 .dlg-body label {
   display: block;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.02em;
   margin-bottom: 6px;
@@ -1239,9 +1313,9 @@ dialog::backdrop {
   background: var(--bg-input);
   border: 1px solid var(--border);
   color: var(--fg-primary);
-  padding: 7px 11px;
+  padding: 9px 12px;
   border-radius: var(--radius);
-  font-size: 12px;
+  font-size: 15px;
   font-family: inherit;
   transition: border-color .12s, box-shadow .12s;
 }
@@ -1272,7 +1346,7 @@ dialog::backdrop {
   border: 1px solid var(--border);
   color: var(--fg-primary);
   border-radius: var(--radius);
-  font-size: 12px;
+  font-size: 14px;
   font-family: inherit;
   display: flex;
   align-items: center;
@@ -1328,7 +1402,7 @@ dialog::backdrop {
   border-radius: var(--radius);
   border: 1px solid transparent;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.01em;
   transition: background .12s, color .12s, border-color .12s;
@@ -1357,7 +1431,7 @@ dialog::backdrop {
   padding: 5px 14px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   transition: background .12s, color .12s, border-color .12s;
 }
@@ -1366,7 +1440,7 @@ dialog::backdrop {
 /* Settings groups */
 .settings-group { margin-bottom: 18px; }
 .settings-group-title {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--fg-muted);
   text-transform: uppercase;
@@ -1399,14 +1473,14 @@ dialog::backdrop {
 #feeds-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 14px;
 }
 #feeds-table th {
   text-align: left;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1421,20 +1495,20 @@ dialog::backdrop {
   text-overflow: ellipsis;
 }
 #feeds-table tr:hover td { background: var(--bg-elev-3); }
-#feeds-table .dlg-btn { padding: 3px 9px; font-size: 11px; margin-left: 4px; }
+#feeds-table .dlg-btn { padding: 3px 9px; font-size: 13px; margin-left: 4px; }
 
-/* Findings table pagination footer — sits below the table, holds the
-   per-page selector + Load More button + position indicator. Sticks to
-   the bottom of the table-wrap so it's always visible regardless of
-   scroll. */
+/* Findings table pagination header — sits above the table, right-
+   aligned with the Details column area. Holds the position indicator
+   (Showing N of M), per-page selector, and Load More button. */
 #findings-pagination {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 14px;
   padding: 8px 14px;
-  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   background: var(--bg-elev-1);
-  font-size: 12px;
+  font-size: 14px;
   color: var(--fg-muted);
 }
 #findings-pagination .page-info { color: var(--fg-muted); }
@@ -1445,14 +1519,44 @@ dialog::backdrop {
   background: var(--bg-input);
   border: 1px solid var(--border);
   color: var(--fg-primary);
-  padding: 3px 6px;
+  padding: 6px 10px;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: 15px;
 }
-#findings-pagination #page-load-more {
-  margin-left: auto;
-  padding: 4px 14px;
-  font-size: 12px;
+#findings-pagination .page-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+#findings-pagination .page-btn {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--fg-primary);
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  min-width: 32px;
+}
+#findings-pagination .page-btn:hover:not(:disabled) {
+  background: var(--bg-elev-3);
+  border-color: var(--border-strong);
+}
+#findings-pagination .page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+#findings-pagination .page-indicator {
+  padding: 0 8px;
+  color: var(--fg-muted);
+  font-size: 14px;
+}
+#findings-pagination .page-indicator #page-current,
+#findings-pagination .page-indicator #page-last-num {
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Status pill rendered by feeds.js (`severity-pill` + sev-* modifier).
@@ -1462,7 +1566,7 @@ dialog::backdrop {
   display: inline-block;
   padding: 2px 8px;
   border-radius: 99px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1478,24 +1582,37 @@ dialog::backdrop {
 #chart-dialog                 { width: 880px; }
 
 #chart-canvas { background: var(--bg-elev-1); border-radius: var(--radius); }
-.chart-presets { display: flex; gap: 6px; padding: 0 22px 14px; flex-wrap: wrap; }
-.chart-preset-btn {
+.chart-views { display: flex; align-items: center; gap: 6px; padding: 0 22px 10px; flex-wrap: wrap; }
+.chart-view-btn {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--fg-muted);
-  padding: 4px 12px;
+  padding: 5px 14px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 500;
   transition: background .12s, color .12s, border-color .12s;
 }
-.chart-preset-btn:hover { background: var(--bg-elev-3); color: var(--fg-primary); border-color: var(--border-strong); }
-.chart-preset-btn.active {
+.chart-view-btn:hover { background: var(--bg-elev-3); color: var(--fg-primary); border-color: var(--border-strong); }
+.chart-view-btn.active {
   background: var(--accent-soft);
   color: var(--accent-hover);
   border-color: var(--accent);
 }
+/* Stats strip above the canvas — count, mean interval, jitter (CV),
+   span. These three numbers carry most of the beacon-validation
+   signal; the chart underneath visualizes them. */
+.chart-stats {
+  display: flex;
+  gap: 22px;
+  padding: 0 22px 12px;
+  font-size: 13px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.chart-stats .stat-label { color: var(--fg-dim); margin-right: 6px; }
+.chart-stats .stat-value { color: var(--fg-primary); font-weight: 600; }
 
 /* ============================================================================
    Campaigns / Hosts tables
@@ -1519,7 +1636,7 @@ dialog::backdrop {
   table-layout: fixed;
   width: max-content;
   font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
+  font-size: 13px;
 }
 #raw-dlg-table table.raw-table th {
   background: var(--bg-elev-1);
@@ -1527,7 +1644,7 @@ dialog::backdrop {
   padding: 6px 12px 6px 8px;
   border-bottom: 1px solid var(--border);
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1562,11 +1679,11 @@ dialog::backdrop {
 /* ============================================================================
    User management
 ============================================================================ */
-#users-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#users-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 #users-table th {
   text-align: left;
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1584,7 +1701,7 @@ dialog::backdrop {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--fg-primary);
-  font-size: 12px;
+  font-size: 14px;
   padding: 4px 7px;
   cursor: pointer;
   transition: border-color .12s;
@@ -1598,7 +1715,7 @@ dialog::backdrop {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   padding: 4px 10px;
   margin-right: 4px;
@@ -1618,7 +1735,7 @@ dialog::backdrop {
 }
 
 .dlg-section-title {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.12em;
   color: var(--fg-muted);
@@ -1636,7 +1753,7 @@ dialog::backdrop {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--fg-primary);
-  font-size: 12px;
+  font-size: 14px;
   padding: 7px 10px;
   min-width: 0;
   transition: border-color .12s;
@@ -1652,7 +1769,7 @@ dialog::backdrop {
 .status-badge {
   display: inline-block;
   border-radius: var(--radius-sm);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   padding: 2px 8px;
   text-transform: uppercase;
