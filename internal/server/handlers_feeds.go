@@ -28,6 +28,7 @@ type feedResponse struct {
 	IndicatorAgingDays int    `json:"indicator_aging_days"`
 	LastRefreshAt      int64  `json:"last_refresh_at"`
 	LastIndicatorCount int    `json:"last_indicator_count"`
+	LastFetchTruncated bool   `json:"last_fetch_truncated"`
 	LastError          string `json:"last_error,omitempty"`
 	Status             string `json:"status"`
 	Enabled            bool   `json:"enabled"`
@@ -46,6 +47,7 @@ func toFeedResponse(f feeds.Feed) feedResponse {
 		IndicatorAgingDays: f.IndicatorAgingDays,
 		LastRefreshAt:      f.LastRefreshAt,
 		LastIndicatorCount: f.LastIndicatorCount,
+		LastFetchTruncated: f.LastFetchTruncated,
 		LastError:          f.LastError,
 		Status:             f.Status,
 		Enabled:            f.Enabled,
@@ -258,7 +260,7 @@ func (s *Server) runFeedFetch(ctx context.Context, feed feeds.Feed) (added, refr
 	mark.Status = "fetching"
 	_ = s.store.UpdateFeed(mark)
 
-	inds, fetchErr := adapter.Fetch(ctx)
+	res, fetchErr := adapter.Fetch(ctx)
 	if fetchErr != nil {
 		failed := feed
 		failed.Status = "error"
@@ -268,7 +270,7 @@ func (s *Server) runFeedFetch(ctx context.Context, feed feeds.Feed) (added, refr
 	}
 
 	now := time.Now().Unix()
-	added, refreshed, err = s.store.UpsertFeedIndicators(feed.ID, inds, now)
+	added, refreshed, err = s.store.UpsertFeedIndicators(feed.ID, res.Indicators, now)
 	if err != nil {
 		return added, refreshed, err
 	}
@@ -280,6 +282,7 @@ func (s *Server) runFeedFetch(ctx context.Context, feed feeds.Feed) (added, refr
 	done := feed
 	done.LastRefreshAt = now
 	done.LastIndicatorCount = added + refreshed
+	done.LastFetchTruncated = res.Truncated
 	done.LastError = ""
 	done.Status = "ok"
 	_ = s.store.UpdateFeed(done)

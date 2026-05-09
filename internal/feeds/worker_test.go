@@ -82,14 +82,14 @@ type fakeAdapter struct {
 }
 
 func (a *fakeAdapter) Source() SourceType { return SourceMISP }
-func (a *fakeAdapter) Fetch(ctx context.Context) ([]Indicator, error) {
+func (a *fakeAdapter) Fetch(ctx context.Context) (FetchResult, error) {
 	a.mu.Lock()
 	a.calls++
 	a.mu.Unlock()
 	if a.err != nil {
-		return nil, a.err
+		return FetchResult{}, a.err
 	}
-	return append([]Indicator(nil), a.indicators...), nil
+	return FetchResult{Indicators: append([]Indicator(nil), a.indicators...)}, nil
 }
 
 func TestWorker_RunsOneFetchPerFeedOnStart(t *testing.T) {

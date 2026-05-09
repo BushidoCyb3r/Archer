@@ -46,10 +46,11 @@ func TestMISPClient_Fetch_ParsesAndNormalizes(t *testing.T) {
 	defer srv.Close()
 
 	c := NewMISPClient(srv.URL, "test-key", false)
-	got, err := c.Fetch(context.Background())
+	res, err := c.Fetch(context.Background())
 	if err != nil {
 		t.Fatalf("Fetch returned error: %v", err)
 	}
+	got := res.Indicators
 
 	// Adapter contract: 7 valid indicators, 3 skipped (url, malformed IP,
 	// empty domain).

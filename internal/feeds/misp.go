@@ -25,28 +25,42 @@ import (
 // from MISP are skipped at this slice (they need parser logic to
 // pull the host/path, which is fed-into per-finding correlation;
 // punt to a follow-up).
+//
+// Pagination: the adapter walks `restSearch`'s `page` + `limit`
+// parameters until either a short page returns (we've reached the
+// end) or PageLimit pages have been fetched (safety cap on
+// misconfigured queries against huge tenants). Every page hits the
+// same /attributes/restSearch endpoint with an incrementing `page`.
 type MISPClient struct {
 	BaseURL string
 	APIKey  string
 	HTTP    *http.Client
 
-	// Limit caps the number of attributes the adapter pulls per fetch.
-	// MISP servers can hold millions; default 100k is enough for most
-	// operator-team deployments and avoids OOM on a misconfigured
-	// search.
-	Limit int
+	// PageSize is the `limit` argument MISP accepts on /attributes/restSearch.
+	// Default 10000 — large enough that a 1M-attribute feed walks in
+	// 100 round-trips, small enough that any single page response fits
+	// comfortably in memory.
+	PageSize int
+
+	// PageLimit caps the page walk. Default 100; combined with
+	// PageSize 10000 that's an upper bound of 1M attributes per fetch.
+	// When the walk hits this cap and the last page was full, the
+	// fetch is reported as truncated.
+	PageLimit int
 }
 
 // NewMISPClient constructs a client with safe defaults: 30s timeout,
-// 100k attribute cap. tlsSkipVerify=true disables certificate
-// verification on the upstream HTTPS request — opt-in per feed for
-// internal MISP deployments running self-signed or internal-CA certs.
+// 10k attributes per page, 100-page cap (1M attributes). tlsSkipVerify=true
+// disables certificate verification on the upstream HTTPS request —
+// opt-in per feed for internal MISP deployments running self-signed
+// or internal-CA certs.
 func NewMISPClient(baseURL, apiKey string, tlsSkipVerify bool) *MISPClient {
 	return &MISPClient{
-		BaseURL: strings.TrimRight(baseURL, "/"),
-		APIKey:  apiKey,
-		HTTP:    httpClientWithTLS(tlsSkipVerify),
-		Limit:   100000,
+		BaseURL:   strings.TrimRight(baseURL, "/"),
+		APIKey:    apiKey,
+		HTTP:      httpClientWithTLS(tlsSkipVerify),
+		PageSize:  10000,
+		PageLimit: 100,
 	}
 }
 
@@ -95,71 +109,93 @@ type mispResponse struct {
 	} `json:"response"`
 }
 
-// Fetch satisfies Adapter.Fetch. Posts /attributes/restSearch with a
-// filter limiting to network-indicator types, paginates if MISP hints
-// at more results (currently single-page; revisit if real deployments
-// hit the cap).
-func (c *MISPClient) Fetch(ctx context.Context) ([]Indicator, error) {
+// Fetch satisfies Adapter.Fetch. Walks /attributes/restSearch in
+// pages of PageSize, accumulating normalized indicators across
+// pages. Stops early when a short page returns (real end of data).
+// Caps the walk at PageLimit pages — when both the cap is hit and
+// the last page was full, the result is flagged as Truncated so
+// operators know they're not getting the whole feed.
+func (c *MISPClient) Fetch(ctx context.Context) (FetchResult, error) {
 	if c.BaseURL == "" {
-		return nil, fmt.Errorf("misp: empty base URL")
+		return FetchResult{}, fmt.Errorf("misp: empty base URL")
 	}
 	if c.APIKey == "" {
-		return nil, fmt.Errorf("misp: empty API key")
+		return FetchResult{}, fmt.Errorf("misp: empty API key")
 	}
 
-	body := map[string]any{
-		"returnFormat": "json",
-		"type": []string{
-			"ip-src", "ip-dst",
-			"domain", "hostname",
-			"md5", "sha1", "sha256",
-		},
-		"to_ids":             true, // MISP convention: only indicators meant for IDS
-		"deleted":            false,
-		"limit":              c.Limit,
-		"includeContext":     false,
-		"enforceWarninglist": true,
-	}
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("misp: marshal request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.BaseURL+"/attributes/restSearch", bytes.NewReader(buf))
-	if err != nil {
-		return nil, fmt.Errorf("misp: build request: %w", err)
-	}
-	req.Header.Set("Authorization", c.APIKey)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("misp: request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		// Read up to 1 KiB of the body for the error message — full
-		// MISP error pages can be large HTML.
-		preview, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("misp: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(preview)))
-	}
-
-	var parsed mispResponse
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return nil, fmt.Errorf("misp: decode response: %w", err)
-	}
-
-	out := make([]Indicator, 0, len(parsed.Response.Attribute))
-	for _, attr := range parsed.Response.Attribute {
-		ind, ok := normalizeMISPAttribute(attr)
-		if !ok {
-			continue
+	out := make([]Indicator, 0, c.PageSize)
+	truncated := false
+	for page := 1; page <= c.PageLimit; page++ {
+		body := map[string]any{
+			"returnFormat": "json",
+			"type": []string{
+				"ip-src", "ip-dst",
+				"domain", "hostname",
+				"md5", "sha1", "sha256",
+			},
+			"to_ids":             true, // MISP convention: only indicators meant for IDS
+			"deleted":            false,
+			"limit":              c.PageSize,
+			"page":               page,
+			"includeContext":     false,
+			"enforceWarninglist": true,
 		}
-		out = append(out, ind)
+		buf, err := json.Marshal(body)
+		if err != nil {
+			return FetchResult{Indicators: out}, fmt.Errorf("misp: marshal request: %w", err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+			c.BaseURL+"/attributes/restSearch", bytes.NewReader(buf))
+		if err != nil {
+			return FetchResult{Indicators: out}, fmt.Errorf("misp: build request: %w", err)
+		}
+		req.Header.Set("Authorization", c.APIKey)
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := c.HTTP.Do(req)
+		if err != nil {
+			return FetchResult{Indicators: out}, fmt.Errorf("misp: request failed: %w", err)
+		}
+		raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 200<<20)) // 200 MiB safety cap
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return FetchResult{Indicators: out}, fmt.Errorf("misp: read response: %w", readErr)
+		}
+		if resp.StatusCode != http.StatusOK {
+			preview := string(raw)
+			if len(preview) > 1024 {
+				preview = preview[:1024]
+			}
+			return FetchResult{Indicators: out}, fmt.Errorf("misp: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(preview))
+		}
+
+		var parsed mispResponse
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			return FetchResult{Indicators: out}, fmt.Errorf("misp: decode response: %w", err)
+		}
+
+		got := len(parsed.Response.Attribute)
+		for _, attr := range parsed.Response.Attribute {
+			ind, ok := normalizeMISPAttribute(attr)
+			if !ok {
+				continue
+			}
+			out = append(out, ind)
+		}
+
+		// Short page → end of data. Full page on the last allowed
+		// page → cap reached with more upstream, flag truncation.
+		if got < c.PageSize {
+			break
+		}
+		if page == c.PageLimit {
+			truncated = true
+			break
+		}
 	}
-	return out, nil
+	return FetchResult{Indicators: out, Truncated: truncated}, nil
 }
 
 // normalizeMISPAttribute translates a single MISP attribute into our

@@ -47,6 +47,7 @@ type Feed struct {
 	IndicatorAgingDays int
 	LastRefreshAt      int64 // unix seconds; 0 = never
 	LastIndicatorCount int
+	LastFetchTruncated bool // last fetch hit the adapter's page-walk cap
 	LastError          string
 	Status             string // "idle" | "fetching" | "ok" | "error"
 	Enabled            bool
@@ -89,5 +90,14 @@ type Adapter interface {
 	// Fetch returns the current indicator set. May be empty (legitimate
 	// "no new entries" response) or partial on transient upstream error
 	// (return what was collected plus the error).
-	Fetch(ctx context.Context) ([]Indicator, error)
+	Fetch(ctx context.Context) (FetchResult, error)
+}
+
+// FetchResult is what an Adapter returns. Indicators is the
+// normalized set; Truncated is true when the adapter hit its
+// page-walk safety cap and the upstream may have more — operators
+// need to know they're not getting the full feed.
+type FetchResult struct {
+	Indicators []Indicator
+	Truncated  bool
 }
