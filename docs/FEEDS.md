@@ -1,9 +1,10 @@
 # Threat-Intel Feeds — MISP and OpenCTI
 
-Archer's feed subsystem ingests indicators from MISP or OpenCTI on a per-feed
-schedule and consults them during analysis to produce Threat Intel Hit and
-Suspicious URL findings with per-feed provenance. Configuration is
-operator-curated through the **Feeds** admin dialog; no SQL required.
+Archer's feed subsystem ingests indicators from MISP or OpenCTI on a
+watch-driven schedule and consults them during analysis to produce
+`TI Hit (IP)`, `TI Hit (Domain)`, `TI Hit (Hash)`, and `Suspicious URL`
+findings with per-feed provenance. Configuration is operator-curated
+through the **Feeds** admin dialog; no SQL required.
 
 This doc covers what the feed pipeline does, how to wire up a feed, which
 indicator types actually match (and which don't), and the operational
@@ -49,9 +50,10 @@ deployments.
                                 analyzer's phase-0 prefetch              │
                                        │                                │
                                        ▼                                │
-                              checkTI / checkSuspiciousURLs              │
-                              emits Threat Intel Hit / Suspicious URL    │
-                              with SourceFile = "feed:<name>"            │
+                              checkTI / checkSuspiciousURLs /          │
+                              checkFileHashes emit                      │
+                              TI Hit (IP/Domain/Hash) / Suspicious URL  │
+                              with SourceFile = "feed:<name>"           │
                   │                                                     │
                   └─────────────────────────────────────────────────────┘
 ```
@@ -174,14 +176,14 @@ feedSources []SourcedFeedIndicators {
 }
 ```
 
-Two analyzer paths consume them:
+Three analyzer paths consume them:
 
 ### `checkTI` (covers conn.log, dns.log, http.log)
 
 For each external dst-IP seen on the wire today:
 
 - if the IP is in any feed's `IPs`, or contained in any feed's CIDRs →
-  emit `Threat Intel Hit`
+  emit `TI Hit (IP)`
 - score 90, severity HIGH (lower than URLhaus's 96-97 / CRITICAL because
   feed indicators are unverified relative to URLhaus's curated focus)
 - detail: `<feed-name> indicator match: <ip> — tags: <upstream-tags>`
@@ -189,7 +191,7 @@ For each external dst-IP seen on the wire today:
 For each external domain seen on the wire today (DNS query or HTTP host):
 
 - if the domain (lowercased) is in any feed's `Domains` →
-  emit `Threat Intel Hit`
+  emit `TI Hit (Domain)`
 - same scoring as the IP path
 
 ### `checkSuspiciousURLs` (covers http.log)
@@ -200,6 +202,37 @@ For each `(src, host)` pair in HTTP requests:
   emit `Suspicious URL` (different finding type because URI context
   is captured: detail includes the path)
 - score 90, severity HIGH
+
+### `checkFileHashes` (covers files.log)
+
+For each file row that carries one or more hash columns
+(`md5` / `sha1` / `sha256`):
+
+- if any of the row's hash hex values (lowercased) is in any feed's
+  `Hashes` bucket → emit `TI Hit (Hash)`
+- score 90, severity HIGH
+- detail: `<feed-name> file-hash match: <algo> <hex> | File: <name> | MIME: <type>` (tags inline when present)
+- fingerprint dedup is `(downloader-IP, hash-hex)` — a file whose md5
+  AND sha256 BOTH match the feed only fires once
+- `SrcIP` is set to the downloader (`rx_hosts`), matching the
+  `Suspicious File Download` convention so host-risk roll-up
+  attributes correctly
+
+**Coverage caveat:** Zeek only populates `md5` / `sha1` / `sha256` in
+`files.log` when (a) the file traverses an unencrypted protocol Zeek
+can reassemble (HTTP, SMB, FTP, SMTP, IRC), (b) a hashing analyzer is
+loaded — `MD5` is default-on for matched MIME types, `sha1` and
+`sha256` need `@load policy/frameworks/files/hash-all-files` in
+`local.zeek`, and (c) the file completes its transfer. HTTPS, SSH,
+encrypted SMB3, and most modern cloud-storage flows produce zero
+hashes. In a TLS-everywhere environment, hash matching primarily
+fires on internal SMB / SMTP / plain-HTTP traffic — high-value but
+narrow. A taps-behind-a-decrypting-proxy deployment broadens this
+significantly. Sanity-check what's reachable on a live install:
+
+```
+zcat /data/logs/<sensor>/<date>/files.*.log.gz | jq 'select(.md5 != null) | .source' | sort -u
+```
 
 ### Provenance
 
@@ -423,13 +456,21 @@ will surface findings. If it's empty, the test traffic isn't reaching
 your sensor's span port — verify which network the sensor monitors and
 generate test traffic from a host on that network.
 
-### Indicator count is exactly 100,000
+### Indicator count looks capped, "⚠ truncated" badge shown
 
-That's the per-fetch cap. For MISP, the adapter currently fetches a
-single page of 100k attributes; larger feeds get silently truncated.
-Adding pagination is a logged follow-up. Most internal teams don't
-hit this; teams that do should subscribe MISP to a smaller subset of
-upstream feeds, or wait for the pagination work.
+The MISP adapter walks pages of 10000 up to 100 pages (1M attributes)
+as of v0.7.0; OpenCTI walks cursor pages of 1000 up to 100 pages
+(100k). When the cap is hit AND the upstream still indicates more
+data, the feed row's `last_fetch_truncated` flag is set and the
+Feeds dialog renders a yellow `⚠ truncated` badge next to the
+indicator count.
+
+To resolve: narrow the MISP search (more specific tag filter, single
+campaign instead of "all attributes") or scale up by raising the
+adapter's `PageLimit` constant in source if the deployment can
+afford the memory + bandwidth (default cap protects against runaway
+fetches). For OpenCTI, same playbook — narrow the indicator query
+or raise the limit.
 
 ---
 

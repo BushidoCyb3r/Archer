@@ -463,22 +463,45 @@ severity High.
 
 ## 12. Threat Intel Hits
 
-**Where.** `internal/analysis/ti.go`. Cross-annotation in
-`internal/server/ti_crossnote.go`.
+**Where.** `internal/analysis/ti.go` (IP and domain matches),
+`internal/analysis/files.go` (`checkFileHashes` for hash matches).
+Cross-annotation in `internal/server/ti_crossnote.go`.
+
+**Finding types.** As of v0.7.0, what was a single `Threat Intel Hit`
+type splits three ways based on what was actually matched:
+
+| Type              | What matches                                                       |
+|-------------------|--------------------------------------------------------------------|
+| `TI Hit (IP)`     | dst IP against FeodoTracker / URLhaus IPs / OTX / AbuseIPDB / MISP / OpenCTI IP+CIDR |
+| `TI Hit (Domain)` | dst domain against URLhaus hosts / MISP / OpenCTI domains          |
+| `TI Hit (Hash)`   | files.log md5/sha1/sha256 against MISP / OpenCTI hash indicators   |
+
+Pre-v0.7.0 findings carry the legacy `Threat Intel Hit` type; the
+`model.IsThreatIntelType` helper recognizes both old and new strings,
+so the IOC Hits tab, notification bell, host-risk weighting, and
+cross-annotator handle them uniformly.
 
 ### 12.1 Pipeline placement
 
 Phase 0 (`prefetchFeeds`) runs concurrently with the rest of analysis startup
 and pulls two open feeds into memory: Feodo Tracker (botnet C2 IPs) and
 URLhaus (malware distribution IPs + hosts; the `csv_online` slice — currently
-active URLs only). Phase 3 (`checkTI`) then matches the cached feed sets,
-plus optional OTX and AbuseIPDB lookups, against destinations observed in the
-current log set.
+active URLs only). It also snapshots the configured MISP / OpenCTI feeds
+from the cached `Store.EnabledFeedIndicators()` (memoized — see v0.7.0
+release notes for the cache).
+
+Phase 3 runs three matchers in parallel:
+
+- `checkTI` — IP and domain matches against built-in feeds + MISP/OpenCTI
+- `checkSuspiciousURLs` — domain matches against HTTP host headers
+  (separate finding type with URI context)
+- `checkFileHashes` — file-hash matches against MISP/OpenCTI hash buckets
 
 The TI phase is also reachable on its own via `Analyzer.AnalyzeTIOnly` —
-runs Phase 0 + Phase 3 (and `checkSuspiciousURLs`) without any of the
-statistical phases. Used by the archive IOC re-scan and by the watch
-loop's incremental ticks (see section 12.9 below).
+runs Phase 0 + Phase 3 (`checkTI` + `checkSuspiciousURLs` +
+`checkFileHashes`) without any of the statistical phases. Used by the
+archive IOC re-scan and by the watch loop's incremental ticks (see
+section 12.9 below).
 
 ### 12.2 Sources of destinations
 
@@ -510,22 +533,25 @@ a new entry, bounding memory under pathological volumes and giving
 
 ### 12.3 Feed matching
 
-| Feed                | Match against         | Score | Severity                         | Auth                   |
-|---------------------|-----------------------|-------|----------------------------------|------------------------|
-| FeodoTracker        | dst IPs               | 99    | CRITICAL                         | none (public)          |
-| URLhaus IPs         | dst IPs               | 97    | CRITICAL                         | none (public)          |
-| URLhaus hosts       | dst domains           | 97    | CRITICAL                         | none (public)          |
-| OTX (AlienVault)    | dst IPs (cap 20/run)  | `min(70 + pulses*3, 99)` | HIGH; CRITICAL if pulses ≥ 7   | API key                |
-| AbuseIPDB           | dst IPs (cap 10/run)  | `min(50 + score/5, 99)`  | HIGH; CRITICAL if confidence ≥ 80 | API key             |
+| Feed                | Match against              | Emits as          | Score | Severity                         | Auth                   |
+|---------------------|----------------------------|-------------------|-------|----------------------------------|------------------------|
+| FeodoTracker        | dst IPs                    | `TI Hit (IP)`     | 99    | CRITICAL                         | none (public)          |
+| URLhaus IPs         | dst IPs                    | `TI Hit (IP)`     | 97    | CRITICAL                         | none (public)          |
+| URLhaus hosts       | dst domains                | `TI Hit (Domain)` | 97    | CRITICAL                         | none (public)          |
+| OTX (AlienVault)    | dst IPs (cap 20/run)       | `TI Hit (IP)`     | `min(70 + pulses*3, 99)` | HIGH; CRITICAL if pulses ≥ 7   | API key       |
+| AbuseIPDB           | dst IPs (cap 10/run)       | `TI Hit (IP)`     | `min(50 + score/5, 99)`  | HIGH; CRITICAL if confidence ≥ 80 | API key    |
+| MISP / OpenCTI IP   | dst IPs / CIDR membership  | `TI Hit (IP)`     | 90    | HIGH                             | per-feed config        |
+| MISP / OpenCTI dom. | dst domains                | `TI Hit (Domain)` | 90    | HIGH                             | per-feed config        |
+| MISP / OpenCTI hash | files.log md5/sha1/sha256  | `TI Hit (Hash)`   | 90    | HIGH                             | per-feed config        |
 
 OTX/AbuseIPDB are rate-capped per analysis run because both have free-tier
-quotas an analyst's box can chew through quickly on a busy day. Feodo and
-URLhaus are bulk file fetches, so cap doesn't apply.
+quotas an analyst's box can chew through quickly on a busy day. Feodo,
+URLhaus, MISP, and OpenCTI are bulk fetches, so cap doesn't apply.
 
 ### 12.4 Per-source fan-out
 
-A single feed match emits **one `Threat Intel Hit` finding per distinct
-internal source** that contacted the bad dst:
+A single feed match emits **one TI Hit finding per distinct internal
+source** that contacted the bad dst:
 
 - `SrcIP` = the real internal host (`id.orig_h` from conn/dns/http)
 - `DstIP` = the matched IP or domain
@@ -569,12 +595,17 @@ shadowing applies to `http.log` when the sensor sits behind an HTTP proxy.
 ### 12.7 Cross-annotation onto sibling findings
 
 After the analyzer's results are merged into the store, the server walks
-every newly-detected `Threat Intel Hit` (`IsNew && Type == "Threat Intel
-Hit"`) and appends a `TI Enrichment` system note to every other finding
-whose `DstIP` or `SrcIP` matches the hit's IP. So an analyst opening (say)
-a beacon finding for `10.0.0.5 → 1.2.3.4` automatically sees a
+every newly-detected TI Hit (any of `TI Hit (IP)` / `TI Hit (Domain)` /
+`TI Hit (Hash)` plus the legacy `Threat Intel Hit` for pre-v0.7.0
+findings still in the DB; gated through `model.IsThreatIntelType`) and
+appends a `TI Enrichment` system note to every other finding whose
+`DstIP` or `SrcIP` matches the hit's IP. So an analyst opening (say) a
+beacon finding for `10.0.0.5 → 1.2.3.4` automatically sees a
 `FeodoTracker` annotation inline, instead of having to notice a separate
-`Threat Intel Hit` row.
+`TI Hit (IP)` row. `Suspicious URL` is excluded from the cross-annotation
+trigger set — the corresponding `TI Hit (Domain)` for the same host
+already carries the enrichment, and double-noting would clutter the
+sibling findings.
 
 The cross-note loop dedupes per `(dst, source)` so the per-source fan-out
 doesn't write N copies of the same enrichment note onto each related
@@ -585,7 +616,7 @@ it.
 
 ### 12.8 Notification suppression
 
-`Threat Intel Hit` notifications still fire for new hits, but `Host Risk
+TI Hit notifications still fire for new hits (any flavor), but `Host Risk
 Score` (the per-host roll-up emitted by Phase 4) is excluded from the bell
 on purpose — that's an aggregate, not a discrete event, and the underlying
 network detections that pushed the host's score over the line have
@@ -679,7 +710,9 @@ contributes a weight:
 | Cobalt Strike URI   | 40     |
 | Malicious JA3       | 40     |
 | C2 URI Pattern      | 38     |
-| Threat Intel Hit    | 35     |
+| TI Hit (IP)         | 35     |
+| TI Hit (Domain)     | 35     |
+| TI Hit (Hash)       | 35     |
 | Domain Fronting     | 32     |
 | Beaconing           | 30     |
 | HTTP Beaconing      | 28     |
@@ -687,6 +720,11 @@ contributes a weight:
 | Lateral Movement    | 20     |
 | Strobe              | 15     |
 | Long Connection     | 10     |
+
+(Each TI Hit flavor independently adds 35 — a host that triggered a
+DNS-domain hit AND a file-hash hit gets +70. The legacy `Threat Intel
+Hit` type from pre-v0.7.0 findings also weights 35 for backward
+compatibility.)
 
 For each host, the composite is
 
