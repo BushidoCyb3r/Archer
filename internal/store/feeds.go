@@ -338,6 +338,7 @@ func (s *Store) buildEnabledFeedIndicators() []feeds.SourcedIndicators {
 			Source:  "feed:" + f.Name,
 			IPs:     make(map[string]bool),
 			Domains: make(map[string]bool),
+			Hashes:  make(map[string]bool),
 			Tags:    make(map[string][]string),
 		}
 		for _, ind := range inds {
@@ -355,14 +356,14 @@ func (s *Store) buildEnabledFeedIndicators() []feeds.SourcedIndicators {
 			case feeds.IndicatorDomain:
 				bucket.Domains[strings.ToLower(val)] = true
 			case feeds.IndicatorHash:
-				// no candidate field today; skip
-				continue
+				bucket.Hashes[strings.ToLower(val)] = true
 			default:
 				continue
 			}
 			if len(ind.Tags) > 0 {
 				key := val
-				if ind.Type == feeds.IndicatorDomain {
+				switch ind.Type {
+				case feeds.IndicatorDomain, feeds.IndicatorHash:
 					key = strings.ToLower(val)
 				}
 				bucket.Tags[key] = ind.Tags

@@ -14,14 +14,16 @@ import "net"
 // emits a Threat Intel Hit; the same query string accidentally
 // equalling an IP-typed indicator should not.
 //
-// Hashes aren't carried because no analyzer-side field today holds a
-// hash candidate. When file-finding analyzers grow that field, this
-// struct grows a Hashes map.
+// Hashes carries md5 / sha1 / sha256 hex strings — algorithm-agnostic,
+// since MISP and OpenCTI emit each algorithm as its own indicator
+// type but we don't need to disambiguate at match time. Lowercased
+// hex on the way in so case-mismatched upstream values don't miss.
 type SourcedIndicators struct {
 	Source  string          // "feed:<feed-name>"
 	IPs     map[string]bool // exact IP-string match
 	CIDRs   []*net.IPNet    // CIDR containment
 	Domains map[string]bool // exact domain match (caller lowercases)
+	Hashes  map[string]bool // exact hex match (caller lowercases)
 	Tags    map[string][]string
 }
 

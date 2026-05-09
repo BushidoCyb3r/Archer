@@ -1,0 +1,56 @@
+[
+  {
+    "type": "Host Risk Score",
+    "severity": "MEDIUM",
+    "score": 35,
+    "src_ip": "192.168.8.40",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 35 | Detections: [Suspicious File Download Threat Intel Hit]",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Host Risk Score",
+    "severity": "MEDIUM",
+    "score": 35,
+    "src_ip": "192.168.8.41",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 35 | Detections: [Suspicious File Download Threat Intel Hit]",
+    "timestamp": "2024-01-15 12:00:05"
+  },
+  {
+    "type": "Suspicious File Download",
+    "severity": "HIGH",
+    "score": 72,
+    "src_ip": "192.168.8.40",
+    "dst_ip": "203.0.113.50",
+    "detail": "MIME: application/x-dosexec | File: payload.exe",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Suspicious File Download",
+    "severity": "HIGH",
+    "score": 72,
+    "src_ip": "192.168.8.41",
+    "dst_ip": "198.51.100.10",
+    "detail": "MIME: application/octet-stream | File: benign.bin",
+    "timestamp": "2024-01-15 12:00:05"
+  },
+  {
+    "type": "Threat Intel Hit",
+    "severity": "HIGH",
+    "score": 90,
+    "src_ip": "192.168.8.40",
+    "dst_ip": "203.0.113.50",
+    "detail": "demo-hash file-hash match: md5 d41d8cd98f00b204e9800998ecf8427e | File: payload.exe | MIME: application/x-dosexec | tags: malware:emotet",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Threat Intel Hit",
+    "severity": "HIGH",
+    "score": 90,
+    "src_ip": "192.168.8.41",
+    "dst_ip": "198.51.100.10",
+    "detail": "demo-hash file-hash match: sha256 abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890 | File: benign.bin | MIME: application/octet-stream",
+    "timestamp": "2024-01-15 12:00:05"
+  }
+]

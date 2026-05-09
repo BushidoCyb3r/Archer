@@ -30,6 +30,27 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Detection changes
+
+- **File-hash matching against MISP / OpenCTI feeds.** Pre-v0.7.0,
+  hash-typed feed indicators (md5 / sha1 / sha256) were persisted
+  to `feed_indicators` correctly but `Store.EnabledFeedIndicators`
+  silently dropped them because no analyzer-side field carried a
+  hash candidate. The `Hashes` map on `feeds.SourcedIndicators` is
+  now populated with lowercased hex strings, and a new analyzer
+  step `checkFileHashes` (Phase 3, alongside `checkSuspiciousURLs`
+  and `checkTI`) scans `files.log`'s md5 / sha1 / sha256 columns
+  against the bucket. Matches emit a `Threat Intel Hit` (HIGH /
+  score 90) attributed to the matching feed, with the detail line
+  carrying algorithm + hash hex + filename + MIME + tags.
+  Algorithm-agnostic on the analyzer side: a single Hashes map per
+  feed combines all three algorithms and each row's three hash
+  columns are tested against it. The `(downloader, hashvalue)`
+  fingerprint dedups so a file with all three algorithms in the
+  feed only fires once. Re-baseline expected: hash-rich feeds
+  (MISP master, ThreatFox) start producing findings on file
+  downloads that were previously invisible.
+
 ### Changed
 
 - **Cached `EnabledFeedIndicators` on the store.** The analyzer-side
