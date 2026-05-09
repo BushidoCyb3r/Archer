@@ -32,6 +32,15 @@ relevant, `### Detection changes` in each release entry.
 
 ### Added
 
+- **Interactive zoom on the beacon chart Timeline view.** Click-drag
+  on the canvas to brush-select a time range; the view re-fits to
+  that slice without re-fetching anything (the data was already in
+  `f.ts_data`). Right-click resets to auto-fit, or use the
+  Reset zoom button that appears next to the view tabs once a zoom
+  is active. Zoom is dropped automatically when switching to the
+  Interval histogram or Bytes view since those have their own X
+  mappings; opening the chart for a new finding starts at auto-fit.
+
 - **MISP adapter pagination + truncation visibility.** The MISP
   fetcher now walks `/attributes/restSearch`'s `page` + `limit`
   parameters in batches of 10000 up to 100 pages (1M attributes),
