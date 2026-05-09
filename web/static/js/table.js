@@ -78,13 +78,13 @@ const Table = (() => {
       '<td class="score">' + _esc(f.score) + '</td>' +
       '<td class="severity">' + _esc(sev) + '</td>' +
       '<td title="' + _esc(f.type) + '">' + _esc(f.type) + '</td>' +
-      '<td class="src-ip" title="' + _esc(f.src_ip) + '" style="font-family:monospace;font-size:11px">' + _esc(f.src_ip) + '</td>' +
-      '<td class="dst-ip" title="' + _esc(f.dst_ip) + '" style="font-family:monospace;font-size:11px">' + _esc(f.dst_ip) + '</td>' +
+      '<td class="src-ip" title="' + _esc(f.src_ip) + '" style="font-family:monospace">' + _esc(f.src_ip) + '</td>' +
+      '<td class="dst-ip" title="' + _esc(f.dst_ip) + '" style="font-family:monospace">' + _esc(f.dst_ip) + '</td>' +
       '<td class="port">' + _esc(f.dst_port) + '</td>' +
       '<td title="' + _esc(f.timestamp) + '">' + _esc((f.timestamp || '').slice(0, 16)) + '</td>' +
       '<td>' + _statusLabel(f.status) + '</td>' +
-      '<td style="font-size:11px;color:var(--fg-dim)" title="' + _esc(f.sensor) + '">' + _esc(f.sensor) + '</td>' +
-      '<td title="' + _esc(detailRaw) + '" style="color:var(--fg-dim);font-size:11px">' + _esc(detail) + '</td>' +
+      '<td style="color:var(--fg-dim)" title="' + _esc(f.sensor) + '">' + _esc(f.sensor) + '</td>' +
+      '<td title="' + _esc(detailRaw) + '" style="color:var(--fg-dim)">' + _esc(detail) + '</td>' +
       '</tr>';
   }
 
@@ -201,11 +201,14 @@ const Table = (() => {
     });
   }
 
-  function load(findings) {
+  function load(findings, opts) {
     _findings = findings || [];
     const tbody = document.getElementById('findings-tbody');
     const wrap  = tbody && tbody.closest('.table-wrap');
-    if (wrap) wrap.scrollTop = 0;
+    // Default: reset scroll on load — fresh data should land the analyst
+    // at the top. opts.preserveScroll skips that reset, used by the
+    // append/Load-more path so analysts stay where they were reading.
+    if (wrap && !(opts && opts.preserveScroll)) wrap.scrollTop = 0;
     _render();
   }
 
@@ -259,18 +262,5 @@ const Table = (() => {
     }
   }
 
-  function populateTypeFilter(findings) {
-    const types = [...new Set((findings || []).map(f => f.type).filter(Boolean))].sort();
-    const sel = document.getElementById('filter-type');
-    const cur = sel.value;
-    sel.innerHTML = '<option value="">All Types</option>';
-    types.forEach(t => {
-      const opt = document.createElement('option');
-      opt.value = t; opt.textContent = t;
-      if (t === cur) opt.selected = true;
-      sel.appendChild(opt);
-    });
-  }
-
-  return { init, load, update, jumpTo, getSelected, populateTypeFilter };
+  return { init, load, update, jumpTo, getSelected };
 })();

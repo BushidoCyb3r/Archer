@@ -8,21 +8,118 @@ const Campaigns = (() => {
   let _campaigns = []; // exposed via getCampaigns() for export
   let _hosts = [];     // exposed via getHosts() for export
 
+  // Sort state mirrors the findings table: -1 = desc, 1 = asc. Each table
+  // owns its own pair so toggling on Campaigns doesn't affect Hosts.
+  let _campSort  = { col: 'score',  dir: -1 };
+  let _hostsSort = { col: 'score',  dir: -1 };
+  // Most recent paginated render args, kept so a sort click can re-render
+  // the same window without app.js having to thread offset/limit through.
+  let _lastCampPage  = { offset: 0, limit: Infinity };
+  let _lastHostsPage = { offset: 0, limit: Infinity };
+  // Severity ordering for the Hosts severity column. Lower number = worse,
+  // so a desc sort lands CRITICAL at the top.
+  const _SEV_ORDER = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFO: 4, IOC_HIT: 5 };
+
   function init(onCtx, isOrgIP, onHostClick) {
     _onCtx = onCtx;
     if (typeof isOrgIP === 'function') _isOrgIP = isOrgIP;
     if (typeof onHostClick === 'function') _onHostClick = onHostClick;
+    _wireSortHeaders();
   }
 
-  function build(findings) {
-    _buildCampaigns(findings);
-    _buildHosts(findings);
+  function _wireSortHeaders() {
+    document.querySelectorAll('#campaigns-table thead th[data-col]').forEach(th => {
+      th.addEventListener('click', () => _sortCampaigns(th.dataset.col));
+    });
+    document.querySelectorAll('#hosts-table thead th[data-col]').forEach(th => {
+      th.addEventListener('click', () => _sortHosts(th.dataset.col));
+    });
+    _updateSortHeaders();
+  }
+
+  function _sortCampaigns(col) {
+    if (_campSort.col === col) _campSort.dir *= -1;
+    else _campSort = { col, dir: -1 };
+    _applyCampaignsSort();
+    _updateSortHeaders();
+    renderCampaignsPage(_lastCampPage.offset, _lastCampPage.limit);
+  }
+  function _sortHosts(col) {
+    if (_hostsSort.col === col) _hostsSort.dir *= -1;
+    else _hostsSort = { col, dir: -1 };
+    _applyHostsSort();
+    _updateSortHeaders();
+    renderHostsPage(_lastHostsPage.offset, _lastHostsPage.limit);
+  }
+
+  function _applyCampaignsSort() {
+    const dir = _campSort.dir;
+    const col = _campSort.col;
+    _campaigns.sort((a, b) => {
+      let av, bv;
+      switch (col) {
+        case 'score': av = a.maxScore;       bv = b.maxScore;       break;
+        case 'dst':   av = a.dst || '';      bv = b.dst || '';      break;
+        case 'port':  av = parseInt(a.port, 10) || 0; bv = parseInt(b.port, 10) || 0; break;
+        case 'hosts': av = a.srcs.size;      bv = b.srcs.size;      break;
+        default:      av = a.maxScore;       bv = b.maxScore;
+      }
+      if (typeof av === 'string') return dir * av.localeCompare(bv);
+      return dir * (av - bv);
+    });
+  }
+
+  function _applyHostsSort() {
+    const dir = _hostsSort.dir;
+    const col = _hostsSort.col;
+    _hosts.sort((a, b) => {
+      let av, bv;
+      switch (col) {
+        case 'ip':       av = a.ip || '';                  bv = b.ip || '';                  break;
+        case 'score':    av = a.score;                     bv = b.score;                     break;
+        case 'count':    av = a.count;                     bv = b.count;                     break;
+        case 'severity': av = _SEV_ORDER[a.topSev] ?? 99;  bv = _SEV_ORDER[b.topSev] ?? 99;  break;
+        default:         av = a.score;                     bv = b.score;
+      }
+      if (typeof av === 'string') return dir * av.localeCompare(bv);
+      return dir * (av - bv);
+    });
+  }
+
+  function _updateSortHeaders() {
+    document.querySelectorAll('#campaigns-table thead th[data-col]').forEach(th => {
+      th.classList.remove('sort-asc', 'sort-desc');
+      if (th.dataset.col === _campSort.col) {
+        th.classList.add(_campSort.dir === 1 ? 'sort-asc' : 'sort-desc');
+      }
+    });
+    document.querySelectorAll('#hosts-table thead th[data-col]').forEach(th => {
+      th.classList.remove('sort-asc', 'sort-desc');
+      if (th.dataset.col === _hostsSort.col) {
+        th.classList.add(_hostsSort.dir === 1 ? 'sort-asc' : 'sort-desc');
+      }
+    });
+  }
+
+  // build computes the campaigns + hosts arrays. App.js calls
+  // renderCampaignsPage(offset, limit) and renderHostsPage(offset, limit)
+  // to render a specific page window without recomputing.
+  function build(findings, opts) {
+    opts = opts || {};
+    _computeCampaigns(findings);
+    _computeHosts(findings);
+    const cOff = opts.campaignsOffset | 0;
+    const cLim = opts.campaignsLimit  || Infinity;
+    const hOff = opts.hostsOffset     | 0;
+    const hLim = opts.hostsLimit      || Infinity;
+    renderCampaignsPage(cOff, cLim);
+    renderHostsPage(hOff, hLim);
   }
 
   function getCampaigns() { return _campaigns; }
   function getHosts() { return _hosts; }
 
-  function _buildCampaigns(findings) {
+  function _computeCampaigns(findings) {
     const map = new Map(); // dst_ip:dst_port → {srcs, maxScore, type}
     findings.forEach(f => {
       const dst = f.dst_ip || f.domain || '';
@@ -41,17 +138,24 @@ const Campaigns = (() => {
       }
     });
 
-    // Filter: ≥ 2 distinct source IPs
-    _campaigns = [...map.values()].filter(e => e.srcs.size >= 2)
-      .sort((a, b) => b.maxScore - a.maxScore);
+    // Filter: ≥ 2 distinct source IPs. Sort with the active column;
+    // _campSort defaults to score desc to match prior behaviour.
+    _campaigns = [...map.values()].filter(e => e.srcs.size >= 2);
+    _applyCampaignsSort();
+  }
 
+  function renderCampaignsPage(offset, limit) {
+    const off = offset | 0;
+    const lim = limit || Infinity;
+    _lastCampPage = { offset: off, limit: lim };
     const tbody = document.getElementById('campaigns-tbody');
     tbody.innerHTML = '';
     if (_campaigns.length === 0) {
       tbody.innerHTML = '<tr><td colspan="5" style="color:var(--fg-dim);padding:12px">No campaign patterns detected</td></tr>';
       return;
     }
-    _campaigns.forEach(e => {
+    const slice = _campaigns.slice(off, off + lim);
+    slice.forEach(e => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td style="color:${_scoreColor(e.maxScore)};font-weight:700;text-align:center">${e.maxScore}</td>
@@ -76,7 +180,7 @@ const Campaigns = (() => {
     });
   }
 
-  function _buildHosts(findings) {
+  function _computeHosts(findings) {
     const map = new Map(); // src_ip → {score, findings, types, topSev}
     const SEV_ORDER = {CRITICAL:0, HIGH:1, MEDIUM:2, LOW:3, INFO:4, IOC_HIT:5};
     findings.forEach(f => {
@@ -94,19 +198,27 @@ const Campaigns = (() => {
       if ((SEV_ORDER[f.severity] ?? 99) < (SEV_ORDER[e.topSev] ?? 99)) e.topSev = f.severity;
     });
 
-    _hosts = [...map.values()].sort((a, b) => b.score - a.score);
+    _hosts = [...map.values()];
+    _applyHostsSort();
+  }
+
+  function renderHostsPage(offset, limit) {
+    const off = offset | 0;
+    const lim = limit || Infinity;
+    _lastHostsPage = { offset: off, limit: lim };
     const tbody = document.getElementById('hosts-tbody');
     tbody.innerHTML = '';
     if (_hosts.length === 0) {
       tbody.innerHTML = '<tr><td colspan="5" style="color:var(--fg-dim);padding:12px">No host data</td></tr>';
       return;
     }
-    _hosts.forEach(e => {
+    const slice = _hosts.slice(off, off + lim);
+    slice.forEach(e => {
       const tr = document.createElement('tr');
       tr.style.cursor = 'pointer';
       tr.innerHTML = `
-        <td class="src-ip dst-ip" style="font-family:monospace">${e.ip}</td>
         <td class="score" style="color:${_scoreColor(e.score)}">${e.score}</td>
+        <td class="src-ip dst-ip" style="font-family:monospace">${e.ip}</td>
         <td style="text-align:center">${e.count}</td>
         <td style="color:${_sevColor(e.topSev)};font-weight:700">${e.topSev}</td>
         <td style="font-size:11px;color:var(--fg-dim)">${[...e.types].slice(0,4).join(', ')}</td>`;
@@ -133,5 +245,5 @@ const Campaigns = (() => {
     return map[sev] || 'var(--fg-text)';
   }
 
-  return { init, build, getCampaigns, getHosts };
+  return { init, build, getCampaigns, getHosts, renderCampaignsPage, renderHostsPage };
 })();

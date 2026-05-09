@@ -12,57 +12,27 @@
      the threshold (10%). Driven by the disk-usage poll in app.js. -->
 <div id="disk-warning-banner" style="display:none;background:var(--sev-high,#f97316);color:#fff;text-align:center;padding:6px 12px;font-size:12px;font-weight:600;letter-spacing:0.02em"></div>
 
-<!-- ── Top bar ─────────────────────────────────────────────────── -->
-<div id="topbar">
-  <span class="app-title">
-    <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
-      <circle cx="11" cy="11" r="8.5" stroke="currentColor" stroke-width="1.5"/>
-      <circle cx="11" cy="11" r="1.75" fill="currentColor"/>
-      <path d="M11 1.5 L11 4.5 M11 17.5 L11 20.5 M1.5 11 L4.5 11 M17.5 11 L20.5 11"
-            stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-    </svg>
-    Archer
-  </span>
-  <span class="subtitle">Silent Hunter</span>
-  <div class="spacer"></div>
-  <div id="notif-wrap">
-    <button id="bell-btn" title="Notifications" aria-label="Notifications">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <path d="M8 1.5 C5.5 1.5 3.75 3.4 3.75 5.75 V8.25 L2.5 11 H13.5 L12.25 8.25 V5.75 C12.25 3.4 10.5 1.5 8 1.5 Z"
-              stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
-        <path d="M6.25 12.5 C6.5 13.5 7.2 14 8 14 C8.8 14 9.5 13.5 9.75 12.5"
-              stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+<!-- ── App frame: full-height sidebar on the left, main column with
+     topbar/content/statusbar on the right. Archer brand lives in the
+     sidebar so the sidebar's right border runs straight from the very
+     top of the page. ─────────────────────────────────────────────── -->
+<div id="app-frame">
+
+<!-- ── Sidebar (full-height, runs from top of page to bottom) ────── -->
+<div id="sidebar">
+  <div class="sidebar-brand">
+    <div class="brand-row">
+      <svg width="36" height="36" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+        <circle cx="11" cy="11" r="8.5" stroke="currentColor" stroke-width="1.5"/>
+        <circle cx="11" cy="11" r="1.75" fill="currentColor"/>
+        <path d="M11 1.5 L11 4.5 M11 17.5 L11 20.5 M1.5 11 L4.5 11 M17.5 11 L20.5 11"
+              stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
       </svg>
-    </button>
-    <span id="notif-badge" class="badge hidden">0</span>
-    <div id="notif-panel" class="notif-panel hidden">
-      <div class="notif-header">
-        <span>Alerts</span>
-        <button class="notif-dismiss-all" id="dismiss-all-btn">Dismiss all</button>
-      </div>
-      <div id="notif-list"></div>
+      <span class="brand-name">Archer</span>
     </div>
+    <span class="brand-tagline">Silent Hunter</span>
   </div>
-  <button id="sensors-btn" style="display:none">Sensors</button>
-  <button id="feeds-btn" style="display:none">Feeds</button>
-  <button id="users-btn" style="display:none">Users<span id="pending-badge" style="display:none"></span></button>
-  <button id="settings-btn">Settings</button>
-  <div id="user-badge">
-    <span id="user-display"></span>
-    <a href="/logout" id="logout-link" title="Sign out" aria-label="Sign out">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-        <path d="M5.5 2 H2 V12 H5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M8.5 4.5 L11.5 7 L8.5 9.5 M11 7 H5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-    </a>
-  </div>
-</div>
 
-<!-- ── Body ───────────────────────────────────────────────────── -->
-<div id="body">
-
-  <!-- ── Sidebar ──────────────────────────────────────────────── -->
-  <div id="sidebar">
     <div class="sidebar-section-title">Zeek Logs</div>
     <div id="logs-dir-hint" style="font-size:9px;color:var(--fg-dim);padding:0 12px 4px;line-height:1.5">
       Scanning <em id="logs-dir-path">/logs</em>
@@ -115,19 +85,61 @@
       <datalist id="watch-tz-list"></datalist>
     </div>
 
-    <div class="sidebar-divider"></div>
-    <div class="sidebar-section-title">Allowlist</div>
-    <button class="sb-btn dim full" id="allowlist-btn">Edit Allowlist</button>
+    <div class="sidebar-bottom">
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section-title">Allowlist</div>
+      <button class="sb-btn dim full" id="allowlist-btn">Edit Allowlist</button>
 
-    <div class="sidebar-divider"></div>
-    <div class="sidebar-section-title">IOC List</div>
-    <button class="sb-btn dim full" id="ioc-btn">Edit IOC List</button>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section-title">IOC List</div>
+      <button class="sb-btn dim full" id="ioc-btn">Edit IOC List</button>
 
-    <div class="sidebar-divider"></div>
-    <div class="sidebar-section-title">Suppressions</div>
-    <button class="sb-btn dim full" id="suppressions-btn">Manage Suppressions</button>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section-title">Suppressions</div>
+      <button class="sb-btn dim full" id="suppressions-btn">Manage Suppressions</button>
+    </div>
 
+</div>
+<!-- ── /Sidebar ─────────────────────────────────────────────────── -->
+
+<!-- ── Main column (topbar + content + statusbar) ───────────────── -->
+<div id="main-column">
+
+<!-- ── Top bar ─────────────────────────────────────────────────── -->
+<div id="topbar">
+  <div class="spacer"></div>
+  <div id="notif-wrap">
+    <button id="bell-btn" title="Notifications" aria-label="Notifications">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M8 1.5 C5.5 1.5 3.75 3.4 3.75 5.75 V8.25 L2.5 11 H13.5 L12.25 8.25 V5.75 C12.25 3.4 10.5 1.5 8 1.5 Z"
+              stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+        <path d="M6.25 12.5 C6.5 13.5 7.2 14 8 14 C8.8 14 9.5 13.5 9.75 12.5"
+              stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <span id="notif-badge" class="badge hidden">0</span>
+    <div id="notif-panel" class="notif-panel hidden">
+      <div class="notif-header">
+        <span>Alerts</span>
+        <button class="notif-dismiss-all" id="dismiss-all-btn">Dismiss all</button>
+      </div>
+      <div id="notif-list"></div>
+    </div>
   </div>
+  <button id="sensors-btn" style="display:none">Sensors</button>
+  <button id="feeds-btn" style="display:none">Feeds</button>
+  <button id="users-btn" style="display:none">Users<span id="pending-badge" style="display:none"></span></button>
+  <button id="settings-btn">Settings</button>
+  <div id="user-badge">
+    <span id="user-display"></span>
+    <a href="/logout" id="logout-link" title="Sign out" aria-label="Sign out">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+        <path d="M5.5 2 H2 V12 H5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M8.5 4.5 L11.5 7 L8.5 9.5 M11 7 H5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </a>
+  </div>
+</div>
 
   <!-- ── Main panel ────────────────────────────────────────────── -->
   <div id="main">
@@ -155,6 +167,16 @@
       <button class="filter-btn" id="apply-filter-btn">Apply</button>
       <button class="filter-btn dim" id="reset-filter-btn">Reset</button>
       <span class="filter-spacer"></span>
+      <label class="filter-range-label">Time range
+        <select class="filter-select" id="filter-range" title="Quick date-window preset. Updates the From field; clear or edit From/To in the Advanced bar for a custom window.">
+          <option value="all">All time</option>
+          <option value="1d">Last 1 day</option>
+          <option value="7d">Last 7 days</option>
+          <option value="1mo" selected>Last 1 month</option>
+          <option value="3mo">Last 3 months</option>
+          <option value="6mo">Last 6 months</option>
+        </select>
+      </label>
       <div class="export-dropdown">
         <button class="filter-btn dim" id="export-current-btn" title="Export this tab's findings (with current filters) as CSV or JSON">Export current tab ▾</button>
         <ul class="export-menu hidden" id="export-current-menu">
@@ -179,8 +201,6 @@
           <option value="">All</option>
         </select>
       </label>
-      <label>From <input class="filter-input datetime" id="filter-from" type="datetime-local"></label>
-      <label>To <input class="filter-input datetime" id="filter-to" type="datetime-local"></label>
     </div>
 
     <!-- Delta bar -->
@@ -191,7 +211,7 @@
 
     <div id="info-line"></div>
 
-    <!-- Tabs -->
+    <!-- Tabs + inline pagination controls (Findings tab only) -->
     <div id="tabs">
       <button class="tab-btn active" data-tab="findings">Findings</button>
       <button class="tab-btn" data-tab="ack">Acknowledged</button>
@@ -199,6 +219,27 @@
       <button class="tab-btn" data-tab="ioc">IOC Hits</button>
       <button class="tab-btn" data-tab="campaigns">Campaigns</button>
       <button class="tab-btn" data-tab="hosts">Hosts</button>
+      <div id="findings-pagination">
+        <span class="page-info">
+          Showing <span id="page-shown">0</span> of <span id="page-total">0</span>
+        </span>
+        <label class="page-size-label">
+          Per page:
+          <select id="page-size-select">
+            <option value="100">100</option>
+            <option value="200">200</option>
+            <option value="500">500</option>
+            <option value="1000">1000</option>
+          </select>
+        </label>
+        <span class="page-nav">
+          <button id="page-first" class="page-btn" title="First page" aria-label="First page">«</button>
+          <button id="page-prev"  class="page-btn" title="Previous page" aria-label="Previous page">‹</button>
+          <span class="page-indicator">Page <span id="page-current">1</span> of <span id="page-last-num">1</span></span>
+          <button id="page-next"  class="page-btn" title="Next page" aria-label="Next page">›</button>
+          <button id="page-last"  class="page-btn" title="Last page" aria-label="Last page">»</button>
+        </span>
+      </div>
     </div>
 
     <!-- ── Findings / Acknowledged / Escalated share this panel ── -->
@@ -207,36 +248,21 @@
         <table id="findings-table">
           <thead>
             <tr>
-              <th style="width:38px"></th>
-              <th data-col="score" style="width:90px">Score</th>
-              <th data-col="severity" style="width:110px">Severity</th>
-              <th data-col="type" style="width:190px">Type</th>
-              <th data-col="src_ip" style="width:150px">Source</th>
-              <th data-col="dst_ip" style="width:160px">Destination</th>
-              <th data-col="dst_port" style="width:80px">Port</th>
-              <th data-col="timestamp" style="width:180px">Time (UTC)</th>
-              <th data-col="status" style="width:92px">Status</th>
-              <th data-col="sensor" style="width:140px">Sensor</th>
+              <th style="width:56px"></th>
+              <th data-col="score" style="width:100px">Score</th>
+              <th data-col="severity" style="width:130px">Severity</th>
+              <th data-col="type" style="width:230px">Type</th>
+              <th data-col="src_ip" style="width:180px">Source</th>
+              <th data-col="dst_ip" style="width:200px">Destination</th>
+              <th data-col="dst_port" style="width:95px">Port</th>
+              <th data-col="timestamp" style="width:210px">Time (UTC)</th>
+              <th data-col="status" style="width:115px">Status</th>
+              <th data-col="sensor" style="width:165px">Sensor</th>
               <th>Detail</th>
             </tr>
           </thead>
           <tbody id="findings-tbody"></tbody>
         </table>
-        <div id="findings-pagination">
-          <span class="page-info">
-            Showing <span id="page-shown">0</span> of <span id="page-total">0</span>
-          </span>
-          <label class="page-size-label">
-            Per page:
-            <select id="page-size-select">
-              <option value="100">100</option>
-              <option value="200">200</option>
-              <option value="500">500</option>
-              <option value="1000">1000</option>
-            </select>
-          </label>
-          <button id="page-load-more" class="dlg-btn secondary" style="display:none">Load more</button>
-        </div>
       </div>
 
       <!-- Detail pane — always visible when any findings-type tab is active -->
@@ -274,10 +300,10 @@
         <table id="campaigns-table">
           <thead>
             <tr>
-              <th style="width:80px">Max Score</th>
-              <th style="width:180px">Destination</th>
-              <th style="width:60px">Port</th>
-              <th class="hosts" style="width:60px">Hosts</th>
+              <th data-col="score" style="width:110px">Score</th>
+              <th data-col="dst" style="width:240px">Destination</th>
+              <th data-col="port" style="width:100px">Port</th>
+              <th class="hosts" data-col="hosts" style="width:110px">Hosts</th>
               <th>Source IPs</th>
             </tr>
           </thead>
@@ -293,10 +319,10 @@
         <table id="hosts-table">
           <thead>
             <tr>
-              <th style="width:150px">Host IP</th>
-              <th class="score" style="width:80px">Risk Score</th>
-              <th style="width:80px">Findings</th>
-              <th style="width:90px">Severity</th>
+              <th class="score" data-col="score" style="width:145px">Risk Score</th>
+              <th data-col="ip" style="width:180px">Host IP</th>
+              <th data-col="count" style="width:135px">Findings</th>
+              <th data-col="severity" style="width:140px">Severity</th>
               <th>Top Finding Types</th>
             </tr>
           </thead>
@@ -305,7 +331,6 @@
       </div>
     </div>
   </div>
-</div>
 
 <!-- ── Status bar ─────────────────────────────────────────────── -->
 <div id="statusbar">
@@ -319,11 +344,16 @@
   </div>
 </div>
 
+</div><!-- /main-column -->
+</div><!-- /app-frame -->
+
 <!-- ── Context menu ───────────────────────────────────────────── -->
 <ul class="ctx-menu hidden" id="ctx-menu">
-  <!-- Context header — shows what was right-clicked. Non-clickable. -->
-  <li id="ctx-header" class="ctx-header"></li>
-  <li class="ctx-separator"></li>
+  <!-- Click-anchor arrow. Positioned absolutely at whichever corner of
+       the menu sits closest to the right-click point, with a glyph that
+       points back at the click. JS sets `data-corner` after measuring;
+       CSS does the rest. -->
+  <li id="ctx-arrow" class="ctx-arrow" aria-hidden="true"></li>
 
   <!-- Column-aware items: only shown when the user right-clicks a Src or Dst cell.
        JS resolves the IP from the cell class and rewrites these labels accordingly. -->
@@ -349,7 +379,7 @@
   <li id="ctx-copy-row">Copy Row</li>
   <li id="ctx-source-records">Source Records</li>
   <li id="ctx-chart">Beacon Chart</li>
-  <li class="ctx-separator"></li>
+  <li class="ctx-separator ctx-write-sep"></li>
   <li id="ctx-ack"      class="ctx-write">Acknowledge</li>
   <li id="ctx-escalate" class="ctx-write">Escalate</li>
   <li id="ctx-suppress" class="ctx-submenu ctx-write">Suppress
@@ -451,7 +481,7 @@
         <thead>
           <tr>
             <th style="width:300px">Token</th>
-            <th style="width:130px">Override name</th>
+            <th style="width:180px">Override name</th>
             <th style="width:170px">Created</th>
             <th style="width:170px">Expires</th>
             <th style="width:90px">Status</th>
@@ -468,10 +498,10 @@
         <thead>
           <tr>
             <th style="width:140px">Name</th>
-            <th style="width:130px">Source IP</th>
+            <th style="width:160px">Source IP</th>
             <th style="width:170px">First seen</th>
             <th style="width:170px">Last seen</th>
-            <th style="width:80px">Count</th>
+            <th style="width:110px">Count</th>
             <th></th>
           </tr>
         </thead>
@@ -909,17 +939,20 @@
 </dialog>
 
 <dialog id="chart-dialog">
-  <div class="dlg-header" id="chart-title">Beacon Data Volume</div>
-  <div class="chart-presets">
-    <button class="chart-preset-btn" data-secs="300">5m</button>
-    <button class="chart-preset-btn" data-secs="1800">30m</button>
-    <button class="chart-preset-btn active" data-secs="3600">1h</button>
-    <button class="chart-preset-btn" data-secs="21600">6h</button>
-    <button class="chart-preset-btn" data-secs="86400">24h</button>
-    <button class="chart-preset-btn" data-secs="604800">7d</button>
-    <button class="chart-preset-btn" data-secs="2592000">1mo</button>
-    <button class="chart-preset-btn" data-secs="31536000">1y</button>
+  <div class="dlg-header" id="chart-title">Beacon Visualization</div>
+  <div class="chart-views">
+    <button class="chart-view-btn active" data-view="timeline">Timeline</button>
+    <button class="chart-view-btn" data-view="intervals">Interval histogram</button>
+    <button class="chart-view-btn" data-view="bytes">Bytes</button>
+    <div class="export-dropdown" style="margin-left:auto">
+      <button class="dlg-btn secondary" id="chart-export-btn" title="Export the current view as an image">Export ▾</button>
+      <ul class="export-menu hidden" id="chart-export-menu">
+        <li data-format="png">PNG</li>
+        <li data-format="jpeg">JPEG</li>
+      </ul>
+    </div>
   </div>
+  <div class="chart-stats" id="chart-stats"></div>
   <div class="dlg-body" style="padding-top:0">
     <canvas id="chart-canvas" width="720" height="340"></canvas>
   </div>
