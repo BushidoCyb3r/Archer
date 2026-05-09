@@ -3,6 +3,7 @@ package analysis
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 
 	"github.com/BushidoCyb3r/Archer/internal/model"
@@ -16,10 +17,15 @@ type httpBeaconState struct {
 	ivsSeen  int
 	byteVals []float64
 	byteSeen int
-	hourMap  map[int]int
-	minTs    float64
-	maxTs    float64
-	firstTs  float64
+	// tsData feeds the Beacon Chart's Timeline / Interval / Bytes views.
+	// Reservoir-sampled (ts, origBytes, respBytes) triples — same shape
+	// the conn-level beacon detector emits, capped at beaconTsCap.
+	tsData  [][3]float64
+	tsSeen  int
+	hourMap map[int]int
+	minTs   float64
+	maxTs   float64
+	firstTs float64
 }
 
 func csChecksum8(uri string) int {
@@ -53,6 +59,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 			ua := strings.ToLower(parser.GetStr(rec, "user_agent"))
 			respMime := strings.ToLower(parser.GetStr(rec, "resp_mime_types"))
 			origB := parser.GetFloat(rec, "orig_ip_bytes")
+			respB := parser.GetFloat(rec, "resp_ip_bytes")
 			ts := parser.GetFloat(rec, "ts")
 
 			if src == "" {
@@ -225,6 +232,11 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 					if origB > 0 {
 						st.byteVals, st.byteSeen = reservoirAddF(st.byteVals, st.byteSeen, origB, beaconByteCap)
 					}
+					// Per-event triple feeds the Beacon Chart. Reservoir
+					// sample to bound memory at beaconTsCap regardless of
+					// how many requests this (src, dst, host, uri) pair
+					// generates.
+					st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{ts, origB, respB}, beaconTsCap)
 					if ts > 0 {
 						st.hourMap[int(ts)/3600]++
 					}
@@ -288,6 +300,10 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 			sev = model.SevHigh
 		}
 
+		tsData := make([][3]float64, len(st.tsData))
+		copy(tsData, st.tsData)
+		sort.Slice(tsData, func(i, j int) bool { return tsData[i][0] < tsData[j][0] })
+
 		a.add(model.Finding{
 			Type:      "HTTP Beaconing",
 			Severity:  sev,
@@ -296,6 +312,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 			DstIP:     bk.dst,
 			Detail:    fmt.Sprintf("Requests: %d | Host: %s | URI: %s | Score: ts=%.2f ds=%.2f hist=%.2f dur=%.2f", totalObserved, bk.host, bk.uri, tsScore, dsScore, hScore, durScore),
 			Timestamp: fmtTS(st.firstTs),
+			TSData:    tsData,
 		})
 	}
 }
