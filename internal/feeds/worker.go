@@ -194,14 +194,14 @@ func (w *Worker) tick(ctx context.Context, feedID int64) {
 	mark.Status = "fetching"
 	_ = w.store.UpdateFeed(mark)
 
-	inds, err := adapter.Fetch(ctx)
+	res, err := adapter.Fetch(ctx)
 	if err != nil {
 		w.recordError(f, "fetch: "+err.Error())
 		return
 	}
 
 	now := w.now().Unix()
-	added, refreshed, err := w.store.UpsertFeedIndicators(f.ID, inds, now)
+	added, refreshed, err := w.store.UpsertFeedIndicators(f.ID, res.Indicators, now)
 	if err != nil {
 		w.recordError(f, "upsert: "+err.Error())
 		return
@@ -218,11 +218,16 @@ func (w *Worker) tick(ctx context.Context, feedID int64) {
 	done := f
 	done.LastRefreshAt = now
 	done.LastIndicatorCount = added + refreshed
+	done.LastFetchTruncated = res.Truncated
 	done.LastError = ""
 	done.Status = "ok"
 	_ = w.store.UpdateFeed(done)
 
-	log.Printf("feeds: %s/%s — added %d, refreshed %d", f.SourceType, f.Name, added, refreshed)
+	if res.Truncated {
+		log.Printf("feeds: %s/%s — added %d, refreshed %d (TRUNCATED at adapter cap)", f.SourceType, f.Name, added, refreshed)
+	} else {
+		log.Printf("feeds: %s/%s — added %d, refreshed %d", f.SourceType, f.Name, added, refreshed)
+	}
 }
 
 func (w *Worker) lookup(feedID int64) Feed {

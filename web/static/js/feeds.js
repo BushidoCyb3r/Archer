@@ -58,7 +58,7 @@ const Feeds = (() => {
     if (!tbody) return;
     const list = (data && data.feeds) || [];
     if (list.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="font-style:italic;color:var(--fg-dim);text-align:center;padding:12px">No feeds configured.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="font-style:italic;color:var(--fg-dim);text-align:center;padding:12px">No feeds configured.</td></tr>';
       return;
     }
     tbody.innerHTML = list.map(f => {
@@ -71,11 +71,15 @@ const Feeds = (() => {
            <button class="dlg-btn secondary feeds-row-edit" data-id="${f.id}">Edit</button>
            <button class="dlg-btn danger feeds-row-delete" data-id="${f.id}">Delete</button>`
         : '';
+      const count = (f.last_indicator_count || 0).toLocaleString();
+      const truncBadge = f.last_fetch_truncated
+        ? ` <span title="Last fetch hit the adapter's page-walk cap — upstream has more indicators than were pulled. Consider narrowing the upstream query." style="color:var(--sev-medium);font-weight:600">⚠ truncated</span>`
+        : '';
       return `<tr${lastErrTitle}>
         <td>${_esc(f.name)}${enabledMark}</td>
         <td>${_esc(f.source_type.toUpperCase())}</td>
         <td>${statusCol}</td>
-        <td style="text-align:right">${(f.last_indicator_count || 0).toLocaleString()}</td>
+        <td style="text-align:right">${count}${truncBadge}</td>
         <td>${_fmtTS(f.last_refresh_at)}</td>
         <td>${_esc(f.indicator_aging_days)} d</td>
         <td style="text-align:right">${adminCtrls}</td>

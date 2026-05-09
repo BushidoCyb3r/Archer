@@ -447,7 +447,7 @@ refresh (`refreshFeedsBeforeFullPass` in `internal/server/watch.go`).
 
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
-| `GET` | `/api/feeds` | any | List configured feeds. `api_key` is redacted; the response carries a `has_api_key` boolean instead. |
+| `GET` | `/api/feeds` | any | List configured feeds. `api_key` is redacted; the response carries a `has_api_key` boolean instead. Each row also carries `last_fetch_truncated` (bool) — `true` when the most recent fetch hit the adapter's page-walk cap (10k × 100 pages on MISP, 1k × 100 pages on OpenCTI) with the upstream still indicating more data. |
 | `POST` | `/api/feeds` | admin | Create a feed. Required body fields: `source_type` (`misp`/`opencti`), `name`, `url` (with scheme), `api_key`, `indicator_aging_days` (≥ 0). Optional: `enabled`, `tls_skip_verify`. |
 | `PUT` | `/api/feeds/{id}` | admin | Update a feed. Empty `api_key` keeps the existing value (clearing requires delete + recreate). |
 | `DELETE` | `/api/feeds/{id}` | admin | Delete a feed. FK cascade drops its `feed_indicators`. |

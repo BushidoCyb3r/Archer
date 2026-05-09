@@ -30,6 +30,21 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Added
+
+- **MISP adapter pagination + truncation visibility.** The MISP
+  fetcher now walks `/attributes/restSearch`'s `page` + `limit`
+  parameters in batches of 10000 up to 100 pages (1M attributes),
+  instead of issuing a single 100k-attribute request and silently
+  truncating large feeds. When the adapter hits the cap with the
+  upstream still indicating more data, the feed row's new
+  `last_fetch_truncated` field flips to `true` and the Feeds
+  dialog surfaces a "⚠ truncated" badge next to the indicator
+  count. OpenCTI already paginated correctly via cursors;
+  truncation visibility is wired up there too. Schema change:
+  `feeds.last_fetch_truncated` column added via migration
+  `0005_feeds_last_fetch_truncated.sql`.
+
 ### Removed
 
 - **Per-feed `refresh_cadence_minutes` field.** Dead since v0.6.0,

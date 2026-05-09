@@ -136,15 +136,16 @@ func stixValue(pattern string) string {
 // normalized indicators across pages. On any per-page error the
 // accumulated set is returned alongside the error so partial
 // progress isn't lost.
-func (c *OpenCTIClient) Fetch(ctx context.Context) ([]Indicator, error) {
+func (c *OpenCTIClient) Fetch(ctx context.Context) (FetchResult, error) {
 	if c.BaseURL == "" {
-		return nil, fmt.Errorf("opencti: empty base URL")
+		return FetchResult{}, fmt.Errorf("opencti: empty base URL")
 	}
 	if c.APIKey == "" {
-		return nil, fmt.Errorf("opencti: empty API key")
+		return FetchResult{}, fmt.Errorf("opencti: empty API key")
 	}
 
 	out := make([]Indicator, 0, c.PageSize)
+	truncated := false
 	var cursor string
 	for page := 0; page < c.PageLimit; page++ {
 		vars := map[string]any{"first": c.PageSize}
@@ -154,11 +155,11 @@ func (c *OpenCTIClient) Fetch(ctx context.Context) ([]Indicator, error) {
 
 		body, err := json.Marshal(openCTIRequest{Query: openCTIQuery, Variables: vars})
 		if err != nil {
-			return out, fmt.Errorf("opencti: marshal request: %w", err)
+			return FetchResult{Indicators: out}, fmt.Errorf("opencti: marshal request: %w", err)
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/graphql", bytes.NewReader(body))
 		if err != nil {
-			return out, fmt.Errorf("opencti: build request: %w", err)
+			return FetchResult{Indicators: out}, fmt.Errorf("opencti: build request: %w", err)
 		}
 		req.Header.Set("Authorization", "Bearer "+c.APIKey)
 		req.Header.Set("Accept", "application/json")
@@ -166,27 +167,27 @@ func (c *OpenCTIClient) Fetch(ctx context.Context) ([]Indicator, error) {
 
 		resp, err := c.HTTP.Do(req)
 		if err != nil {
-			return out, fmt.Errorf("opencti: request failed: %w", err)
+			return FetchResult{Indicators: out}, fmt.Errorf("opencti: request failed: %w", err)
 		}
 		raw, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20)) // 50 MiB safety cap
 		_ = resp.Body.Close()
 		if err != nil {
-			return out, fmt.Errorf("opencti: read response: %w", err)
+			return FetchResult{Indicators: out}, fmt.Errorf("opencti: read response: %w", err)
 		}
 		if resp.StatusCode != http.StatusOK {
 			preview := string(raw)
 			if len(preview) > 1024 {
 				preview = preview[:1024]
 			}
-			return out, fmt.Errorf("opencti: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(preview))
+			return FetchResult{Indicators: out}, fmt.Errorf("opencti: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(preview))
 		}
 
 		var parsed openCTIResponse
 		if err := json.Unmarshal(raw, &parsed); err != nil {
-			return out, fmt.Errorf("opencti: decode response: %w", err)
+			return FetchResult{Indicators: out}, fmt.Errorf("opencti: decode response: %w", err)
 		}
 		if len(parsed.Errors) > 0 {
-			return out, fmt.Errorf("opencti: graphql error: %s", parsed.Errors[0].Message)
+			return FetchResult{Indicators: out}, fmt.Errorf("opencti: graphql error: %s", parsed.Errors[0].Message)
 		}
 
 		for _, edge := range parsed.Data.Indicators.Edges {
@@ -205,8 +206,14 @@ func (c *OpenCTIClient) Fetch(ctx context.Context) ([]Indicator, error) {
 			// Defensive: hasNextPage=true with no cursor would loop forever.
 			break
 		}
+		// Hit the page-walk cap with hasNextPage still true → upstream
+		// has more, flag truncation so the operator sees they're
+		// under-fetching.
+		if page == c.PageLimit-1 {
+			truncated = true
+		}
 	}
-	return out, nil
+	return FetchResult{Indicators: out, Truncated: truncated}, nil
 }
 
 // normalizeOpenCTINode translates one OpenCTI indicator node into the

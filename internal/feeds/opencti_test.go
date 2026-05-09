@@ -73,10 +73,11 @@ func TestOpenCTIClient_Fetch_ParsesAndNormalizes(t *testing.T) {
 	defer srv.Close()
 
 	c := NewOpenCTIClient(srv.URL, "test-token", false)
-	got, err := c.Fetch(context.Background())
+	res, err := c.Fetch(context.Background())
 	if err != nil {
 		t.Fatalf("Fetch returned error: %v", err)
 	}
+	got := res.Indicators
 
 	// 6 valid indicators, 3 skipped (Url, malformed IPv4, missing value).
 	if len(got) != 6 {
@@ -159,12 +160,12 @@ func TestOpenCTIClient_Fetch_FollowsPagination(t *testing.T) {
 
 	c := NewOpenCTIClient(srv.URL, "tok", false)
 	c.PageSize = 1
-	got, err := c.Fetch(context.Background())
+	res, err := c.Fetch(context.Background())
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	if len(got) != 2 {
-		t.Errorf("expected 2 indicators across 2 pages, got %d", len(got))
+	if len(res.Indicators) != 2 {
+		t.Errorf("expected 2 indicators across 2 pages, got %d", len(res.Indicators))
 	}
 	if calls.Load() != 2 {
 		t.Errorf("expected 2 HTTP calls, got %d", calls.Load())
