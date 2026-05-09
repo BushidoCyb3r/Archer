@@ -207,32 +207,7 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 	limit, offset := parseListPagination(q)
 
 	result := s.filterFindings(s.store.GetFindings(), q)
-
-	// Sort
-	sort.Slice(result, func(i, j int) bool {
-		a, b := result[i], result[j]
-		var less bool
-		switch sortCol {
-		case "score":
-			less = a.Score < b.Score
-		case "severity":
-			less = severityOrder(a.Severity) < severityOrder(b.Severity)
-		case "type":
-			less = a.Type < b.Type
-		case "src_ip":
-			less = a.SrcIP < b.SrcIP
-		case "dst_ip":
-			less = a.DstIP < b.DstIP
-		case "timestamp":
-			less = a.Timestamp < b.Timestamp
-		default:
-			less = a.Score < b.Score
-		}
-		if sortDir == "asc" {
-			return less
-		}
-		return !less
-	})
+	sortFindings(result, sortCol, sortDir)
 
 	total := len(result)
 	page := result
@@ -256,6 +231,36 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count, X-Has-More")
 	json.NewEncoder(w).Encode(projectFindingList(page))
+}
+
+// sortFindings sorts the slice in place by the same column / direction
+// rules used by /api/findings. Shared with the position lookup so the
+// "where is finding X" answer matches the ordering of the listing.
+func sortFindings(findings []model.Finding, sortCol, sortDir string) {
+	sort.Slice(findings, func(i, j int) bool {
+		a, b := findings[i], findings[j]
+		var less bool
+		switch sortCol {
+		case "score":
+			less = a.Score < b.Score
+		case "severity":
+			less = severityOrder(a.Severity) < severityOrder(b.Severity)
+		case "type":
+			less = a.Type < b.Type
+		case "src_ip":
+			less = a.SrcIP < b.SrcIP
+		case "dst_ip":
+			less = a.DstIP < b.DstIP
+		case "timestamp":
+			less = a.Timestamp < b.Timestamp
+		default:
+			less = a.Score < b.Score
+		}
+		if sortDir == "asc" {
+			return less
+		}
+		return !less
+	})
 }
 
 // parseListPagination reads ?limit and ?offset from the query string,
@@ -442,11 +447,14 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-resource dispatch: /api/findings/{id}/raw → raw-log pivot
+	// Sub-resource dispatch: /api/findings/{id}/raw → raw-log pivot;
+	// /api/findings/{id}/position → page-offset lookup for bell jumps.
 	if len(parts) > 1 {
 		switch parts[1] {
 		case "raw":
 			s.handleFindingRaw(w, r, id)
+		case "position":
+			s.handleFindingPosition(w, r, id)
 		default:
 			http.NotFound(w, r)
 		}
@@ -496,6 +504,52 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleFindingPosition returns the absolute zero-indexed position of a
+// finding within /api/findings under the same filter + sort parameters.
+// The bell-notification "Jump" action uses it to navigate to the page
+// containing the target finding regardless of the analyst's current
+// pagination offset. 404 means the finding does not match the supplied
+// filter (deleted, archived, or status mismatch).
+func (s *Server) handleFindingPosition(w http.ResponseWriter, r *http.Request, id int) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	q := r.URL.Query()
+	sortCol := q.Get("sort")
+	if sortCol == "" {
+		sortCol = "score"
+	}
+	sortDir := q.Get("dir")
+
+	result := s.filterFindings(s.store.GetFindings(), q)
+	sortFindings(result, sortCol, sortDir)
+
+	pos := -1
+	for i, f := range result {
+		if f.ID == id {
+			pos = i
+			break
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if pos < 0 {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]any{
+			"found": false,
+			"total": len(result),
+		})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]any{
+		"found":  true,
+		"offset": pos,
+		"total":  len(result),
+	})
 }
 
 // handleTIServices reports which TI services have API keys configured,

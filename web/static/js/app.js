@@ -3298,19 +3298,83 @@
       document.getElementById('graph-export-scope-dlg').close();
     });
 
-    Notifications.init(findingId => {
-      const f = _allFindings.find(x => x.id === findingId);
-      // Switch to the right tab for this finding's status
-      const status = f ? f.status : '';
-      let targetTab = 'findings';
-      if (status === 'acknowledged') targetTab = 'ack';
-      if (status === 'escalated')    targetTab = 'esc';
-      document.querySelector(`.tab-btn[data-tab="${targetTab}"]`).click();
-      if (f) {
-        _selectedFinding = f;
-        Detail.render(f);
-        Table.jumpTo(f.id);
+    Notifications.init(async findingId => {
+      // The finding may be filtered out of _allFindings or live on a
+      // different page than the one currently loaded. Fetch it directly
+      // so we always know its status (and therefore which tab to land
+      // on) regardless of the active view state.
+      let target = _allFindings.find(x => x.id === findingId);
+      if (!target) {
+        try {
+          const r = await fetch('/api/findings/' + findingId);
+          if (r.ok) target = await r.json();
+        } catch (_) {}
       }
+      if (!target) {
+        setStatus('Finding no longer available');
+        return;
+      }
+
+      // Reset every filter that could exclude the target. Operator
+      // intent: "regardless of other filtering or pagination, jump to
+      // that finding." That means clearing search, type/sensor/severity
+      // dropdowns, score floor, time-range (to All time), and delta
+      // mode. The active tab is then chosen by the finding's status.
+      ['filter-search','filter-src','filter-dst','filter-port'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.value = '';
+      });
+      const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+      setVal('filter-sev', '');
+      setVal('filter-type', '');
+      setVal('filter-sensor', '');
+      setVal('filter-score', '0');
+      setVal('filter-range', 'all');
+      _deltaMode = false;
+      const showAllBtn = document.getElementById('show-all-btn');
+      const deltaBtn   = document.getElementById('delta-btn');
+      if (showAllBtn) showAllBtn.classList.add('active');
+      if (deltaBtn)   deltaBtn.classList.remove('active');
+
+      // Switch tab manually instead of dispatching a click — the click
+      // handler kicks off its own loadFindings(offset=0) which would
+      // race the position-aware load below. Doing it inline keeps to a
+      // single fetch.
+      let targetTab = 'findings';
+      if (target.status === 'acknowledged') targetTab = 'ack';
+      else if (target.status === 'escalated') targetTab = 'esc';
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      const tabBtn = document.querySelector(`.tab-btn[data-tab="${targetTab}"]`);
+      if (tabBtn) tabBtn.classList.add('active');
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      const findingsPanel = document.getElementById('tab-findings');
+      if (findingsPanel) findingsPanel.classList.add('active');
+      _activeTab = targetTab;
+      _tabMode   = targetTab;
+      _invalidateAllTabs();
+      _loadCounts();
+      _loadFacets();
+
+      // Look up the absolute position under the now-cleared filter,
+      // then fetch the page that contains it.
+      const params = _currentFilterParams();
+      let pageOffset = 0;
+      try {
+        const qs = new URLSearchParams(params).toString();
+        const posRes = await fetch(`/api/findings/${findingId}/position` + (qs ? '?' + qs : ''));
+        if (posRes.ok) {
+          const pos = await posRes.json();
+          if (pos.found) pageOffset = Math.floor(pos.offset / _pageSize) * _pageSize;
+        }
+      } catch (_) { /* fall through with offset=0 */ }
+
+      try {
+        await loadFindings(params, { gotoOffset: pageOffset });
+      } catch (e) {
+        setStatus('Jump load failed: ' + e);
+      }
+      _selectedFinding = target;
+      Detail.render(target);
+      Table.jumpTo(findingId);
     });
 
     // Fetch current user for display, note authorship, and role-gating

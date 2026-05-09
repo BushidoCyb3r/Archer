@@ -30,6 +30,29 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Bell-notification Jump now lands on the target finding regardless
+  of filter/pagination/delta state.** Pre-fix the Jump button silently
+  no-op'd when the active tab's filter excluded the target, when the
+  current page didn't contain it, or when delta mode was on. The
+  handler now resets every filter input (search, src/dst/port,
+  severity, type, sensor, score floor, time range → All time, delta
+  off), switches to the tab matching the finding's status, queries
+  the new `/api/findings/{id}/position` endpoint to compute the
+  absolute offset under the cleared filter, fetches the page that
+  contains the finding, and scrolls the table row into view. Filters
+  the analyst had set are intentionally lost — the Jump is a "show
+  me this finding now" action.
+
+### Added
+
+- **`/api/findings/{id}/position` endpoint.** Returns the absolute
+  zero-indexed position of a finding within `/api/findings` under
+  the same filter + sort parameters. Backs the Jump action's
+  page-offset lookup; useful to any external script that wants to
+  navigate to a specific finding within a paginated view.
+
 ## [v0.7.0] — 2026-05-09
 
 ### Fixed
