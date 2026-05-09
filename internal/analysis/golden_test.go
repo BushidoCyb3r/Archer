@@ -3,12 +3,15 @@ package analysis
 import (
 	"encoding/json"
 	"flag"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/BushidoCyb3r/Archer/internal/config"
+	"github.com/BushidoCyb3r/Archer/internal/feeds"
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
 
@@ -99,13 +102,32 @@ func collectFixtureLogs(t *testing.T, dir string) []string {
 // the default below — empty map for *_ips and a single "malware.test" entry
 // for hosts (so the original beacon_url scenario keeps working without
 // needing its own feeds.json).
+//
+// MISPFeeds carries one or more stub MISP/OpenCTI feed snapshots. The
+// analyzer treats both source types identically (both normalize to the
+// same SourcedIndicators bucket via their adapters), so a single entry
+// here exercises the per-source fan-out path regardless of which
+// upstream produced it.
 type scenarioFeeds struct {
-	FeodoIPs     []string `json:"feodo_ips"`
-	URLhausIPs   []string `json:"urlhaus_ips"`
-	URLhausHosts []string `json:"urlhaus_hosts"`
+	FeodoIPs     []string       `json:"feodo_ips"`
+	URLhausIPs   []string       `json:"urlhaus_ips"`
+	URLhausHosts []string       `json:"urlhaus_hosts"`
+	MISPFeeds    []scenarioMISP `json:"misp_feeds"`
 }
 
-func loadScenarioFeeds(dir string) (feodoIPs, urlhausIPs, urlhausHosts map[string]bool, err error) {
+// scenarioMISP describes one stub feed for a scenario. Source becomes
+// the "feed:<name>" prefix in finding details. Tags is keyed by raw
+// indicator value (the analyzer lowercases domain keys internally so
+// the test injector mirrors that).
+type scenarioMISP struct {
+	Source  string              `json:"source"`
+	IPs     []string            `json:"ips"`
+	CIDRs   []string            `json:"cidrs"`
+	Domains []string            `json:"domains"`
+	Tags    map[string][]string `json:"tags"`
+}
+
+func loadScenarioFeeds(dir string) (feodoIPs, urlhausIPs, urlhausHosts map[string]bool, provider feeds.Provider, err error) {
 	feodoIPs = map[string]bool{}
 	urlhausIPs = map[string]bool{}
 	urlhausHosts = map[string]bool{"malware.test": true}
@@ -114,11 +136,11 @@ func loadScenarioFeeds(dir string) (feodoIPs, urlhausIPs, urlhausHosts map[strin
 	if readErr != nil {
 		// No feeds.json — fall back to defaults silently. Most scenarios
 		// don't need TI injection beyond the default malware.test entry.
-		return feodoIPs, urlhausIPs, urlhausHosts, nil
+		return feodoIPs, urlhausIPs, urlhausHosts, nil, nil
 	}
 	var f scenarioFeeds
 	if err := json.Unmarshal(raw, &f); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	// feeds.json fully replaces the defaults for whichever fields it sets.
 	if f.FeodoIPs != nil {
@@ -139,7 +161,45 @@ func loadScenarioFeeds(dir string) (feodoIPs, urlhausIPs, urlhausHosts map[strin
 			urlhausHosts[h] = true
 		}
 	}
-	return feodoIPs, urlhausIPs, urlhausHosts, nil
+	if len(f.MISPFeeds) > 0 {
+		buckets := make([]feeds.SourcedIndicators, 0, len(f.MISPFeeds))
+		for _, mf := range f.MISPFeeds {
+			b := feeds.SourcedIndicators{
+				Source:  mf.Source,
+				IPs:     map[string]bool{},
+				Domains: map[string]bool{},
+				Tags:    map[string][]string{},
+			}
+			for _, ip := range mf.IPs {
+				b.IPs[ip] = true
+			}
+			for _, c := range mf.CIDRs {
+				if _, ipnet, perr := net.ParseCIDR(c); perr == nil {
+					b.CIDRs = append(b.CIDRs, ipnet)
+				}
+			}
+			for _, d := range mf.Domains {
+				b.Domains[strings.ToLower(d)] = true
+			}
+			for k, v := range mf.Tags {
+				b.Tags[strings.ToLower(k)] = v
+			}
+			buckets = append(buckets, b)
+		}
+		provider = &goldenStubFeedProvider{out: buckets}
+	}
+	return feodoIPs, urlhausIPs, urlhausHosts, provider, nil
+}
+
+// goldenStubFeedProvider implements feeds.Provider for scenario injection.
+// Distinct type from feedprovider_test.go's stubFeedProvider (which lives
+// in a different test file) to keep the two test surfaces independent.
+type goldenStubFeedProvider struct {
+	out []feeds.SourcedIndicators
+}
+
+func (g *goldenStubFeedProvider) EnabledFeedIndicators() []feeds.SourcedIndicators {
+	return g.out
 }
 
 // runScenario runs one fixture subdirectory through the analyzer and either
@@ -151,7 +211,7 @@ func runScenario(t *testing.T, dir string) {
 		t.Fatalf("no .log fixtures in %s", dir)
 	}
 
-	feodoIPs, urlhausIPs, urlhausHosts, err := loadScenarioFeeds(dir)
+	feodoIPs, urlhausIPs, urlhausHosts, provider, err := loadScenarioFeeds(dir)
 	if err != nil {
 		t.Fatalf("load feeds.json in %s: %v", dir, err)
 	}
@@ -162,6 +222,9 @@ func runScenario(t *testing.T, dir string) {
 	a.feodoIPs = feodoIPs
 	a.urlhausIPs = urlhausIPs
 	a.urlhausHosts = urlhausHosts
+	if provider != nil {
+		a.SetFeedProvider(provider)
+	}
 
 	got := projectFindings(a.Analyze(files))
 

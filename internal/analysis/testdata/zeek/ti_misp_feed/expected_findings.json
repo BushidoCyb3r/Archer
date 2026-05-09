@@ -1,0 +1,71 @@
+[
+  {
+    "type": "Host Risk Score",
+    "severity": "MEDIUM",
+    "score": 35,
+    "src_ip": "192.168.8.30",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 35 | Detections: [Suspicious File Download Suspicious URL Threat Intel Hit]",
+    "timestamp": "2024-01-15 12:00:15"
+  },
+  {
+    "type": "Suspicious File Download",
+    "severity": "HIGH",
+    "score": 72,
+    "src_ip": "192.168.8.30",
+    "dst_ip": "198.51.100.99",
+    "dst_port": "80",
+    "detail": "MIME: application/octet-stream | URI: /payload.bin | Host: malware.example",
+    "timestamp": "2024-01-15 12:00:15"
+  },
+  {
+    "type": "Suspicious URL",
+    "severity": "HIGH",
+    "score": 90,
+    "src_ip": "192.168.8.30",
+    "dst_ip": "198.51.100.99",
+    "dst_port": "80",
+    "detail": "demo-misp domain match: malware.example | URI: /payload.bin",
+    "timestamp": "2024-01-15 12:00:15"
+  },
+  {
+    "type": "Threat Intel Hit",
+    "severity": "HIGH",
+    "score": 90,
+    "src_ip": "192.168.8.30",
+    "dst_ip": "198.51.100.55",
+    "dst_port": "443",
+    "detail": "demo-misp indicator match: 198.51.100.55 — tags: malware:emotet, tlp:white — observed via conn on port 443 (1 session(s))",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Threat Intel Hit",
+    "severity": "HIGH",
+    "score": 90,
+    "src_ip": "192.168.8.30",
+    "dst_ip": "203.0.113.42",
+    "dst_port": "8080",
+    "detail": "demo-misp indicator match: 203.0.113.42 — observed via conn on port 8080 (1 session(s))",
+    "timestamp": "2024-01-15 12:00:05"
+  },
+  {
+    "type": "Threat Intel Hit",
+    "severity": "HIGH",
+    "score": 90,
+    "src_ip": "192.168.8.30",
+    "dst_ip": "badactor.example",
+    "dst_port": "53",
+    "detail": "demo-misp indicator match: badactor.example — tags: c2:server — DNS A query (1 lookup(s))",
+    "timestamp": "2024-01-15 12:00:10"
+  },
+  {
+    "type": "Threat Intel Hit",
+    "severity": "HIGH",
+    "score": 90,
+    "src_ip": "192.168.8.30",
+    "dst_ip": "malware.example",
+    "dst_port": "80",
+    "detail": "demo-misp indicator match: malware.example — HTTP request to /payload.bin (1 request(s))",
+    "timestamp": "2024-01-15 12:00:15"
+  }
+]
