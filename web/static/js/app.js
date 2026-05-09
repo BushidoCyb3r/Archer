@@ -1159,71 +1159,78 @@
     });
   }
 
-  // ── Import from /logs volume ────────────────────────────────────────────────
+  // ── /logs preview ──────────────────────────────────────────────────────────
   function _setLogsDirHint(dir) {
     const el = document.getElementById('logs-dir-path');
     if (el) el.textContent = dir || '/logs';
   }
 
-  function initUpload() {
-    // Read configured dir on page load — GET is read-only, no scanning side effects
-    api('/api/logs/scan')
-      .then(r => { _logsDir = r.dir || '/logs'; _setLogsDirHint(_logsDir); refreshFileList(); })
-      .catch(() => { _setLogsDirHint('/logs'); refreshFileList(); });
-
-    document.getElementById('import-logs-btn').addEventListener('click', async () => {
-      setStatus('Scanning logs directory…');
-      try {
-        const result = await api('/api/logs/scan', {method: 'POST'});
-        const count = result.count || 0;
-        const dir   = result.dir  || '/logs';
-        _logsDir = dir;
-        _setLogsDirHint(dir);
-        setStatus(`Imported ${count} file${count !== 1 ? 's' : ''} from ${dir}`);
-        await refreshFileList();
-      } catch (e) {
-        setStatus('Import error: ' + e);
-      }
-    });
-
-    document.getElementById('clear-files-btn').addEventListener('click', async () => {
-      if (!confirm('Clear file list?')) return;
-      await api('/api/files/clear', {method: 'POST'});
-      await refreshFileList();
-    });
+  function initLogsPanel() {
+    _setLogsDirHint(_logsDir);
+    _loadLogsTree();
   }
 
-  async function refreshFileList() {
-    const data = await api('/api/files').catch(() => []);
-    const ul = document.getElementById('file-list');
-    ul.innerHTML = '';
-    const files = Array.isArray(data) ? data : [];
+  async function _loadLogsTree() {
+    const container = document.getElementById('logs-tree');
+    if (!container) return;
+    try {
+      const data = await api('/api/logs/tree');
+      const sensors = (data && data.sensors) || [];
+      if (data && data.logs_dir) {
+        _logsDir = data.logs_dir;
+        _setLogsDirHint(_logsDir);
+      }
+      const btn = document.getElementById('analyze-btn');
+      if (btn) btn.disabled = sensors.length === 0;
 
-    const dirParts = _logsDir.replace(/\\/g, '/').split('/').filter(Boolean);
-    const bySensor = new Map();
-    files.forEach(p => {
-      const parts    = p.replace(/\\/g, '/').split('/').filter(Boolean);
-      const relParts = parts.slice(dirParts.length);
-      const sensor   = relParts.length >= 2 ? relParts[0] : '(root)';
-      const name     = parts[parts.length - 1];
-      if (!bySensor.has(sensor)) bySensor.set(sensor, []);
-      bySensor.get(sensor).push({name, path: p});
-    });
-
-    if (bySensor.size === 0) {
-      const li = document.createElement('li');
-      li.textContent = 'No files — click Import';
-      li.style.fontStyle = 'italic';
-      ul.appendChild(li);
-      return;
+      container.innerHTML = '';
+      if (sensors.length === 0) {
+        const empty = document.createElement('div');
+        empty.textContent = 'No logs found in /logs';
+        empty.style.cssText = 'color:var(--fg-dim);font-size:10px;font-style:italic;padding:4px 12px';
+        container.appendChild(empty);
+        return;
+      }
+      sensors.forEach(s => {
+        const wrap = document.createElement('div');
+        wrap.className = 'logs-tree-sensor';
+        const head = document.createElement('div');
+        head.style.cssText = 'color:var(--fg-text);font-weight:600;font-size:10px;padding:2px 12px;cursor:pointer';
+        head.textContent = `${s.name} (${s.total_files} file${s.total_files !== 1 ? 's' : ''}, ${_humanBytes(s.total_size_bytes)})`;
+        const datesEl = document.createElement('div');
+        datesEl.style.cssText = 'display:none;padding:0 12px 2px 20px';
+        (s.dates || []).slice(0, 12).forEach(d => {
+          const row = document.createElement('div');
+          row.style.cssText = 'color:var(--fg-dim);font-size:9px;line-height:1.4';
+          row.textContent = `${d.date} — ${d.files} file${d.files !== 1 ? 's' : ''}, ${_humanBytes(d.size_bytes)}`;
+          datesEl.appendChild(row);
+        });
+        if ((s.dates || []).length > 12) {
+          const more = document.createElement('div');
+          more.style.cssText = 'color:var(--fg-dim);font-size:9px;font-style:italic';
+          more.textContent = `… +${s.dates.length - 12} older`;
+          datesEl.appendChild(more);
+        }
+        head.addEventListener('click', () => {
+          datesEl.style.display = datesEl.style.display === 'none' ? 'block' : 'none';
+        });
+        wrap.appendChild(head);
+        wrap.appendChild(datesEl);
+        container.appendChild(wrap);
+      });
+    } catch (_) {
+      const btn = document.getElementById('analyze-btn');
+      if (btn) btn.disabled = true;
     }
+  }
 
-    bySensor.forEach((entries, sensor) => {
-      const hdr = document.createElement('li');
-      hdr.textContent = `📁 ${sensor} (${entries.length})`;
-      hdr.style.cssText = 'color:var(--fg-text);font-weight:600;margin-top:4px;font-size:10px';
-      ul.appendChild(hdr);
-    });
+  function _humanBytes(n) {
+    if (!n || n < 1024) return `${n || 0}B`;
+    const u = ['KB', 'MB', 'GB', 'TB'];
+    let v = n / 1024;
+    let i = 0;
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+    return `${v.toFixed(v < 10 ? 1 : 0)}${u[i]}`;
   }
 
   // ── Analyze ────────────────────────────────────────────────────────────────
@@ -1249,7 +1256,8 @@
   let _paused = false;
 
   function _setAnalyzing(active) {
-    document.getElementById('analyze-btn').disabled = active;
+    const btn = document.getElementById('analyze-btn');
+    if (btn) btn.disabled = active;
     document.getElementById('analysis-controls').style.display = active ? 'flex' : 'none';
     // Reset Stop/Pause buttons to their default labels and enabled state
     // every time analysis starts or finishes, so a partial-state from a
@@ -1282,20 +1290,19 @@
   function initAnalyze() {
     _syncAnalyzeState();
 
-    document.getElementById('analyze-btn').addEventListener('click', async () => {
+    async function _kickAnalyze(endpoint, startMsg) {
       _setAnalyzing(true);
       document.getElementById('progress-bar').value = 0;
       document.getElementById('ti-status').textContent = 'Fetching…';
       document.getElementById('ti-status').style.color = 'var(--fg-dim)';
-      setStatus('Starting analysis…');
+      setStatus(startMsg);
       try {
-        await api('/api/analyze', {
+        await api(endpoint, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({}),
         });
       } catch (e) {
-        // 409 = analysis already running — keep buttons visible so user can stop it
         if (String(e).includes('already running') || String(e).includes('409')) {
           setStatus('Analysis already running');
         } else {
@@ -1303,7 +1310,13 @@
           _setAnalyzing(false);
         }
       }
-    });
+    }
+
+    const btn = document.getElementById('analyze-btn');
+    if (btn) {
+      btn.addEventListener('click', () =>
+        _kickAnalyze('/api/analyze', 'Starting analysis…'));
+    }
 
     document.getElementById('stop-btn').addEventListener('click', async () => {
       // The analyzer cancels at phase boundaries, not in tight loops, so
@@ -1388,6 +1401,7 @@
       _loadCounts();
       _loadFacets();
       _updateTIStatus();
+      _loadLogsTree();
       // Catch any notifications missed if SSE connection dropped during analysis
       fetch('/api/notifications')
         .then(r => r.json())
@@ -3323,7 +3337,7 @@
       }
       // Hide write-only controls for viewers
       if (u.role === 'viewer') {
-        ['import-logs-btn','clear-files-btn','analyze-btn','allowlist-btn','ioc-btn','suppressions-btn',
+        ['analyze-btn','allowlist-btn','ioc-btn','suppressions-btn',
          'ack-btn','esc-btn','supp-btn','add-note-btn'].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.style.display = 'none';
@@ -3343,7 +3357,7 @@
     initTabs();
     initFilterBar();
     initDeltaBar();
-    initUpload();
+    initLogsPanel();
     initAnalyze();
     initDetailActions();
     initSuppressDialog();

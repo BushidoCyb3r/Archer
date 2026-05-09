@@ -570,11 +570,18 @@ Note: bare `docker compose up -d` gives the container only 4 GB of RAM regardles
 
 Navigate to `http://localhost:8080`. The first user to register automatically receives the **admin** role.
 
-### 5. Import and analyze
+### 5. Analyze
 
-1. Click **Import** in the sidebar to scan the `logs/` directory
-2. Click **Analyze** to run the full detection pipeline
-3. Findings appear in real time as the pipeline progresses
+1. Drop Zeek logs into `logs/<name>/<date>/` on the host (or let
+   Quiver sensors rsync them in automatically). The sidebar **Logs**
+   tree shows what's been picked up.
+2. Click **Analyze logs** to run the full detection pipeline.
+3. Findings appear in real time as the pipeline progresses.
+
+For analyst-laptop bundles or third-party hand-offs without a live
+sensor: drop the bundle into `logs/<handoff-name>/<date>/` on the
+host (mount, `docker cp`, or SCP via the Quiver SSH dropbox at
+port 2222). Same `Analyze logs` button picks them up.
 
 ---
 
@@ -840,8 +847,8 @@ Sessions are stored in SQLite with a 24-hour expiry, httpOnly cookies, and `Same
 
 | Section | Controls |
 |---|---|
-| **Zeek Logs** | Shows the current log directory; **Import** scans for new files; **Clear** removes the file list. The file list is grouped by sensor (top-level subdirectory under `/logs`) with a file count. |
-| **Analysis** | **Analyze** starts the detection pipeline. A progress bar and step indicator update in real time via SSE. **Pause** and **Stop** are available during a run. The analyzer checks for cancellation at phase boundaries (not in tight loops), so there can be a noticeable delay between clicking **Stop** and the run actually winding down — the button visibly switches to "Stopping…" and the status line shows *"Cancellation requested — waiting for analyzer to wind down…"* until the run exits. Manual analyze runs the full pipeline and preserves analyst state (notes / acks / escalations) via fingerprint merge — useful during active hunts when you want a fresh detection pass without losing your annotations. |
+| **Logs** | Shows the configured log directory and a read-only preview tree of `<sensor>/<date>/` directories under `/logs`. Click a sensor to expand its dates with file counts and total size. The tree refreshes automatically when an analyze pass finishes, so newly-arrived (rsync'd or hand-dropped) logs appear without a page reload. |
+| **Analysis** | **Analyze logs** starts the detection pipeline against everything currently under `/logs`. Disabled when the tree is empty. A progress bar and step indicator update in real time via SSE. **Pause** and **Stop** are available during a run. The analyzer checks for cancellation at phase boundaries (not in tight loops), so there can be a noticeable delay between clicking **Stop** and the run actually winding down — the button visibly switches to "Stopping…" and the status line shows *"Cancellation requested — waiting for analyzer to wind down…"* until the run exits. Manual analyze runs the full pipeline and preserves analyst state (notes / acks / escalations) via fingerprint merge — useful during active hunts when you want a fresh detection pass without losing your annotations. |
 | **Threat Intel** | Displays a count of TI hits found in the last analysis. |
 | **Watch Mode** | All users see whether watch mode is enabled and a compact three-line schedule preview: cadence + anchor + timezone abbreviation on the head (e.g. *"Every 6h, anchor 12:00 EDT"*), then *"Next: today 06:00 — incremental TI/IOC"* for sub-daily cadences (or *"— full pipeline"* when the next tick is the daily slot), then a third line *"Full pipeline: tomorrow 00:00"* when the next tick is incremental — so an analyst knows whether beacon detection will refresh at the next tick or wait until the daily slot. Times use relative dates (today/tomorrow/weekday) and the timezone abbreviation is shown once, not repeated. Admins pick a **Cadence** first (Daily / Every 12h / Every 6h / Every 4h / Hourly); the time control beneath it adapts: full HH:MM picker labeled `Run at` for Daily, `First run at` for the multi-hour cadences, and a minute-of-hour numeric input under Hourly (the server only uses the minute portion there). Cadence, time, and timezone auto-save on change and persist independently of the enable/disable toggle. |
 | **Allowlist** | Edit the list of IPs and domains to exclude from all findings. One entry per line. Findings matching an allowlisted IP are hidden across all tabs immediately after saving. |
@@ -973,10 +980,7 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/api/logs/scan` | Any | Get logs directory and current file count |
-| `POST` | `/api/logs/scan` | Analyst+ | Scan logs directory for Zeek files |
-| `GET` | `/api/files` | Any | List registered log files |
-| `POST` | `/api/files/clear` | Analyst+ | Clear the file list |
+| `GET` | `/api/logs/tree` | Any | Sensor → date roll-up of `/logs` (file counts, sizes, newest mtime) |
 
 ### Analysis
 

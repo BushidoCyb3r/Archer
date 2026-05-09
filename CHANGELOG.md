@@ -180,9 +180,77 @@ relevant, `### Detection changes` in each release entry.
   dropped. Existing values are lost. Forward-only — restoring
   requires a new migration that adds the column back.
 
----
+### Added
 
-## [v0.6.0] — 2026-05-09
+- **`/api/logs/tree` endpoint.** Returns a sensor → date roll-up of
+  what's currently under `/logs/`, with file counts, total bytes,
+  and newest mtime. Drives the new logs preview pane.
+- **Logs preview pane in the sidebar.** A read-only tree showing
+  the sensor → date layout under `/logs/`; clicking a sensor
+  expands its dates with file counts and sizes. Refreshes
+  automatically when an analyze pass finishes (so newly-arrived
+  logs become visible without a page reload). The `Analyze logs`
+  button is disabled when the tree is empty — an unambiguous
+  signal that there's nothing to act on.
+
+### Changed
+
+- **`/api/analyze` is now the sole analyze entry point and always
+  scans `/logs/`.** Pre-v0.7.0 the dashboard `Analyze` button
+  required that `Import` be clicked first (which actually called
+  `/api/logs/scan` to register `/logs/` paths into an uploaded-files
+  list); calling `/api/analyze` with nothing imported returned
+  `{"error":"no files to analyze"}`. The endpoint now scans
+  `/logs/` directly and runs a full pass with fingerprint-merge
+  on every invocation. The `files` field in the request body is
+  no longer honored — the only input is what's on disk under
+  `/logs/`. The `Analyze logs` button is the sole UI trigger.
+- **`/api/analyze/reset` always scans `/logs/`.** Removes the
+  uploaded-files preference path. Same input source as
+  `/api/analyze`, with the difference being the findings wipe
+  before re-analysis.
+
+### Removed
+
+- **`/api/upload` endpoint.** Was never wired to the UI (the
+  handler existed in `upload.go` but no route registration
+  pointed at it) and had structural fit problems for the use
+  case it would serve — multipart total cap of 512 MB,
+  no streaming or resume, no progress feedback, files saved
+  to `/tmp/archer_uploads/` in the container layer (lost on
+  rebuild), and a separate code path from `/logs/`.
+  Operators with ad-hoc bundles drop them into `/logs/<name>/<date>/`
+  on the host (mount, `docker cp`, or SCP via the Quiver SSH
+  dropbox), where the unified pipeline picks them up.
+- **`/api/logs/scan` endpoint.** Both GET (read-only logs-dir
+  hint) and POST (register `/logs/` paths into uploaded-files
+  list) are gone. The new `/api/logs/tree` covers the read role
+  with structured output; the POST role no longer has a purpose
+  since `/api/analyze` scans `/logs/` directly.
+- **`/api/files` and `/api/files/clear` endpoints.** The
+  uploaded-files registry no longer exists, so reading and
+  clearing it are meaningless.
+- **Import / Clear buttons + uploaded-bundle UI.** The sidebar's
+  Zeek Logs section is replaced with a single Logs section
+  containing the preview tree and an `Analyze logs` button.
+- **`Store.GetUploadedFiles` / `SetUploadedFiles` /
+  `AppendUploadedFile` and the in-memory `uploadedFiles`
+  field.** Internal Go API, but call sites in `watch.go` are
+  also dropped (the watch loop's persisted-paths copy was
+  decorative — the analyzer always took its file list from the
+  same scan). The DB has no table for this; nothing to migrate.
+
+### Breaking
+
+- **`/api/analyze` request shape.** External scripts that POST a
+  `files` array will see those files ignored — `/logs/` is
+  scanned regardless. Empty `/logs/` now returns
+  `{"error":"no logs found in /logs"}`.
+- **Removed endpoints.** `/api/upload`, `/api/logs/scan`,
+  `/api/files`, `/api/files/clear` return 404. Any scripts
+  depending on these need to either drop their bundle into
+  `/logs/<name>/<date>/` on the host or read `/api/logs/tree`
+  for the inventory view.
 
 Working theme: usability and predictable cost. v0.5.0 was feature-complete
 on Phase 7 but the dashboard hit a wall on real-world data — list responses

@@ -37,7 +37,6 @@ type Store struct {
 	notifications []model.Notification
 	notifCounter  int
 	config        config.Config
-	uploadedFiles []string
 	analyzing     bool
 
 	// Analyzer-side feed-bucket cache. EnabledFeedIndicators() rebuilds
@@ -671,26 +670,6 @@ func (s *Store) DismissAllNotifications() {
 	for i := range s.notifications {
 		s.notifications[i].Dismissed = true
 	}
-}
-
-func (s *Store) SetUploadedFiles(paths []string) {
-	s.mu.Lock()
-	s.uploadedFiles = paths
-	s.mu.Unlock()
-}
-
-func (s *Store) GetUploadedFiles() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make([]string, len(s.uploadedFiles))
-	copy(out, s.uploadedFiles)
-	return out
-}
-
-func (s *Store) AppendUploadedFile(path string) {
-	s.mu.Lock()
-	s.uploadedFiles = append(s.uploadedFiles, path)
-	s.mu.Unlock()
 }
 
 // SetWatch persists watch state — note the new intervalHours parameter:

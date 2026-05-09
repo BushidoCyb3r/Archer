@@ -403,7 +403,7 @@ Manual control over the analyzer (separate from watch-mode auto-runs).
 
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
-| `POST` | `/api/analyze` | analyst+ | Kick off a full analysis pass. |
+| `POST` | `/api/analyze` | analyst+ | Kick off a full analysis pass over `/logs`. Body is optional `{config}`; the pre-v0.7.0 `files` field is ignored. Returns `{"error":"no logs found in /logs"}` when the tree is empty. |
 | `GET` | `/api/analyze/status` | any | Current pipeline state: `idle` / `running` / `paused` + progress %. |
 | `POST` | `/api/analyze/cancel` | analyst+ | Stop the running pipeline. |
 | `POST` | `/api/analyze/pause` | analyst+ | Pause; resume with the next call. |
@@ -413,13 +413,11 @@ Manual control over the analyzer (separate from watch-mode auto-runs).
 Progress events stream over SSE as `progress` events with
 `{step, pct}` payloads.
 
-### Files
+### Logs
 
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
-| `GET` | `/api/files` | any | List files in `/logs` (size, mtime, sensor). |
-| `GET` | `/api/logs/scan` | any | Trigger a re-scan of `/logs` (no analysis). |
-| `POST` | `/api/files/clear` | analyst+ | Remove processed files. |
+| `GET` | `/api/logs/tree` | any | Sensor → date roll-up of `/logs`. Returns `{logs_dir, sensors[]}` where each sensor carries `{name, total_files, total_size_bytes, dates[]}` and each date `{date, files, size_bytes, newest_mtime}`. Drives the sidebar logs preview tree. |
 
 ### Users
 
