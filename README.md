@@ -1056,6 +1056,8 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 The bell fires for new findings that are CRITICAL or of type `TI Hit (IP)` / `TI Hit (Domain)` / `TI Hit (Hash)` / `Suspicious URL`. `Host Risk Score` is intentionally excluded — it's a per-host roll-up, not a discrete event, and the underlying network detections that pushed the host's score over the line have already generated their own notifications.
 
+Each notification has a **Jump** button. Clicking it lands the analyst on the page containing that finding, regardless of the active tab's filter, sort, pagination, or delta-mode state. The Jump action clears every filter input (search, src/dst/port, severity, type, sensor, score floor, time range → All time, delta off), switches to the tab matching the finding's status, queries `/api/findings/{id}/position` to find the absolute offset under the cleared filter, fetches the page that contains it, and scrolls the row into view. Filters that the analyst had set are intentionally lost — the Jump is a "show me this finding now" action; rebuilding the filter is the cost of guaranteed visibility.
+
 | Method | Path | Role | Description |
 |---|---|---|---|
 | `GET` | `/api/notifications` | Any | List alert notifications |

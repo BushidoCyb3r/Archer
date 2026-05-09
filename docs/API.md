@@ -222,6 +222,7 @@ The most-used surface. Findings are detector outputs, persisted in
 | `POST` | `/api/findings/{id}/escalate` | analyst+ | Run TI escalation; emits `ti_result` SSE events. |
 | `POST` | `/api/findings/{id}/notes` | analyst+ | Append a note to the finding. |
 | `GET` | `/api/findings/{id}/raw` | any | Raw-log pivot — the Zeek lines that produced this finding. |
+| `GET` | `/api/findings/{id}/position` | any | Absolute zero-indexed position of finding `{id}` within `/api/findings` under the same filter + sort query parameters. Returns `{found: bool, offset: N, total: M}` (200) or `{found: false, total: M}` (404) when the finding does not match. The bell-notification **Jump** action uses this to navigate to the page containing the target finding regardless of the analyst's current pagination offset. |
 
 **Finding shape** (`model.Finding`, `internal/model/finding.go:23`):
 
