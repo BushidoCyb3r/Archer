@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/config"
+	"github.com/BushidoCyb3r/Archer/internal/feeds"
 	"github.com/BushidoCyb3r/Archer/internal/match"
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
@@ -38,6 +39,16 @@ type Store struct {
 	config        config.Config
 	uploadedFiles []string
 	analyzing     bool
+
+	// Analyzer-side feed-bucket cache. EnabledFeedIndicators() rebuilds
+	// the typed SourcedIndicators slice on every call — that's a
+	// ListFeeds() + per-feed ListFeedIndicators() + CIDR-parse pass
+	// that runs on every analyze tick and every TI-only incremental
+	// pass. Holding the snapshot here cuts redundant DB work; feed
+	// CRUD and indicator writes invalidate it.
+	feedBucketsMu sync.Mutex
+	feedBuckets   []feeds.SourcedIndicators
+	feedBucketsOK bool
 }
 
 type suppressionEntry struct {
