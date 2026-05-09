@@ -30,6 +30,26 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Store.SetFindings` ID-collision bug.** The analyzer assigns
+  per-run sequential IDs starting at 1, while the merge logic
+  preserved historical findings (those whose fingerprint didn't
+  match anything in the new run) with their original DB IDs. When
+  the analyzer's fresh IDs (1, 2, 3…) overlapped with preserved
+  historical IDs, `saveFindings` failed with `UNIQUE constraint
+  failed: findings.id` and the analyze pass's findings were lost
+  on rollback. Latent pre-v0.7.0 — most analyses regenerated
+  nearly every fingerprint each run so collisions were rare. The
+  TI Hit type split surfaced it: every legacy `Threat Intel Hit`
+  finding is preserved as historical (its fingerprint doesn't
+  match any new `TI Hit (IP/Domain/Hash)` finding), and the new TI
+  findings stomp through the same low-ID range. Fix: `SetFindings`
+  now carries stable IDs forward on fingerprint matches and
+  assigns truly-new fingerprints IDs above the maximum historical
+  ID — collision-free regardless of how many old findings get
+  preserved.
+
 ### Added
 
 - **Multi-sheet XLSX export.** New "XLSX (multi-sheet)" option on

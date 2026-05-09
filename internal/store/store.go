@@ -317,17 +317,34 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Index existing findings by fingerprint so we can carry over analyst work.
+	// Index existing findings by fingerprint so we can carry over analyst work,
+	// and track the highest existing ID so newly-fingerprinted findings can be
+	// numbered above it. Without this guard, the analyzer's per-run sequential
+	// IDs (1, 2, 3, …) collide with preserved historical findings that share
+	// those low IDs — saveFindings then fails the UNIQUE constraint on the
+	// findings.id primary key. The collision becomes pervasive whenever a
+	// detection-semantics change (e.g. v0.7.0's TI Hit type split) means many
+	// old fingerprints don't match any new finding and get preserved with
+	// their original IDs.
 	existing := make(map[model.Fingerprint]model.Finding, len(s.findings))
+	maxExistingID := 0
 	for _, f := range s.findings {
 		existing[f.Fingerprint()] = f
+		if f.ID > maxExistingID {
+			maxExistingID = f.ID
+		}
 	}
 
 	newFPSet := make(map[model.Fingerprint]bool, len(findings))
+	nextNewID := maxExistingID
 	for i := range findings {
 		fp := findings[i].Fingerprint()
 		newFPSet[fp] = true
 		if old, ok := existing[fp]; ok {
+			// Carry the stable ID forward along with analyst state — external
+			// references (open browser tabs, copied PCAP-filter URLs, etc.)
+			// stay valid across re-analyses.
+			findings[i].ID = old.ID
 			findings[i].Status = old.Status
 			findings[i].Analyst = old.Analyst
 			findings[i].AnalystNote = old.AnalystNote
@@ -335,6 +352,11 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 			findings[i].Notes = old.Notes
 			findings[i].IsNew = false
 		} else {
+			// Truly new fingerprint — assign an ID guaranteed above any
+			// preserved historical ID so the saveFindings INSERT can't
+			// collide.
+			nextNewID++
+			findings[i].ID = nextNewID
 			findings[i].IsNew = true
 		}
 	}
