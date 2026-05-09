@@ -55,16 +55,20 @@ func New(st *store.Store, us *store.UserStore, broker *Broker, webDir, logsDir, 
 	s.routes()
 	s.startWatch() // no-op if watch is disabled or unconfigured
 	s.startUnauthorizedPruneLoop()
-	s.startFeedWorker()
+	// Auto-cadence feed refresh is intentionally off. With large feeds
+	// (100k+ MISP indicators) the periodic CPU cost of an unattended
+	// fetch was visible in the dashboard. Feeds are now refreshed
+	// synchronously at the start of every full-pass watch tick (see
+	// triggerWatchAnalysis → refreshFeedsBeforeFullPass) so indicators
+	// stay current without a separate background worker. Re-enable
+	// here if a deployment wants the old per-feed cadence.
+	// s.startFeedWorker()
 	return s
 }
 
 // startFeedWorker runs the per-feed fetcher loop in a goroutine that
-// outlives this call. The worker reconciles its goroutine set against
-// the feeds table every 30s, so admin-UI add/remove/enable/disable
-// changes propagate without a server restart. With no feeds
-// configured this is effectively a no-op (the reconciliation tick
-// finds nothing to schedule).
+// outlives this call. Currently NOT called — see the comment in New
+// above. Kept around so re-enabling is a one-line change.
 func (s *Server) startFeedWorker() {
 	w := feeds.NewWorker(s.store, s.buildFeedAdapter)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -166,6 +170,8 @@ func (s *Server) routes() {
 
 	// Findings — read=any, write=analyst+
 	s.mux.Handle("/api/findings", any(s.handleFindings))
+	s.mux.Handle("/api/findings/counts", any(s.handleFindingsCounts))
+	s.mux.Handle("/api/findings/facets", any(s.handleFindingsFacets))
 	s.mux.Handle("/api/findings/", any(s.handleFindingRouter)) // write checks done per-method inside
 
 	// Config — read=any, write=admin only
@@ -192,9 +198,12 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/ti/services", any(s.handleTIServices))
 
 	// Feed integration (Phase 7) — read=any, mutate=admin enforced inside.
-	// /api/feeds            GET (list) | POST (create, admin)
-	// /api/feeds/{id}       PUT (update, admin) | DELETE (remove, admin)
-	// /api/feeds/{id}/refresh  POST (manual fetch, admin)
+	// /api/feeds              GET (list) | POST (create, admin)
+	// /api/feeds/{id}         PUT (update, admin) | DELETE (remove, admin)
+	// /api/feeds/{id}/refresh POST (manual per-feed fetch, admin)
+	// Automatic refreshes also run at every full-pass watch tick via
+	// refreshFeedsBeforeFullPass; the manual endpoint is the on-demand
+	// path admins use after configuring a new feed.
 	s.mux.Handle("/api/feeds", any(s.handleFeeds))
 	s.mux.Handle("/api/feeds/", any(s.handleFeedItem))
 
