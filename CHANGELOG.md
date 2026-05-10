@@ -64,6 +64,23 @@ relevant, `### Detection changes` in each release entry.
 
 ### Fixed
 
+- **`/logs/_archived/` is now excluded from the live logs tree and
+  every analyze pass.** The purge bucket — where the admin **Purge
+  data** action rotates a disenrolled sensor's `/logs/<name>/`
+  aside to `/logs/_archived/<name>-<timestamp>/` — was leaking into
+  two paths: the sidebar Logs preview tree showed `_archived` as if
+  it were a sensor (`handleLogsTree`), and `scanLogsDir` walked it
+  recursively so every full analyze pass re-processed purged-sensor
+  data and emitted fresh findings tagged `sensor=_archived`. Both
+  paths now skip the subtree, matching the convention already used
+  by `disk_usage.go`. Findings tagged `sensor=_archived` from prior
+  runs stay in the database (fingerprint-merge preserves them) and
+  will simply stop refreshing — operators wanting them gone can
+  prune via `/api/archive/run` once they age past the archive
+  retention cutoff. Raw-log pivot via `/api/findings/{id}/raw` still
+  searches `_archived` so analysts can review historical records on
+  pre-purge findings.
+
 - **Lazy-init beacon state no longer drops the first two intervals.**
   Per-pair `beaconState` is allocated lazily on connection 3
   (`beaconLazyMinConn = 3`) to bound memory on high-cardinality

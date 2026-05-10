@@ -486,13 +486,24 @@ func (s *Server) datasetFingerprint(files []string) string {
 }
 
 // scanLogsDir walks the configured logs directory and returns all recognised log files.
+// The /logs/_archived/ subtree (purged-sensor data rotated aside by the
+// admin Purge action) is intentionally excluded — analyzing those logs
+// every full pass would re-emit findings for sensors the operator has
+// deliberately retired.
 func (s *Server) scanLogsDir() []string {
 	var files []string
 	if s.logsDir == "" {
 		return files
 	}
+	archiveSubtree := filepath.Join(s.logsDir, "_archived")
 	filepath.Walk(s.logsDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			if path == archiveSubtree {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		name := info.Name()

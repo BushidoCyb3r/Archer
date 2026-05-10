@@ -1563,6 +1563,12 @@ func (s *Server) handleLogsTree(w http.ResponseWriter, r *http.Request) {
 		if !se.IsDir() {
 			continue
 		}
+		// Skip the purge bucket — /logs/_archived/<name>-<timestamp>/
+		// holds disenrolled sensors' aside-rotated data, intentionally
+		// out of scope for the live tree (and for analysis below).
+		if se.Name() == "_archived" {
+			continue
+		}
 		sensor := sensorNode{Name: se.Name(), Dates: []dateNode{}}
 		sensorPath := filepath.Join(s.logsDir, se.Name())
 		dateEntries, err := os.ReadDir(sensorPath)
