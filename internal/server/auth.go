@@ -352,9 +352,9 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 		// request until the 24-hour TTL elapses.
 		s.users.DeleteSessionsForUser(id)
 		s.recordAudit(r, "user_delete", auditEvent{
-			TargetType: "user",
-			TargetID:   strconv.Itoa(id),
-			TargetName: before.Email,
+			TargetType:  "user",
+			TargetID:    strconv.Itoa(id),
+			TargetName:  before.Email,
 			BeforeValue: map[string]any{"email": before.Email, "role": before.Role},
 		})
 		jsonOK(w)

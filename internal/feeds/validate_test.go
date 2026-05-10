@@ -43,13 +43,13 @@ func TestValidDomain_RejectsMaliciousAndMalformed(t *testing.T) {
 		"example.com onerror=foo",
 		`example.com"onmouseover="alert(1)`,
 		"example.com/path",
-		"example",       // single label
-		".example.com",  // leading dot
-		"example..com",  // empty label
-		"example.com-",  // trailing hyphen
-		"-example.com",  // leading hyphen on label
-		"example.123",   // numeric TLD
-		"a.b",           // 1-char TLD
+		"example",      // single label
+		".example.com", // leading dot
+		"example..com", // empty label
+		"example.com-", // trailing hyphen
+		"-example.com", // leading hyphen on label
+		"example.123",  // numeric TLD
+		"a.b",          // 1-char TLD
 	} {
 		if validDomain(d) {
 			t.Errorf("validDomain(%q) = true; want false", d)
@@ -91,10 +91,10 @@ func TestValidHash_RejectsBadShapes(t *testing.T) {
 	for _, h := range []string{
 		"",
 		"not-a-hash",
-		"d41d8cd98f00b204e9800998ecf8427",     // 31 chars
-		"d41d8cd98f00b204e9800998ecf8427eX",   // contains non-hex
+		"d41d8cd98f00b204e9800998ecf8427",      // 31 chars
+		"d41d8cd98f00b204e9800998ecf8427eX",    // contains non-hex
 		"<script>alert(1)</script>",            // length not in {32,40,64,128}
-		"d41d8cd9 8f00b204e9800998ecf8427e",   // contains space
+		"d41d8cd9 8f00b204e9800998ecf8427e",    // contains space
 		"d41d8cd9-8f00-b204-e980-0998ecf8427e", // contains hyphen
 	} {
 		if validHash(h) {

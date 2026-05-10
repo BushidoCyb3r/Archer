@@ -76,10 +76,10 @@ func EnsureTLS(dir string) (certPath, keyPath, fingerprint string, err error) {
 		return
 	}
 	tpl := x509.Certificate{
-		SerialNumber:          sn,
-		Subject:               pkix.Name{CommonName: "archer"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().AddDate(10, 0, 0),
+		SerialNumber: sn,
+		Subject:      pkix.Name{CommonName: "archer"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().AddDate(10, 0, 0),
 		// Server-only end-entity posture. CA capability isn't needed
 		// — pinned-pubkey verification matches the SubjectPublicKey-
 		// Info, not the chain. Audit 2026-05-10 NEW-25.
