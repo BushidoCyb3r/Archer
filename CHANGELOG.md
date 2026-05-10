@@ -30,7 +30,71 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.9.0] — 2026-05-10
+
+Audit-driven correctness release. The 2026-05-10 external review
+surfaced six issues that span the conn analyzer, the DNS analyzer,
+and the parser layer. Five resolved here (Bug 3, the TXT/NULL
+single-signal DNS Tunneling false positive, deferred for design
+work). Plus the cosmetic items the auditor flagged and three new
+regression fixtures so this class of bug doesn't recur silently.
+
+### Added
+
+- **`Analyzer.ParseErrors()` API.** Returns the list of files that
+  failed to parse during the analysis pass with the underlying error
+  string per file. Intended for higher-level callers (web UI, future
+  CLI) to surface a "this analysis didn't see everything" indicator
+  to operators rather than reporting a finding count that implies
+  cleanly-parsed-the-whole-corpus when the parser had bailed
+  mid-file. Empty slice on a clean run.
+
+- **Regression fixtures for the audit's failure modes.**
+  `internal/analysis/testdata/zeek/scrambled_beacon/` exercises a
+  30-connection beacon with one out-of-order record (multi-sensor
+  clock-drift simulation) — pre-Bug-1-fix the bogus rewound `lastTs`
+  poisoned the next valid interval, dragging `ts_score` down for a
+  textbook beacon; the fixture's golden captures the post-fix
+  `ts=1.00` state.
+  `internal/analysis/testdata/zeek/dns_psl_apex/` exercises 60
+  distinct `.co.uk` registrable domains plus six `.com.au` / `.ac.jp`
+  ones — pre-Bug-6-fix all 60 lumped under apex `co.uk` and tripped
+  `DNSUniqueSubdomainMin: 50`, emitting a HIGH-severity DNS
+  Tunneling false positive against the public suffix itself; the
+  fixture's golden is the empty array (post-fix correctly buckets
+  per registrable domain). Auditor explicitly noted that golden
+  fixtures with perfectly-ordered timestamps and high connection
+  counts hid this entire class of bug; these fixtures invert that.
+  `internal/parser/zeeklog_test.go` covers the Bug 4 oversized-line
+  behavior at the parser level: a 2 MiB record now parses cleanly,
+  a 17 MiB record (past the new 16 MiB ceiling) returns a non-nil
+  error rather than silently truncating.
+
 ### Changed
+
+- **Parser scanner buffer raised from 1 MiB to 16 MiB; per-file
+  parse errors now propagate.** External review (2026-05-10) framed
+  this as the most important issue of the audit — a "trust bug,"
+  not a detection bug. Pre-fix every analyzer used
+  `_ = parser.ParseLog(...)`, discarding the error. A single record
+  longer than the 1 MiB scanner buffer (large HTTP POST URI,
+  base64-encoded upload, fat `set[string]` field, JSON record with
+  hundreds of services) returned `bufio.ErrTooLong` from the parser
+  and the analyzer silently truncated the file at the long line.
+  The analyst saw a finding count that implied the whole capture
+  had been processed when the parser had bailed mid-file. Modern
+  HTTP captures regularly exceed 1 MiB on a single record.
+  Considered: streaming JSON decode (rejected as scope creep — the
+  buffer raise covers realistic captures and the streaming work
+  belongs in a future release if 16 MiB ever proves insufficient).
+  Shipped: 16 MiB ceiling on the scanner buffer, plus a new
+  `Analyzer.parseLog` helper that surfaces failures via the SSE
+  status channel (`"Parser warning: <file> — <err> (file
+  partially read)"`) and accumulates them on the analyzer for
+  end-of-run reporting through the new `ParseErrors()` API. Every
+  swallow site in `internal/analysis/` migrated to the helper. The
+  raw-log pivot endpoint (`internal/server/findings_raw.go`) logs
+  per-file failures to the server log instead.
 
 - **Settings section "Threat Intelligence" renamed to "Threat Intel
   Lookup APIs".** Operator question raised whether the per-finding
@@ -43,9 +107,149 @@ relevant, `### Detection changes` in each release entry.
   different operational shapes and the Feeds dialog's CRUD-row UI
   doesn't fit flat key-value config. Shipped: the cheaper rename
   plus a one-line helper text pointing operators at the Feeds
-  dialog if they're looking for bulk-indicator sources. The new
-  label matches the existing consumer-side vocabulary used on the
-  finding-detail Threat Intel Lookup panel.
+  dialog if they're looking for bulk-indicator sources.
+
+### Removed
+
+- **Dead code: `Analyzer.observeWindow` method, `beaconState.total`
+  and `httpBeaconState.total` fields.** External review noted both
+  were defined-but-unused — `observeWindow` was never called
+  (analyzers manipulate `localWindows` directly to avoid taking
+  `a.mu` per record), and `total` was incremented in two places
+  but never read. The actual connection-count source is
+  `pairCounts[pk]`. Considered: migrating analyzers to call
+  `observeWindow` for single-point-of-control. Rejected: that path
+  forces a mutex acquisition per record on the hot loop, regressing
+  performance for an aesthetic gain. Deletion is the right call.
+
+### Fixed
+
+- **Out-of-order timestamps no longer rewind `lastTs` and poison
+  the next valid interval.** External review (2026-05-10) flagged
+  this in both `conn.go` and `http_analysis.go`. Pre-fix
+  `st.lastTs = ts` ran unconditionally even when `ts < st.lastTs`;
+  the skip-recording branch correctly avoided sampling the negative
+  interval, but the assignment still rewound `lastTs` to the earlier
+  value. The next valid forward record then computed its interval
+  against the rewound timestamp, sampling an inflated bogus value
+  into the timing reservoir. Real-world triggers: multi-sensor
+  capture merges with clock drift, rotated logs processed out of
+  mtime order, and Zeek's own connection-close-time logging which
+  emits records out of strict order at high load. Fix is the
+  forward-only guard around the assignment, matching the guard that
+  was already protecting the interval recording.
+
+- **Lazy-init beacon-state replay now back-fills every dimension,
+  not just intervals.** External review framed this as the same
+  class of bug as the v0.8.0 lazy-init fix: that fix addressed the
+  framing of the prior auditor's critique (timing-axis intervals)
+  without addressing what the critique was about (data fidelity for
+  borderline beacons). The lazy-init guard at conn 3 dropped
+  connections 1 and 2's contribution to *every* axis, not just
+  `ivs`. Pre-fix `firstTs` reported conn 3's timestamp (analyst
+  chasing "when did this start" got the wrong answer), `minTs` was
+  used by `durationScoreFromHourMap` for coverage so the duration
+  span was 2 connections too narrow, `byteVals` (data-size axis)
+  ran on N-2 samples while the finding still claimed N, `hourMap`
+  (histogram axis) was missing two buckets, and `tsData` (Beacon
+  Chart) was missing the first two data points. For a beacon at
+  exactly `BeaconMinConnections=10` that's 20% of every axis
+  silently dropped. Fix: `preBeaconTs map[pairKey][]float64`
+  becomes `preBeaconRecs map[pairKey][]preBeaconRec` carrying
+  full `(ts, origB, respB)` triples; the replay path now touches
+  `firstTs`, `minTs`, `maxTs`, `ivs`, `byteVals`, `tsData`, and
+  `hourMap`. Same fix in HTTP beacon path. The `Timestamp` shift
+  on existing goldens (`strobe`, `beacon_url`, `http_beacon`,
+  `multimode_beacon`) reflects the corrected `firstTs` semantic.
+
+- **DNS NXDOMAIN-flood `Timestamp` no longer poisoned by an initial
+  `ts == 0`.** External review noted same class as the
+  out-of-order bug: pre-fix `nxFirst[src]` could be set to 0 on a
+  leading record with a missing `ts` field, after which any valid
+  forward timestamp failed the `ts < nxFirst[src]` comparison and
+  never updated. The NXDOMAIN Flood finding then reported
+  `Timestamp: ""`. Fix is the same `ts > 0` guard pattern
+  `apexMap[k].firstTS` already used in the next block down.
+
+- **DNS apex extraction now uses the Mozilla Public Suffix List.**
+  External review flagged that the `labels[len-2:]` heuristic
+  treated `.co.uk`, `.com.au`, `.ac.jp`, `.gov.cn` as bare apexes,
+  bucketing every host under the public suffix into a single
+  diversity counter. UK-heavy environments tripped
+  `DNSUniqueSubdomainMin: 50` against `co.uk` itself trivially —
+  HIGH-severity DNS Tunneling false positives that buried any real
+  tunneling under the noise. Fix: new `apexFromQuery` helper calls
+  `golang.org/x/net/publicsuffix.EffectiveTLDPlusOne` (Mozilla's
+  canonical PSL binding, already in our indirect deps); falls back
+  to the legacy heuristic only when the PSL doesn't recognise the
+  input as a public name. Promotes `golang.org/x/net` from
+  indirect to direct.
+
+- **Misleading `seenPerQuery` map name in `dns.go` renamed to
+  `seenTunnel`.** Audit noted the key shape was `[2]string{src,
+  apex}` so the map deduplicates per (src, apex) for tunneling
+  findings, not per query. Pure rename, no behavior change.
+
+- **Off-hours config validation: `OffHoursStart == OffHoursEnd`
+  now rejected at PUT time.** Pre-fix the wraparound branch
+  (`start > end`) was false and the standard branch
+  (`hour >= X && hour < X`) was always false, silently disabling
+  off-hours detection without any operator signal. New
+  `/api/config` PUT validation rejects equal values with HTTP 400
+  and a descriptive error. Out-of-range start/end (outside `[0,23]`)
+  also now rejected. See `### Breaking` below.
+
+### Detection changes
+
+- **Beaconing/HTTP-Beaconing `Timestamp` field reports the first
+  connection's true ts, not conn 3's.** A direct consequence of
+  the lazy-init replay fix above. Visible on the existing golden
+  fixtures: `strobe` `Timestamp` shifted from `12:00:38` to
+  `12:00:00`, `beacon_url` from `12:02:00` to `12:00:00`,
+  `http_beacon` from `12:02:00` to `12:00:00`, `multimode_beacon`
+  from `12:02:01` to `12:00:00`. Score is unchanged on the
+  already-deterministic high-volume fixtures (`strobe`,
+  `beacon_url`, `http_beacon`); `multimode_beacon` shifted from
+  54 → 53 because the now-correct full-record contribution to
+  byte-size and hour-bucket axes adjusts `ds_score` (0.96 → 0.97)
+  and `hist_score` (0.24 → 0.19) on a 40-connection fixture where
+  the missing 2 records were 5% of the data. Direction is
+  uniformly toward correctness. Re-baseline any min-score alerting
+  that was tuned to the pre-fix scores on at-or-near-threshold
+  beacons.
+
+- **Out-of-order capture timestamps now produce correct interval
+  reservoirs.** Multi-sensor merges with clock drift and
+  high-load Zeek captures with close-time records produce out-of-
+  order timestamps. Pre-fix any such occurrence dragged `ts_score`
+  down via the rewound-`lastTs` poisoning. Post-fix the
+  out-of-order records contribute nothing to interval timing
+  (they still increment connection counts and other axes). On
+  cleanly-ordered captures there is no change. On out-of-order
+  captures `ts_score` rises toward the correct value.
+
+- **DNS Tunneling no longer fires false positives against
+  multi-component public suffixes.** PSL apex extraction means
+  `.co.uk`, `.com.au`, `.ac.jp`, etc. environments stop emitting
+  HIGH-severity DNS Tunneling findings against the public suffix
+  itself. Conversely, real DNS tunneling under e.g. `evil.co.uk`
+  now correctly accumulates diversity within its own
+  `evil.co.uk` apex bucket rather than being smeared across all
+  `.co.uk` traffic. Re-baseline diversity-based DNS Tunneling
+  alerting in non-US environments — false-positive volume drops
+  meaningfully and any true positives that were being masked by
+  the noise should surface cleanly.
+
+### Breaking
+
+- **`/api/config` PUT now rejects `off_hours_start == off_hours_end`
+  with HTTP 400.** Pre-fix equal values silently disabled
+  off-hours detection. External scripts that uploaded a config
+  with equal values to "disable" off-hours will need a different
+  approach (set start to a time the analyst's traffic doesn't
+  fall into, or wait for a future explicit `off_hours_enabled`
+  flag). Out-of-range start/end (outside `[0,23]`) also now
+  rejected.
 
 ## [v0.8.0] — 2026-05-10
 
@@ -1271,7 +1475,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.9.0...HEAD
+[v0.9.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.8.0...v0.9.0
 [v0.8.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.7.0...v0.8.0
 [v0.7.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.6.0...v0.7.0
 [v0.6.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.5.0...v0.6.0
