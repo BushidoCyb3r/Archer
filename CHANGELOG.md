@@ -30,6 +30,112 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.14.2] — 2026-05-10
+
+Patch release closing three items from the post-v0.14.1 audit pass
+(NEW-34, NEW-35, NEW-36) plus a cosmetic improvement to the
+audit-log UI's TargetName rendering for finding actions.
+
+### Added
+
+- **`internal/server/audit.go` helpers (`diffStringSets`,
+  `hashStringList`, `capStringSlice`, `listEditAuditDetail`,
+  `findingAuditName`).** Pure functions, unit-tested in
+  `audit_helpers_test.go`. Used by the v0.14.2 audit-emission
+  changes below to keep `allowlist_edit` / `ioc_edit` rows small
+  and finding audit rows scannable.
+
+### Changed
+
+- **`allowlist_edit` / `ioc_edit` audit rows record diff+hash,
+  not full state (NEW-34).** Pre-fix these were the only audit
+  emissions in the codebase that dumped full content rather than
+  structural metadata — `BeforeValue`/`AfterValue` carried the
+  entire pre- and post-edit lists. For a team curating a large
+  IOC list (10K entries from a TI-feed dump, ~30 chars each), a
+  single edit produced ~700KB of `audit_log` per row, and the
+  JSON marshaling ran inside `LogAuditEvent` under `s.mu.Lock()`
+  — blocking every in-memory read during the write. Replaced
+  with the same shape the `finding_*` audits already use:
+  `entry_count` + SHA-256 hash of the list in `BeforeValue` /
+  `AfterValue`, plus the added/removed diff (capped at 50 per
+  side with a `diff_truncated: true` marker for whole-list
+  replacements) in `Details`. The hash makes the audit
+  irrefutable at any size; the diff makes it human-useful for
+  "who added entry X on date Y" queries. Audit 2026-05-10
+  NEW-34.
+
+- **`UpdateFinding` returns the pre-mutation snapshot (NEW-36).**
+  Pre-fix the handlers for PATCH `/api/findings/{id}` and POST
+  `/escalate` did a `GetFinding` then an `UpdateFinding` as
+  separate calls; a concurrent PATCH on the same finding landing
+  between them produced an audit row whose `BeforeValue.status`
+  reflected what the user *thought* the prior state was rather
+  than what `UpdateFinding` actually transitioned from. On-disk
+  state was always correct, but the audit log could be
+  misleading — and for an audit log claimed to be forensically
+  reliable, "best-effort BeforeValue" doesn't meet the bar.
+  Fixed by folding the snapshot into `UpdateFinding` under the
+  same mutex; signature changes from `bool` to
+  `(model.Finding, bool)`. Test coverage in
+  `store_test.go::TestStore_FindingsIndexAndMutate` extended to
+  assert the before-snapshot reflects pre-mutation state. Audit
+  2026-05-10 NEW-36.
+
+- **`TargetName` on `finding_status_change` / `finding_escalate`
+  / `finding_note_add` audit rows.** Pre-fix it was just the
+  finding `Type`, which made the audit-log UI render five
+  "Beaconing" rows in a row with no way to distinguish them
+  without clicking into each. Now `Type src → dst:port`
+  (e.g. `Beaconing 10.4.1.7 → 185.99.135.7:443`) — answers
+  the question an analyst skimming the log was asking.
+  Cosmetic, paired with NEW-36.
+
+### Fixed
+
+- **Unbounded JSON decoders on seven analyst-facing mutation
+  endpoints (NEW-35).** PATCH `/api/findings/{id}`, POST
+  `/api/findings/{id}/escalate`, POST `/api/findings/{id}/notes`,
+  PUT `/api/allowlist`, PUT `/api/ioc-list`, POST
+  `/api/suppressions`, and PUT `/api/config` all decoded
+  request bodies with no size limit. A compromised analyst
+  session — or a buggy automation script with the wrong loop
+  variable — could write a 100MB note onto a finding (persisted
+  to disk, returned in every subsequent `/api/findings/{id}`
+  response, copied through every `SetFindings` merge), POST a
+  multi-MB allowlist (combined with NEW-34's pre-fix shape that
+  meant the audit row alone was ~100MB), or have the JSON
+  decoder consume an arbitrarily large body just to PATCH a
+  status. The `/api/import` path already had `MaxBytesReader`
+  with `importMaxBytes`, and the Quiver/sensor endpoints had
+  their own matching caps — the discipline was known and
+  intentional everywhere except these seven. New named
+  constants in `handlers_api.go`: `noteBodyMaxBytes` (64KB),
+  `escalateBodyMaxBytes` (256KB), `listBodyMaxBytes` (4MB),
+  `suppressBodyMaxBytes` (8KB), `configBodyMaxBytes` (16KB).
+  Sized to the realistic content shape with generous headroom.
+  Audit 2026-05-10 NEW-35.
+
+### Maturation lessons
+
+- **The "shape not content" principle is now load-bearing.**
+  v0.14.1 introduced it for the `finding_*` audit rows
+  (note bodies live on the finding, audit records length).
+  v0.14.2 carries the same principle to the list-edit audits
+  (diff + hash, not full state). Future audit-emission sites
+  should follow this — record the structural transition, not
+  the raw content — and add a CHANGELOG line explicitly
+  acknowledging the choice when content omission is
+  non-obvious.
+
+- **No JSON decoder reads unbounded.** Recorded in
+  MATURATION_PLAN as a discipline. Every new endpoint that
+  decodes a request body adds a documented size cap. The
+  v0.14.2 NEW-35 fix and v0.13.0 NEW-25 cluster both surfaced
+  from the same class of "we knew to do this elsewhere; these
+  were oversights" — the pattern is established, the
+  enforcement was missing.
+
 ## [v0.14.1] — 2026-05-10
 
 Patch release closing the two audit-log gaps surfaced by the
