@@ -32,6 +32,18 @@ relevant, `### Detection changes` in each release entry.
 
 ### Added
 
+- **Live indicator-count progress in the Feeds dialog.** While a feed's
+  `status` is `fetching` the row now shows the running `feed_indicators`
+  row count for that feed (e.g. `184,237 ingesting…`) instead of the
+  stale `last_indicator_count` from the previous settled fetch. The
+  Feeds dialog auto-polls `/api/feeds` every 2.5 s while open, so a
+  long MISP import that's been paginating for tens of minutes shows
+  visible progress instead of a yellow `fetching` pill that never
+  changes. New `live_indicator_count` field on the `/api/feeds`
+  response, backed by a single `SELECT feed_id, COUNT(*) … GROUP BY
+  feed_id` query per request. Settled feeds keep showing the existing
+  `last_indicator_count` exactly as before.
+
 - **Jittered-single-mode beacon detection via interval entropy.** A
   new `intervalEntropyScore` helper bins intervals on a log2 axis
   and computes Shannon entropy of the bin counts, normalised against

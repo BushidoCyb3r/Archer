@@ -28,6 +28,12 @@ type feedResponse struct {
 	IndicatorAgingDays int    `json:"indicator_aging_days"`
 	LastRefreshAt      int64  `json:"last_refresh_at"`
 	LastIndicatorCount int    `json:"last_indicator_count"`
+	// LiveIndicatorCount is the current row count in feed_indicators
+	// for this feed, computed at request time. Equals LastIndicatorCount
+	// when a fetch has settled; climbs visibly during a fetch while
+	// status="fetching" so operators see progress on slow MISP imports
+	// instead of staring at a yellow status pill for several minutes.
+	LiveIndicatorCount int    `json:"live_indicator_count"`
 	LastFetchTruncated bool   `json:"last_fetch_truncated"`
 	LastError          string `json:"last_error,omitempty"`
 	Status             string `json:"status"`
@@ -82,9 +88,12 @@ func (s *Server) handleFeeds(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		all := s.store.ListFeeds()
+		counts := s.store.CountIndicatorsByFeed()
 		out := make([]feedResponse, 0, len(all))
 		for _, f := range all {
-			out = append(out, toFeedResponse(f))
+			resp := toFeedResponse(f)
+			resp.LiveIndicatorCount = counts[f.ID]
+			out = append(out, resp)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"feeds": out})
