@@ -351,7 +351,7 @@ func (s *Server) handleQuiverCheckin(w http.ResponseWriter, r *http.Request) {
 		// or someone else is forging checkins; same routing.
 		// Audit 2026-05-10 NEW-16.
 		if !validQuiverCheckinSig(sn.CheckinSecret, body, presentedSig) {
-			s.recordUnauthorizedCheckin(w, req.Name, sourceIP(r))
+			s.recordUnauthorizedCheckin(r, w, req.Name, sourceIP(r), "bad_hmac")
 			return
 		}
 		_ = s.store.TouchSensor(sn.ID, time.Now().Unix(), 0, 0, sourceIP(r))
@@ -372,19 +372,35 @@ func (s *Server) handleQuiverCheckin(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	s.recordUnauthorizedCheckin(w, req.Name, sourceIP(r))
+	s.recordUnauthorizedCheckin(r, w, req.Name, sourceIP(r), "unknown_name")
 }
 
 // recordUnauthorizedCheckin pushes an unauthorized_attempts row +
-// SSE event and writes the standard "unknown" response. Pulled out
-// so both the unknown-name path and the v2 HMAC-failure path share a
-// single implementation; previously the unknown-name path was
-// inlined and the HMAC path didn't exist.
-func (s *Server) recordUnauthorizedCheckin(w http.ResponseWriter, name, srcIP string) {
+// SSE event + audit_log entry and writes the standard "unknown"
+// response. Pulled out so both the unknown-name path and the v2
+// HMAC-failure path share a single implementation; previously the
+// unknown-name path was inlined and the HMAC path didn't exist.
+//
+// The reason parameter narrows the failure mode to one of:
+//   - "unknown_name" — sensor name not in the enrolled-or-disenrolled set
+//   - "bad_hmac"     — name is enrolled but the v2 signature didn't verify
+//
+// Both produce audit-log rows with actor_id=NULL (sensors aren't
+// users) for centralised incident-response queries; the existing
+// unauthorized_attempts table remains the live UI surface and is
+// not displaced. v0.14.1 NEW-33.
+func (s *Server) recordUnauthorizedCheckin(r *http.Request, w http.ResponseWriter, name, srcIP, reason string) {
 	attempt := s.store.RecordUnauthorizedAttempt(name, srcIP, time.Now().Unix())
 	if data, err := json.Marshal(attempt); err == nil {
 		s.broker.Publish(SSEEvent{Type: "unauthorized_attempt", Data: string(data)})
 	}
+	// Sensors aren't users, so the audit row lands with actor_id=NULL
+	// and actor_email="" via the standard recordAudit context flow.
+	s.recordAudit(r, "sensor_unauthorized_attempt", auditEvent{
+		TargetType: "sensor",
+		TargetName: name,
+		Details:    map[string]any{"reason": reason, "name": name},
+	})
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status":           "unknown",
 		"protocol_version": QuiverProtocolVersion,

@@ -485,6 +485,10 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		// Snapshot the finding before the mutation so the audit log
+		// records the actual transition (open → false_positive, etc.)
+		// rather than just the post-state. v0.14.1 NEW-32.
+		before, _ := s.store.GetFinding(id)
 		user := userFromCtx(r)
 		ts := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 		ok := s.store.UpdateFinding(id, model.Status(req.Status), user.DisplayName(), req.Note, ts)
@@ -500,6 +504,14 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 				Timestamp:   ts,
 			})
 		}
+		s.recordAudit(r, "finding_status_change", auditEvent{
+			TargetType:  "finding",
+			TargetID:    strconv.Itoa(id),
+			TargetName:  before.Type,
+			BeforeValue: map[string]any{"status": string(before.Status)},
+			AfterValue:  map[string]any{"status": req.Status},
+			Details:     map[string]any{"note_length": len(strings.TrimSpace(req.Note))},
+		})
 		jsonOK(w)
 
 	default:
@@ -596,6 +608,10 @@ func (s *Server) handleEscalate(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
+	// Snapshot before the mutation so the audit log records the
+	// pre-escalation status alongside the new escalated state.
+	// v0.14.1 NEW-32.
+	before, _ := s.store.GetFinding(id)
 	user := userFromCtx(r)
 	ts := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 	ok := s.store.UpdateFinding(id, model.StatusEscalated, user.DisplayName(), req.Note, ts)
@@ -611,6 +627,22 @@ func (s *Server) handleEscalate(w http.ResponseWriter, r *http.Request) {
 			Timestamp:   ts,
 		})
 	}
+	// Audit body deliberately omits the note text — it could carry
+	// operationally sensitive specifics (named hosts, target
+	// indicators), and the note is already preserved on the finding
+	// itself. We record only the shape: length, selected IPs/services.
+	s.recordAudit(r, "finding_escalate", auditEvent{
+		TargetType:  "finding",
+		TargetID:    strconv.Itoa(id),
+		TargetName:  before.Type,
+		BeforeValue: map[string]any{"status": string(before.Status)},
+		AfterValue:  map[string]any{"status": string(model.StatusEscalated)},
+		Details: map[string]any{
+			"note_length": len(strings.TrimSpace(req.Note)),
+			"ips":         req.IPs,
+			"services":    req.Services,
+		},
+	})
 
 	// Background TI lookup using analyst-selected artifacts and services.
 	if len(req.IPs) > 0 && len(req.Services) > 0 {
@@ -1853,8 +1885,9 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {
 	}
 	user := userFromCtx(r)
 	ts := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
+	noteText := strings.TrimSpace(req.Text)
 	ok := s.store.AddNote(id, model.Note{
-		Text:        strings.TrimSpace(req.Text),
+		Text:        noteText,
 		Author:      user.DisplayName(),
 		AuthorEmail: user.Email,
 		Timestamp:   ts,
@@ -1863,6 +1896,16 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// Note text itself stays out of the audit log — it's preserved
+	// in the finding's notes array, and may contain operationally
+	// sensitive analyst observations. v0.14.1 NEW-32.
+	f, _ := s.store.GetFinding(id)
+	s.recordAudit(r, "finding_note_add", auditEvent{
+		TargetType: "finding",
+		TargetID:   strconv.Itoa(id),
+		TargetName: f.Type,
+		Details:    map[string]any{"note_length": len(noteText)},
+	})
 	jsonOK(w)
 }
 

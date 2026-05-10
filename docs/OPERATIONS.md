@@ -10,7 +10,12 @@ and `docs/ARCHITECTURE.md` (dataflow + internals). When the answer to
 "how do I X?" is procedural, it lives here. When it's structural
 ("why does this work this way?"), it lives in ARCHITECTURE.md.
 
-Everything below is current as of **v0.14.0**.
+If you're triaging a deployment in a hurry and don't have time to
+read this whole document, start with **`docs/QUICKSTART_OPS.md`**
+— it's the 5-minute "deploy + restore + three things to know"
+companion. Come back here when the questions get deeper.
+
+Everything below is current as of **v0.14.1**.
 
 ---
 
@@ -423,11 +428,29 @@ strings.
 | `user_create` / `user_role_change` / `user_status_change` / `user_delete` | User mgmt UI |
 | `enrollment_token_create` / `enrollment_token_revoke` | Sensors → Tokens |
 | `sensor_disenroll` / `sensor_purge` / `sensor_schedule_change` | Sensors modal |
+| `sensor_unauthorized_attempt` | `/api/quiver/checkin` for unknown name or bad HMAC (v0.14.1) |
 | `feed_create` / `feed_update` / `feed_delete` / `feed_refresh` | Feeds modal |
 | `suppression_add` / `suppression_delete` | Suppressions UI |
 | `allowlist_edit` / `ioc_edit` | Allowlist / IOC textareas |
 | `config_change` / `watch_change` | Settings |
+| `finding_status_change` / `finding_escalate` / `finding_note_add` | Findings table + detail (v0.14.1) |
 | `finding_import` | `/api/import` |
+
+`finding_*` actions log shape only — never the note body, which can
+carry operationally sensitive analyst observations. The note text
+itself stays on the finding (preserved in the notes array); the
+audit row records `note_length`, escalation IPs/services, and the
+status transition. v0.14.1 NEW-32.
+
+`sensor_unauthorized_attempt` lands with `actor_id=NULL` because
+sensors aren't users. The `details.reason` field is one of
+`unknown_name` (sensor name not in the enrolled-or-disenrolled
+set) or `bad_hmac` (name is enrolled but the v2 signature didn't
+verify — high-signal: usually means the sensor lost its secret
+file or someone has the name list but not the secret). The
+`unauthorized_attempts` table remains the live UI surface and is
+not displaced — this audit row is for centralised IR queries
+alongside admin actions. v0.14.1 NEW-33.
 
 **Schema columns** (see migration 0009 for rationale):
 
