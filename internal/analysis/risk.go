@@ -9,6 +9,21 @@ import (
 )
 
 // riskWeights maps detection type → contribution to host risk score.
+//
+// Weights are intentionally hard-coded constants, not config-tunable.
+// The audit asked whether this should be operator-configurable; the
+// answer is no. The thresholds in detectionsThresholds (config.go) are
+// deliberately at the per-detector layer because they are tuned to the
+// noise floor of the operator's traffic. Risk weights are at the
+// roll-up layer and encode the *relative* danger of detection types
+// across all deployments — a Cobalt Strike URI hit is worse than a
+// Long Connection regardless of who's looking. Letting operators tune
+// these locally would silently desynchronize roll-up scores between
+// installs, which makes feed-shared incident discussions ("we saw a
+// host risk 80 spike") useless. Audit 2026-05-10 LOW.
+//
+// The cost of changing a weight is two lines (here + a CHANGELOG
+// entry) — the value of leaving it operator-configurable is negative.
 var riskWeights = map[string]int{
 	"Beaconing":         30,
 	"HTTP Beaconing":    28,
@@ -24,6 +39,31 @@ var riskWeights = map[string]int{
 	"Lateral Movement":  20,
 	"Strobe":            15,
 	"Long Connection":   10,
+}
+
+// dampenComposite applies an asymptotic curve above the identity threshold
+// so raw sums above 75 still grow with extra detectors but never reach 99.
+// Below the threshold the function is identity, which keeps single-detector
+// hosts (the common shape in goldens and in practice) at their unscaled
+// score. Above it: 75 + 24*(1 - exp(-(raw-75)/50)). Concretely:
+//
+//	raw=  75 → 75   raw= 100 → 84   raw= 150 → 93   raw= 200 → 97   raw= 400 → 99
+//
+// The 24-point head-room (75..99) preserves rank-order at the top end so
+// two badly-saturated hosts can still be compared by their composite.
+func dampenComposite(raw int) int {
+	const threshold = 75
+	if raw <= threshold {
+		return raw
+	}
+	const headroom = 99 - threshold
+	const scale = 50.0
+	dampened := float64(threshold) + float64(headroom)*(1-math.Exp(-float64(raw-threshold)/scale))
+	rounded := int(math.Round(dampened))
+	if rounded > 99 {
+		return 99
+	}
+	return rounded
 }
 
 func (a *Analyzer) aggregateRisk(_ []string) {
@@ -50,7 +90,14 @@ func (a *Analyzer) aggregateRisk(_ []string) {
 		if f.Score > hd.maxScore {
 			hd.maxScore = f.Score
 		}
-		if hd.firstTS == "" && f.Timestamp != "" {
+		// Pick the chronologically earliest contributing timestamp.
+		// Pre-fix this set on first-encountered (slice-iteration order),
+		// so a host whose first detector emit was at 12:00:15 would
+		// stamp the roll-up 12:00:15 even when an earlier 12:00:00 TI
+		// hit also contributed. Lexicographic compare on the
+		// "YYYY-MM-DD HH:MM:SS UTC" timestamp format is chronological.
+		// Audit 2026-05-10 NEW-11.
+		if f.Timestamp != "" && (hd.firstTS == "" || f.Timestamp < hd.firstTS) {
 			hd.firstTS = f.Timestamp
 		}
 	}
@@ -66,8 +113,16 @@ func (a *Analyzer) aggregateRisk(_ []string) {
 		if composite == 0 {
 			continue
 		}
-		// Apply log-scale damping to avoid very high raw sums
-		composite = int(math.Min(float64(composite), 99))
+		// Apply log-scale damping above 75 so additional detectors stop
+		// piling onto an already-bad host with linear payoff. Pre-fix
+		// the comment claimed log damping but the implementation was a
+		// hard clamp at 99 — so a host with raw=120 and another with
+		// raw=300 both reported "99" and the analyst lost the relative
+		// signal. The asymptote is still 99 but resolution is preserved
+		// at the high end. Identity below 75 keeps existing finding
+		// scores stable for the common single-/few-detector hosts that
+		// the goldens exercise. Audit 2026-05-10 NEW-10.
+		composite = dampenComposite(composite)
 
 		var sev model.Severity
 		switch {

@@ -94,11 +94,19 @@ func (s *Server) runArchive(afterDays int, pruneFindings, dryRun bool, triggered
 		}
 		dst := filepath.Join(archiveDir, rel)
 		if dryRun {
-			// Don't create directories or stat the destination — preview must
-			// be a pure read. A naming collision would show up the same way
-			// (Skipped) but for now we treat all eligible files as movable;
-			// admins running back-to-back archives will see Skipped on the
-			// second real run if collisions actually occur.
+			// Preview is a pure read — no MkdirAll, no moves. The
+			// dst-collision check IS still safe to run as a stat()
+			// because it only reads the destination state; mirroring
+			// it here keeps the preview honest. Pre-fix the dry-run
+			// counted every eligible source as movable and the real
+			// run silently turned half of them into Skipped on a
+			// re-trigger, so admins saw "23 files / 4.1 GiB" preview
+			// → "12 files / 2.1 GiB, 11 skipped" actual. Audit
+			// 2026-05-10 LOW.
+			if _, err := os.Stat(dst); err == nil {
+				res.Skipped++
+				return nil
+			}
 			res.FilesArchived++
 			res.BytesArchived += info.Size()
 			return nil
@@ -170,11 +178,20 @@ func pruneEmptyDirs(root string) {
 // moveFile relocates src → dst. Uses os.Rename on the same filesystem and
 // falls back to copy+remove when crossing a mount boundary (EXDEV) — /logs is
 // a bind mount, /data is a volume, so that fallback is the normal case.
+//
+// Pre-fix the EXDEV check was an empty else-if body, so any rename failure
+// (permission denied on dst, source vanished mid-archive, dst exists) fell
+// through to the copy path and either silently masked the real failure or
+// produced a misleading second error from os.Open. The fallback is now
+// gated to EXDEV explicitly; every other error short-circuits with the
+// real os.Rename diagnostic intact. Audit 2026-05-10 NEW-13.
 func moveFile(src, dst string) error {
-	if err := os.Rename(src, dst); err == nil {
+	err := os.Rename(src, dst)
+	if err == nil {
 		return nil
-	} else if !errors.Is(err, syscall.EXDEV) {
-		// Rename failed for a reason other than cross-device; try copy anyway.
+	}
+	if !errors.Is(err, syscall.EXDEV) {
+		return err
 	}
 	in, err := os.Open(src)
 	if err != nil {

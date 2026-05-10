@@ -461,3 +461,26 @@ func TestMoveFile_CopyFallback(t *testing.T) {
 		t.Errorf("mtime not preserved: got %v want %v", info.ModTime(), stamp)
 	}
 }
+
+// TestMoveFile_NonEXDEVErrorSurfaces asserts moveFile returns the original
+// rename error rather than falling through to copy when Rename fails for a
+// reason other than EXDEV. Pre-fix the copy fallback ran on every non-nil
+// rename error, so a missing-source error would be replaced by a useless
+// "open: no such file" diagnostic from the copy path. Audit 2026-05-10
+// NEW-13.
+func TestMoveFile_NonEXDEVErrorSurfaces(t *testing.T) {
+	dstDir := t.TempDir()
+	src := filepath.Join(t.TempDir(), "does-not-exist.log")
+	dst := filepath.Join(dstDir, "conn.log")
+
+	err := moveFile(src, dst)
+	if err == nil {
+		t.Fatal("moveFile of missing source must return an error")
+	}
+	// We don't pin the exact error string (cross-platform fragility), but
+	// the dst must NOT have been created — that would mean copy fallback
+	// fired for a non-EXDEV error.
+	if _, statErr := os.Stat(dst); statErr == nil {
+		t.Error("non-EXDEV failure must not create dst via copy fallback")
+	}
+}

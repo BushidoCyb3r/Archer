@@ -17,6 +17,23 @@ import (
 
 // logTypesForFinding maps a finding's Type to the Zeek log type(s) most
 // likely to contain the source records. Used by the raw-log pivot.
+//
+// Pre-fix four keys disagreed with what the analyzers actually emit:
+//
+//	"DNS Tunnel"       (analyzer emits "DNS Tunneling")
+//	"NXDOMAIN Flood"   (analyzer emits "DNS NXDOMAIN Flood")
+//	"No-SNI"           (analyzer emits "SSL No-SNI" / "SSL No-SNI on C2 Port")
+//	"Weird Event"      (analyzer emits "Protocol Anomaly")
+//
+// Plus "Host Risk Score" (the cross-detector roll-up) had no entry at
+// all. The lookup-miss fallback at handleFindingRaw scans the wide
+// {conn, http, dns, ssl} set, so the pivot still returned records but
+// from the wrong protocols, and the analyst saw mixed results.
+// Audit 2026-05-10 NEW-9. The TestLogTypesForFinding_CoversAllEmittedTypes
+// test in findings_raw_test.go discovers every type from the golden
+// fixtures' expected_findings.json files and asserts each has a map
+// entry, so any future analyzer adding a Type without a corresponding
+// entry breaks that test.
 var logTypesForFinding = map[string][]string{
 	"Beaconing":                {"conn"},
 	"Long Connection":          {"conn"},
@@ -32,20 +49,22 @@ var logTypesForFinding = map[string][]string{
 	"Domain Fronting":          {"http", "ssl"},
 	"Suspicious File Download": {"http", "files"},
 	"Suspicious URL":           {"http"},
-	"DNS Tunnel":               {"dns"},
-	"NXDOMAIN Flood":           {"dns"},
+	"DNS Tunneling":            {"dns"},
+	"DNS NXDOMAIN Flood":       {"dns"},
 	"Suspicious TLD":           {"dns"},
 	"DoH Bypass":               {"dns"},
 	"Malicious JA3":            {"ssl"},
 	"Weak TLS":                 {"ssl"},
-	"No-SNI":                   {"ssl"},
+	"SSL No-SNI":               {"ssl"},
+	"SSL No-SNI on C2 Port":    {"ssl", "conn"},
 	"Suspicious Certificate":   {"x509"},
-	"Weird Event":              {"weird"},
+	"Protocol Anomaly":         {"weird"},
 	"Zeek Notice":              {"notice"},
 	"TI Hit (IP)":              {"conn", "http", "ssl"},
 	"TI Hit (Domain)":          {"dns", "http"},
 	"TI Hit (Hash)":            {"files", "http"},
 	"Threat Intel Hit":         {"conn", "http", "dns", "ssl"}, // legacy pre-v0.7.0
+	"Host Risk Score":          {"conn", "http", "dns", "ssl"}, // cross-detector roll-up
 }
 
 // handleFindingRaw serves GET /api/findings/{id}/raw. It walks the scan root

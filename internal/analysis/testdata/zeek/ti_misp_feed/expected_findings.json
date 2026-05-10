@@ -6,7 +6,7 @@
     "src_ip": "192.168.8.30",
     "dst_ip": "(network)",
     "detail": "Composite risk: 70 | Detections: [Suspicious File Download Suspicious URL TI Hit (Domain) TI Hit (IP)]",
-    "timestamp": "2024-01-15 12:00:15"
+    "timestamp": "2024-01-15 12:00:00"
   },
   {
     "type": "Suspicious File Download",

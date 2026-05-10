@@ -64,3 +64,70 @@ func TestPruneFindingsBefore_NoOp(t *testing.T) {
 		t.Errorf("findings slice should be unchanged, got len=%d", len(s.findings))
 	}
 }
+
+// TestFindingsIdx_StaysConsistentAcrossMutations exercises the id→index
+// map maintained alongside s.findings. Every operation that rebuilds or
+// mutates the slice must rebuild the index too, otherwise GetFinding /
+// UpdateFinding / AddNote drift into either returning stale rows or
+// missing-id false negatives. Audit 2026-05-10 follow-up.
+func TestFindingsIdx_StaysConsistentAcrossMutations(t *testing.T) {
+	s := New(config.Default())
+
+	notifs := s.SetFindings([]model.Finding{
+		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
+		{Type: "Long Connection", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 40, Severity: model.SevMedium, Timestamp: "2026-05-10 12:01:00"},
+	})
+	_ = notifs
+
+	if len(s.findingsIdx) != len(s.findings) {
+		t.Fatalf("index size %d != findings len %d after SetFindings",
+			len(s.findingsIdx), len(s.findings))
+	}
+	for i, f := range s.findings {
+		if got := s.findingsIdx[f.ID]; got != i {
+			t.Errorf("findingsIdx[%d] = %d, want %d", f.ID, got, i)
+		}
+	}
+
+	// GetFinding by id should resolve in O(1) and match the slice row.
+	wantID := s.findings[0].ID
+	got, ok := s.GetFinding(wantID)
+	if !ok || got.ID != wantID {
+		t.Errorf("GetFinding(%d) ok=%v id=%d", wantID, ok, got.ID)
+	}
+	if _, ok := s.GetFinding(999_999); ok {
+		t.Error("GetFinding for unknown id should return ok=false")
+	}
+
+	// UpdateFinding mutates in-place and the index keeps pointing at
+	// the same slot — the row's mutated state must be visible after.
+	if !s.UpdateFinding(wantID, model.StatusAcknowledged, "alice", "looking", "2026-05-10 12:02:00") {
+		t.Fatal("UpdateFinding returned false on a known id")
+	}
+	got2, _ := s.GetFinding(wantID)
+	if got2.Status != model.StatusAcknowledged || got2.Analyst != "alice" {
+		t.Errorf("mutation not visible via index: %+v", got2)
+	}
+
+	// PruneFindingsBefore drops a row; the index must be rebuilt so
+	// the surviving id resolves to its NEW slot, not the old slot.
+	cutoff, _ := time.Parse("2006-01-02 15:04:05", "2026-05-10 12:00:30")
+	if dropped := s.PruneFindingsBefore(cutoff); dropped != 1 {
+		t.Fatalf("expected 1 dropped, got %d", dropped)
+	}
+	survivorID := s.findings[0].ID
+	if i, ok := s.findingsIdx[survivorID]; !ok || i != 0 {
+		t.Errorf("findingsIdx[%d] = (%d,%v) after prune, want (0,true)", survivorID, i, ok)
+	}
+	if _, ok := s.GetFinding(wantID); ok {
+		t.Errorf("GetFinding(%d) should be false after prune", wantID)
+	}
+
+	// ClearFindings empties everything; index must drop too.
+	if n := s.ClearFindings(); n != 1 {
+		t.Errorf("ClearFindings returned %d, want 1", n)
+	}
+	if len(s.findingsIdx) != 0 {
+		t.Errorf("findingsIdx not cleared: %v", s.findingsIdx)
+	}
+}

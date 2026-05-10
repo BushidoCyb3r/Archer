@@ -276,6 +276,12 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 				http.NotFound(w, r)
 				return
 			}
+			// Pending → active doesn't strictly need session
+			// invalidation (a pending user has no live sessions
+			// — they couldn't get past requireAuth). Defensive
+			// drop anyway in case status was flipped via direct
+			// DB write before this transition.
+			s.users.DeleteSessionsForUser(id)
 			jsonOK(w)
 			return
 		}
@@ -296,6 +302,11 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
+		// Force re-login so the new role is reflected in the
+		// session-derived role cache. Pre-fix the existing
+		// session continued to act under the old role for up to
+		// 24 hours after a demote. Audit 2026-05-10 NEW-8.
+		s.users.DeleteSessionsForUser(id)
 		jsonOK(w)
 
 	case http.MethodDelete:
@@ -307,6 +318,10 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
+		// Drop any in-memory sessions so the cookie stops
+		// resolving immediately rather than 401-ing every
+		// request until the 24-hour TTL elapses.
+		s.users.DeleteSessionsForUser(id)
 		jsonOK(w)
 
 	default:

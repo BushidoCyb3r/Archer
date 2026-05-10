@@ -14,6 +14,18 @@ const ctxUser ctxKey = 0
 // requireAuth is middleware that validates the session cookie.
 // Unauthenticated requests are redirected to /login.
 // API requests (path starts with /api/ or /events) get a 401 instead.
+//
+// The user's account status is re-checked on every request. Pre-fix
+// requireAuth trusted whatever status was in the database row at the
+// time of session creation; an admin demoting an analyst from active
+// → pending (or marking an account compromised) had no effect on
+// that user's existing 24-hour session. Audit 2026-05-10 NEW-8.
+// Now the session resolves to a User row whose Status is checked
+// every request: a non-active row returns 401 just as if the
+// session had been deleted, and the ApproveUser / UpdateUserRole
+// / DeleteUser code paths additionally call
+// DeleteSessionsForUser so the in-memory session map doesn't hold
+// orphans that would 401 every request until 24-hour expiry.
 func (s *Server) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie(sessionCookie)
@@ -23,6 +35,15 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 		}
 		user, ok := s.users.GetSession(c.Value)
 		if !ok {
+			s.redirectOrUnauthorized(w, r)
+			return
+		}
+		if user.Status != model.StatusActive {
+			// Stale session for a deactivated/pending account.
+			// Drop the session token so the cookie stops resolving
+			// even after the row's status flips back, and force the
+			// user back through the login flow.
+			s.users.DeleteSession(c.Value)
 			s.redirectOrUnauthorized(w, r)
 			return
 		}

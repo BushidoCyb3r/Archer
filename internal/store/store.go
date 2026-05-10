@@ -25,9 +25,20 @@ import (
 // fully replace via DELETE+INSERT in slice order so SQLite rowids
 // always reflect the current ordering.
 type Store struct {
-	mu            sync.RWMutex
-	db            *sql.DB
+	mu sync.RWMutex
+	db *sql.DB
+	// findings is the canonical slice; findingsIdx is an id → slice-index
+	// map maintained alongside it so GetFinding / UpdateFinding / AddNote
+	// resolve in O(1) instead of scanning the whole slice. Pre-fix every
+	// analyst note + status mutation walked all findings linearly; on a
+	// long-running install with 5–10k preserved historical findings the
+	// hot UI paths (analyst clicks "investigating", types a note) added
+	// ~ms-scale jitter that the SSE stream amplified. The map MUST be
+	// kept consistent with the slice — every place that assigns or
+	// rebuilds s.findings must also rebuild s.findingsIdx through
+	// rebuildFindingsIdx.
 	findings      []model.Finding
+	findingsIdx   map[int]int
 	allowlist     []string
 	iocList       []string
 	allowlistM    *match.Matcher           // cached compile of allowlist; rebuilt on Set
@@ -59,7 +70,17 @@ func New(cfg config.Config) *Store {
 	return &Store{
 		suppressions: make(map[string]suppressionEntry),
 		feedMatchers: make(map[int64]*match.Matcher),
+		findingsIdx:  make(map[int]int),
 		config:       cfg,
+	}
+}
+
+// rebuildFindingsIdx rewrites the id→slice-index map from the current
+// s.findings slice. Caller must hold s.mu.Lock().
+func (s *Store) rebuildFindingsIdx() {
+	s.findingsIdx = make(map[int]int, len(s.findings))
+	for i, f := range s.findings {
+		s.findingsIdx[f.ID] = i
 	}
 }
 
@@ -255,6 +276,7 @@ func (s *Store) loadFindings() {
 		}
 		s.findings = append(s.findings, f)
 	}
+	s.rebuildFindingsIdx()
 }
 
 // saveFindings replaces all rows in the findings table with s.findings.
@@ -374,6 +396,7 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 	}
 
 	s.findings = findings
+	s.rebuildFindingsIdx()
 	s.analyzing = false
 	s.saveFindings()
 
@@ -409,51 +432,48 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 func (s *Store) UpdateFinding(id int, status model.Status, analyst, note, statusTS string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i := range s.findings {
-		if s.findings[i].ID == id {
-			s.findings[i].Status = status
-			s.findings[i].Analyst = analyst
-			s.findings[i].AnalystNote = note
-			s.findings[i].StatusTS = statusTS
-			if s.db != nil {
-				if _, err := s.db.Exec(`UPDATE findings SET status=?, analyst=?, analyst_note=?, status_ts=? WHERE id=?`,
-					string(status), analyst, note, statusTS, id); err != nil {
-					log.Printf("store: update finding %d: %v", id, err)
-				}
-			}
-			return true
+	i, ok := s.findingsIdx[id]
+	if !ok {
+		return false
+	}
+	s.findings[i].Status = status
+	s.findings[i].Analyst = analyst
+	s.findings[i].AnalystNote = note
+	s.findings[i].StatusTS = statusTS
+	if s.db != nil {
+		if _, err := s.db.Exec(`UPDATE findings SET status=?, analyst=?, analyst_note=?, status_ts=? WHERE id=?`,
+			string(status), analyst, note, statusTS, id); err != nil {
+			log.Printf("store: update finding %d: %v", id, err)
 		}
 	}
-	return false
+	return true
 }
 
 func (s *Store) GetFinding(id int) (model.Finding, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for _, f := range s.findings {
-		if f.ID == id {
-			return f, true
-		}
+	i, ok := s.findingsIdx[id]
+	if !ok {
+		return model.Finding{}, false
 	}
-	return model.Finding{}, false
+	return s.findings[i], true
 }
 
 func (s *Store) AddNote(id int, note model.Note) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i := range s.findings {
-		if s.findings[i].ID == id {
-			s.findings[i].Notes = append(s.findings[i].Notes, note)
-			if s.db != nil {
-				notesJSON, _ := json.Marshal(s.findings[i].Notes)
-				if _, err := s.db.Exec(`UPDATE findings SET notes=? WHERE id=?`, string(notesJSON), id); err != nil {
-					log.Printf("store: add note to finding %d: %v", id, err)
-				}
-			}
-			return true
+	i, ok := s.findingsIdx[id]
+	if !ok {
+		return false
+	}
+	s.findings[i].Notes = append(s.findings[i].Notes, note)
+	if s.db != nil {
+		notesJSON, _ := json.Marshal(s.findings[i].Notes)
+		if _, err := s.db.Exec(`UPDATE findings SET notes=? WHERE id=?`, string(notesJSON), id); err != nil {
+			log.Printf("store: add note to finding %d: %v", id, err)
 		}
 	}
-	return false
+	return true
 }
 
 func (s *Store) GetConfig() config.Config {
@@ -905,6 +925,7 @@ func (s *Store) ClearFindings() int {
 	defer s.mu.Unlock()
 	n := len(s.findings)
 	s.findings = nil
+	s.rebuildFindingsIdx()
 	s.config.LastAnalysisFingerprint = ""
 	if s.db != nil {
 		cfgJSON, _ := json.Marshal(s.config)
@@ -968,6 +989,7 @@ func (s *Store) PruneFindingsBefore(cutoff time.Time) int {
 	}
 	if dropped > 0 {
 		s.findings = kept
+		s.rebuildFindingsIdx()
 		s.saveFindings()
 	}
 	return dropped

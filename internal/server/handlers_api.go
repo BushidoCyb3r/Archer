@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -1099,8 +1100,28 @@ func (s *Server) handleSuppressions(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		if strings.TrimSpace(req.Target) == "" || req.Days <= 0 {
-			jsonError(w, "target and days are required", http.StatusBadRequest)
+		if strings.TrimSpace(req.Target) == "" {
+			jsonError(w, "target is required", http.StatusBadRequest)
+			return
+		}
+		// Bounded validation. Pre-fix only `days > 0` was checked, so
+		// {"days": 1e15} caused float→int64 overflow inside
+		// time.Duration construction (1e15 * 86400e9 overflows the
+		// signed int64 ceiling, wrapping to a negative or pathological
+		// value). The resulting expiry could land in the past
+		// (suppression immediately false), or thousands of years
+		// in the future (suppression effectively forever). NaN/Inf
+		// gave undefined-behavior conversions. Both surfaces were
+		// soft-DoS / audit-bypass shapes for an analyst who could
+		// reach this endpoint. 365-day cap is generous — the longest
+		// realistic suppression window — and bounds the duration
+		// math comfortably within int64. Audit 2026-05-10 NEW-7.
+		if math.IsNaN(req.Days) || math.IsInf(req.Days, 0) {
+			jsonError(w, "days must be a finite number", http.StatusBadRequest)
+			return
+		}
+		if req.Days <= 0 || req.Days > 365 {
+			jsonError(w, "days must be in (0, 365]", http.StatusBadRequest)
 			return
 		}
 		expiry := time.Now().Add(time.Duration(req.Days * float64(24*time.Hour)))
@@ -1118,7 +1139,19 @@ func (s *Server) handleDeleteSuppression(w http.ResponseWriter, r *http.Request)
 		jsonError(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	target := strings.TrimPrefix(r.URL.Path, "/api/suppressions/")
+	// Suppression keys are user-supplied identifiers (host/IP/regex)
+	// that the frontend percent-encodes into the path. Pre-fix we
+	// trimmed the prefix and passed the raw escaped form to the
+	// store, so a key containing "/" or "%" never matched the stored
+	// entry and the delete silently no-op'd from the analyst's POV.
+	// Decode before lookup; reject malformed escapes with 400 instead
+	// of guessing. Audit 2026-05-10 LOW.
+	raw := strings.TrimPrefix(r.URL.Path, "/api/suppressions/")
+	target, err := url.PathUnescape(raw)
+	if err != nil {
+		jsonError(w, "invalid suppression key", http.StatusBadRequest)
+		return
+	}
 	s.store.RemoveSuppression(target)
 	jsonOK(w)
 }

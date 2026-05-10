@@ -252,3 +252,18 @@ func (us *UserStore) DeleteSession(token string) {
 	delete(us.sessions, token)
 	us.mu.Unlock()
 }
+
+// DeleteSessionsForUser drops every active session owned by the
+// given user. Called from admin-side mutation paths (role change,
+// approve, delete) so a privilege transition doesn't leave a
+// long-lived 24-hour session continuing to act under the old
+// identity. Audit 2026-05-10 NEW-8.
+func (us *UserStore) DeleteSessionsForUser(userID int) {
+	us.mu.Lock()
+	for token, sess := range us.sessions {
+		if sess.UserID == userID {
+			delete(us.sessions, token)
+		}
+	}
+	us.mu.Unlock()
+}
