@@ -6,7 +6,7 @@
     "src_ip": "192.168.2.30",
     "dst_ip": "evil.com",
     "dst_port": "53",
-    "detail": "Tunnel indicators: long label (60 chars), high entropy (4.69) | query: uaihxv4cnagqagurhszazwke6kcd3tzxr7mr2t3swbhjchdiullgi5utfxfm.evil.com",
+    "detail": "Tunnel indicators: long label (60 chars), high entropy (4.69) on 60-char label | query: uaihxv4cnagqagurhszazwke6kcd3tzxr7mr2t3swbhjchdiullgi5utfxfm.evil.com",
     "timestamp": "2024-01-15 12:00:00"
   }
 ]
