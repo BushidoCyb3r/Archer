@@ -218,17 +218,14 @@ func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleFeedRefresh runs an immediate fetch+upsert+prune cycle for
-// one feed, bypassing the watch-tick cadence. Synchronous — capped at
-// 5 minutes — so the admin gets prompt feedback in the Feeds dialog
-// while still allowing fetches against larger MISPs (whose offset-based
-// pagination degrades with depth: a 100k-attribute MISP can take 2-3
-// minutes for a full sweep). Beyond 5 minutes the upstream is more
-// likely stuck than slow; the dialog reports the timeout so the admin
-// can narrow the source-side filter or pursue incremental sync (queued
-// in TODO.md / MATURATION_PLAN as the long-term correct fix).
-// Used to verify connectivity after configuring a new feed without
-// waiting for the next watch tick.
+// handleFeedRefresh runs an immediate full fetch+upsert+prune cycle
+// for one feed, bypassing the watch-tick cadence. Always full —
+// operators clicking Refresh are expressing intent to verify upstream
+// state, and an incremental here would defeat that. Synchronous,
+// capped at 5 minutes; type-shard parallelism and the larger
+// PageSize keep large MISP fetches under that cap on most realistic
+// feeds. Used to verify connectivity after configuring a new feed
+// without waiting for the next watch tick.
 func (s *Server) handleFeedRefresh(w http.ResponseWriter, r *http.Request, id int64) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -297,6 +294,16 @@ func (s *Server) runFeedFetch(ctx context.Context, feed feeds.Feed, forceFull bo
 	}
 
 	full := forceFull || fullRefreshDue(feed, time.Now().Unix())
+	// OpenCTI's adapter accepts the since argument to satisfy the
+	// interface but ignores it — every OpenCTI fetch is structurally
+	// a full pull. Treating it as "incremental" would skip the
+	// aging-prune on every tick that isn't a periodic full sync,
+	// which would let stale indicators linger for half the aging
+	// window instead of clearing every watch tick. Force full for
+	// any source that doesn't actually honour the timestamp filter.
+	if feed.SourceType != feeds.SourceMISP {
+		full = true
+	}
 	var since int64
 	if !full {
 		// 5-minute overlap absorbs upstream clock skew and any boundary
