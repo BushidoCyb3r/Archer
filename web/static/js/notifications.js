@@ -16,6 +16,29 @@ const Notifications = (() => {
             LOW:'var(--sev-low)', INFO:'var(--sev-info)'}[sev] || 'var(--fg-text)';
   }
 
+  // _esc handles both HTML text and attribute contexts. The codebase
+  // convention is one _esc per IIFE-scoped module (see detail.js and
+  // feeds.js for the same shape); kept private rather than shared so
+  // each module stays self-contained.
+  //
+  // Pre-fix this module rendered server-supplied severity / type /
+  // src_ip / dst_ip / dst_port directly into innerHTML, so a malicious
+  // feed indicator that survived MISP/OpenCTI normalization could land
+  // a TI Hit (Domain) finding whose dst_ip was an HTML payload —
+  // SetFindings → Notification → SSE → this panel → script execution
+  // in admin's browser context. Audit 2026-05-10 NEW-26. The feed-
+  // ingest validation in NEW-28 closes the path that reaches here, but
+  // defense-in-depth here also covers any future code path that might
+  // emit operator-controlled strings into a notification.
+  function _esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function _render() {
     const el = _list();
     el.innerHTML = '';
@@ -26,12 +49,16 @@ const Notifications = (() => {
     _items.forEach(n => {
       const div = document.createElement('div');
       div.className = 'notif-item';
+      // _sevColor returns from a fixed enum; not user-controlled so
+      // it doesn't need escaping. finding_id and id are integers and
+      // pass through Number coercion. Every other interpolation
+      // routes through _esc.
       div.innerHTML = `
-        <div class="notif-sev" style="color:${_sevColor(n.severity)}">${n.severity} — ${n.type}</div>
-        <div class="notif-addr">${n.src_ip || ''} → ${n.dst_ip || ''} ${n.dst_port ? ':' + n.dst_port : ''}</div>
+        <div class="notif-sev" style="color:${_sevColor(n.severity)}">${_esc(n.severity)} — ${_esc(n.type)}</div>
+        <div class="notif-addr">${_esc(n.src_ip || '')} → ${_esc(n.dst_ip || '')} ${n.dst_port ? ':' + _esc(String(n.dst_port)) : ''}</div>
         <div class="notif-actions">
-          <button class="btn-jump" data-finding-id="${n.finding_id}">Jump</button>
-          <button class="btn-dismiss-notif" data-id="${n.id}">Dismiss</button>
+          <button class="btn-jump" data-finding-id="${Number(n.finding_id) || 0}">Jump</button>
+          <button class="btn-dismiss-notif" data-id="${Number(n.id) || 0}">Dismiss</button>
         </div>`;
       el.appendChild(div);
     });

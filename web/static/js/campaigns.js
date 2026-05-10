@@ -157,12 +157,17 @@ const Campaigns = (() => {
     const slice = _campaigns.slice(off, off + lim);
     slice.forEach(e => {
       const tr = document.createElement('tr');
+      // maxScore and srcs.size are integers; _scoreColor returns
+      // from a fixed CSS-var enum. Every other interpolation routes
+      // through _esc. The ", " join happens before escape so the
+      // commas inside escaped IPs don't get double-escaped.
+      const srcsText = [...e.srcs].join(', ');
       tr.innerHTML = `
-        <td style="color:${_scoreColor(e.maxScore)};font-weight:700;text-align:center">${e.maxScore}</td>
-        <td class="dst-ip" title="${e.dst}">${e.dst}</td>
-        <td>${e.port}</td>
-        <td class="hosts">${e.srcs.size}</td>
-        <td style="font-family:monospace;font-size:11px;word-break:break-all">${[...e.srcs].join(', ')}</td>`;
+        <td style="color:${_scoreColor(e.maxScore)};font-weight:700;text-align:center">${e.maxScore | 0}</td>
+        <td class="dst-ip" title="${_esc(e.dst)}">${_esc(e.dst)}</td>
+        <td>${_esc(e.port)}</td>
+        <td class="hosts">${e.srcs.size | 0}</td>
+        <td style="font-family:monospace;font-size:11px;word-break:break-all">${_esc(srcsText)}</td>`;
       tr.addEventListener('contextmenu', ev => {
         ev.preventDefault();
         // The pseudo-finding gives the existing context-menu items what they
@@ -216,12 +221,18 @@ const Campaigns = (() => {
     slice.forEach(e => {
       const tr = document.createElement('tr');
       tr.style.cursor = 'pointer';
+      // Same defense as the Campaigns row above — _isOrgIP routes
+      // SrcIP through a CIDR-membership check, but a string like
+      // "192.168.1.1<script>" containing a private IP substring
+      // could plausibly slip through depending on _isOrgIP's
+      // implementation. _esc covers that and any future change.
+      const typesText = [...e.types].slice(0, 4).join(', ');
       tr.innerHTML = `
-        <td class="score" style="color:${_scoreColor(e.score)}">${e.score}</td>
-        <td class="src-ip dst-ip" style="font-family:monospace">${e.ip}</td>
-        <td style="text-align:center">${e.count}</td>
-        <td style="color:${_sevColor(e.topSev)};font-weight:700">${e.topSev}</td>
-        <td style="font-size:11px;color:var(--fg-dim)">${[...e.types].slice(0,4).join(', ')}</td>`;
+        <td class="score" style="color:${_scoreColor(e.score)}">${e.score | 0}</td>
+        <td class="src-ip dst-ip" style="font-family:monospace">${_esc(e.ip)}</td>
+        <td style="text-align:center">${e.count | 0}</td>
+        <td style="color:${_sevColor(e.topSev)};font-weight:700">${_esc(e.topSev)}</td>
+        <td style="font-size:11px;color:var(--fg-dim)">${_esc(typesText)}</td>`;
       tr.addEventListener('click', () => {
         if (_onHostClick) _onHostClick(e.ip);
       });
@@ -243,6 +254,25 @@ const Campaigns = (() => {
   function _sevColor(sev) {
     const map = {CRITICAL:'var(--sev-critical)', HIGH:'var(--sev-high)', MEDIUM:'var(--sev-medium)', LOW:'var(--fg-text)', INFO:'var(--fg-dim)', IOC_HIT:'var(--ioc-color)'};
     return map[sev] || 'var(--fg-text)';
+  }
+
+  // _esc handles both HTML text and attribute contexts. The codebase
+  // convention is one _esc per IIFE-scoped module — see detail.js,
+  // feeds.js, notifications.js for the same shape. Pre-fix the dst,
+  // srcs, and ip interpolations rendered server-supplied strings
+  // directly into innerHTML, including in title="${e.dst}" attribute
+  // context where a " breaks out of the attribute. Audit 2026-05-10
+  // NEW-27. Reachable via TI Hit (Domain) findings whose dst_ip
+  // carried a malicious indicator from a feed; the feed-ingest
+  // validation in NEW-28 closes the upstream, this is defense-in-
+  // depth.
+  function _esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   return { init, build, getCampaigns, getHosts, renderCampaignsPage, renderHostsPage };

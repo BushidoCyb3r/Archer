@@ -10,6 +10,7 @@ package server
 // it into the same paths; no code change required.
 
 import (
+	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -26,11 +27,31 @@ import (
 	"time"
 )
 
-// EnsureTLS makes sure a usable TLS cert/key pair exists in dir. If both
-// files are present, the existing cert's public-key SHA256 fingerprint is
-// returned. If either is missing, a fresh self-signed ed25519 cert is
-// generated with the host's hostname and non-loopback IPs as Subject
-// Alternative Names, valid for 10 years.
+// EnsureTLS makes sure a usable TLS cert/key pair exists in dir. Two
+// paths:
+//
+//  1. Operator-supplied (both files present): parse the cert and
+//     key, verify the key matches the cert's public key, verify
+//     NotAfter is in the future, return the SubjectPublicKeyInfo
+//     fingerprint. Pre-fix only file existence was checked, so an
+//     expired / corrupt / key-mismatched cert silently passed
+//     through and the listener failed to start with a cryptic
+//     OpenSSL-flavored error 30 seconds later when the first sensor
+//     connected. Now those failure modes surface as a clear startup
+//     error naming the file. Audit 2026-05-10 NEW-25 (operator-CA
+//     workflow follow-up).
+//
+//  2. Auto-gen (either file missing): generate a fresh self-signed
+//     ed25519 cert with the host's hostname and non-loopback,
+//     non-link-local IPs as SANs, valid for 10 years.
+//
+// NEW-25 changed the auto-gen template's posture from "CA-shaped"
+// (KeyUsageCertSign + IsCA=true) to "server-only end-entity"
+// (KeyUsageDigitalSignature | KeyUsageKeyEncipherment, IsCA=false).
+// Pinned-pubkey verification doesn't care about chain shape, so no
+// existing consumer behavior changes; the narrowing prevents the
+// auto-gen cert from acquiring CA semantics if it ever lands in a
+// system trust store via update-ca-certificates or container build.
 //
 // The fingerprint is in the format curl --pinnedpubkey "sha256//<value>"
 // expects, so it can be embedded into the sensor enrollment one-liner.
@@ -39,7 +60,7 @@ func EnsureTLS(dir string) (certPath, keyPath, fingerprint string, err error) {
 	keyPath = filepath.Join(dir, "server.key")
 	if _, e1 := os.Stat(certPath); e1 == nil {
 		if _, e2 := os.Stat(keyPath); e2 == nil {
-			fp, e := readFingerprint(certPath)
+			fp, e := loadAndValidateOperatorTLS(certPath, keyPath)
 			return certPath, keyPath, fp, e
 		}
 	}
@@ -59,10 +80,13 @@ func EnsureTLS(dir string) (certPath, keyPath, fingerprint string, err error) {
 		Subject:               pkix.Name{CommonName: "archer"},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().AddDate(10, 0, 0),
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		// Server-only end-entity posture. CA capability isn't needed
+		// — pinned-pubkey verification matches the SubjectPublicKey-
+		// Info, not the chain. Audit 2026-05-10 NEW-25.
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-		IsCA:                  true,
+		IsCA:                  false,
 		DNSNames:              localDNSNames(),
 		IPAddresses:           localIPs(),
 	}
@@ -98,16 +122,79 @@ func pinnedPubkeyFromDER(der []byte) string {
 	return base64.StdEncoding.EncodeToString(sum[:])
 }
 
-func readFingerprint(certPath string) (string, error) {
-	pemBytes, err := os.ReadFile(certPath)
+// loadAndValidateOperatorTLS handles path 1 of EnsureTLS — the
+// operator-supplied cert + key workflow. Verifies the cert is parsable
+// and not expired, the key is parsable, and the key's public component
+// matches the cert's. Surfaces a clear error naming the file on any
+// failure so the operator sees a startup message they can act on,
+// rather than a cryptic TLS handshake failure 30 seconds later when
+// the first sensor connects. Audit 2026-05-10 NEW-25 (operator-CA
+// workflow follow-up).
+func loadAndValidateOperatorTLS(certPath, keyPath string) (string, error) {
+	certPEM, err := os.ReadFile(certPath)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("server: read cert %s: %w", certPath, err)
 	}
-	block, _ := pem.Decode(pemBytes)
-	if block == nil {
+	certBlock, _ := pem.Decode(certPEM)
+	if certBlock == nil {
 		return "", fmt.Errorf("server: %s contains no PEM block", certPath)
 	}
-	return pinnedPubkeyFromDER(block.Bytes), nil
+	cert, err := x509.ParseCertificate(certBlock.Bytes)
+	if err != nil {
+		return "", fmt.Errorf("server: parse cert %s: %w", certPath, err)
+	}
+	now := time.Now()
+	if now.After(cert.NotAfter) {
+		return "", fmt.Errorf("server: cert %s expired %s", certPath, cert.NotAfter.Format(time.RFC3339))
+	}
+	if now.Before(cert.NotBefore) {
+		return "", fmt.Errorf("server: cert %s not valid until %s", certPath, cert.NotBefore.Format(time.RFC3339))
+	}
+
+	keyPEM, err := os.ReadFile(keyPath)
+	if err != nil {
+		return "", fmt.Errorf("server: read key %s: %w", keyPath, err)
+	}
+	keyBlock, _ := pem.Decode(keyPEM)
+	if keyBlock == nil {
+		return "", fmt.Errorf("server: %s contains no PEM block", keyPath)
+	}
+	priv, err := x509.ParsePKCS8PrivateKey(keyBlock.Bytes)
+	if err != nil {
+		// Try the legacy formats — operator may have generated
+		// the key with `openssl genrsa`/`openssl ecparam` and
+		// shipped PKCS#1 / SEC1 PEM. A clear error here saves
+		// the operator from staring at an opaque "tls: failed to
+		// parse private key" at handshake time.
+		if rsaKey, e2 := x509.ParsePKCS1PrivateKey(keyBlock.Bytes); e2 == nil {
+			priv = rsaKey
+		} else if ecKey, e3 := x509.ParseECPrivateKey(keyBlock.Bytes); e3 == nil {
+			priv = ecKey
+		} else {
+			return "", fmt.Errorf("server: parse key %s (tried PKCS#8, PKCS#1, SEC1): %w", keyPath, err)
+		}
+	}
+	signer, ok := priv.(interface{ Public() crypto.PublicKey })
+	if !ok {
+		return "", fmt.Errorf("server: key %s does not implement crypto.Signer", keyPath)
+	}
+	if !publicKeysEqual(signer.Public(), cert.PublicKey) {
+		return "", fmt.Errorf("server: key %s does not match cert %s public key", keyPath, certPath)
+	}
+	return pinnedPubkeyFromDER(certBlock.Bytes), nil
+}
+
+// publicKeysEqual compares two crypto.PublicKey values structurally.
+// Different key types (RSA vs ECDSA vs Ed25519) all expose Equal as
+// of Go 1.15+; we type-assert to that interface.
+func publicKeysEqual(a, b crypto.PublicKey) bool {
+	type equaler interface {
+		Equal(crypto.PublicKey) bool
+	}
+	if eq, ok := a.(equaler); ok {
+		return eq.Equal(b)
+	}
+	return false
 }
 
 func writePEM(path, blockType string, der []byte, mode os.FileMode) error {
@@ -130,9 +217,13 @@ func localDNSNames() []string {
 	return out
 }
 
-// localIPs returns all non-loopback IPs assigned to the host. Sensors that
-// connect by IP need an IP-SAN match; loopbacks are skipped because no
-// sensor talks to 127.0.0.1.
+// localIPs returns all non-loopback, non-link-local IPs assigned to
+// the host. Sensors that connect by IP need an IP-SAN match;
+// loopbacks (127.0.0.1, ::1) and IPv6 link-local addresses (fe80::/10)
+// are skipped because no sensor talks to either — link-local
+// addresses are interface-scoped and require zone identifiers to be
+// reachable, so including them just bloats the cert. Audit
+// 2026-05-10 LOW.
 func localIPs() []net.IP {
 	var out []net.IP
 	addrs, err := net.InterfaceAddrs()
@@ -141,7 +232,10 @@ func localIPs() []net.IP {
 	}
 	for _, a := range addrs {
 		ipnet, ok := a.(*net.IPNet)
-		if !ok || ipnet.IP.IsLoopback() {
+		if !ok {
+			continue
+		}
+		if ipnet.IP.IsLoopback() || ipnet.IP.IsLinkLocalUnicast() {
 			continue
 		}
 		out = append(out, ipnet.IP)

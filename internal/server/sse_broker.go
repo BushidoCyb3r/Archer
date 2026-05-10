@@ -14,14 +14,35 @@ type SSEEvent struct {
 	Data string
 }
 
+// resyncRequiredEvent is the canary the broker substitutes when a
+// client's buffer is full. The browser-side handler reacts by re-
+// fetching /api/findings and /api/notifications — the source-of-
+// truth endpoints that the dropped events would have updated. Pre-
+// fix overflow was a silent drop; for a security tool whose live
+// channel includes new TI hits, unauthorized sensor attempts, and
+// CRITICAL findings, "all quiet" while actually missing alerts is
+// a meaningful information-loss bug. Audit 2026-05-10 NEW-29.
+var resyncRequiredEvent = SSEEvent{Type: "resync_required", Data: "{}"}
+
 // Broker fans out SSE events to all connected clients.
 type Broker struct {
 	mu      sync.Mutex
 	clients map[chan SSEEvent]struct{}
+	// Per-client overflow flag. Set when Publish couldn't enqueue an
+	// event because the buffer was full; cleared the moment ServeHTTP
+	// drains a resync_required from the channel. While the flag is
+	// set, subsequent Publish calls to that client are no-ops — there
+	// would be no point queuing more events when the consumer's
+	// already going to re-fetch from scratch. Mutex-protected because
+	// Publish and ServeHTTP touch it from different goroutines.
+	overflow map[chan SSEEvent]bool
 }
 
 func NewBroker() *Broker {
-	return &Broker{clients: make(map[chan SSEEvent]struct{})}
+	return &Broker{
+		clients:  make(map[chan SSEEvent]struct{}),
+		overflow: make(map[chan SSEEvent]bool),
+	}
 }
 
 func (b *Broker) Subscribe() chan SSEEvent {
@@ -35,6 +56,7 @@ func (b *Broker) Subscribe() chan SSEEvent {
 func (b *Broker) Unsubscribe(ch chan SSEEvent) {
 	b.mu.Lock()
 	delete(b.clients, ch)
+	delete(b.overflow, ch)
 	b.mu.Unlock()
 }
 
@@ -42,11 +64,58 @@ func (b *Broker) Publish(evt SSEEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for ch := range b.clients {
+		// If this client is already in overflow, don't pile more
+		// events on top of an already-stale channel — the
+		// resync_required is still pending in their buffer and
+		// they'll re-fetch when ServeHTTP drains it.
+		if b.overflow[ch] {
+			continue
+		}
 		select {
 		case ch <- evt:
 		default:
+			// Buffer full. Drain everything we can without blocking
+			// (the goroutine reading the channel is the only other
+			// writer, so this is safe under the mutex), then drop a
+			// single resync_required canary in. The drain is bounded
+			// by the channel cap so this can't loop forever.
+			drainChannel(ch)
+			select {
+			case ch <- resyncRequiredEvent:
+				b.overflow[ch] = true
+			default:
+				// Even the canary couldn't go in — extremely rare
+				// (would mean a parallel consumer is pulling and
+				// pushing in the same instant). Mark overflow
+				// anyway so the next Publish skips this client and
+				// the consumer's next read picks up from a
+				// definitely-stale state.
+				b.overflow[ch] = true
+			}
 		}
 	}
+}
+
+// drainChannel non-blockingly empties the channel buffer. Caller
+// must hold b.mu — the broker's mutex serializes all writes to the
+// channel, so under the lock there's no producer racing us.
+func drainChannel(ch chan SSEEvent) {
+	for {
+		select {
+		case <-ch:
+		default:
+			return
+		}
+	}
+}
+
+// clearOverflow flips the flag back off once ServeHTTP has consumed
+// the resync_required canary. Subsequent Publish calls resume queuing
+// real events into this client's buffer.
+func (b *Broker) clearOverflow(ch chan SSEEvent) {
+	b.mu.Lock()
+	delete(b.overflow, ch)
+	b.mu.Unlock()
 }
 
 // ServeHTTP handles the /events SSE endpoint.
@@ -87,6 +156,14 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			fmt.Fprint(w, "\n")
 			flusher.Flush()
+			// If we just delivered the resync_required canary, the
+			// client is about to re-fetch the source-of-truth
+			// endpoints, so flip the overflow flag off so subsequent
+			// Publish calls resume normal queueing. Audit 2026-05-10
+			// NEW-29.
+			if evt.Type == "resync_required" {
+				b.clearOverflow(ch)
+			}
 		case <-ticker.C:
 			// Keep-alive comment — prevents proxies and browsers from closing idle connections
 			fmt.Fprintf(w, ": ping\n\n")
