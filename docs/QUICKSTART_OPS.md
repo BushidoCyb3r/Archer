@@ -131,9 +131,13 @@ symptom→first-step table.
   sensor lifecycle, user offboarding, audit log schema, TLS
   rotation, scope decisions.
 - **README.md** — feature surface and API reference.
+- **docs/ANALYST_PLAYBOOK.md** — how an analyst hunts real-world
+  C2 beacons with Archer. Triage workflow, modern tradecraft,
+  eight-question checklist, worked examples, FP patterns,
+  escalation criteria. Read this with your analyst hat on.
 - **docs/ARCHITECTURE.md** — internals, dataflow, store schema.
 - **docs/DETECTION_METHODS.md** — analyst-facing description of
-  the 12 detector families.
+  the 12 detector families. The math behind each finding type.
 - **docs/QUIVER.md** — Quiver sensor protocol and operations.
 
 Bookmark OPERATIONS.md for the questions that come up after the
