@@ -861,7 +861,10 @@
       </div>
     </div>
     <div class="settings-group">
-      <div class="settings-group-title">Threat Intelligence</div>
+      <div class="settings-group-title">Threat Intel Lookup APIs</div>
+      <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
+        Per-finding enrichment keys. Used by the Threat Intel Lookup panel on the finding detail view to query each provider on demand. For bulk indicator feeds (MISP, OpenCTI) that drive detection, see the Feeds dialog instead.
+      </div>
       <div class="settings-grid">
         <label>VirusTotal API Key<input class="dlg-input" id="cfg-vt-key" type="password" placeholder="optional"></label>
         <label>AbuseIPDB Key<input class="dlg-input" id="cfg-abuse-key" type="password" placeholder="optional"></label>
