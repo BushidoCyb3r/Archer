@@ -358,6 +358,63 @@ func intervalMultimodalScore(intervals []float64) float64 {
 	return weighted / float64(totalCount)
 }
 
+// intervalEntropyScore returns a regularity score based on how
+// concentrated the interval distribution is across log2 buckets. A
+// perfectly regular beacon places every interval in one bucket
+// (entropy = 0, score = 1.0). A scattered distribution spreads across
+// many buckets (entropy approaches log2(nBuckets), score approaches
+// 0). Orthogonal to Bowley + MAD: a beacon at 60s ± 50% jitter scores
+// poorly on MAD (deviations are large relative to the 60s median) but
+// well here, because every interval still lands in the same one or
+// two log2 buckets. Caller takes max(raw, multimodal, entropy) so a
+// low entropy score never penalises a beacon the other paths catch.
+// Returns 0 below the 6-sample floor.
+func intervalEntropyScore(intervals []float64) float64 {
+	if len(intervals) < 6 {
+		return 0
+	}
+	const nBuckets = 18
+	counts := make([]int, nBuckets)
+	total := 0
+	for _, iv := range intervals {
+		if iv <= 0 {
+			continue
+		}
+		idx := int(math.Log2(iv))
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= nBuckets {
+			idx = nBuckets - 1
+		}
+		counts[idx]++
+		total++
+	}
+	if total == 0 {
+		return 0
+	}
+	entropy := 0.0
+	for _, c := range counts {
+		if c == 0 {
+			continue
+		}
+		p := float64(c) / float64(total)
+		entropy -= p * math.Log2(p)
+	}
+	maxEntropy := math.Log2(float64(nBuckets))
+	if maxEntropy <= 0 {
+		return 0
+	}
+	score := 1.0 - entropy/maxEntropy
+	if score < 0 {
+		score = 0
+	}
+	if score > 1 {
+		score = 1
+	}
+	return score
+}
+
 // shannonEntropy computes Shannon entropy of a lowercase string.
 func shannonEntropy(s string) float64 {
 	s = strings.ToLower(s)

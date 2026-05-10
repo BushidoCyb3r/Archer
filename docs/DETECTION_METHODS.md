@@ -33,6 +33,15 @@ Two design choices matter for understanding what follows:
   (mean, median, variance, MAD) are unbiased estimators of the population
   values, so the regularity scores below are mathematically valid even though
   Archer never sees the full stream at once.
+
+  **What this precludes.** Reservoir sampling shuffles the intervals into a
+  random order to fit the cap, so by scoring time the slice has lost its
+  temporal sequence. Order-independent statistics (Bowley, MAD, histogram
+  counts, Shannon entropy on bucket counts) work fine on a reservoir; any
+  detector that needs *temporal order* (autocorrelation, FFT/spectral
+  analysis, time-lag clustering) does not. If a future detector needs those,
+  it has to maintain a parallel bounded-window sample that preserves order
+  alongside the existing reservoir — they're not derivable from each other.
 - **Lazy state allocation.** Per-pair statistics are not allocated until a pair
   has been seen at least 3 times. High-cardinality, low-count pairs (one-off
   scans, NAT noise) never consume memory.
@@ -112,9 +121,34 @@ clamped to `[0, 1]`. If every interval equals the median, `MAD = 0` and the
 score is 1. As intervals scatter, `MAD` approaches `median` and the score
 approaches 0.
 
-**Combined.** `ts_score = (bowley_score + mad_score) / 2`, rounded to 3
+**Combined.** `raw_ts = (bowley_score + mad_score) / 2`, rounded to 3
 decimals. Both halves agreeing that the intervals are tightly clustered is what
 we want.
+
+**Multimodal augmentation.** Bowley and MAD on the raw distribution penalise
+beacons whose intervals cluster around 2-4 distinct values (heartbeat +
+tasking, idle + active, multiple compromised processes on one host). The
+median lands between modes, MAD blows up, and `mad_score` collapses. The
+`intervalMultimodalScore` helper bins intervals on a log2 axis, identifies
+peaks (≥50% of the max bucket count, adjacent peak-buckets merged), and
+scores each peak's tightness with the same `(median − MAD) / median` formula
+applied within the cluster. Returns 0 (deferring to the raw math) for
+single-mode distributions, 5+-mode distributions, or any peak below a 0.5
+tightness floor. Otherwise returns a count-weighted average of per-peak
+tightness.
+
+**Entropy augmentation.** A jittered single-mode beacon (60s ± 50% jitter)
+scores poorly on MAD — the deviations are large relative to the 60s median —
+even though every interval still lands in the same one or two log2 buckets.
+The `intervalEntropyScore` helper computes Shannon entropy of the bin-count
+distribution (same log2 buckets) and normalises against `log2(nBuckets)`.
+A perfectly concentrated distribution scores 1.0; a maximally scattered
+distribution scores ≈0. Orthogonal to Bowley + MAD: it cares about *which
+buckets* are populated, not the spread *within* a bucket.
+
+**Final timing score.** `ts_score = max(raw_ts, multimodal, entropy)`. Each
+augmentation only fires when the others miss; single-mode tight beacons see
+no change because both augmentations also score ≈1.0 in that case.
 
 #### (b) ds_score — payload size regularity (data size)
 

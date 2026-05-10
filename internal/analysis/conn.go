@@ -315,6 +315,13 @@ func (a *Analyzer) analyzeConn(files []string) {
 		if mm := intervalMultimodalScore(ivs); mm > tsScore {
 			tsScore = mm
 		}
+		// Entropy augmentation: rescue jittered single-mode beacons
+		// where MAD looks bad but every interval still lands in the
+		// same one or two log2 buckets. Orthogonal to the other two
+		// timing-axis paths.
+		if eh := intervalEntropyScore(ivs); eh > tsScore {
+			tsScore = eh
+		}
 		dsScore := 0.0
 		if len(byteVals) >= 3 {
 			dsScore = statisticalScore(byteVals, 0.0)

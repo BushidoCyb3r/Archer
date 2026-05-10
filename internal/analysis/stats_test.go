@@ -458,3 +458,45 @@ func TestIntervalMultimodalScore(t *testing.T) {
 		}
 	})
 }
+
+func TestIntervalEntropyScore(t *testing.T) {
+	t.Run("too_few_intervals", func(t *testing.T) {
+		got := intervalEntropyScore([]float64{60, 60, 60, 60, 60})
+		if got != 0 {
+			t.Errorf("len<6 should return 0, got %v", got)
+		}
+	})
+
+	t.Run("perfectly_concentrated_high_score", func(t *testing.T) {
+		// All 10 intervals fall in the same log2 bucket → entropy = 0,
+		// score = 1.0.
+		ivs := []float64{60, 60, 60, 60, 60, 60, 60, 60, 60, 60}
+		got := intervalEntropyScore(ivs)
+		if got < 0.99 {
+			t.Errorf("single-bucket should score ~1.0, got %v", got)
+		}
+	})
+
+	t.Run("jittered_single_mode_still_high", func(t *testing.T) {
+		// 60s ± 50% jitter (30s..90s) still lands mostly in buckets
+		// 5 (32-64) and 6 (64-128). Entropy stays well below the
+		// max, score should be substantially above 0.5 — exactly the
+		// case where Bowley + MAD on the raw distribution under-score.
+		ivs := []float64{30, 45, 60, 75, 90, 60, 60, 60, 50, 70}
+		got := intervalEntropyScore(ivs)
+		if got < 0.6 {
+			t.Errorf("jittered single-mode should score ≥ 0.6, got %v", got)
+		}
+	})
+
+	t.Run("scattered_low_score", func(t *testing.T) {
+		// 8 intervals across 8 different log2 buckets — maximally
+		// scattered. Entropy near log2(8) = 3 bits, normalised
+		// against log2(18) = 4.17, score ≈ 0.28.
+		ivs := []float64{1, 3, 7, 15, 31, 100, 600, 3600}
+		got := intervalEntropyScore(ivs)
+		if got > 0.4 {
+			t.Errorf("scattered should score < 0.4, got %v", got)
+		}
+	})
+}
