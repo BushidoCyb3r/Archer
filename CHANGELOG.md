@@ -30,45 +30,189 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.10.0] — 2026-05-10
+
+Second audit-driven correctness release in two days. Six new
+issues surfaced by the 2026-05-10 external review (third pass on
+the codebase) plus the deferred Bug 3 from v0.9.0. The auditor's
+meta-point landed harder than any single bug: the v0.9.0 parser
+trust-fix should have generalised "where else do we swallow
+errors and infer no-result?" The TI HTTP clients were doing
+exactly that (NEW-1) — same lesson, different surface. That
+discipline gap is recorded in MATURATION_PLAN section 8.
+
+### Added
+
+- **`Analyzer.TIErrors()` API + SSE status surface for TI source
+  failures.** Mirrors `ParseErrors()` from v0.9.0. Pre-fix every
+  external HTTP client (OTX, AbuseIPDB, Feodo Tracker, URLhaus)
+  silently treated non-2xx responses as "no hit" — JSON decoded
+  into the empty struct, count == 0 → operator saw a clean
+  finding-detail panel and concluded the dataset was clean when
+  the upstream had returned 401 (bad key), 429 (rate limited),
+  or 503 (upstream sick). New `recordTIError(source, err)` helper
+  accumulates failures on the analyzer and pushes them through
+  the SSE status banner (`"TI warning: <source> — <err> (results
+  may be incomplete)"`). Trust-bug class generalised from the
+  v0.9.0 parser path. Audit 2026-05-10 NEW-1.
+
+- **`files_drive_by_outbreak` regression fixture.** Three
+  internal hosts download `malware.exe` from one external
+  sender. Pre-fix the dedup key used the sender, collapsing the
+  three victims to one finding. Post-fix yields three findings,
+  one per victim — see NEW-2 below.
+
+### Changed
+
+- **`extractHost` now uses `net/url.Parse` for URL parsing.**
+  The hand-rolled trim chain mishandled `user:pass@host` URLs:
+  the early colon in the userinfo confused the port-strip step
+  ("only one colon before the last colon") and left
+  `user:pass@evil.com` unmatched against URLhaus / feed buckets.
+  Edge case for malware URLs but fragile. Falls back to the
+  legacy chain (with an added `@`-strip) for scheme-less inputs
+  that `net/url.Parse` won't recognise as URLs. Audit 2026-05-10.
+
+- **Login form lowercases the email before authenticating.**
+  Registration already lowercased; login relied on the SQL's
+  `COLLATE NOCASE` for case-insensitive match. Anyone removing
+  the COLLATE clause thinking emails were normalised at write
+  time would silently break login. Now consistent at both
+  edges. Audit 2026-05-10.
+
+### Removed
+
+- **`Analyzer.httpUIDIndex` dead state.** Same shape as the
+  `st.total` cleanup in v0.9.0: the map was written for every
+  HTTP request via `a.httpUIDIndex[uid] = httpEntry{...}` but
+  never read anywhere. Wasted one map entry per HTTP record
+  for a feature that didn't exist. The `httpEntry` type goes
+  with it. If a real cross-protocol pivot against `http.log`
+  emerges later, the right shape is to mirror `sslUIDIndex` and
+  reintroduce intentionally. Audit 2026-05-10.
+
 ### Fixed
 
-- **DNS Tunneling no longer fires on `qtype IN {TXT, NULL}` alone
-  (audit Bug 3, deferred from v0.9.0).** External review framed
-  this as the dominant noise source in any environment with mail
-  (SPF, DKIM, DMARC), TLS automation (ACME DNS-01), or SaaS
-  domain-ownership tokens — every legitimate TXT/NULL query
-  produced a HIGH-severity DNS Tunneling finding (deduplicated
-  per `(src, apex)`), burying real tunneling under the flood.
-  Considered: requiring qtype + at least one other signal (option
-  B in TODO 1f), an apex allowlist for known-good TXT patterns
-  (D), a behavior-based gate keyed on the host's prior A/AAAA
-  history for the apex (E), and a separate volume-based detector
-  on TXT/NULL counts per `(src, apex)` (C). Preserved: detection
-  via the surviving length / entropy / depth signals — real
-  tunneling tools (iodine, dnscat2, Cobalt Strike's DNS beacon)
-  couple TXT/NULL with long high-entropy labels because that's
-  the channel capacity, and each of those structural signals
-  already gates independently. Shipped: option A — drop the
-  qtype-alone path outright. The auditor explicitly endorsed this
-  as defensible. Existing `dns_tunneling` golden rewritten to
-  exercise a realistic 60-char base32 label (still fires under
-  length+entropy), score lifts 64 → 83 because two signals now
-  combine on the same record. New `dns_txt_legitimate` fixture
-  asserts the empty-array result on 17 realistic SPF/DKIM/DMARC/
-  ACME query patterns from one host across multiple legitimate
-  apexes — the regression surface that proves the qtype-alone
-  path is gone.
+- **TI HTTP clients now check `resp.StatusCode` and surface
+  failures (NEW-1).** Per the new TIErrors API above. The four
+  package-level functions (`fetchFeodo`, `fetchURLhaus`,
+  `checkOTX`, `checkAbuseIPDB`) became methods on `*Analyzer` so
+  they can route failures through `recordTIError`. Decode errors
+  also flow through the same path now (pre-fix decode-fail and
+  no-hit were indistinguishable to the caller).
+
+- **`analyzeFiles` dedup no longer swallows multi-victim
+  drive-by outbreaks (NEW-2).** Pre-fix the dedup key was
+  `(sender, filename+mime)`, so 100 internal victims downloading
+  the same file from one external sender collapsed to one
+  finding (whichever was logged first). Audit framed the
+  variable naming as the footgun: `src` held the sender
+  (`tx_hosts`) but the finding's `SrcIP` was the receiver, so a
+  fast read of "key uses src, finding uses SrcIP" missed the
+  inversion. Variables renamed to `sender` / `receiver` and the
+  dedup key now uses the receiver, matching `checkFileHashes`'s
+  `(rx, hash)` convention next door. New
+  `files_drive_by_outbreak` golden asserts three findings on
+  three victims of one outbreak.
+
+- **`isIPAddr` 3-dot heuristic replaced with `net.ParseIP`
+  (NEW-3).** The dot-counting heuristic treated any string with
+  exactly 3 dots as an IP. Real-world casualties:
+  `cdn.staging.example.com`, `subdomain.team.acme.io`,
+  `mail.engineering.example.org` — all 3-label FQDNs — were
+  routed to the IP bucket and never matched against URLhaus
+  hosts or feed domains, so a malicious 3-label hostname on
+  URLhaus silently missed. One-line fix. Audit 2026-05-10.
+
+- **Findings filter respects the operator timezone (NEW-4).**
+  Pre-fix `parseFindingTime` used `time.Parse` (UTC by default)
+  for HTML datetime-local strings, so a Tampa operator entering
+  "9:00 AM" got findings between 04:00–12:00 UTC (i.e. the
+  previous local day evening through next local morning). The
+  off-hours detector already honoured `cfg.Timezone`; the
+  findings filter didn't. Now consistent. Caller passes the
+  operator's `*time.Location`; analyzer-emitted Timestamp
+  parsing still uses UTC. New `Server.operatorLocation()`
+  helper. Audit 2026-05-10.
+
+- **`parseIPMatcher` substring fallback gated on hostname shape
+  (NEW-5).** Pre-fix typing `1` in the Src IP filter
+  substring-matched every finding whose IP contained a 1 (most
+  of the dataset). Same problem with any partial-IP-being-typed.
+  The substring fallback (which exists to support hostnames in
+  the SrcIP/DstIP fields for unresolved records) now requires at
+  least one ASCII letter — purely numeric inputs that aren't
+  valid IPs/CIDRs return nil (no filter applied) instead of
+  matching everything. Audit 2026-05-10.
+
+- **`Strobe` / `Exfil` / `Lateral Movement` / `Off-Hours
+  Transfer` detectors now partition by sensor (NEW-6).** v0.8.0
+  added sensor to `pairKey` for beacons; the four other conn-
+  level detectors kept their `(src, dst)` keys. A Quiver
+  deployment with overlapping sensor captures was double-
+  counting strobe records, summing exfil bytes across sensors,
+  and emitting one Lateral Movement / C2 Port finding per
+  sensor for the same connection — thresholds calibrated on
+  single-sensor traffic spuriously tripped. Single-sensor
+  deployments unchanged (sensor field is constant); multi-
+  sensor overlapping deployments stop double-counting. Audit
+  2026-05-10. The asymmetry with beacons is now resolved.
+
+- **`notice.go` truncation is rune-aware.** The previous byte-
+  slice at index 197 could land mid-multi-byte-character on
+  UTF-8 input and the trailing ellipsis would produce invalid
+  UTF-8. New `truncateRunes` helper iterates runes. Audit
+  2026-05-10 cosmetic.
 
 ### Detection changes
 
-- **DNS Tunneling firing population narrows.** Per the qtype-alone
-  removal above. Pre-fix any TXT/NULL query produced a finding;
+- **TI source coverage is now legible.** Pre-fix any non-2xx
+  response from OTX / AbuseIPDB / Feodo Tracker / URLhaus
+  silently became "no hit" downstream. Post-fix the same
+  failure surfaces in the SSE status banner during the run and
+  is retrievable via `Analyzer.TIErrors()` afterwards. The set
+  of *findings emitted* doesn't change for clean upstream runs;
+  the change is that incomplete coverage stops being invisible.
+
+- **`analyzeFiles` emits one finding per (victim, file) instead
+  of one per (sender, file).** Multi-victim drive-by outbreaks
+  now produce one Suspicious File Download per victim — a
+  change in count of findings emitted on the same input.
+  Single-victim scenarios unchanged. Re-baseline alerting that
+  was tuned to the under-counted pre-fix volume.
+
+- **DNS Tunneling firing population narrows — the qtype-alone
+  path is gone.** Pre-fix any TXT/NULL query produced a finding;
   post-fix only queries with structurally tunnel-shaped labels
   (long, high-entropy, or deeply nested) fire. Real DNS tunneling
-  detection coverage is preserved by the surviving signals.
-  Re-baseline DNS Tunneling alerting in any environment where
-  the false-positive flood was being filtered downstream — the
-  upstream now does the filtering.
+  tools (iodine, dnscat2, Cobalt Strike's DNS beacon) couple
+  TXT/NULL with long high-entropy labels because that's the
+  channel capacity, so the surviving length / entropy / depth
+  signals keep coverage on real attacks. Re-baseline DNS
+  Tunneling alerting in any environment where the false-
+  positive flood was being filtered downstream — the upstream
+  now does the filtering. Bug 3 was deferred from the v0.9.0
+  audit for design work; option A (drop outright) shipped per
+  the auditor's explicit endorsement. See TODO 1f for the four
+  alternatives that were considered (gate on second signal,
+  volume detector, apex allowlist, behavior-based gate).
+  `dns_tunneling` golden rewritten to a realistic 60-char base32
+  label (now scores 83 vs the prior 64 because length+entropy
+  combine); new `dns_txt_legitimate` fixture asserts the empty
+  array on 17 realistic SPF/DKIM/DMARC/ACME queries.
+
+### Breaking
+
+- **`/api/findings?src_ip=...` and `?dst_ip=...` no longer
+  substring-match purely numeric inputs.** Pre-fix any input was
+  routed through the substring fallback when not a valid IP/CIDR;
+  numeric partials (`1`, `19`, `192.168`) matched every finding
+  containing the digits. Now those return no matcher (filter not
+  applied). Hostname-shaped inputs (containing at least one
+  letter) still substring-match the SrcIP/DstIP fields.
+  External scripts that were using purely numeric substring
+  searches will need to switch to either a complete IP/CIDR or
+  a hostname-shaped query.
 
 ## [v0.9.0] — 2026-05-10
 
@@ -1515,7 +1659,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.10.0...HEAD
+[v0.10.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.9.0...v0.10.0
 [v0.9.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.8.0...v0.9.0
 [v0.8.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.7.0...v0.8.0
 [v0.7.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.6.0...v0.7.0
