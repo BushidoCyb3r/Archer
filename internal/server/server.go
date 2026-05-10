@@ -55,6 +55,7 @@ func New(st *store.Store, us *store.UserStore, broker *Broker, webDir, logsDir, 
 	s.routes()
 	s.startWatch() // no-op if watch is disabled or unconfigured
 	s.startUnauthorizedPruneLoop()
+	s.startSuppressionsPruneLoop()
 	// Auto-cadence feed refresh is intentionally off. With large feeds
 	// (100k+ MISP indicators) the periodic CPU cost of an unattended
 	// fetch was visible in the dashboard. Feeds are now refreshed
@@ -88,6 +89,30 @@ func (s *Server) startUnauthorizedPruneLoop() {
 		defer t.Stop()
 		for range t.C {
 			s.store.PruneUnauthorizedAttempts(unauthorizedAttemptRetention)
+		}
+	}()
+}
+
+// startSuppressionsPruneLoop sweeps expired suppression entries off the
+// in-memory map and the suppressions table on a periodic cadence. The
+// IsSuppressed read path used to do this lazily on every peek of an
+// expired entry, taking a write lock and running per-row DELETEs;
+// concurrent readers for the same expired IP both ran the DELETE
+// idempotently. Audit 2026-05-10. The sweep moves cleanup off the hot
+// read path: IsSuppressed is now a pure RLock read, and one bulk
+// `DELETE … WHERE expiry <= now()` happens every five minutes.
+// Five minutes is shorter than any realistic suppression duration
+// (hours/days) so an expired entry never lingers in the admin UI for
+// long. Boot time also runs `DELETE … WHERE expiry <= ?` in InitDB,
+// so a long-stopped instance restarting with a stale backlog catches
+// up immediately.
+func (s *Server) startSuppressionsPruneLoop() {
+	go func() {
+		s.store.PruneExpiredSuppressions()
+		t := time.NewTicker(5 * time.Minute)
+		defer t.Stop()
+		for range t.C {
+			s.store.PruneExpiredSuppressions()
 		}
 	}()
 }

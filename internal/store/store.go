@@ -616,16 +616,35 @@ func (s *Store) RemoveSuppression(target string) {
 	s.mu.Unlock()
 }
 
+// GetSuppressions returns the in-memory suppression set, filtering
+// out expired entries so the admin UI never lists a stale row that
+// the read-path treats as not-suppressed. Mutation (cleaning up
+// the map and DB rows) is the periodic-sweep loop's job, not this
+// function's.
 func (s *Store) GetSuppressions() map[string]suppressionEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	now := time.Now()
 	out := make(map[string]suppressionEntry, len(s.suppressions))
 	for k, v := range s.suppressions {
+		if now.After(v.Expiry) {
+			continue
+		}
 		out[k] = v
 	}
 	return out
 }
 
+// IsSuppressed reports whether the given target is currently
+// suppressed. Pure read — no map mutation, no DB write. Pre-fix the
+// function lock-upgraded and ran a per-call DELETE on every expired
+// entry it observed; two concurrent filter requests for the same
+// expired IP both ran the DELETE (idempotent but wasted), and the
+// hot read path took the writer lock unnecessarily often. Audit
+// 2026-05-10. Cleanup is now the PruneExpiredSuppressions sweep
+// loop's responsibility (see Server.startSuppressionsPruneLoop).
+// An expired entry that the sweep hasn't seen yet returns false
+// here — same observable behavior as before, without the writes.
 func (s *Store) IsSuppressed(ip string) bool {
 	s.mu.RLock()
 	entry, ok := s.suppressions[ip]
@@ -633,16 +652,31 @@ func (s *Store) IsSuppressed(ip string) bool {
 	if !ok {
 		return false
 	}
-	if time.Now().After(entry.Expiry) {
-		s.mu.Lock()
-		delete(s.suppressions, ip)
-		if s.db != nil {
-			s.db.Exec(`DELETE FROM suppressions WHERE target = ?`, ip)
+	return !time.Now().After(entry.Expiry)
+}
+
+// PruneExpiredSuppressions deletes every expired suppression in one
+// pass — single DELETE round trip plus one map walk under the write
+// lock. Called periodically from the server's sweep loop; safe to
+// call concurrently with reads (RLock readers see expired entries
+// as "not suppressed" already).
+func (s *Store) PruneExpiredSuppressions() int {
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pruned := 0
+	for k, v := range s.suppressions {
+		if now.After(v.Expiry) {
+			delete(s.suppressions, k)
+			pruned++
 		}
-		s.mu.Unlock()
-		return false
 	}
-	return true
+	if pruned > 0 && s.db != nil {
+		if _, err := s.db.Exec(`DELETE FROM suppressions WHERE expiry <= ?`, now.Unix()); err != nil {
+			log.Printf("store: prune expired suppressions: %v", err)
+		}
+	}
+	return pruned
 }
 
 func (s *Store) GetNotifications() []model.Notification {
