@@ -32,6 +32,20 @@ relevant, `### Detection changes` in each release entry.
 
 ### Added
 
+- **Jittered-single-mode beacon detection via interval entropy.** A
+  new `intervalEntropyScore` helper bins intervals on a log2 axis
+  and computes Shannon entropy of the bin counts, normalised against
+  `log2(nBuckets)`. A beacon at 60s ± 50% jitter scores poorly on
+  Bowley + MAD (deviations are large relative to the median) but
+  every interval still lands in the same one or two log2 buckets,
+  so entropy stays low and the score stays high. Wired into the
+  timing-axis composite as `tsScore = max(raw, multimodal, entropy)`,
+  so single-mode tight beacons (where all three score ~1) and
+  multi-period beacons (where multimodal already rescues) are
+  unaffected. Existing golden fixtures pass without re-baseline
+  because none of them exercise the jittered-single-mode case.
+  See `docs/DETECTION_METHODS.md` § 2.2(a) for the math.
+
 - **Multi-period beacon detection on the timing axis.** A new
   `intervalMultimodalScore` helper rescues beacons whose intervals
   cluster around 2–4 distinct values (heartbeat + tasking, idle +

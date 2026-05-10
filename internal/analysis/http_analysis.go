@@ -331,6 +331,9 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 		if mm := intervalMultimodalScore(ivs); mm > tsScore {
 			tsScore = mm
 		}
+		if eh := intervalEntropyScore(ivs); eh > tsScore {
+			tsScore = eh
+		}
 		dsScore := 0.0
 		if len(byteVals) >= 3 {
 			dsScore = statisticalScore(byteVals, 0.0)
