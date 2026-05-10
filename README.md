@@ -671,11 +671,7 @@ All thresholds are configurable at runtime through the **Settings** dialog (admi
 | Parameter | Default | Description |
 |---|---|---|
 | `beacon_min_connections` | `10` | Minimum connection count before beacon scoring is applied |
-| `beacon_max_jitter_cv` | `0.35` | Maximum coefficient of variation for inter-arrival times |
-| `beacon_min_interval_sec` | `2` | Minimum seconds between connections to qualify as a beacon |
-| `beacon_gap_multiplier` | `5.0` | Tolerance multiplier for gaps in the beacon timeline |
 | `http_beacon_min_requests` | `8` | Minimum HTTP request count before HTTP beacon scoring is applied |
-| `http_beacon_max_cv` | `0.40` | Maximum coefficient of variation for HTTP request timing |
 | `long_conn_min_hours` | `1.0` | Minimum session duration (hours) for a long connection alert |
 | `strobe_min_connections` | `1000` | Minimum connections to a single destination to trigger a strobe alert |
 | `exfil_min_bytes_mb` | `5.0` | Minimum outbound transfer (MB) required for an exfiltration alert |
