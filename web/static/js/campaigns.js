@@ -256,23 +256,11 @@ const Campaigns = (() => {
     return map[sev] || 'var(--fg-text)';
   }
 
-  // _esc handles both HTML text and attribute contexts. The codebase
-  // convention is one _esc per IIFE-scoped module — see detail.js,
-  // feeds.js, notifications.js for the same shape. Pre-fix the dst,
-  // srcs, and ip interpolations rendered server-supplied strings
-  // directly into innerHTML, including in title="${e.dst}" attribute
-  // context where a " breaks out of the attribute. Audit 2026-05-10
-  // NEW-27. Reachable via TI Hit (Domain) findings whose dst_ip
-  // carried a malicious indicator from a feed; the feed-ingest
-  // validation in NEW-28 closes the upstream, this is defense-in-
-  // depth.
+  // Canonical strong-_esc — see app.js for the convention notes and
+  // the Go-side consistency test. Audit 2026-05-10 NEW-27 / NEW-30.
   function _esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
   return { init, build, getCampaigns, getHosts, renderCampaignsPage, renderHostsPage };

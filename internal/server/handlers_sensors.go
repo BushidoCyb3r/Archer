@@ -122,6 +122,12 @@ func (s *Server) handleSensorsTokens(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		t.ID = id
+		s.recordAudit(r, "enrollment_token_create", auditEvent{
+			TargetType: "enrollment_token",
+			TargetID:   fmt.Sprintf("%d", id),
+			TargetName: req.OverrideName,
+			Details:    map[string]any{"override_name": req.OverrideName, "expires_at": t.ExpiresAt},
+		})
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(t)
 	default:
@@ -152,6 +158,10 @@ func (s *Server) handleSensorsTokenRevoke(w http.ResponseWriter, r *http.Request
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.recordAudit(r, "enrollment_token_revoke", auditEvent{
+		TargetType: "enrollment_token",
+		TargetID:   fmt.Sprintf("%d", req.ID),
+	})
 	jsonOK(w)
 }
 
@@ -224,6 +234,12 @@ func (s *Server) handleSensorDisenroll(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.recordAudit(r, "sensor_disenroll", auditEvent{
+		TargetType: "sensor",
+		TargetID:   fmt.Sprintf("%d", sn.ID),
+		TargetName: sn.Name,
+		Details:    map[string]any{"stamp": stamp},
+	})
 	jsonOK(w)
 }
 
@@ -268,6 +284,11 @@ func (s *Server) handleSensorPurge(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.recordAudit(r, "sensor_purge", auditEvent{
+		TargetType: "sensor",
+		TargetID:   fmt.Sprintf("%d", sn.ID),
+		TargetName: sn.Name,
+	})
 	jsonOK(w)
 }
 
@@ -295,10 +316,28 @@ func (s *Server) handleSensorSchedule(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "hour must be 0-23 and minute 0-59", http.StatusBadRequest)
 		return
 	}
+	// Snapshot the previous schedule + sensor name for the audit entry.
+	var beforeName string
+	var beforeHour, beforeMinute int
+	for _, x := range s.store.GetSensors() {
+		if x.ID == req.ID {
+			beforeName = x.Name
+			beforeHour = x.ScheduleHour
+			beforeMinute = x.ScheduleMinute
+			break
+		}
+	}
 	if err := s.store.UpdateSensorSchedule(req.ID, req.Hour, req.Minute); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.recordAudit(r, "sensor_schedule_change", auditEvent{
+		TargetType:  "sensor",
+		TargetID:    fmt.Sprintf("%d", req.ID),
+		TargetName:  beforeName,
+		BeforeValue: map[string]any{"hour": beforeHour, "minute": beforeMinute},
+		AfterValue:  map[string]any{"hour": req.Hour, "minute": req.Minute},
+	})
 	jsonOK(w)
 }
 

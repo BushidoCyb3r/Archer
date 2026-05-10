@@ -125,6 +125,7 @@
   <button id="sensors-btn" style="display:none">Sensors</button>
   <button id="feeds-btn" style="display:none">Feeds</button>
   <button id="users-btn" style="display:none">Users<span id="pending-badge" style="display:none"></span></button>
+  <button id="audit-btn" style="display:none">Audit</button>
   <button id="settings-btn">Settings</button>
   <div id="user-badge">
     <span id="user-display"></span>
@@ -443,6 +444,42 @@
   </div>
   <div class="dlg-footer">
     <button class="dlg-btn secondary" id="users-close">Close</button>
+  </div>
+</dialog>
+
+<!-- Audit-log modal: read-only admin view of who-did-what-when across
+     every state-changing endpoint. Cursor-based pagination, most-recent
+     first. Action filter is client-side because the dataset is bounded
+     by the page size. Audit 2026-05-10 v0.14.0 addition. -->
+<dialog id="audit-dialog">
+  <div class="dlg-header">Audit Log</div>
+  <div class="dlg-body">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:12px;color:var(--fg-dim)">
+      <div id="audit-total">—</div>
+      <div>
+        <label for="audit-filter" style="margin-right:6px">Filter:</label>
+        <input id="audit-filter" type="text" placeholder="action contains…" style="width:180px">
+      </div>
+    </div>
+    <div style="max-height:520px;overflow-y:auto;border:1px solid var(--border-color);border-radius:4px">
+      <table id="audit-table" style="width:100%;font-size:12px">
+        <thead style="position:sticky;top:0;background:var(--bg-elevated)">
+          <tr>
+            <th style="width:135px;text-align:left;padding:6px">When (UTC)</th>
+            <th style="width:170px;text-align:left">Actor</th>
+            <th style="width:155px;text-align:left">Action</th>
+            <th style="width:200px;text-align:left">Target</th>
+            <th style="text-align:left">Change</th>
+            <th style="width:110px;text-align:left">From</th>
+          </tr>
+        </thead>
+        <tbody id="audit-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="audit-load-more" style="margin-right:auto">Load older</button>
+    <button class="dlg-btn secondary" id="audit-close">Close</button>
   </div>
 </dialog>
 
@@ -979,6 +1016,7 @@
 <script src="/static/js/graph.js"></script>
 <script src="/static/js/sensors.js"></script>
 <script src="/static/js/feeds.js"></script>
+<script src="/static/js/audit_log.js"></script>
 <script src="/static/js/app.js"></script>
 </body>
 </html>

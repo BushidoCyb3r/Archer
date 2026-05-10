@@ -16,27 +16,12 @@ const Notifications = (() => {
             LOW:'var(--sev-low)', INFO:'var(--sev-info)'}[sev] || 'var(--fg-text)';
   }
 
-  // _esc handles both HTML text and attribute contexts. The codebase
-  // convention is one _esc per IIFE-scoped module (see detail.js and
-  // feeds.js for the same shape); kept private rather than shared so
-  // each module stays self-contained.
-  //
-  // Pre-fix this module rendered server-supplied severity / type /
-  // src_ip / dst_ip / dst_port directly into innerHTML, so a malicious
-  // feed indicator that survived MISP/OpenCTI normalization could land
-  // a TI Hit (Domain) finding whose dst_ip was an HTML payload —
-  // SetFindings → Notification → SSE → this panel → script execution
-  // in admin's browser context. Audit 2026-05-10 NEW-26. The feed-
-  // ingest validation in NEW-28 closes the path that reaches here, but
-  // defense-in-depth here also covers any future code path that might
-  // emit operator-controlled strings into a notification.
+  // Canonical strong-_esc — see app.js for the convention notes and
+  // the Go-side consistency test that ensures every module's copy
+  // escapes all five characters. Audit 2026-05-10 NEW-26 / NEW-30.
   function _esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
   function _render() {

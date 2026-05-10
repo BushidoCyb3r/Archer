@@ -31,6 +31,8 @@ const Sensors = (() => {
     });
   }
 
+  // Canonical strong-_esc — see app.js for the convention notes and
+  // the Go-side consistency test. NEW-30.
   function _esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
       ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

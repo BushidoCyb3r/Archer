@@ -1006,3 +1006,28 @@ func (s *Store) IsAnalyzing() bool {
 	defer s.mu.RUnlock()
 	return s.analyzing
 }
+
+// TryStartAnalysis atomically claims the "analysis in flight" slot.
+// Returns true on success (caller now owns the slot and must call
+// SetAnalyzing(false) when done); returns false if another analysis is
+// already running.
+//
+// Pre-NEW-31 callers did `if !IsAnalyzing() { ...; SetAnalyzing(true) }`
+// with a TOCTOU window between the two calls. The window was small but
+// real: two near-simultaneous triggers (watch tick fires while the
+// user clicks "Analyze sensor logs", or two watch ticks fire in quick
+// succession when an analysis takes longer than the watch interval)
+// could both pass the IsAnalyzing check, both spawn analyzer
+// goroutines, and stomp s.activeAnalyzer. Cancel-button semantics
+// broke (only the second goroutine stopped, the first ran to
+// completion regardless), SSE progress events interleaved, memory
+// doubled. Audit 2026-05-10 NEW-31.
+func (s *Store) TryStartAnalysis() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.analyzing {
+		return false
+	}
+	s.analyzing = true
+	return true
+}

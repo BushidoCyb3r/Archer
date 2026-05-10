@@ -29,21 +29,25 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		password := r.FormValue("password")
 
 		if !validEmail(email) {
+			s.recordAuditLogin(r, "login_failure", 0, email, map[string]any{"reason": "invalid_email"})
 			s.renderAuth(w, "login.html", map[string]any{"Error": "Enter a valid email address."})
 			return
 		}
 
 		user, ok := s.users.Authenticate(email, password)
 		if !ok {
+			s.recordAuditLogin(r, "login_failure", 0, email, map[string]any{"reason": "bad_credentials"})
 			s.renderAuth(w, "login.html", map[string]any{"Error": "Invalid email or password."})
 			return
 		}
 		if user.Status == model.StatusPending {
+			s.recordAuditLogin(r, "login_failure", user.ID, user.Email, map[string]any{"reason": "pending_approval"})
 			s.renderAuth(w, "login.html", map[string]any{"Error": "Your account is awaiting admin approval."})
 			return
 		}
 
 		token := s.users.CreateSession(user.ID)
+		s.recordAuditLogin(r, "login_success", user.ID, user.Email, nil)
 		http.SetCookie(w, &http.Cookie{
 			Name:     sessionCookie,
 			Value:    token,
@@ -236,6 +240,12 @@ func (s *Server) handleUsersCollection(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		user.PasswordHash = ""
+		s.recordAudit(r, "user_create", auditEvent{
+			TargetType: "user",
+			TargetID:   strconv.Itoa(user.ID),
+			TargetName: user.Email,
+			AfterValue: map[string]any{"email": user.Email, "role": user.Role},
+		})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(user)
@@ -272,6 +282,9 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 				jsonError(w, "invalid status", http.StatusBadRequest)
 				return
 			}
+			// Snapshot before the mutation so the audit log records the
+			// transition rather than just the post-state.
+			before, _ := s.users.GetUserByID(id)
 			if !s.users.ApproveUser(id) {
 				http.NotFound(w, r)
 				return
@@ -282,6 +295,13 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 			// drop anyway in case status was flipped via direct
 			// DB write before this transition.
 			s.users.DeleteSessionsForUser(id)
+			s.recordAudit(r, "user_status_change", auditEvent{
+				TargetType:  "user",
+				TargetID:    strconv.Itoa(id),
+				TargetName:  before.Email,
+				BeforeValue: map[string]any{"status": before.Status},
+				AfterValue:  map[string]any{"status": model.StatusActive},
+			})
 			jsonOK(w)
 			return
 		}
@@ -298,6 +318,7 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "cannot change your own role", http.StatusBadRequest)
 			return
 		}
+		before, _ := s.users.GetUserByID(id)
 		if !s.users.UpdateUserRole(id, req.Role) {
 			http.NotFound(w, r)
 			return
@@ -307,6 +328,13 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 		// session continued to act under the old role for up to
 		// 24 hours after a demote. Audit 2026-05-10 NEW-8.
 		s.users.DeleteSessionsForUser(id)
+		s.recordAudit(r, "user_role_change", auditEvent{
+			TargetType:  "user",
+			TargetID:    strconv.Itoa(id),
+			TargetName:  before.Email,
+			BeforeValue: map[string]any{"role": before.Role},
+			AfterValue:  map[string]any{"role": req.Role},
+		})
 		jsonOK(w)
 
 	case http.MethodDelete:
@@ -314,6 +342,7 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "cannot delete your own account", http.StatusBadRequest)
 			return
 		}
+		before, _ := s.users.GetUserByID(id)
 		if !s.users.DeleteUser(id) {
 			http.NotFound(w, r)
 			return
@@ -322,6 +351,12 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 		// resolving immediately rather than 401-ing every
 		// request until the 24-hour TTL elapses.
 		s.users.DeleteSessionsForUser(id)
+		s.recordAudit(r, "user_delete", auditEvent{
+			TargetType: "user",
+			TargetID:   strconv.Itoa(id),
+			TargetName: before.Email,
+			BeforeValue: map[string]any{"email": before.Email, "role": before.Role},
+		})
 		jsonOK(w)
 
 	default:
