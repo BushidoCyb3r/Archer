@@ -53,6 +53,29 @@ relevant, `### Detection changes` in each release entry.
   page-offset lookup; useful to any external script that wants to
   navigate to a specific finding within a paginated view.
 
+### Removed
+
+- **Four beacon-config fields that no analyzer ever read.**
+  `beacon_max_jitter_cv`, `beacon_min_interval_sec`,
+  `beacon_gap_multiplier`, and `http_beacon_max_cv` were
+  documented in the README's threshold table as tunable knobs
+  and round-tripped through `/api/config`, but referenced
+  exactly twice each — once in the struct, once in the default
+  — and never read anywhere in `internal/analysis/`. An
+  operator who set them via the API saw them persist to SQLite
+  and have zero effect on detection. Dropped from the struct,
+  defaults, and README. Only `beacon_min_connections` and
+  `http_beacon_min_requests` continue to gate detection (both
+  remain).
+
+### Breaking
+
+- **`/api/config` no longer carries the four removed beacon
+  fields.** Responses drop them; PUTs that include them are
+  silently ignored by Go's JSON decoder. No DB migration —
+  config is a single JSON blob in the `settings` table; the
+  next config save naturally drops the dead fields.
+
 ## [v0.7.0] — 2026-05-09
 
 ### Fixed
