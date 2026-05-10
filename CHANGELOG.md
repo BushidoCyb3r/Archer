@@ -30,6 +30,72 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.14.1] — 2026-05-10
+
+Patch release closing the two audit-log gaps surfaced by the
+post-v0.14.0 review pass: analyst state changes on findings
+weren't logged (NEW-32), and sensor-side authentication failures
+landed in `unauthorized_attempts` but not `audit_log` (NEW-33).
+Both are discoverability gaps — the forensic trail existed but
+wasn't centrally queryable — and both close cleanly without
+schema churn.
+
+### Added
+
+- **`finding_status_change` / `finding_escalate` / `finding_note_add`
+  audit actions (NEW-32).** Analyst-side state changes on findings
+  now produce audit-log rows alongside the in-row note history
+  that was already preserved. PATCH `/api/findings/{id}` logs the
+  status transition with `BeforeValue`/`AfterValue`. POST
+  `/api/findings/{id}/escalate` logs the transition plus the
+  selected IPs and services (the TI-pivot payload). POST
+  `/api/findings/{id}/notes` logs only the note length. Note
+  bodies are intentionally omitted from the audit log — they
+  can carry operationally sensitive analyst observations (named
+  hosts, suspected target indicators) and the full text is
+  already preserved on the finding's notes array. The audit row
+  records the *shape* (length, escalation artefacts) for IR
+  queries; the *content* stays on the finding. Closes the gap
+  where "who marked finding #N as false positive on date Y" was
+  technically reconstructible from the finding row's
+  `analyst`/`status_ts` columns but not centrally queryable
+  against the audit log. Auditor 2026-05-10 NEW-32.
+
+- **`sensor_unauthorized_attempt` audit action (NEW-33).** Sensor
+  checkin failures (`/api/quiver/checkin` rejecting an unknown
+  name or a v2 sensor whose HMAC didn't verify) now write an
+  audit-log row in addition to the existing `unauthorized_attempts`
+  table row and SSE event. `actor_id` is NULL — sensors aren't
+  users. `details.reason` narrows the failure to `unknown_name`
+  (sensor name not in the enrolled-or-disenrolled set) or
+  `bad_hmac` (name is enrolled but the v2 signature didn't
+  verify — high-signal: usually means the sensor lost its secret
+  file or someone has the name list but not the secret). The
+  `unauthorized_attempts` table remains the live UI surface and
+  is not displaced; this is the centralised-IR-query companion.
+  Auditor 2026-05-10 NEW-33.
+
+- **`docs/QUICKSTART_OPS.md` — 5-minute deploy/restore TL;DR.**
+  Triage doc for the engineer who hasn't read the 600-line
+  OPERATIONS.md. Three pre-flight questions, 10 deploy
+  commands, 5 restore commands, three things to know before
+  going live, first-debug commands. Cross-linked from
+  OPERATIONS.md's header. Auditor 2026-05-10 (recommended
+  alongside NEW-32/33).
+
+### Maturation lessons
+
+- **Audit log captures the *shape* of analyst actions, not the
+  *content*.** Logging the note text would either duplicate
+  data already preserved on the finding (a redundancy that
+  drifts the moment the finding's notes are edited) or leak
+  operational specifics into a log most analysts don't expect
+  to be content-readable. Recording length + structural
+  metadata lets the audit log answer "did anyone add a note to
+  finding X" without becoming a parallel notes channel. The
+  same principle applies to escalation IPs/services (recorded
+  as shape) vs the escalation note (length only).
+
 ## [v0.14.0] — 2026-05-10
 
 Sixth audit-driven correctness release, plus the first round
