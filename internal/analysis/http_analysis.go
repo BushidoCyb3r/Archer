@@ -328,6 +328,9 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 		copy(byteVals, st.byteVals)
 
 		tsScore := statisticalScore(ivs, 1.0)
+		if mm := intervalMultimodalScore(ivs); mm > tsScore {
+			tsScore = mm
+		}
 		dsScore := 0.0
 		if len(byteVals) >= 3 {
 			dsScore = statisticalScore(byteVals, 0.0)

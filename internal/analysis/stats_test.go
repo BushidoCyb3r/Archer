@@ -400,3 +400,61 @@ func TestShannonEntropy(t *testing.T) {
 		}
 	})
 }
+
+func TestIntervalMultimodalScore(t *testing.T) {
+	t.Run("too_few_intervals", func(t *testing.T) {
+		// Below the 6-sample floor → defer to the existing math.
+		got := intervalMultimodalScore([]float64{60, 60, 60, 60, 60})
+		if got != 0 {
+			t.Errorf("len<6 should return 0, got %v", got)
+		}
+	})
+
+	t.Run("single_mode_defers", func(t *testing.T) {
+		// Tight single-mode 60s heartbeat — only one peak found, so
+		// this routine returns 0 and the caller falls back to the
+		// raw Bowley + MAD path. (Which scores it high — this just
+		// verifies the deferral.)
+		ivs := []float64{60, 60, 60, 60, 60, 60, 60, 60, 60, 60}
+		got := intervalMultimodalScore(ivs)
+		if got != 0 {
+			t.Errorf("single-mode should return 0, got %v", got)
+		}
+	})
+
+	t.Run("bimodal_tight_high_score", func(t *testing.T) {
+		// 60s heartbeat (8 samples) + 600s tasking (8 samples) — two
+		// tight, well-separated peaks. Should score high.
+		ivs := []float64{
+			60, 60, 60, 60, 60, 60, 60, 60,
+			600, 600, 600, 600, 600, 600, 600, 600,
+		}
+		got := intervalMultimodalScore(ivs)
+		if got < 0.95 {
+			t.Errorf("tight bimodal should score ≥ 0.95, got %v", got)
+		}
+	})
+
+	t.Run("bimodal_with_jitter", func(t *testing.T) {
+		// Realistic jittered bimodal (heartbeat 58-62s, tasking 590-610s).
+		// Both peaks should still register as tight.
+		ivs := []float64{
+			58, 59, 60, 61, 62, 60, 60, 59,
+			595, 600, 605, 610, 590, 598, 602, 600,
+		}
+		got := intervalMultimodalScore(ivs)
+		if got < 0.85 {
+			t.Errorf("jittered bimodal should score ≥ 0.85, got %v", got)
+		}
+	})
+
+	t.Run("noisy_distribution_rejects", func(t *testing.T) {
+		// Six intervals scattered widely — too many distinct buckets,
+		// not a beacon. Should return 0.
+		ivs := []float64{1, 5, 50, 100, 600, 1200}
+		got := intervalMultimodalScore(ivs)
+		if got != 0 {
+			t.Errorf("scattered noise should return 0, got %v", got)
+		}
+	})
+}

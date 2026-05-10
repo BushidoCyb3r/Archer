@@ -306,6 +306,15 @@ func (a *Analyzer) analyzeConn(files []string) {
 		copy(byteVals, st.byteVals)
 
 		tsScore := statisticalScore(ivs, 1.0)
+		// Multimodal augmentation: rescue beacons whose intervals
+		// cluster around 2-4 distinct values (heartbeat + tasking,
+		// idle + active, etc.) — those would otherwise be penalised
+		// by Bowley + MAD on the raw distribution. max() so
+		// single-mode beacons (where the helper returns 0) are
+		// unaffected.
+		if mm := intervalMultimodalScore(ivs); mm > tsScore {
+			tsScore = mm
+		}
 		dsScore := 0.0
 		if len(byteVals) >= 3 {
 			dsScore = statisticalScore(byteVals, 0.0)
