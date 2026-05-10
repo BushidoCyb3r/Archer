@@ -30,6 +30,8 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.8.0] — 2026-05-10
+
 ### Added
 
 - **Type-sharded parallel MISP fetch with larger pages.** A full
@@ -119,6 +121,20 @@ relevant, `### Detection changes` in each release entry.
   the Beacon finding into HIGH severity (score 54) where the raw
   math would have left it well below threshold.
 
+- **`/api/findings/{id}/position` endpoint.** Returns the absolute
+  zero-indexed position of a finding within `/api/findings` under
+  the same filter + sort parameters. Backs the Jump action's
+  page-offset lookup; useful to any external script that wants to
+  navigate to a specific finding within a paginated view.
+
+- **HTTP Min Requests input in the Settings dialog.** The
+  `http_beacon_min_requests` threshold was already documented in
+  the README and read by the analyzer, but the Settings dialog
+  never exposed an input for it — admins had to drive `/api/config`
+  directly to tune it. New control sits next to Min Connections
+  in the Beaconing section and round-trips through the same
+  `/api/config` PUT the existing controls use.
+
 ### Changed
 
 - **MISP/OpenCTI feed-fetch timeouts raised for larger deployments.**
@@ -133,6 +149,21 @@ relevant, `### Detection changes` in each release entry.
   streaming decode, periodic full re-sync) is queued in
   MATURATION_PLAN section 11c, with a per-feed operator-supplied
   query filter as the intermediate step queued in TODO.md 1d.
+
+### Removed
+
+- **Four beacon-config fields that no analyzer ever read.**
+  `beacon_max_jitter_cv`, `beacon_min_interval_sec`,
+  `beacon_gap_multiplier`, and `http_beacon_max_cv` were
+  documented in the README's threshold table as tunable knobs
+  and round-tripped through `/api/config`, but referenced
+  exactly twice each — once in the struct, once in the default
+  — and never read anywhere in `internal/analysis/`. An
+  operator who set them via the API saw them persist to SQLite
+  and have zero effect on detection. Dropped from the struct,
+  defaults, and README. Only `beacon_min_connections` and
+  `http_beacon_min_requests` continue to gate detection (both
+  remain).
 
 ### Fixed
 
@@ -199,45 +230,6 @@ relevant, `### Detection changes` in each release entry.
   the analyst had set are intentionally lost — the Jump is a "show
   me this finding now" action.
 
-### Added
-
-- **`/api/findings/{id}/position` endpoint.** Returns the absolute
-  zero-indexed position of a finding within `/api/findings` under
-  the same filter + sort parameters. Backs the Jump action's
-  page-offset lookup; useful to any external script that wants to
-  navigate to a specific finding within a paginated view.
-
-- **HTTP Min Requests input in the Settings dialog.** The
-  `http_beacon_min_requests` threshold was already documented in
-  the README and read by the analyzer, but the Settings dialog
-  never exposed an input for it — admins had to drive `/api/config`
-  directly to tune it. New control sits next to Min Connections
-  in the Beaconing section and round-trips through the same
-  `/api/config` PUT the existing controls use.
-
-### Removed
-
-- **Four beacon-config fields that no analyzer ever read.**
-  `beacon_max_jitter_cv`, `beacon_min_interval_sec`,
-  `beacon_gap_multiplier`, and `http_beacon_max_cv` were
-  documented in the README's threshold table as tunable knobs
-  and round-tripped through `/api/config`, but referenced
-  exactly twice each — once in the struct, once in the default
-  — and never read anywhere in `internal/analysis/`. An
-  operator who set them via the API saw them persist to SQLite
-  and have zero effect on detection. Dropped from the struct,
-  defaults, and README. Only `beacon_min_connections` and
-  `http_beacon_min_requests` continue to gate detection (both
-  remain).
-
-### Breaking
-
-- **`/api/config` no longer carries the four removed beacon
-  fields.** Responses drop them; PUTs that include them are
-  silently ignored by Go's JSON decoder. No DB migration —
-  config is a single JSON blob in the `settings` table; the
-  next config save naturally drops the dead fields.
-
 ### Detection changes
 
 - **Multi-period beacon scores rise on the timing axis.** See the
@@ -273,6 +265,14 @@ relevant, `### Detection changes` in each release entry.
   alerting that was tuned to the artificially-deflated
   numbers. Golden fixtures (single-sensor by construction) are
   unchanged.
+
+### Breaking
+
+- **`/api/config` no longer carries the four removed beacon
+  fields.** Responses drop them; PUTs that include them are
+  silently ignored by Go's JSON decoder. No DB migration —
+  config is a single JSON blob in the `settings` table; the
+  next config save naturally drops the dead fields.
 
 ## [v0.7.0] — 2026-05-09
 
@@ -1254,9 +1254,10 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.8.0...HEAD
+[v0.8.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.7.0...v0.8.0
+[v0.7.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.6.0...v0.7.0
 [v0.6.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.5.0...v0.6.0
-
 [v0.5.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.3.0...v0.4.0
 [v0.3.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.2.0...v0.3.0
