@@ -80,12 +80,20 @@ done
 echo "Starting fresh Archer instance..."
 docker compose -f "$COMPOSE_FILE" up -d
 
-cat <<'DONE'
+# Pick the IP a remote analyst (and remote sensors) would use to reach
+# this host. `ip route get` returns the kernel's outbound source for an
+# external destination — that's the LAN-facing IP, which matters more
+# than localhost for any sensor URL the operator copies. Fall back to
+# localhost only when no route is detectable (host with no network up).
+HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="src") { print $(i+1); exit }}')
+HOST_IP="${HOST_IP:-localhost}"
+
+cat <<DONE
 
 Done. Archer is running:
-  - Analyst UI       http://localhost:8080
-  - Quiver pull TLS  https://<host>:8443  (sensor → control channel)
-  - Quiver SSH/rsync ssh://quiver@<host>:2222  (sensor → log push)
+  - Analyst UI       http://${HOST_IP}:8080
+  - Quiver pull TLS  https://${HOST_IP}:8443  (sensor → control channel)
+  - Quiver SSH/rsync ssh://quiver@${HOST_IP}:2222  (sensor → log push)
 
 Next steps:
   1. Open the UI and register a new admin account.
