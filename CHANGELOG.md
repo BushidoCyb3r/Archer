@@ -30,6 +30,46 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Fixed
+
+- **DNS Tunneling no longer fires on `qtype IN {TXT, NULL}` alone
+  (audit Bug 3, deferred from v0.9.0).** External review framed
+  this as the dominant noise source in any environment with mail
+  (SPF, DKIM, DMARC), TLS automation (ACME DNS-01), or SaaS
+  domain-ownership tokens — every legitimate TXT/NULL query
+  produced a HIGH-severity DNS Tunneling finding (deduplicated
+  per `(src, apex)`), burying real tunneling under the flood.
+  Considered: requiring qtype + at least one other signal (option
+  B in TODO 1f), an apex allowlist for known-good TXT patterns
+  (D), a behavior-based gate keyed on the host's prior A/AAAA
+  history for the apex (E), and a separate volume-based detector
+  on TXT/NULL counts per `(src, apex)` (C). Preserved: detection
+  via the surviving length / entropy / depth signals — real
+  tunneling tools (iodine, dnscat2, Cobalt Strike's DNS beacon)
+  couple TXT/NULL with long high-entropy labels because that's
+  the channel capacity, and each of those structural signals
+  already gates independently. Shipped: option A — drop the
+  qtype-alone path outright. The auditor explicitly endorsed this
+  as defensible. Existing `dns_tunneling` golden rewritten to
+  exercise a realistic 60-char base32 label (still fires under
+  length+entropy), score lifts 64 → 83 because two signals now
+  combine on the same record. New `dns_txt_legitimate` fixture
+  asserts the empty-array result on 17 realistic SPF/DKIM/DMARC/
+  ACME query patterns from one host across multiple legitimate
+  apexes — the regression surface that proves the qtype-alone
+  path is gone.
+
+### Detection changes
+
+- **DNS Tunneling firing population narrows.** Per the qtype-alone
+  removal above. Pre-fix any TXT/NULL query produced a finding;
+  post-fix only queries with structurally tunnel-shaped labels
+  (long, high-entropy, or deeply nested) fire. Real DNS tunneling
+  detection coverage is preserved by the surviving signals.
+  Re-baseline DNS Tunneling alerting in any environment where
+  the false-positive flood was being filtered downstream — the
+  upstream now does the filtering.
+
 ## [v0.9.0] — 2026-05-10
 
 Audit-driven correctness release. The 2026-05-10 external review

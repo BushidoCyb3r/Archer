@@ -59,7 +59,6 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			src := parser.GetStr(rec, "id.orig_h")
 			dst := parser.GetStr(rec, "id.resp_h")
 			query := strings.TrimRight(strings.ToLower(parser.GetStr(rec, "query")), ".")
-			qtype := parser.GetStr(rec, "qtype_name")
 			rcode := parser.GetStr(rec, "rcode_name")
 			ts := parser.GetFloat(rec, "ts")
 
@@ -164,10 +163,24 @@ func (a *Analyzer) analyzeDNS(files []string) {
 				isTunnel = true
 				reasons = append(reasons, fmt.Sprintf("deep nesting (%d levels)", depth))
 			}
-			if qtype == "TXT" || qtype == "NULL" {
-				isTunnel = true
-				reasons = append(reasons, fmt.Sprintf("qtype=%s", qtype))
-			}
+			// qtype TXT/NULL was previously a sole-fire signal here:
+			// every TXT or NULL query produced a DNS Tunneling finding
+			// (deduplicated per (src, apex)). That generated a false-
+			// positive flood in any environment with mail (SPF, DKIM,
+			// DMARC), TLS automation (ACME DNS-01 challenge), or any
+			// SaaS that issues TXT-based domain-ownership tokens.
+			// Genuine DNS tunnelers (iodine, dnscat2, Cobalt Strike's
+			// DNS beacon) couple TXT/NULL with long, high-entropy, or
+			// deep labels — exactly what the three signals above
+			// already gate on. A pathological "tiny TXT-only tunnel"
+			// using short low-entropy shallow labels is theoretically
+			// possible but defeats the point of using DNS for
+			// covert channel capacity in the first place. Audited
+			// 2026-05-10 (deferred from v0.9.0); shipping the auditor's
+			// recommended option of dropping the qtype-alone path
+			// outright. If a real deployment surfaces a missed case,
+			// the follow-up is a separate volume-based detector
+			// (TODO 1f option C).
 
 			if isTunnel {
 				key := [2]string{src, apex}
