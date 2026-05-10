@@ -60,6 +60,13 @@ func (a *Analyzer) analyzeConn(files []string) {
 	pairCounts := make(map[pairKey]int)
 	beacon := make(map[pairKey]*beaconState)
 
+	// Connections 1 and 2 of each pair are stashed here so their
+	// timestamps can be replayed when state allocation finally happens
+	// at connection 3. Without the stash the first two intervals
+	// (1→2 and 2→3) are silently dropped, costing ~22% of the
+	// timing data on a 10-connection beacon.
+	preBeaconTs := make(map[pairKey][]float64)
+
 	strobeCounts := make(map[strobeKey]int)
 	strobeFirst := make(map[strobeKey]float64)
 	exfilOrig := make(map[exfilKey]float64)
@@ -212,6 +219,9 @@ func (a *Analyzer) analyzeConn(files []string) {
 			pk := pairKey{sensor, src, dst}
 			pairCounts[pk]++
 			if pairCounts[pk] < beaconLazyMinConn {
+				if ts > 0 {
+					preBeaconTs[pk] = append(preBeaconTs[pk], ts)
+				}
 				return true
 			}
 			st := beacon[pk]
@@ -223,6 +233,21 @@ func (a *Analyzer) analyzeConn(files []string) {
 					firstProto: proto,
 					minTs:      ts,
 					maxTs:      ts,
+				}
+				// Replay the stashed timestamps so intervals 1→2 and 2→3
+				// land in the reservoir alongside every later interval.
+				// Sets lastTs to the stash's final ts so the main code
+				// below records the interval from that ts to the current
+				// (connection 3) ts.
+				if early := preBeaconTs[pk]; len(early) > 0 {
+					for _, ets := range early {
+						if st.lastTs > 0 && ets > st.lastTs {
+							iv := ets - st.lastTs
+							st.ivs, st.ivsSeen = reservoirAddF(st.ivs, st.ivsSeen, iv, beaconIvCap)
+						}
+						st.lastTs = ets
+					}
+					delete(preBeaconTs, pk)
 				}
 				beacon[pk] = st
 			}

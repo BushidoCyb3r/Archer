@@ -40,6 +40,11 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 	beaconCounts := make(map[beaconKey]int)
 	beacon := make(map[beaconKey]*httpBeaconState)
 
+	// Pre-allocation timestamp stash. See conn.go's preBeaconTs for the
+	// reasoning — connections 1 and 2 of each pair would otherwise lose
+	// their intervals to the lazy-init guard.
+	preBeaconTs := make(map[beaconKey][]float64)
+
 	seenUA := make(map[[2]string]bool)
 	seenCS := make(map[[3]string]bool)
 	seenDF := make(map[[2]string]bool)
@@ -224,7 +229,11 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 			if uri != "" && host != "" {
 				bk := beaconKey{sensor, src, dst, host, uri}
 				beaconCounts[bk]++
-				if beaconCounts[bk] >= beaconLazyMinConn {
+				if beaconCounts[bk] < beaconLazyMinConn {
+					if ts > 0 {
+						preBeaconTs[bk] = append(preBeaconTs[bk], ts)
+					}
+				} else {
 					st := beacon[bk]
 					if st == nil {
 						st = &httpBeaconState{
@@ -232,6 +241,18 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 							firstTs: ts,
 							minTs:   ts,
 							maxTs:   ts,
+						}
+						// Replay stashed pre-state timestamps so intervals
+						// 1→2 and 2→3 land in the reservoir.
+						if early := preBeaconTs[bk]; len(early) > 0 {
+							for _, ets := range early {
+								if st.lastTs > 0 && ets > st.lastTs {
+									iv := ets - st.lastTs
+									st.ivs, st.ivsSeen = reservoirAddF(st.ivs, st.ivsSeen, iv, beaconIvCap)
+								}
+								st.lastTs = ets
+							}
+							delete(preBeaconTs, bk)
 						}
 						beacon[bk] = st
 					}

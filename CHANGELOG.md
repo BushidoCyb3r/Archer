@@ -32,6 +32,23 @@ relevant, `### Detection changes` in each release entry.
 
 ### Fixed
 
+- **Lazy-init beacon state no longer drops the first two intervals.**
+  Per-pair `beaconState` is allocated lazily on connection 3
+  (`beaconLazyMinConn = 3`) to bound memory on high-cardinality
+  low-count streams. The struct literal initialised `firstTs`/`minTs`/
+  `maxTs` from the current record but left `lastTs` at zero, so the
+  reservoir-recording guard (`if st.lastTs > 0 && ts > st.lastTs`)
+  silently skipped the first interval, and the ts values from
+  connections 1 and 2 were never seen at all. Result: every beacon
+  paid a two-interval tax — irrelevant on a 1000-connection stream,
+  ~22% of the timing data on a 10-connection stream right at the
+  detection threshold. Fix: stash the timestamps of pre-allocation
+  connections in a `preBeaconTs` map; on state allocation, replay
+  them so intervals 1→2 and 2→3 land in the reservoir alongside
+  every later interval. Same fix applied to `analyzeHTTP`'s lazy
+  init path. ~16 bytes/pair worst-case extra memory before
+  allocation; freed on allocation.
+
 - **Beacon hist + duration scoring no longer smears across sensors.**
   The conn analyzer was computing one global `(dsMin, dsMax)` capture
   window across every conn.log file in `/logs/`, regardless of which
@@ -101,6 +118,18 @@ relevant, `### Detection changes` in each release entry.
   next config save naturally drops the dead fields.
 
 ### Detection changes
+
+- **Beacon `ts_score` rises slightly when intervals 1→2 and 2→3
+  are recovered.** The lazy-init replay fix above feeds two
+  additional samples into the timing-regularity reservoir for
+  every beacon pair. Magnitude is small — the strobe golden
+  fixture's beacon finding shifts from `ts=0.75` to `ts=0.76`
+  (+0.01) on 1000 connections; the final integer score is
+  unchanged at 57. Low-connection beacons right at the
+  10-connection threshold gain ~22% more samples on the timing
+  axis and may see a larger shift. Direction is uniformly
+  upward (more samples = better statistical confidence in
+  regularity); no false-positive risk added.
 
 - **Beacon (TCP and HTTP) scores rise on multi-sensor `/logs/`
   trees.** The cross-sensor smearing fix above un-suppresses
