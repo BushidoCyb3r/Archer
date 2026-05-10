@@ -1,1 +1,1 @@
-{"ts":1705320000.0,"uid":"D0000001","id.orig_h":"192.168.2.30","id.orig_p":50000,"id.resp_h":"192.168.1.1","id.resp_p":53,"proto":"udp","query":"data.evil.com","qtype_name":"TXT","rcode_name":"NOERROR"}
+{"ts": 1705320000.0, "uid": "D0000001", "id.orig_h": "192.168.2.30", "id.orig_p": 50000, "id.resp_h": "192.168.1.1", "id.resp_p": 53, "proto": "udp", "query": "uaihxv4cnagqagurhszazwke6kcd3tzxr7mr2t3swbhjchdiullgi5utfxfm.evil.com", "qtype_name": "TXT", "rcode_name": "NOERROR"}
