@@ -32,6 +32,25 @@ relevant, `### Detection changes` in each release entry.
 
 ### Added
 
+- **Type-sharded parallel MISP fetch with larger pages.** A full
+  MISP pull no longer issues one big restSearch query covering all
+  seven attribute types — instead it dispatches one query per type
+  (`ip-src`, `ip-dst`, `domain`, `hostname`, `md5`, `sha1`,
+  `sha256`) and runs them in parallel, capped at four in flight at
+  once. Each shard restarts pagination from page 1 of just its
+  type, so the offset-pagination cost that used to push deep pages
+  to multi-second responses gets distributed across seven shallower
+  walks running concurrently. Hardcoded concurrency=4 is sized for
+  a 6-core single-VM MISP — leaves headroom for Apache, the OS, and
+  background MISP work while still bringing wall-clock down
+  meaningfully on large feeds. Single-feed PageSize default raised
+  from 10 000 to 25 000 attributes per page; fewer round trips per
+  shard with no measurable memory pressure on either side. First
+  shard error cancels the rest via context and is surfaced to the
+  feeds dialog. Tests cover the request fanout, the concurrency
+  cap, and the per-shard `timestamp` filter pass-through under the
+  race detector.
+
 - **Incremental MISP feed sync.** Watch-tick feed refreshes now use
   MISP's `restSearch` `timestamp` filter to fetch only attributes
   modified since the previous run, instead of paginating the full

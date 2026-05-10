@@ -7,43 +7,87 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
-// canned mimics a single-page MISP /attributes/restSearch response
-// covering every indicator type the adapter handles plus a couple
-// it must skip.
-const cannedMISPBody = `{
-  "response": {
-    "Attribute": [
-      {"id":"1","type":"ip-dst","value":"203.0.113.1","category":"Network activity","to_ids":true,"Tag":[{"name":"tlp:white"}]},
-      {"id":"2","type":"ip-src","value":"198.51.100.5","category":"Network activity","to_ids":true,"Tag":[]},
-      {"id":"3","type":"ip-dst","value":"10.0.0.0/8","category":"Network activity","to_ids":true,"Tag":[]},
-      {"id":"4","type":"domain","value":"evil.test","category":"Network activity","to_ids":true,"Tag":[{"name":"campaign:trickbot"}]},
-      {"id":"5","type":"hostname","value":"c2.evil.test","category":"Network activity","to_ids":true,"Tag":[]},
-      {"id":"6","type":"md5","value":"d41d8cd98f00b204e9800998ecf8427e","category":"Payload delivery","to_ids":true,"Tag":[]},
-      {"id":"7","type":"sha256","value":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","category":"Payload delivery","to_ids":true,"Tag":[]},
-      {"id":"8","type":"url","value":"http://evil.test/path","category":"Network activity","to_ids":true,"Tag":[]},
-      {"id":"9","type":"ip-dst","value":"not-a-real-ip","category":"Network activity","to_ids":true,"Tag":[]},
-      {"id":"10","type":"domain","value":"","category":"Network activity","to_ids":true,"Tag":[]}
-    ]
-  }
-}`
+// mispCannedAttrs is the universe of attributes the test server can
+// return. Fetch is type-sharded — one restSearch request per type —
+// so the test handler filters this list against the requested type
+// and returns only matching rows. Mirrors what a real MISP would do.
+var mispCannedAttrs = []map[string]any{
+	{"id": "1", "type": "ip-dst", "value": "203.0.113.1", "category": "Network activity", "to_ids": true, "Tag": []map[string]any{{"name": "tlp:white"}}},
+	{"id": "2", "type": "ip-src", "value": "198.51.100.5", "category": "Network activity", "to_ids": true, "Tag": []map[string]any{}},
+	{"id": "3", "type": "ip-dst", "value": "10.0.0.0/8", "category": "Network activity", "to_ids": true, "Tag": []map[string]any{}},
+	{"id": "4", "type": "domain", "value": "evil.test", "category": "Network activity", "to_ids": true, "Tag": []map[string]any{{"name": "campaign:trickbot"}}},
+	{"id": "5", "type": "hostname", "value": "c2.evil.test", "category": "Network activity", "to_ids": true, "Tag": []map[string]any{}},
+	{"id": "6", "type": "md5", "value": "d41d8cd98f00b204e9800998ecf8427e", "category": "Payload delivery", "to_ids": true, "Tag": []map[string]any{}},
+	{"id": "7", "type": "sha256", "value": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "category": "Payload delivery", "to_ids": true, "Tag": []map[string]any{}},
+	// Skipped by the adapter (URL type, malformed IP, empty domain).
+	{"id": "8", "type": "url", "value": "http://evil.test/path", "category": "Network activity", "to_ids": true, "Tag": []map[string]any{}},
+	{"id": "9", "type": "ip-dst", "value": "not-a-real-ip", "category": "Network activity", "to_ids": true, "Tag": []map[string]any{}},
+	{"id": "10", "type": "domain", "value": "", "category": "Network activity", "to_ids": true, "Tag": []map[string]any{}},
+}
+
+// mispTestHandler mimics restSearch's type-filter behaviour: the
+// request body's `type` array is taken as the filter and only
+// attributes whose type is in that list are returned. Captures the
+// last seen request body (under mu) so tests can spot-check.
+type mispTestHandler struct {
+	mu            sync.Mutex
+	auth          string
+	method        string
+	path          string
+	body          map[string]any
+	calls         int32
+	concurrentLog []time.Time
+}
+
+func newMISPTestServer(t *testing.T) (*httptest.Server, *mispTestHandler) {
+	t.Helper()
+	h := &mispTestHandler{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&h.calls, 1)
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+
+		h.mu.Lock()
+		h.auth = r.Header.Get("Authorization")
+		h.method = r.Method
+		h.path = r.URL.Path
+		h.body = body
+		h.concurrentLog = append(h.concurrentLog, time.Now())
+		h.mu.Unlock()
+
+		// Filter mispCannedAttrs by the requested type set.
+		want := map[string]bool{}
+		if t, ok := body["type"].([]any); ok {
+			for _, v := range t {
+				if s, ok := v.(string); ok {
+					want[s] = true
+				}
+			}
+		}
+		matching := []map[string]any{}
+		for _, attr := range mispCannedAttrs {
+			if want[attr["type"].(string)] {
+				matching = append(matching, attr)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"response": map[string]any{"Attribute": matching},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	return srv, h
+}
 
 func TestMISPClient_Fetch_ParsesAndNormalizes(t *testing.T) {
-	var gotAuth, gotMethod, gotPath string
-	var gotBody map[string]any
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		raw, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(raw, &gotBody)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, cannedMISPBody)
-	}))
-	defer srv.Close()
+	srv, h := newMISPTestServer(t)
 
 	c := NewMISPClient(srv.URL, "test-key", false)
 	res, err := c.Fetch(context.Background(), 0)
@@ -58,18 +102,27 @@ func TestMISPClient_Fetch_ParsesAndNormalizes(t *testing.T) {
 		t.Fatalf("expected 7 indicators, got %d: %+v", len(got), got)
 	}
 
-	// Spot-check the request the adapter sent.
-	if gotAuth != "test-key" {
-		t.Errorf("Authorization header = %q, want %q", gotAuth, "test-key")
+	// Spot-check the last seen request (all shards send identical
+	// shape modulo type filter).
+	h.mu.Lock()
+	auth, method, path, body := h.auth, h.method, h.path, h.body
+	calls := atomic.LoadInt32(&h.calls)
+	h.mu.Unlock()
+	if auth != "test-key" {
+		t.Errorf("Authorization header = %q, want %q", auth, "test-key")
 	}
-	if gotMethod != http.MethodPost {
-		t.Errorf("method = %q, want POST", gotMethod)
+	if method != http.MethodPost {
+		t.Errorf("method = %q, want POST", method)
 	}
-	if !strings.HasSuffix(gotPath, "/attributes/restSearch") {
-		t.Errorf("path = %q, want suffix /attributes/restSearch", gotPath)
+	if !strings.HasSuffix(path, "/attributes/restSearch") {
+		t.Errorf("path = %q, want suffix /attributes/restSearch", path)
 	}
-	if gotBody["returnFormat"] != "json" {
-		t.Errorf("body returnFormat = %v, want json", gotBody["returnFormat"])
+	if body["returnFormat"] != "json" {
+		t.Errorf("body returnFormat = %v, want json", body["returnFormat"])
+	}
+	// Sharding: one request per attribute type.
+	if int(calls) != len(mispAttributeTypes) {
+		t.Errorf("expected %d shard requests, got %d", len(mispAttributeTypes), calls)
 	}
 
 	// Spot-check the normalization.
@@ -115,15 +168,7 @@ func TestMISPClient_Fetch_ParsesAndNormalizes(t *testing.T) {
 }
 
 func TestMISPClient_Fetch_PassesTimestampFilterWhenSinceSet(t *testing.T) {
-	var gotBody map[string]any
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(raw, &gotBody)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"response":{"Attribute":[]}}`)
-	}))
-	defer srv.Close()
+	srv, h := newMISPTestServer(t)
 
 	c := NewMISPClient(srv.URL, "test-key", false)
 	const since int64 = 1700000000
@@ -131,9 +176,12 @@ func TestMISPClient_Fetch_PassesTimestampFilterWhenSinceSet(t *testing.T) {
 		t.Fatalf("Fetch returned error: %v", err)
 	}
 
-	v, ok := gotBody["timestamp"]
+	h.mu.Lock()
+	body := h.body
+	h.mu.Unlock()
+	v, ok := body["timestamp"]
 	if !ok {
-		t.Fatalf("expected timestamp filter in request body, got %+v", gotBody)
+		t.Fatalf("expected timestamp filter in request body, got %+v", body)
 	}
 	// JSON unmarshals numeric values to float64.
 	if got := int64(v.(float64)); got != since {
@@ -142,11 +190,47 @@ func TestMISPClient_Fetch_PassesTimestampFilterWhenSinceSet(t *testing.T) {
 }
 
 func TestMISPClient_Fetch_OmitsTimestampFilterWhenSinceZero(t *testing.T) {
-	var gotBody map[string]any
+	srv, h := newMISPTestServer(t)
 
+	c := NewMISPClient(srv.URL, "test-key", false)
+	if _, err := c.Fetch(context.Background(), 0); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+
+	h.mu.Lock()
+	body := h.body
+	h.mu.Unlock()
+	if _, ok := body["timestamp"]; ok {
+		t.Errorf("timestamp filter should be absent on full pull, got %+v", body["timestamp"])
+	}
+}
+
+// TestMISPClient_Fetch_RespectsConcurrencyCap verifies that no more
+// than mispShardConcurrency requests run simultaneously even when
+// every type-shard would otherwise overlap. The server holds each
+// request open for a short window and tracks max in-flight.
+func TestMISPClient_Fetch_RespectsConcurrencyCap(t *testing.T) {
+	var (
+		mu          sync.Mutex
+		inFlight    int
+		maxInFlight int
+	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(raw, &gotBody)
+		mu.Lock()
+		inFlight++
+		if inFlight > maxInFlight {
+			maxInFlight = inFlight
+		}
+		mu.Unlock()
+
+		// Hold the connection long enough that the orchestrator must
+		// wait on the semaphore for any shards beyond concurrency.
+		time.Sleep(50 * time.Millisecond)
+
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"response":{"Attribute":[]}}`)
 	}))
@@ -157,8 +241,16 @@ func TestMISPClient_Fetch_OmitsTimestampFilterWhenSinceZero(t *testing.T) {
 		t.Fatalf("Fetch returned error: %v", err)
 	}
 
-	if _, ok := gotBody["timestamp"]; ok {
-		t.Errorf("timestamp filter should be absent on full pull, got %+v", gotBody["timestamp"])
+	mu.Lock()
+	got := maxInFlight
+	mu.Unlock()
+	if got > mispShardConcurrency {
+		t.Errorf("max in-flight requests = %d, want <= %d", got, mispShardConcurrency)
+	}
+	// Sanity: with concurrency=4 and 7 shards each held 50ms, at
+	// least 2 shards should overlap.
+	if got < 2 {
+		t.Errorf("max in-flight = %d, expected at least 2 concurrent shards", got)
 	}
 }
 

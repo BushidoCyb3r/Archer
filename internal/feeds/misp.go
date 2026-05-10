@@ -10,8 +10,32 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
+
+// mispShardConcurrency caps how many type-shard requests are in
+// flight against MISP simultaneously. Splitting the fetch into one
+// query per attribute type collapses MISP's offset-pagination
+// degradation (each shard restarts at page 1 of just its type), but
+// running all 7 shards at once on a small single-VM MISP can saturate
+// CPU and slow each query down past the point where parallelism
+// helps. Four leaves headroom on a 6-core MISP box for Apache, the
+// OS, and the rest of MISP itself while still bringing wall-clock
+// down meaningfully on large feeds. Hardcoded for now; promote to a
+// per-feed config knob if field experience justifies it.
+const mispShardConcurrency = 4
+
+// mispAttributeTypes is the per-shard work list. One restSearch
+// request goes out per type, in parallel up to mispShardConcurrency.
+// Each shard restarts pagination from page 1 of just its type, so
+// the deep-page slowdown that hits a unified 7-type walk gets
+// distributed across 7 shallower walks.
+var mispAttributeTypes = []string{
+	"ip-src", "ip-dst",
+	"domain", "hostname",
+	"md5", "sha1", "sha256",
+}
 
 // MISPClient adapts a single MISP instance to the Adapter interface.
 // The query endpoint is /attributes/restSearch (POST) which accepts a
@@ -37,29 +61,33 @@ type MISPClient struct {
 	HTTP    *http.Client
 
 	// PageSize is the `limit` argument MISP accepts on /attributes/restSearch.
-	// Default 10000 — large enough that a 1M-attribute feed walks in
-	// 100 round-trips, small enough that any single page response fits
-	// comfortably in memory.
+	// Default 25000 — fewer round trips per shard than the previous
+	// 10000, which matters more now that the fetch is type-sharded
+	// (each shard pays the per-page overhead independently). Single-
+	// page response is ~25 MB worst case which sits comfortably in
+	// memory on both client and server.
 	PageSize int
 
-	// PageLimit caps the page walk. Default 100; combined with
-	// PageSize 10000 that's an upper bound of 1M attributes per fetch.
-	// When the walk hits this cap and the last page was full, the
-	// fetch is reported as truncated.
+	// PageLimit caps the page walk per shard. Default 100; with
+	// PageSize 25000 that's 2.5M attributes per type. With seven
+	// types the aggregate per-fetch cap is well above any realistic
+	// feed. When the walk hits this cap on any shard and the last
+	// page of that shard was full, the fetch is reported as
+	// truncated.
 	PageLimit int
 }
 
-// NewMISPClient constructs a client with safe defaults: 30s timeout,
-// 10k attributes per page, 100-page cap (1M attributes). tlsSkipVerify=true
-// disables certificate verification on the upstream HTTPS request —
-// opt-in per feed for internal MISP deployments running self-signed
-// or internal-CA certs.
+// NewMISPClient constructs a client with safe defaults: 90s per-page
+// timeout, 25k attributes per page, 100-page cap per type-shard.
+// tlsSkipVerify=true disables certificate verification on the
+// upstream HTTPS request — opt-in per feed for internal MISP
+// deployments running self-signed or internal-CA certs.
 func NewMISPClient(baseURL, apiKey string, tlsSkipVerify bool) *MISPClient {
 	return &MISPClient{
 		BaseURL:   strings.TrimRight(baseURL, "/"),
 		APIKey:    apiKey,
 		HTTP:      httpClientWithTLS(tlsSkipVerify),
-		PageSize:  10000,
+		PageSize:  25000,
 		PageLimit: 100,
 	}
 }
@@ -117,20 +145,20 @@ type mispResponse struct {
 	} `json:"response"`
 }
 
-// Fetch satisfies Adapter.Fetch. Walks /attributes/restSearch in
-// pages of PageSize, accumulating normalized indicators across
-// pages. Stops early when a short page returns (real end of data).
-// Caps the walk at PageLimit pages — when both the cap is hit and
-// the last page was full, the result is flagged as Truncated so
-// operators know they're not getting the whole feed.
+// Fetch satisfies Adapter.Fetch. Splits the work into one
+// restSearch request per attribute type and runs them in parallel,
+// capped at mispShardConcurrency in flight. Each shard does its own
+// pagination starting from page 1 of just its type, which collapses
+// the offset-pagination cost — instead of one walk that gets slower
+// with depth, we get N shallower walks running concurrently. On
+// any shard error the sibling shards are cancelled and the first
+// error is returned.
 //
-// When since > 0, MISP's restSearch `timestamp` filter is set so the
-// upstream returns only attributes whose timestamp is >= since. The
-// resulting page-walk is dramatically smaller than a full snapshot,
-// which is the whole point of incremental sync — MISP's offset
-// pagination degrades sharply with depth, and a since filter that
-// chops the result set down keeps the fetch close to the cheap
-// shallow-page region of the curve.
+// When since > 0, every shard sets MISP's restSearch `timestamp`
+// filter so the upstream returns only attributes whose timestamp is
+// >= since. Combined with sharding, an incremental fetch on a large
+// feed is typically a handful of fast shallow-page round trips
+// rather than a deep multi-minute walk.
 func (c *MISPClient) Fetch(ctx context.Context, since int64) (FetchResult, error) {
 	if c.BaseURL == "" {
 		return FetchResult{}, fmt.Errorf("misp: empty base URL")
@@ -139,16 +167,73 @@ func (c *MISPClient) Fetch(ctx context.Context, since int64) (FetchResult, error
 		return FetchResult{}, fmt.Errorf("misp: empty API key")
 	}
 
+	shardCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	jobs := make(chan string, len(mispAttributeTypes))
+	for _, t := range mispAttributeTypes {
+		jobs <- t
+	}
+	close(jobs)
+
+	concurrency := mispShardConcurrency
+	if concurrency > len(mispAttributeTypes) {
+		concurrency = len(mispAttributeTypes)
+	}
+
+	var (
+		mu        sync.Mutex
+		out       []Indicator
+		truncated bool
+		firstErr  error
+	)
+
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for t := range jobs {
+				if shardCtx.Err() != nil {
+					return
+				}
+				inds, shardTrunc, err := c.fetchShard(shardCtx, t, since)
+				mu.Lock()
+				if err != nil {
+					if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
+					cancel()
+					return
+				}
+				out = append(out, inds...)
+				if shardTrunc {
+					truncated = true
+				}
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if firstErr != nil {
+		return FetchResult{Indicators: out, Truncated: truncated}, firstErr
+	}
+	return FetchResult{Indicators: out, Truncated: truncated}, nil
+}
+
+// fetchShard walks restSearch for a single MISP attribute type,
+// paginating until a short page (real end of data) or PageLimit is
+// reached. Hitting PageLimit with the last page full sets the
+// truncated return so the caller can surface that to operators.
+func (c *MISPClient) fetchShard(ctx context.Context, mispType string, since int64) ([]Indicator, bool, error) {
 	out := make([]Indicator, 0, c.PageSize)
 	truncated := false
 	for page := 1; page <= c.PageLimit; page++ {
 		body := map[string]any{
-			"returnFormat": "json",
-			"type": []string{
-				"ip-src", "ip-dst",
-				"domain", "hostname",
-				"md5", "sha1", "sha256",
-			},
+			"returnFormat":       "json",
+			"type":               []string{mispType},
 			"to_ids":             true, // MISP convention: only indicators meant for IDS
 			"deleted":            false,
 			"limit":              c.PageSize,
@@ -166,13 +251,13 @@ func (c *MISPClient) Fetch(ctx context.Context, since int64) (FetchResult, error
 		}
 		buf, err := json.Marshal(body)
 		if err != nil {
-			return FetchResult{Indicators: out}, fmt.Errorf("misp: marshal request: %w", err)
+			return out, truncated, fmt.Errorf("misp: marshal request: %w", err)
 		}
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 			c.BaseURL+"/attributes/restSearch", bytes.NewReader(buf))
 		if err != nil {
-			return FetchResult{Indicators: out}, fmt.Errorf("misp: build request: %w", err)
+			return out, truncated, fmt.Errorf("misp: build request: %w", err)
 		}
 		req.Header.Set("Authorization", c.APIKey)
 		req.Header.Set("Accept", "application/json")
@@ -180,24 +265,24 @@ func (c *MISPClient) Fetch(ctx context.Context, since int64) (FetchResult, error
 
 		resp, err := c.HTTP.Do(req)
 		if err != nil {
-			return FetchResult{Indicators: out}, fmt.Errorf("misp: request failed: %w", err)
+			return out, truncated, fmt.Errorf("misp: request failed (type=%s): %w", mispType, err)
 		}
 		raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 200<<20)) // 200 MiB safety cap
 		_ = resp.Body.Close()
 		if readErr != nil {
-			return FetchResult{Indicators: out}, fmt.Errorf("misp: read response: %w", readErr)
+			return out, truncated, fmt.Errorf("misp: read response (type=%s): %w", mispType, readErr)
 		}
 		if resp.StatusCode != http.StatusOK {
 			preview := string(raw)
 			if len(preview) > 1024 {
 				preview = preview[:1024]
 			}
-			return FetchResult{Indicators: out}, fmt.Errorf("misp: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(preview))
+			return out, truncated, fmt.Errorf("misp: HTTP %d (type=%s): %s", resp.StatusCode, mispType, strings.TrimSpace(preview))
 		}
 
 		var parsed mispResponse
 		if err := json.Unmarshal(raw, &parsed); err != nil {
-			return FetchResult{Indicators: out}, fmt.Errorf("misp: decode response: %w", err)
+			return out, truncated, fmt.Errorf("misp: decode response (type=%s): %w", mispType, err)
 		}
 
 		got := len(parsed.Response.Attribute)
@@ -209,8 +294,6 @@ func (c *MISPClient) Fetch(ctx context.Context, since int64) (FetchResult, error
 			out = append(out, ind)
 		}
 
-		// Short page → end of data. Full page on the last allowed
-		// page → cap reached with more upstream, flag truncation.
 		if got < c.PageSize {
 			break
 		}
@@ -219,7 +302,7 @@ func (c *MISPClient) Fetch(ctx context.Context, since int64) (FetchResult, error
 			break
 		}
 	}
-	return FetchResult{Indicators: out, Truncated: truncated}, nil
+	return out, truncated, nil
 }
 
 // normalizeMISPAttribute translates a single MISP attribute into our
