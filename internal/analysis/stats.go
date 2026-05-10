@@ -56,7 +56,7 @@ func bowleyScore(xs []float64) float64 {
 	return 1.0 - math.Abs(skewness)
 }
 
-// madScore computes the RITA MAD-based regularity score.
+// madScore computes the MAD-based regularity score.
 // Formula: (median - MAD) / median. Returns defaultScore when median == 0.
 func madScore(xs []float64, defaultScore float64) float64 {
 	if len(xs) == 0 {
@@ -117,7 +117,7 @@ func computeHistogram(timestamps []float64, datasetMin, datasetMax float64, nBuc
 }
 
 // cvScore scores how uniformly populated the histogram buckets are.
-// Uses population std dev (not sample) matching RITA.
+// Uses population std dev (not sample).
 func cvScore(connHist []int) float64 {
 	nonZero := make([]float64, 0, len(connHist))
 	for _, v := range connHist {
@@ -177,9 +177,9 @@ func bimodalScore(freqCount map[int]int, totalBars int, modeSensitivity float64)
 	return float64(highCount) / float64(totalBars)
 }
 
-// histScoreRITA computes the histogram-based regularity score over 24 buckets.
+// histScoreRegularity computes the histogram-based regularity score over 24 buckets.
 // Returns (score 0-1, totalBars).
-func histScoreRITA(timestamps []float64, datasetMin, datasetMax float64) (float64, int) {
+func histScoreRegularity(timestamps []float64, datasetMin, datasetMax float64) (float64, int) {
 	const nBuckets = 24
 	connHist, freqCount := computeHistogram(timestamps, datasetMin, datasetMax, nBuckets)
 	totalBars := len(freqCount)
