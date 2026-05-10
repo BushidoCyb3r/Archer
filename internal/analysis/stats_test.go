@@ -291,26 +291,26 @@ func TestBimodalScore(t *testing.T) {
 	})
 }
 
-func TestHistScoreRITA(t *testing.T) {
+func TestHistScoreRegularity(t *testing.T) {
 	t.Run("regular_pattern_high_score", func(t *testing.T) {
 		// Evenly spaced timestamps should produce a high regularity score.
 		ts := make([]float64, 240)
 		for i := range ts {
 			ts[i] = float64(i) * 60 // every 60s for 4 hours
 		}
-		score, totalBars := histScoreRITA(ts, 0, ts[len(ts)-1])
+		score, totalBars := histScoreRegularity(ts, 0, ts[len(ts)-1])
 		if totalBars < 1 {
 			t.Errorf("totalBars = %d, want >= 1", totalBars)
 		}
 		if score < 0 || score > 1 {
-			t.Errorf("histScoreRITA score = %v, want in [0,1]", score)
+			t.Errorf("histScoreRegularity score = %v, want in [0,1]", score)
 		}
 	})
 
 	t.Run("zero_window_zero_score", func(t *testing.T) {
-		score, totalBars := histScoreRITA([]float64{1, 2, 3}, 5, 5)
+		score, totalBars := histScoreRegularity([]float64{1, 2, 3}, 5, 5)
 		if score != 0 || totalBars != 0 {
-			t.Errorf("histScoreRITA empty-window = (%v,%d), want (0,0)", score, totalBars)
+			t.Errorf("histScoreRegularity empty-window = (%v,%d), want (0,0)", score, totalBars)
 		}
 	})
 }

@@ -416,7 +416,7 @@ func reservoirAddT(buf [][3]float64, seen int, v [3]float64, capN int) ([][3]flo
 }
 
 // histScoreFromHourMap computes the 24-bucket histogram regularity score from
-// pre-bucketed hour counters. Mirrors histScoreRITA but avoids retaining raw
+// pre-bucketed hour counters. Mirrors histScoreRegularity but avoids retaining raw
 // timestamps.
 func histScoreFromHourMap(hourMap map[int]int, dsMin, dsMax float64) (float64, int) {
 	const nBuckets = 24

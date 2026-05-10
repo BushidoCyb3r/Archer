@@ -691,7 +691,7 @@ their operator timezone once via the Watch sidebar.
   the golden-file framework. `internal/analysis/stats_test.go` covers
   the math helpers (`fmedian`, `fmean`, `bowleyScore`, `madScore`,
   `statisticalScore`, `computeHistogram`, `cvScore`, `bimodalScore`,
-  `histScoreRITA`, `durationScore`, `shannonEntropy`) with table
+  `histScoreRegularity`, `durationScore`, `shannonEntropy`) with table
   tests and edge cases. `internal/analysis/golden_test.go` runs the
   full analyzer over a synthetic Zeek NDJSON corpus under
   `internal/analysis/testdata/zeek/` and diffs the resulting findings
