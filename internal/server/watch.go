@@ -287,15 +287,17 @@ func (s *Server) triggerWatchAnalysis() {
 
 // refreshFeedsBeforeFullPass runs a synchronous, all-feeds refresh
 // before the watch scheduler launches a full-pass analysis. Capped at
-// two minutes — beyond that, a stuck upstream is more likely than a
-// genuinely-slow fetch, and the analysis should not be held up. The
-// auto-cadence feed worker is intentionally disabled, so this is the
-// path that keeps MISP/OpenCTI indicators in sync with the watch
+// 10 minutes — large MISP deployments (100k+ indicators) can take 3+
+// minutes for a full sweep due to offset-based pagination degrading
+// with depth, and that whole walk happens before analysis kicks off.
+// Beyond 10 minutes the upstream is more likely stuck than slow.
+// The auto-cadence feed worker is intentionally disabled, so this is
+// the path that keeps MISP/OpenCTI indicators in sync with the watch
 // schedule. Incremental ticks deliberately skip this — they only use
 // the built-in Feodo Tracker / URLhaus indicators (see
 // launchIncrementalAnalysis).
 func (s *Server) refreshFeedsBeforeFullPass() {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	s.refreshAllFeedsForWatch(ctx)
 }

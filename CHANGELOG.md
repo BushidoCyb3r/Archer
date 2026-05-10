@@ -62,6 +62,21 @@ relevant, `### Detection changes` in each release entry.
   the Beacon finding into HIGH severity (score 54) where the raw
   math would have left it well below threshold.
 
+### Changed
+
+- **MISP/OpenCTI feed-fetch timeouts raised for larger deployments.**
+  Manual refresh cap (`POST /api/feeds/{id}/refresh`) raised from 60s
+  to 5 minutes. Watch full-pass pre-fetch cap raised from 2 minutes
+  to 10 minutes. Per-page HTTP client timeout in
+  `internal/feeds/misp.go` raised from 30s to 90s. Confirmed against
+  a real 100k+ indicator MISP where offset-based pagination degrades
+  with depth (page 1 at 0.16s, page 100 at 3.5s — total walk ~3
+  minutes). The bumped caps unblock the existing full-sweep adapter;
+  the principled fix (incremental sync via `timestamp` parameter,
+  streaming decode, periodic full re-sync) is queued in
+  MATURATION_PLAN section 11c, with a per-feed operator-supplied
+  query filter as the intermediate step queued in TODO.md 1d.
+
 ### Fixed
 
 - **`/logs/_archived/` is now excluded from the live logs tree and
