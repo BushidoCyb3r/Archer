@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -171,7 +172,7 @@ func (s *Server) handleFindingRaw(w http.ResponseWriter, r *http.Request, id int
 				if done {
 					return
 				}
-				_ = parser.ParseLog(j.path, func(rec map[string]any) bool {
+				if err := parser.ParseLog(j.path, func(rec map[string]any) bool {
 					mu.Lock()
 					if stop || len(matches) >= limit {
 						mu.Unlock()
@@ -197,7 +198,13 @@ func (s *Server) handleFindingRaw(w http.ResponseWriter, r *http.Request, id int
 					}
 					mu.Unlock()
 					return true
-				})
+				}); err != nil {
+					// Raw-log pivot is a best-effort lookup over the archive
+					// fleet; one bad file should not blank the whole search.
+					// Log it so an operator inspecting server logs can spot
+					// the file that needs investigation.
+					log.Printf("findings_raw: parser failed on %s: %v", j.path, err)
+				}
 			}
 		}()
 	}

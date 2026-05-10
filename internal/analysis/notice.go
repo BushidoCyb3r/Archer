@@ -13,7 +13,7 @@ func (a *Analyzer) analyzeNotice(files []string) {
 
 	noticeFiles := filterFiles(files, "notice")
 	for _, f := range noticeFiles {
-		_ = parser.ParseLog(f, func(rec map[string]any) bool {
+		a.parseLog(f, func(rec map[string]any) bool {
 			src := parser.GetStr(rec, "id.orig_h")
 			dst := parser.GetStr(rec, "id.resp_h")
 			noteType := parser.GetStr(rec, "note")

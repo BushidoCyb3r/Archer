@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"path/filepath"
 	"runtime"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/BushidoCyb3r/Archer/internal/config"
 	"github.com/BushidoCyb3r/Archer/internal/model"
+	"github.com/BushidoCyb3r/Archer/internal/parser"
 )
 
 // sensorWindow is the per-sensor capture window used by time-based
@@ -21,6 +23,22 @@ import (
 // span instead of being smeared across the union of both.
 type sensorWindow struct {
 	min, max float64
+}
+
+// parseErr is the in-flight record of a single ParseLog failure.
+// Tracked on the analyzer so the run can continue past one bad
+// file while still surfacing the error to operators afterwards.
+type parseErr struct {
+	path string
+	err  string
+}
+
+// ParseError is the read-only view of a parse failure exposed via
+// Analyzer.ParseErrors() so callers (web UI, CLI) can surface what
+// didn't parse cleanly without depending on the internal struct.
+type ParseError struct {
+	Path string
+	Err  string
 }
 
 // Analyzer orchestrates all Zeek log analysis steps.
@@ -35,6 +53,7 @@ type Analyzer struct {
 	sensorWindows map[string]sensorWindow
 	sslUIDIndex   map[string]sslEntry
 	httpUIDIndex  map[string]httpEntry
+	parseErrs     []parseErr
 
 	// Pre-fetched threat intel feeds (populated during phase 0)
 	feodoIPs     map[string]bool
@@ -98,24 +117,6 @@ func (a *Analyzer) sensorOf(filePath string) string {
 		return parts[0]
 	}
 	return ""
-}
-
-// observeWindow records ts against sensor's capture window. Caller
-// holds nothing; this method takes a.mu briefly to merge.
-func (a *Analyzer) observeWindow(sensor string, ts float64) {
-	if ts <= 0 {
-		return
-	}
-	a.mu.Lock()
-	w := a.sensorWindows[sensor]
-	if w.min == 0 || ts < w.min {
-		w.min = ts
-	}
-	if ts > w.max {
-		w.max = ts
-	}
-	a.sensorWindows[sensor] = w
-	a.mu.Unlock()
 }
 
 // windowOf returns the capture window for sensor under read lock.
@@ -360,6 +361,49 @@ func (a *Analyzer) sendStatus(msg string) {
 		default:
 		}
 	}
+}
+
+// parseLog wraps parser.ParseLog so a per-file parse error becomes a
+// visible status message instead of being silently dropped. Pre-fix
+// every analyzer used `_ = parser.ParseLog(...)`; an unreadable file,
+// a single record longer than the scanner buffer, or a corrupt gzip
+// stream silently truncated the file with no signal to the analyst.
+// External audit (2026-05-10) called this a "trust bug" — analysts
+// got finding counts that implied the whole capture had been seen
+// when in fact the parser had bailed mid-file. Errors now flow up
+// through the SSE status channel so the operator sees them in the
+// status banner; the analyzer keeps processing the rest of the
+// fileset rather than aborting the whole pass on one bad file.
+// The error is also accumulated on the analyzer so a higher-level
+// caller can summarise at end of run if desired.
+func (a *Analyzer) parseLog(path string, yield func(rec map[string]any) bool) {
+	if err := parser.ParseLog(path, yield); err != nil {
+		a.recordParseError(path, err)
+	}
+}
+
+// recordParseError surfaces a per-file parse failure to the operator
+// and tracks it on the analyzer for downstream reporting. Cheap on
+// the success path; fires only when ParseLog returns non-nil.
+func (a *Analyzer) recordParseError(path string, err error) {
+	a.mu.Lock()
+	a.parseErrs = append(a.parseErrs, parseErr{path: path, err: err.Error()})
+	a.mu.Unlock()
+	a.sendStatus(fmt.Sprintf("Parser warning: %s — %v (file partially read)", filepath.Base(path), err))
+}
+
+// ParseErrors returns the list of files that failed to parse during
+// this run, with the underlying error string. Empty slice when
+// every file parsed cleanly. Caller should consult after Analyze /
+// AnalyzeTIOnly returns.
+func (a *Analyzer) ParseErrors() []ParseError {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	out := make([]ParseError, len(a.parseErrs))
+	for i, e := range a.parseErrs {
+		out[i] = ParseError{Path: e.path, Err: e.err}
+	}
+	return out
 }
 
 // parallelEach runs fn on each file concurrently, bounded by both CPU count

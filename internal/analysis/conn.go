@@ -26,8 +26,23 @@ type strobeKey struct{ src, dst string }
 type exfilKey struct{ src, dst string }
 type offKey struct{ src, dst string }
 
+// preBeaconRec captures the full per-connection contribution that the
+// lazy-init replay path has to back-fill into beaconState. Stashing
+// only ts (the v0.8.0 fix) under-replayed: the timing axis got
+// rescued but byteVals (size axis), hourMap (histogram), tsData
+// (chart), and firstTs/minTs (duration coverage) still saw conn 3
+// as the start of the beacon. For a pair right at
+// BeaconMinConnections=10, that's 20% of the data fidelity missing.
+// Audited 2026-05-10. The struct is small enough that stashing two
+// of them per pre-allocation pair is well below the original lazy-
+// init memory budget.
+type preBeaconRec struct {
+	ts    float64
+	origB float64
+	respB float64
+}
+
 type beaconState struct {
-	total      int
 	lastTs     float64
 	ivs        []float64
 	ivsSeen    int
@@ -61,11 +76,13 @@ func (a *Analyzer) analyzeConn(files []string) {
 	beacon := make(map[pairKey]*beaconState)
 
 	// Connections 1 and 2 of each pair are stashed here so their
-	// timestamps can be replayed when state allocation finally happens
-	// at connection 3. Without the stash the first two intervals
-	// (1→2 and 2→3) are silently dropped, costing ~22% of the
-	// timing data on a 10-connection beacon.
-	preBeaconTs := make(map[pairKey][]float64)
+	// full contribution (ts, bytes, chart triple, hour bucket,
+	// firstTs/minTs window) can be replayed when state allocation
+	// finally happens at connection 3. Pre-v0.8.1 only ts was
+	// stashed and only the timing-axis interval reservoir was
+	// replayed — every other dimension under-counted by 2 records
+	// out of N. Audited 2026-05-10.
+	preBeaconRecs := make(map[pairKey][]preBeaconRec)
 
 	strobeCounts := make(map[strobeKey]int)
 	strobeFirst := make(map[strobeKey]float64)
@@ -97,7 +114,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 
 		sensor := a.sensorOf(path)
 
-		_ = parser.ParseLog(path, func(rec map[string]any) bool {
+		a.parseLog(path, func(rec map[string]any) bool {
 			src := parser.GetStr(rec, "id.orig_h")
 			dst := parser.GetStr(rec, "id.resp_h")
 			if src == "" || dst == "" {
@@ -219,9 +236,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 			pk := pairKey{sensor, src, dst}
 			pairCounts[pk]++
 			if pairCounts[pk] < beaconLazyMinConn {
-				if ts > 0 {
-					preBeaconTs[pk] = append(preBeaconTs[pk], ts)
-				}
+				preBeaconRecs[pk] = append(preBeaconRecs[pk], preBeaconRec{ts: ts, origB: origB, respB: respB})
 				return true
 			}
 			st := beacon[pk]
@@ -234,35 +249,66 @@ func (a *Analyzer) analyzeConn(files []string) {
 					minTs:      ts,
 					maxTs:      ts,
 				}
-				// Replay the stashed timestamps so intervals 1→2 and 2→3
-				// land in the reservoir alongside every later interval.
-				// Sets lastTs to the stash's final ts so the main code
-				// below records the interval from that ts to the current
-				// (connection 3) ts.
-				if early := preBeaconTs[pk]; len(early) > 0 {
-					for _, ets := range early {
-						if st.lastTs > 0 && ets > st.lastTs {
-							iv := ets - st.lastTs
+				// Replay every dimension that conns 1 and 2 contributed
+				// to: timing intervals, byte-size samples, chart triples,
+				// hour buckets, and the firstTs/minTs window. Pre-v0.8.1
+				// the replay only touched intervals; firstTs reported
+				// conn 3's timestamp (analyst chasing "when did this
+				// start" got the wrong answer), the duration-coverage
+				// span was 2 connections too narrow, and byteVals/
+				// hourMap/tsData were computed on N-2 samples while the
+				// finding still claimed N. Audited 2026-05-10.
+				for _, e := range preBeaconRecs[pk] {
+					if e.ts > 0 {
+						if st.firstTs == 0 || e.ts < st.firstTs {
+							st.firstTs = e.ts
+						}
+						if st.minTs == 0 || e.ts < st.minTs {
+							st.minTs = e.ts
+						}
+						if e.ts > st.maxTs {
+							st.maxTs = e.ts
+						}
+					}
+					if e.ts > st.lastTs {
+						if st.lastTs > 0 {
+							iv := e.ts - st.lastTs
 							st.ivs, st.ivsSeen = reservoirAddF(st.ivs, st.ivsSeen, iv, beaconIvCap)
 						}
-						st.lastTs = ets
+						st.lastTs = e.ts
 					}
-					delete(preBeaconTs, pk)
+					if e.origB > 0 {
+						st.byteVals, st.byteSeen = reservoirAddF(st.byteVals, st.byteSeen, e.origB, beaconByteCap)
+					}
+					st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{e.ts, e.origB, e.respB}, beaconTsCap)
+					if e.ts > 0 {
+						st.hourMap[int(e.ts)/3600]++
+					}
 				}
+				delete(preBeaconRecs, pk)
 				beacon[pk] = st
 			}
-			st.total++
 			if ts < st.minTs {
 				st.minTs = ts
 			}
 			if ts > st.maxTs {
 				st.maxTs = ts
 			}
-			if st.lastTs > 0 && ts > st.lastTs {
-				iv := ts - st.lastTs
-				st.ivs, st.ivsSeen = reservoirAddF(st.ivs, st.ivsSeen, iv, beaconIvCap)
+			// Only advance lastTs when the new record moves forward.
+			// Pre-fix the assignment was unconditional, so an
+			// out-of-order record (multi-sensor clock drift, conn
+			// close-time logging at high load) would rewind lastTs
+			// backward. The next valid forward record then computed
+			// its interval against the rewound timestamp, sampling an
+			// inflated bogus value into the reservoir. Audited
+			// 2026-05-10.
+			if ts > st.lastTs {
+				if st.lastTs > 0 {
+					iv := ts - st.lastTs
+					st.ivs, st.ivsSeen = reservoirAddF(st.ivs, st.ivsSeen, iv, beaconIvCap)
+				}
+				st.lastTs = ts
 			}
-			st.lastTs = ts
 			if origB > 0 {
 				st.byteVals, st.byteSeen = reservoirAddF(st.byteVals, st.byteSeen, origB, beaconByteCap)
 			}

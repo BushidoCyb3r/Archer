@@ -30,8 +30,18 @@ func ParseLog(path string, yield func(rec map[string]any) bool) error {
 	}
 
 	sc := bufio.NewScanner(r)
+	// 16 MiB max line size. Modern HTTP captures regularly exceed
+	// 1 MiB on a single record (large query strings, base64-encoded
+	// uploads, fat set[string] fields). The previous 1 MiB cap
+	// silently truncated everything after the offending line via
+	// bufio.ErrTooLong, and the analyzer discarded the error — analysts
+	// got finding counts that implied the whole file had been scanned
+	// when the parser had bailed. The 16 MiB ceiling is large enough
+	// for any realistic Zeek record while still catching truly
+	// pathological binary garbage. The error path now propagates so
+	// callers can surface it.
 	buf := make([]byte, 1<<20)
-	sc.Buffer(buf, 1<<20)
+	sc.Buffer(buf, 16<<20)
 
 	// Peek at first non-comment line to detect format
 	var firstDataLine string

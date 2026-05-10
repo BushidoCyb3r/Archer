@@ -1013,6 +1013,20 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		// Off-hours window with start == end silently disabled
+		// detection: the wraparound branch (start > end) was false
+		// and the standard branch (hour >= X && hour < X) was always
+		// false, so off-hours findings simply never fired and admins
+		// got no signal that their config disabled a detector.
+		// Reject loudly. Audited 2026-05-10.
+		if cfg.OffHoursStart == cfg.OffHoursEnd {
+			jsonError(w, "off_hours_start and off_hours_end must differ; equal values silently disable off-hours detection", http.StatusBadRequest)
+			return
+		}
+		if cfg.OffHoursStart < 0 || cfg.OffHoursStart > 23 || cfg.OffHoursEnd < 0 || cfg.OffHoursEnd > 23 {
+			jsonError(w, "off_hours_start and off_hours_end must be in [0, 23]", http.StatusBadRequest)
+			return
+		}
 		s.store.SetConfig(cfg)
 		jsonOK(w)
 	default:

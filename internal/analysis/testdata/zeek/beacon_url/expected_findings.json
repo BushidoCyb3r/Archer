@@ -7,7 +7,7 @@
     "dst_ip": "203.0.113.10",
     "dst_port": "443",
     "detail": "Connections: 30 | Mean interval: 60.0s | CV: 0.00 | Score components: ts=1.00 ds=1.00 hist=0.00 dur=0.00",
-    "timestamp": "2024-01-15 12:02:00"
+    "timestamp": "2024-01-15 12:00:00"
   },
   {
     "type": "Host Risk Score",
@@ -16,7 +16,7 @@
     "src_ip": "192.168.1.5",
     "dst_ip": "(network)",
     "detail": "Composite risk: 65 | Detections: [Beaconing Suspicious URL TI Hit (Domain)]",
-    "timestamp": "2024-01-15 12:02:00"
+    "timestamp": "2024-01-15 12:00:00"
   },
   {
     "type": "Suspicious URL",

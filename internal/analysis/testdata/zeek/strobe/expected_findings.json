@@ -7,7 +7,7 @@
     "dst_ip": "203.0.113.30",
     "dst_port": "443",
     "detail": "Connections: 1000 | Mean interval: 16.0s | CV: 0.54 | Score components: ts=0.76 ds=0.81 hist=0.74 dur=0.00",
-    "timestamp": "2024-01-15 12:00:38"
+    "timestamp": "2024-01-15 12:00:00"
   },
   {
     "type": "Host Risk Score",
@@ -16,7 +16,7 @@
     "src_ip": "192.168.1.20",
     "dst_ip": "(network)",
     "detail": "Composite risk: 45 | Detections: [Beaconing Strobe]",
-    "timestamp": "2024-01-15 12:00:38"
+    "timestamp": "2024-01-15 12:00:00"
   },
   {
     "type": "Strobe",

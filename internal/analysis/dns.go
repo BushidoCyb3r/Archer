@@ -5,9 +5,39 @@ import (
 	"math"
 	"strings"
 
+	"golang.org/x/net/publicsuffix"
+
 	"github.com/BushidoCyb3r/Archer/internal/model"
 	"github.com/BushidoCyb3r/Archer/internal/parser"
 )
+
+// apexFromQuery extracts the registrable domain (eTLD+1) using the
+// Mozilla Public Suffix List. Pre-fix the apex was the last two
+// labels joined: that broke for multi-component eTLDs like .co.uk
+// (bbc.co.uk → "co.uk"), .com.au (example.com.au → "com.au"),
+// .ac.jp, .gov.cn etc., bucketing every subdomain under the public
+// suffix and inflating the per-(src, apex) diversity counter past
+// DNSUniqueSubdomainMin trivially in any non-US environment. The
+// PSL gets it right and is the canonical answer maintained by
+// Mozilla for exactly this purpose. Falls back to the simple
+// last-two-labels heuristic on lookup failure (the input wasn't a
+// recognised public name) since the alternative is dropping the
+// query entirely and we'd rather over-count diversity than skip
+// the record. Audited 2026-05-10.
+func apexFromQuery(query string) string {
+	q := strings.TrimSuffix(strings.TrimSpace(query), ".")
+	if q == "" {
+		return ""
+	}
+	if etld1, err := publicsuffix.EffectiveTLDPlusOne(q); err == nil {
+		return etld1
+	}
+	labels := strings.Split(q, ".")
+	if len(labels) < 2 {
+		return q
+	}
+	return strings.Join(labels[len(labels)-2:], ".")
+}
 
 func (a *Analyzer) analyzeDNS(files []string) {
 	type apexKey struct{ src, apex string }
@@ -19,13 +49,13 @@ func (a *Analyzer) analyzeDNS(files []string) {
 	apexMap := make(map[apexKey]*apexData)
 	nxCounts := make(map[string]int) // src → nxdomain count
 	nxFirst := make(map[string]float64)
-	seenPerQuery := make(map[[2]string]bool)
+	seenTunnel := make(map[[2]string]bool)
 	seenTLD := make(map[[2]string]bool)
 	seenDoH := make(map[[2]string]bool)
 
 	dnsFiles := filterFiles(files, "dns")
 	for _, f := range dnsFiles {
-		_ = parser.ParseLog(f, func(rec map[string]any) bool {
+		a.parseLog(f, func(rec map[string]any) bool {
 			src := parser.GetStr(rec, "id.orig_h")
 			dst := parser.GetStr(rec, "id.resp_h")
 			query := strings.TrimRight(strings.ToLower(parser.GetStr(rec, "query")), ".")
@@ -60,7 +90,15 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			// NXDOMAIN flood
 			if rcode == "NXDOMAIN" {
 				nxCounts[src]++
-				if nxCounts[src] == 1 || ts < nxFirst[src] {
+				// Guard nxFirst against a leading record with ts == 0
+				// (missing field). Pre-fix any first record with ts == 0
+				// poisoned nxFirst, and the subsequent ts < nxFirst
+				// check then never fired for valid forward timestamps,
+				// so the finding's Timestamp reported as empty even
+				// when later records carried a real time. Audited
+				// 2026-05-10. Same guard pattern apexMap[k].firstTS
+				// already uses below.
+				if ts > 0 && (nxFirst[src] == 0 || ts < nxFirst[src]) {
 					nxFirst[src] = ts
 				}
 			}
@@ -69,7 +107,10 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			if len(labels) < 2 {
 				return true
 			}
-			apex := strings.Join(labels[len(labels)-2:], ".")
+			apex := apexFromQuery(query)
+			if apex == "" {
+				return true
+			}
 
 			// Suspicious TLD
 			tld := "." + labels[len(labels)-1]
@@ -130,8 +171,8 @@ func (a *Analyzer) analyzeDNS(files []string) {
 
 			if isTunnel {
 				key := [2]string{src, apex}
-				if !seenPerQuery[key] {
-					seenPerQuery[key] = true
+				if !seenTunnel[key] {
+					seenTunnel[key] = true
 					score := clamp(int(math.Min(55+ent*6, 88)), 1, 95)
 					a.add(model.Finding{
 						Type:       "DNS Tunneling",
