@@ -14,18 +14,27 @@ import (
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
 
+// sensorWindow is the per-sensor capture window used by time-based
+// scoring (Beaconing histogram + duration). Keying the window by
+// sensor keeps multi-sensor /logs/ trees independent — a January
+// capture and an October capture each get scored against their own
+// span instead of being smeared across the union of both.
+type sensorWindow struct {
+	min, max float64
+}
+
 // Analyzer orchestrates all Zeek log analysis steps.
 type Analyzer struct {
-	cfg          config.Config
-	progressCh   chan<- ProgressEvent
-	statusCh     chan<- string
-	mu           sync.RWMutex
-	findings     []model.Finding
-	nextID       int
-	datasetMin   float64
-	datasetMax   float64
-	sslUIDIndex  map[string]sslEntry
-	httpUIDIndex map[string]httpEntry
+	cfg           config.Config
+	logsDir       string
+	progressCh    chan<- ProgressEvent
+	statusCh      chan<- string
+	mu            sync.RWMutex
+	findings      []model.Finding
+	nextID        int
+	sensorWindows map[string]sensorWindow
+	sslUIDIndex   map[string]sslEntry
+	httpUIDIndex  map[string]httpEntry
 
 	// Pre-fetched threat intel feeds (populated during phase 0)
 	feodoIPs     map[string]bool
@@ -47,22 +56,75 @@ type Analyzer struct {
 }
 
 // New creates an Analyzer. progressCh and statusCh may be nil.
-func New(cfg config.Config, progressCh chan<- ProgressEvent, statusCh chan<- string) *Analyzer {
+// logsDir is the directory below which sensor names are derived (the
+// first path component under it); it can be /logs for live analysis or
+// /data/archive for archive-IOC re-scans. Pass "" to disable per-sensor
+// bucketing — every record then lands in a single anonymous bucket
+// (the legacy behavior, retained for tests that don't care about
+// sensor identity).
+func New(cfg config.Config, logsDir string, progressCh chan<- ProgressEvent, statusCh chan<- string) *Analyzer {
 	ctx, cancel := context.WithCancel(context.Background())
 	resumeCh := make(chan struct{})
 	close(resumeCh) // start in running state
 	return &Analyzer{
-		cfg:          cfg,
-		progressCh:   progressCh,
-		statusCh:     statusCh,
-		datasetMin:   math.MaxFloat64,
-		datasetMax:   0,
-		sslUIDIndex:  make(map[string]sslEntry),
-		httpUIDIndex: make(map[string]httpEntry),
-		ctx:          ctx,
-		cancel:       cancel,
-		resumeCh:     resumeCh,
+		cfg:           cfg,
+		logsDir:       logsDir,
+		progressCh:    progressCh,
+		statusCh:      statusCh,
+		sensorWindows: make(map[string]sensorWindow),
+		sslUIDIndex:   make(map[string]sslEntry),
+		httpUIDIndex:  make(map[string]httpEntry),
+		ctx:           ctx,
+		cancel:        cancel,
+		resumeCh:      resumeCh,
 	}
+}
+
+// sensorOf returns the first path component under logsDir, which is the
+// sensor name in a Quiver-fed deployment. Returns "" when logsDir is
+// empty or filePath escapes it — callers treat "" as a single anonymous
+// bucket so detection still runs on hand-fed paths that don't follow
+// the /<sensor>/<date>/ layout.
+func (a *Analyzer) sensorOf(filePath string) string {
+	if a.logsDir == "" {
+		return ""
+	}
+	rel, err := filepath.Rel(filepath.Clean(a.logsDir), filepath.Clean(filePath))
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return ""
+	}
+	parts := strings.SplitN(rel, string(filepath.Separator), 2)
+	if len(parts) > 0 && parts[0] != "." {
+		return parts[0]
+	}
+	return ""
+}
+
+// observeWindow records ts against sensor's capture window. Caller
+// holds nothing; this method takes a.mu briefly to merge.
+func (a *Analyzer) observeWindow(sensor string, ts float64) {
+	if ts <= 0 {
+		return
+	}
+	a.mu.Lock()
+	w := a.sensorWindows[sensor]
+	if w.min == 0 || ts < w.min {
+		w.min = ts
+	}
+	if ts > w.max {
+		w.max = ts
+	}
+	a.sensorWindows[sensor] = w
+	a.mu.Unlock()
+}
+
+// windowOf returns the capture window for sensor under read lock.
+// Returns zero values when the sensor was never observed.
+func (a *Analyzer) windowOf(sensor string) sensorWindow {
+	a.mu.RLock()
+	w := a.sensorWindows[sensor]
+	a.mu.RUnlock()
+	return w
 }
 
 // SetFeedProvider wires the source of MISP/OpenCTI feed indicators

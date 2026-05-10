@@ -11,7 +11,7 @@ import (
 // Without this guard, golden-file tests would hit Feodo Tracker and URLhaus
 // over the live internet, making them flaky and network-dependent.
 func TestPrefetchFeedsRespectsPrepopulated(t *testing.T) {
-	a := New(config.Default(), nil, nil)
+	a := New(config.Default(), "", nil, nil)
 	a.feodoIPs = map[string]bool{"203.0.113.1": true}
 	a.urlhausIPs = map[string]bool{"203.0.113.2": true}
 	a.urlhausHosts = map[string]bool{"malware.test": true}
@@ -39,7 +39,7 @@ func TestPrefetchFeedsRespectsPrepopulated(t *testing.T) {
 // Tests that want zero TI hits set the maps to empty (not nil) to neutralize
 // the feeds without taking a network round-trip.
 func TestPrefetchFeedsEmptyMapStillCounts(t *testing.T) {
-	a := New(config.Default(), nil, nil)
+	a := New(config.Default(), "", nil, nil)
 	a.feodoIPs = map[string]bool{}
 	a.urlhausIPs = map[string]bool{}
 	a.urlhausHosts = map[string]bool{}

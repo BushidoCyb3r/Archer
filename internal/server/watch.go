@@ -333,7 +333,7 @@ func (s *Server) launchIncrementalAnalysis(files []string) {
 
 	logsDir := s.logsDir
 	go func() {
-		az := analysis.New(cfg, progressCh, statusCh)
+		az := analysis.New(cfg, logsDir, progressCh, statusCh)
 		// Match against MISP/OpenCTI indicators on incremental ticks
 		// using whatever's currently in the DB — no fetch. The watch
 		// full-pass tick is the only path that refreshes upstream feeds
@@ -551,7 +551,7 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) {
 
 	logsDir := s.logsDir
 	go func() {
-		az := analysis.New(cfg, progressCh, statusCh)
+		az := analysis.New(cfg, logsDir, progressCh, statusCh)
 		az.SetFeedProvider(s.store)
 
 		s.analyzerMu.Lock()
