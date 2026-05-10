@@ -68,13 +68,21 @@ func NewMISPClient(baseURL, apiKey string, tlsSkipVerify bool) *MISPClient {
 // per-feed tls_skip_verify flag. Cloned from the stdlib default so we
 // keep its connection-pool and proxy behavior; only TLSClientConfig is
 // rewritten when the operator opts into bypass.
+//
+// Per-request Timeout caps a single page fetch. MISP's restSearch
+// pagination degrades with depth on large feeds — a single page can
+// take 5-15s on a 1M-attribute MISP at high offsets — so 30s left no
+// margin. 90s is generous enough for a single page on any realistic
+// MISP while still detecting a genuinely stuck connection. The parent
+// context (5-minute manual refresh, 10-minute watch full-pass) caps
+// total fetch time across all pages.
 func httpClientWithTLS(skipVerify bool) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if skipVerify {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 	return &http.Client{
-		Timeout:   30 * time.Second,
+		Timeout:   90 * time.Second,
 		Transport: transport,
 	}
 }

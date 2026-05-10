@@ -205,7 +205,13 @@ func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 
 // handleFeedRefresh runs an immediate fetch+upsert+prune cycle for
 // one feed, bypassing the watch-tick cadence. Synchronous — capped at
-// 60s — so the admin gets immediate feedback in the Feeds dialog.
+// 5 minutes — so the admin gets prompt feedback in the Feeds dialog
+// while still allowing fetches against larger MISPs (whose offset-based
+// pagination degrades with depth: a 100k-attribute MISP can take 2-3
+// minutes for a full sweep). Beyond 5 minutes the upstream is more
+// likely stuck than slow; the dialog reports the timeout so the admin
+// can narrow the source-side filter or pursue incremental sync (queued
+// in TODO.md / MATURATION_PLAN as the long-term correct fix).
 // Used to verify connectivity after configuring a new feed without
 // waiting for the next watch tick.
 func (s *Server) handleFeedRefresh(w http.ResponseWriter, r *http.Request, id int64) {
@@ -228,7 +234,7 @@ func (s *Server) handleFeedRefresh(w http.ResponseWriter, r *http.Request, id in
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
 
 	added, refreshed, err := s.runFeedFetch(ctx, feed)
