@@ -429,13 +429,22 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 	return newNotifs
 }
 
-func (s *Store) UpdateFinding(id int, status model.Status, analyst, note, statusTS string) bool {
+// UpdateFinding mutates a finding's status/analyst/note/status_ts and
+// returns the pre-mutation snapshot so callers writing an audit-log
+// row can record the actual transition rather than a separate
+// GetFinding-then-UpdateFinding pair (which races against concurrent
+// PATCHes on the same finding — the on-disk state stays correct but
+// the audit row's BeforeValue could otherwise reflect a stale read).
+// The snapshot is taken under the same mutex as the mutation.
+// Audit 2026-05-10 NEW-36.
+func (s *Store) UpdateFinding(id int, status model.Status, analyst, note, statusTS string) (model.Finding, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	i, ok := s.findingsIdx[id]
 	if !ok {
-		return false
+		return model.Finding{}, false
 	}
+	before := s.findings[i]
 	s.findings[i].Status = status
 	s.findings[i].Analyst = analyst
 	s.findings[i].AnalystNote = note
@@ -446,7 +455,7 @@ func (s *Store) UpdateFinding(id int, status model.Status, analyst, note, status
 			log.Printf("store: update finding %d: %v", id, err)
 		}
 	}
-	return true
+	return before, true
 }
 
 func (s *Store) GetFinding(id int) (model.Finding, bool) {
