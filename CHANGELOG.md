@@ -30,6 +30,55 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.11.0] — 2026-05-10
+
+Third audit-driven correctness release in three days. Seven
+medium/high issues (NEW-7 through NEW-13) plus a low-priority
+cluster surfaced by the 2026-05-10 external review (fourth pass on
+the codebase). The auditor's meta-point this round: shared
+constant maps and operator-time references both have a "single
+source of truth" failure mode — duplicate the map keys in two
+places, or skip operator timezone in one of three boundary
+calculations, and the bug is silent. NEW-9 (typo'd map keys
+falling through to a wide scan) and NEW-12 (watch boundary in UTC
+while findings filter is in operator-local) are the same shape,
+recorded in MATURATION_PLAN section 8.
+
+### Added
+
+- **`internal/store.Store.findingsIdx` id→slice-index map for
+  O(1) finding lookup.** `GetFinding` / `UpdateFinding` /
+  `AddNote` walked the entire findings slice linearly on every
+  call. Long-running installs accumulate 5-10k preserved
+  historical findings; analyst hot paths (status flip, note
+  add) added ms-scale jitter the SSE stream amplified. Index
+  rebuilt in lockstep with every slice rewrite (load loop,
+  SetFindings, ClearFindings, PruneFindingsBefore) via a single
+  `rebuildFindingsIdx` helper so the consistency invariant is
+  one function call. New `TestFindingsIdx_StaysConsistentAcross-
+  Mutations` exercises every mutation path. Follow-up to the
+  audit, not a discrete NEW item.
+
+- **`TestLogTypesForFinding_CoversAllEmittedTypes` consistency
+  test.** Walks every `expected_findings.json` in the analyzer
+  goldens, extracts every distinct `Type` value, and asserts each
+  has an entry in `internal/server.logTypesForFinding`. Future
+  analyzers adding a finding type without a corresponding pivot
+  entry now break the test instead of silently degrading the
+  raw-log pivot to scan-everything fallback. NEW-9 follow-up.
+
+- **`TestDampenComposite_*` unit tests.** Cover the new
+  log-scale damping curve (asymptotic toward 99 above raw=75,
+  identity below), monotonicity over [0, 500], and the never-
+  exceeds-99 cap. NEW-10 follow-up.
+
+- **`TestRequireAuth_RejectsNonActiveStatus`,
+  `TestDeleteSessionsForUser_DropsAllSessions`,
+  `TestSuppressions_RejectsInvalidDays`,
+  `TestSuppressions_DeleteUnescapesPath`,
+  `TestMoveFile_NonEXDEVErrorSurfaces` regression tests.** Cover
+  NEW-7, NEW-8, NEW-13, and the LOW PathUnescape fix.
+
 ### Changed
 
 - **`Store.IsSuppressed` is now a pure read; suppression cleanup
@@ -53,7 +102,160 @@ relevant, `### Detection changes` in each release entry.
   Boot-time prune in `InitDB` already exists for cold-start
   catch-up.
 
+- **SSE `Publish` now splits multi-line `Data` payloads across
+  separate `data:` lines per the SSE spec.** Pre-fix any literal
+  `\n` in `evt.Data` prematurely terminated the event ("\n\n" is
+  the record separator) and the rest of the payload was parsed
+  by the browser as a free-form continuation. JSON serializers
+  don't emit interior newlines today, but operator-supplied
+  strings — analyst notes, error messages from third-party
+  feeds — can leak them in via codepaths whose escaping isn't
+  verified. Audit 2026-05-10 LOW.
+
+- **`handleDeleteSuppression` now `url.PathUnescape`s the key
+  before lookup.** Frontend percent-encodes suppression keys
+  containing `/` or `%` (e.g. CIDR ranges); pre-fix the trim+
+  raw-pass meant the encoded form never matched the stored
+  entry and the delete silently no-op'd from the analyst's POV.
+  Malformed escapes return 400 instead of guessing. Audit
+  2026-05-10 LOW.
+
+- **`Store.ConsumeEnrollmentToken` UPDATE now atomic on the
+  WHERE clause.** Pre-fix the validation was a SELECT-then-
+  UPDATE pair relying on `s.mu` for serialization. Mutex held
+  across both statements is correct today, but TOCTOU was
+  latent: anything bypassing the lock (or removing it for perf)
+  would let two sensors successfully enroll against the same
+  single-use token. The fix collapses the check into the WHERE
+  clause (`token=? AND used_at=0 AND expires_at>?`) so the
+  predicate is enforced by SQLite itself; `rowsAffected==0`
+  means the token was already consumed or expired regardless of
+  when. Audit 2026-05-10 LOW.
+
+- **Archive dry-run preview now mirrors the real run's
+  destination-collision skip.** Pre-fix the dry-run counted
+  every eligible source as movable; the real run silently
+  turned half of them into Skipped on a re-trigger, so admins
+  saw "23 files / 4.1 GiB" preview → "12 files / 2.1 GiB, 11
+  skipped" actual. Now the preview runs the same `os.Stat(dst)`
+  collision check (read-only, no MkdirAll) so the counts agree.
+  Audit 2026-05-10 LOW.
+
+### Fixed
+
+- **Suppression endpoint rejects `NaN` / `±Inf` / out-of-range
+  `days` (NEW-7).** Pre-fix only `days > 0` was checked, so
+  `{"days": 1e15}` overflowed `int64` inside `time.Duration`
+  construction (1e15 × 86400e9 wraps the signed int64 ceiling
+  to a negative or pathological value). Resulting expiry could
+  land in the past (suppression immediately false) or thousands
+  of years out (effectively forever); NaN/Inf gave undefined-
+  behavior conversions. Both surfaces were soft-DoS / audit-
+  bypass shapes for an analyst with POST access to
+  `/api/suppressions`. New explicit `math.IsNaN` / `math.IsInf`
+  rejection plus a `(0, 365]` finite range. 365-day cap is
+  generous (longest realistic suppression window) and bounds
+  the duration math comfortably within int64.
+
+- **Session validity now re-checks user `Status` on every
+  request (NEW-8).** Pre-fix `requireAuth` trusted whatever
+  status was in the database row at session creation; an admin
+  demoting a user from active → pending or marking an account
+  compromised had no effect on the user's existing 24-hour
+  session. Now `requireAuth` reads the user row each request
+  via `GetSession` → `GetUserByID` and 401s any non-active
+  status, dropping the in-memory token at the same time so a
+  status flip-back doesn't silently re-validate. Admin-side
+  mutation paths (`ApproveUser`, `UpdateUserRole`, `DeleteUser`)
+  additionally call new `UserStore.DeleteSessionsForUser` so
+  the in-memory session map doesn't hold orphans that would
+  401 every request until natural 24-hour expiry.
+
+- **`logTypesForFinding` map keys now match every analyzer-
+  emitted `Finding.Type` (NEW-9).** Four keys silently
+  disagreed with what analyzers emit: `"DNS Tunnel"` (analyzer
+  emits `"DNS Tunneling"`), `"NXDOMAIN Flood"` (vs `"DNS
+  NXDOMAIN Flood"`), `"No-SNI"` (vs `"SSL No-SNI"` /
+  `"SSL No-SNI on C2 Port"`), `"Weird Event"` (vs `"Protocol
+  Anomaly"`). `Host Risk Score` had no entry at all. The
+  lookup-miss fallback at `handleFindingRaw` scans the wide
+  `{conn, http, dns, ssl}` set, so the pivot returned records
+  but from the wrong protocols, and the analyst saw mixed
+  results. Keys aligned; new `SSL No-SNI on C2 Port` and `Host
+  Risk Score` entries added. Compile-time consistency test
+  (above) prevents future analyzer additions from drifting
+  again.
+
+- **`risk.go` log damping now actually log-damps (NEW-10).**
+  The pre-fix code clamped via `math.Min(composite, 99)` while
+  the comment claimed log-scale damping. Two saturated hosts
+  (raw=120 and raw=300) both reported `"99"` — losing the
+  relative signal the analyst used to triage which host was
+  worse. Now identity below raw=75 (preserves single-/few-
+  detector hosts at their unscaled scores — same shape goldens
+  exercise) and asymptotic 75 + 24 × (1 − exp(−(raw−75)/50))
+  above. Resolution preserved at the high end: raw=100 → 84,
+  raw=150 → 94, raw=200 → 97, raw=400 → 99. Severity bucketing
+  in `aggregateRisk` unchanged.
+
+- **Host Risk Score timestamp now picks chronologically
+  earliest contributing detector (NEW-11).** Pre-fix the
+  timestamp was set on first-encountered (slice iteration
+  order), so a host whose first detector emit was at 12:00:15
+  stamped the roll-up `12:00:15` even when an earlier 12:00:00
+  TI hit also contributed. Lexicographic compare on the
+  `"YYYY-MM-DD HH:MM:SS UTC"` format is chronological. One
+  golden updated (`ti_misp_feed`: `12:00:15` → `12:00:00`).
+
+- **Watch full/incremental boundary now respects operator
+  timezone (NEW-12).** Pre-fix the boundary was hard-coded to
+  UTC, so an operator in (e.g.) America/Los_Angeles saw the
+  "first full run of the day" fire at 5 PM local in winter / 4
+  PM in summer instead of midnight, and day-boundary anchored
+  statistics (beacon mean interval, exfil aggregation) split
+  across two operator-local days even when no actual day
+  change had happened from their perspective. Same
+  `operatorLocation()` helper the findings filter (NEW-4) and
+  off-hours detector use.
+
+- **`moveFile` non-EXDEV errors no longer fall through to copy
+  fallback (NEW-13).** Pre-fix the EXDEV check was an empty
+  else-if body, so any rename failure (permission denied on
+  dst, source vanished mid-archive, dst exists) fell through
+  to the copy path and either silently masked the real failure
+  or produced a misleading second error from `os.Open`. Fall-
+  back now gated to `errors.Is(err, syscall.EXDEV)` explicitly;
+  every other error short-circuits with the real `os.Rename`
+  diagnostic intact.
+
+- **`riskWeights` design rationale recorded.** Audit asked
+  whether weights should be operator-configurable. Documented
+  why no: per-detector thresholds (in `Config`) are tuned to
+  the noise floor of the operator's traffic; risk weights
+  encode the *relative* danger of detection types across
+  deployments. Letting operators tune them locally would
+  silently desynchronize roll-up scores between installs and
+  make feed-shared incident discussions ("we saw a host risk
+  80 spike") useless. Audit 2026-05-10 LOW.
+
 ### Detection changes
+
+- **Host Risk Score now grows asymptotically above raw=75
+  instead of clamping at 99.** Pre-fix two saturated hosts
+  (raw=120 vs raw=300) both reported `99` and analysts couldn't
+  rank them; post-fix the same hosts report 88 vs 98 — relative
+  ordering preserved at the high end. Identity below raw=75 so
+  single-/few-detector hosts (the common shape) keep their
+  unscaled scores and existing alerting tuned to those values
+  is unchanged. Severity bucketing (`≥75 CRITICAL`, `≥50 HIGH`,
+  `≥25 MEDIUM`) unchanged. NEW-10.
+
+- **Host Risk Score timestamp now picks the chronologically
+  earliest contributing detector's timestamp.** Pre-fix slice
+  iteration order, so the roll-up's "first observed" stamp was
+  whichever detector emitted first on disk — could be a 12:00:15
+  HTTP detection when a 12:00:00 TI hit also contributed. One
+  golden updated. NEW-11.
 
 - **DNS Tunneling entropy signal now gated on label length.**
   Pre-fix the entropy floor at 3.5 bits Shannon fired regardless
@@ -1707,7 +1909,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.11.0...HEAD
+[v0.11.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.10.0...v0.11.0
 [v0.10.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.9.0...v0.10.0
 [v0.9.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.8.0...v0.9.0
 [v0.8.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.7.0...v0.8.0
