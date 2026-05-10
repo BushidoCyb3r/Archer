@@ -272,10 +272,30 @@ func (s *Store) ListEnrollmentTokens() []EnrollmentToken {
 
 // ConsumeEnrollmentToken validates the token (exists, not used, not expired)
 // and atomically marks it consumed. Returns the token row on success.
+//
+// Pre-fix the validation was a SELECT-then-UPDATE pair that relied on s.mu
+// to serialize concurrent /api/quiver/enroll calls. Mutex held across both
+// statements is correct today, but TOCTOU was latent: anything that ever
+// bypassed the lock (or removing the lock for perf) would let two sensors
+// successfully enroll against the same single-use token. The fix collapses
+// the check into the WHERE clause so the predicate is enforced by SQLite
+// itself; rowsAffected==0 means the token already had used_at!=0 or had
+// expired, regardless of when it transitioned. Audit 2026-05-10 LOW.
 func (s *Store) ConsumeEnrollmentToken(token string, sensorName string, now int64) (EnrollmentToken, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.db == nil {
+		return EnrollmentToken{}, false
+	}
+	res, err := s.db.Exec(
+		`UPDATE enrollment_tokens SET used_at=?, consumed_by=?
+		 WHERE token=? AND used_at=0 AND expires_at>?`,
+		now, sensorName, token, now,
+	)
+	if err != nil {
+		return EnrollmentToken{}, false
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
 		return EnrollmentToken{}, false
 	}
 	var t EnrollmentToken
@@ -288,14 +308,6 @@ func (s *Store) ConsumeEnrollmentToken(token string, sensorName string, now int6
 	if err := row.Scan(&t.ID, &t.Token, &t.OverrideName, &t.CreatedAt, &t.ExpiresAt, &t.UsedAt, &t.CreatedBy, &t.ConsumedBy); err != nil {
 		return EnrollmentToken{}, false
 	}
-	if t.UsedAt != 0 || t.ExpiresAt <= now {
-		return EnrollmentToken{}, false
-	}
-	if _, err := s.db.Exec(`UPDATE enrollment_tokens SET used_at=?, consumed_by=? WHERE id=?`, now, sensorName, t.ID); err != nil {
-		return EnrollmentToken{}, false
-	}
-	t.UsedAt = now
-	t.ConsumedBy = sensorName
 	return t, true
 }
 

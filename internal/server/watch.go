@@ -241,8 +241,18 @@ func (s *Server) triggerWatchAnalysis() {
 		return
 	}
 
-	now := time.Now().UTC()
-	lastFull := s.store.GetLastFullAnalysisTime()
+	// Two-tier full/incremental boundary respects the operator's
+	// configured timezone — same Location the off-hours detector and
+	// the findings filter use. Pre-fix the boundary was hard-coded to
+	// UTC, so an operator in (say) America/Los_Angeles would see the
+	// "first full run of the day" fire at 5 PM local in winter / 4 PM
+	// in summer instead of midnight, and the day-boundary anchored
+	// statistics (beacon mean interval, exfil aggregation) would split
+	// across two operator-local days even when no actual day change
+	// had happened from their perspective. Audit 2026-05-10 NEW-12.
+	loc := s.operatorLocation()
+	now := time.Now().In(loc)
+	lastFull := s.store.GetLastFullAnalysisTime().In(loc)
 	needFull := lastFull.IsZero() ||
 		lastFull.Year() != now.Year() ||
 		lastFull.YearDay() != now.YearDay()

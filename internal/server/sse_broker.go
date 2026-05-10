@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -71,7 +72,20 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case evt := <-ch:
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", evt.Type, evt.Data)
+			// SSE delimits records with "\n\n", so a literal newline
+			// inside Data would prematurely terminate the event and
+			// the rest of the payload would be parsed as a free-form
+			// continuation by the browser. The spec's escape hatch is
+			// "one data: prefix per line" — JSON serializers don't
+			// emit interior newlines today, but operator-supplied
+			// strings (notes, error messages from third-party feeds)
+			// can leak them in via unrelated codepaths. Audit
+			// 2026-05-10 LOW.
+			fmt.Fprintf(w, "event: %s\n", evt.Type)
+			for _, line := range strings.Split(evt.Data, "\n") {
+				fmt.Fprintf(w, "data: %s\n", line)
+			}
+			fmt.Fprint(w, "\n")
 			flusher.Flush()
 		case <-ticker.C:
 			// Keep-alive comment — prevents proxies and browsers from closing idle connections
