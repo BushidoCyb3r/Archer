@@ -21,6 +21,24 @@ import (
 	"github.com/BushidoCyb3r/Archer/internal/version"
 )
 
+// JSON body-size caps for analyst-facing mutation endpoints. Pre-
+// fix every decoder below read unbounded, so a compromised analyst
+// session (or a buggy automation script) could write a multi-MB
+// note onto a finding, replace the allowlist with a 100MB array, or
+// have the JSON decoder consume a 1GB body just to PATCH a status.
+// All persisted to disk and copied through every SetFindings merge.
+// Bounds are sized to the realistic content shape with generous
+// headroom; the import endpoint has its own larger cap because that
+// genuinely carries a bundle. The Quiver and sensor-management
+// endpoints already had matching caps. Audit 2026-05-10 NEW-35.
+const (
+	noteBodyMaxBytes     = 64 << 10  // PATCH /api/findings/{id}, POST /notes — note + status
+	escalateBodyMaxBytes = 256 << 10 // POST /escalate — note + ips/services arrays
+	listBodyMaxBytes     = 4 << 20   // PUT /allowlist, /ioc-list — room for ~150K entries
+	suppressBodyMaxBytes = 8 << 10   // POST /suppressions — tiny payload
+	configBodyMaxBytes   = 16 << 10  // PUT /config — fixed-shape struct
+)
+
 // sensorFromPath returns the first path component under logsDir, which is
 // the sensor name in a Quiver-fed deployment. Pre-Quiver / manual uploads
 // dropped logs into top-level subdirectories that served the same role —
@@ -481,17 +499,18 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 			Status string `json:"status"`
 			Note   string `json:"note"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, noteBodyMaxBytes)).Decode(&req); err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		// Snapshot the finding before the mutation so the audit log
-		// records the actual transition (open → false_positive, etc.)
-		// rather than just the post-state. v0.14.1 NEW-32.
-		before, _ := s.store.GetFinding(id)
 		user := userFromCtx(r)
 		ts := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
-		ok := s.store.UpdateFinding(id, model.Status(req.Status), user.DisplayName(), req.Note, ts)
+		// UpdateFinding returns the pre-mutation snapshot under the
+		// same mutex as the write, so the audit row's BeforeValue is
+		// the actual prior state — no race against a concurrent PATCH
+		// landing between a separate GetFinding and UpdateFinding.
+		// v0.14.2 NEW-36.
+		before, ok := s.store.UpdateFinding(id, model.Status(req.Status), user.DisplayName(), req.Note, ts)
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -507,7 +526,7 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 		s.recordAudit(r, "finding_status_change", auditEvent{
 			TargetType:  "finding",
 			TargetID:    strconv.Itoa(id),
-			TargetName:  before.Type,
+			TargetName:  findingAuditName(before),
 			BeforeValue: map[string]any{"status": string(before.Status)},
 			AfterValue:  map[string]any{"status": req.Status},
 			Details:     map[string]any{"note_length": len(strings.TrimSpace(req.Note))},
@@ -604,17 +623,17 @@ func (s *Server) handleEscalate(w http.ResponseWriter, r *http.Request) {
 		IPs      []string `json:"ips"`
 		Services []string `json:"services"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, escalateBodyMaxBytes)).Decode(&req); err != nil {
 		jsonError(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	// Snapshot before the mutation so the audit log records the
-	// pre-escalation status alongside the new escalated state.
-	// v0.14.1 NEW-32.
-	before, _ := s.store.GetFinding(id)
 	user := userFromCtx(r)
 	ts := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
-	ok := s.store.UpdateFinding(id, model.StatusEscalated, user.DisplayName(), req.Note, ts)
+	// UpdateFinding returns the pre-mutation snapshot under the same
+	// mutex so the audit row's BeforeValue.status is the actual prior
+	// state, not a separate GetFinding read that races against
+	// concurrent PATCHes. v0.14.2 NEW-36.
+	before, ok := s.store.UpdateFinding(id, model.StatusEscalated, user.DisplayName(), req.Note, ts)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -634,7 +653,7 @@ func (s *Server) handleEscalate(w http.ResponseWriter, r *http.Request) {
 	s.recordAudit(r, "finding_escalate", auditEvent{
 		TargetType:  "finding",
 		TargetID:    strconv.Itoa(id),
-		TargetName:  before.Type,
+		TargetName:  findingAuditName(before),
 		BeforeValue: map[string]any{"status": string(before.Status)},
 		AfterValue:  map[string]any{"status": string(model.StatusEscalated)},
 		Details: map[string]any{
@@ -1042,7 +1061,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cfg := s.store.GetConfig()
-		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, configBodyMaxBytes)).Decode(&cfg); err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -1084,16 +1103,24 @@ func (s *Server) handleAllowlist(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var entries []string
-		if err := json.NewDecoder(r.Body).Decode(&entries); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, listBodyMaxBytes)).Decode(&entries); err != nil {
 			jsonError(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
 		beforeAllow := s.store.GetAllowlist()
 		s.store.SetAllowlist(entries)
+		added, removed := diffStringSets(beforeAllow, entries)
 		s.recordAudit(r, "allowlist_edit", auditEvent{
-			TargetType:  "allowlist",
-			BeforeValue: map[string]any{"entries": beforeAllow, "entry_count": len(beforeAllow)},
-			AfterValue:  map[string]any{"entries": entries, "entry_count": len(entries)},
+			TargetType: "allowlist",
+			BeforeValue: map[string]any{
+				"entry_count": len(beforeAllow),
+				"sha256":      hashStringList(beforeAllow),
+			},
+			AfterValue: map[string]any{
+				"entry_count": len(entries),
+				"sha256":      hashStringList(entries),
+			},
+			Details: listEditAuditDetail(added, removed),
 		})
 		jsonOK(w)
 	}
@@ -1110,16 +1137,24 @@ func (s *Server) handleIOC(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var entries []string
-		if err := json.NewDecoder(r.Body).Decode(&entries); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, listBodyMaxBytes)).Decode(&entries); err != nil {
 			jsonError(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
 		beforeIOC := s.store.GetIOCList()
 		s.store.SetIOCList(entries)
+		added, removed := diffStringSets(beforeIOC, entries)
 		s.recordAudit(r, "ioc_edit", auditEvent{
-			TargetType:  "ioc_list",
-			BeforeValue: map[string]any{"entries": beforeIOC, "entry_count": len(beforeIOC)},
-			AfterValue:  map[string]any{"entries": entries, "entry_count": len(entries)},
+			TargetType: "ioc_list",
+			BeforeValue: map[string]any{
+				"entry_count": len(beforeIOC),
+				"sha256":      hashStringList(beforeIOC),
+			},
+			AfterValue: map[string]any{
+				"entry_count": len(entries),
+				"sha256":      hashStringList(entries),
+			},
+			Details: listEditAuditDetail(added, removed),
 		})
 		jsonOK(w)
 	}
@@ -1146,7 +1181,7 @@ func (s *Server) handleSuppressions(w http.ResponseWriter, r *http.Request) {
 			Days   float64 `json:"days"`
 			Detail string  `json:"detail"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, suppressBodyMaxBytes)).Decode(&req); err != nil {
 			jsonError(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
@@ -1879,7 +1914,7 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Text string `json:"text"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Text) == "" {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, noteBodyMaxBytes)).Decode(&req); err != nil || strings.TrimSpace(req.Text) == "" {
 		jsonError(w, "note text required", http.StatusBadRequest)
 		return
 	}
@@ -1903,7 +1938,7 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {
 	s.recordAudit(r, "finding_note_add", auditEvent{
 		TargetType: "finding",
 		TargetID:   strconv.Itoa(id),
-		TargetName: f.Type,
+		TargetName: findingAuditName(f),
 		Details:    map[string]any{"note_length": len(noteText)},
 	})
 	jsonOK(w)

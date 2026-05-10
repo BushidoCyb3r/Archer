@@ -15,7 +15,7 @@ read this whole document, start with **`docs/QUICKSTART_OPS.md`**
 — it's the 5-minute "deploy + restore + three things to know"
 companion. Come back here when the questions get deeper.
 
-Everything below is current as of **v0.14.1**.
+Everything below is current as of **v0.14.2**.
 
 ---
 
@@ -451,6 +451,22 @@ file or someone has the name list but not the secret). The
 `unauthorized_attempts` table remains the live UI surface and is
 not displaced — this audit row is for centralised IR queries
 alongside admin actions. v0.14.1 NEW-33.
+
+`allowlist_edit` and `ioc_edit` record the *diff* (added/removed
+entries, capped at 50 per side with a `diff_truncated` marker for
+whole-list replacements) plus a SHA-256 hash of each list state
+and the entry counts. Pre-v0.14.2 these audit rows carried the
+full pre- and post-edit lists; for teams with large IOC lists
+that could mean multi-MB rows blocking the store mutex during
+JSON marshaling. The hash makes the audit irrefutable at any
+size; the diff makes it human-useful for "who added entry X on
+date Y" queries. v0.14.2 NEW-34.
+
+`finding_*` audit rows show TargetName as
+`Type src → dst:port` (e.g. `Beaconing 10.4.1.7 → 185.99.135.7:443`)
+rather than just the finding type — five "Beaconing" rows in a
+row are otherwise indistinguishable in the audit-log UI. v0.14.2
+cosmetic.
 
 **Schema columns** (see migration 0009 for rationale):
 

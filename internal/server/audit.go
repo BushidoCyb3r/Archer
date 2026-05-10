@@ -1,10 +1,14 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"sort"
 
 	"github.com/BushidoCyb3r/Archer/internal/config"
+	"github.com/BushidoCyb3r/Archer/internal/model"
 	"github.com/BushidoCyb3r/Archer/internal/store"
 )
 
@@ -117,4 +121,108 @@ func configToAuditMap(c config.Config) map[string]any {
 		}
 	}
 	return m
+}
+
+// auditListDiffCap caps the per-edit added/removed slice rendered
+// into the audit row. Whole-list replacements (rare, e.g. importing
+// a TI-feed-derived IOC dump) would otherwise produce multi-MB audit
+// rows, breaking both the SQLite row footprint and the audit-log
+// UI's table render. The hash + counts are the irrefutable forensic
+// record; the diff is the human-readable explanation. A truncation
+// marker tells readers the diff was sampled. v0.14.2 NEW-34.
+const auditListDiffCap = 50
+
+// diffStringSets returns the entries added or removed between two
+// list snapshots. Order in the inputs doesn't matter; duplicates
+// are de-duped (allowlist / IOC lists are conceptually sets, not
+// multisets). Used by allowlist_edit / ioc_edit audit emission so
+// the audit row records the *change*, not the full state.
+func diffStringSets(before, after []string) (added, removed []string) {
+	bSet := make(map[string]struct{}, len(before))
+	for _, s := range before {
+		bSet[s] = struct{}{}
+	}
+	aSet := make(map[string]struct{}, len(after))
+	for _, s := range after {
+		aSet[s] = struct{}{}
+	}
+	for s := range aSet {
+		if _, in := bSet[s]; !in {
+			added = append(added, s)
+		}
+	}
+	for s := range bSet {
+		if _, in := aSet[s]; !in {
+			removed = append(removed, s)
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(removed)
+	return added, removed
+}
+
+// hashStringList returns a stable SHA-256 hex digest of a string
+// list, sorted + newline-joined so reordering doesn't perturb the
+// hash. Lets a forensic query prove the allowlist / IOC list at
+// time T hashed to X — irrefutable, bounded-size, independent of
+// the cap on the human-readable diff above.
+func hashStringList(xs []string) string {
+	if len(xs) == 0 {
+		return "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	}
+	sorted := make([]string, len(xs))
+	copy(sorted, xs)
+	sort.Strings(sorted)
+	h := sha256.New()
+	for _, s := range sorted {
+		h.Write([]byte(s))
+		h.Write([]byte{'\n'})
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
+}
+
+// capStringSlice returns at most n entries from xs, used by audit
+// emission to bound the per-row diff size while still surfacing the
+// most-likely-useful subset for human review.
+func capStringSlice(xs []string, n int) []string {
+	if len(xs) <= n {
+		return xs
+	}
+	return xs[:n]
+}
+
+// findingAuditName formats a finding's identity into the
+// "Type src → dst:port" shape used as TargetName on
+// finding_status_change / finding_escalate / finding_note_add
+// audit rows. Pre-fix the TargetName was just f.Type, which made
+// the audit-log UI render five "Beaconing" rows in a row with no
+// distinguishing detail — an analyst skimming the log had to
+// click into each row to see which finding was acted on.
+// Including src/dst/port answers the question the analyst was
+// asking. v0.14.2 cosmetic, paired with NEW-36.
+func findingAuditName(f model.Finding) string {
+	if f.Type == "" {
+		return ""
+	}
+	if f.SrcIP == "" && f.DstIP == "" {
+		return f.Type
+	}
+	dst := f.DstIP
+	if f.DstPort != "" {
+		dst = dst + ":" + f.DstPort
+	}
+	return f.Type + " " + f.SrcIP + " → " + dst
+}
+
+// listEditAuditDetail packages the diff + hash pair into the audit
+// event's Details map, including a truncation marker so readers know
+// when the rendered added/removed slice was sampled.
+func listEditAuditDetail(added, removed []string) map[string]any {
+	return map[string]any{
+		"added":          capStringSlice(added, auditListDiffCap),
+		"removed":        capStringSlice(removed, auditListDiffCap),
+		"added_count":    len(added),
+		"removed_count":  len(removed),
+		"diff_truncated": len(added) > auditListDiffCap || len(removed) > auditListDiffCap,
+	}
 }
