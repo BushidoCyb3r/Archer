@@ -32,6 +32,22 @@ relevant, `### Detection changes` in each release entry.
 
 ### Fixed
 
+- **Beacon hist + duration scoring no longer smears across sensors.**
+  The conn analyzer was computing one global `(dsMin, dsMax)` capture
+  window across every conn.log file in `/logs/`, regardless of which
+  sensor produced it. A real beacon inside a January capture got
+  scored against a window that ran from January through whatever the
+  newest log in any other sensor's tree was — coverage cratered, and
+  every per-pair hour-bucket collapsed into 1 of 24 global buckets,
+  zeroing both the histogram and duration components (50% of the
+  beacon score). Fix: each sensor (the first path component under the
+  analyzer's path root) gets its own capture window, stored in
+  `Analyzer.sensorWindows`, and beacon pairs carry the originating
+  sensor in their map key so scoring picks up the right window. Same
+  fix applied to HTTP Beaconing in `analyzeHTTP`. As a side effect the
+  same `(src, dst)` from two sensors no longer merges into one beacon
+  state — that latent bug went away with the pair-key change.
+
 - **Bell-notification Jump now lands on the target finding regardless
   of filter/pagination/delta state.** Pre-fix the Jump button silently
   no-op'd when the active tab's filter excluded the target, when the
@@ -83,6 +99,20 @@ relevant, `### Detection changes` in each release entry.
   silently ignored by Go's JSON decoder. No DB migration —
   config is a single JSON blob in the `settings` table; the
   next config save naturally drops the dead fields.
+
+### Detection changes
+
+- **Beacon (TCP and HTTP) scores rise on multi-sensor `/logs/`
+  trees.** The cross-sensor smearing fix above un-suppresses
+  beacons that were being penalised on the histogram + duration
+  axes when more than one sensor's logs sat in `/logs/` at
+  analyze time. Operators with single-sensor deployments see
+  no change. Multi-sensor operators should expect beacons in
+  each sensor's capture to score closer to what they would
+  have scored if analysed alone — re-baseline any min-score
+  alerting that was tuned to the artificially-deflated
+  numbers. Golden fixtures (single-sensor by construction) are
+  unchanged.
 
 ## [v0.7.0] — 2026-05-09
 

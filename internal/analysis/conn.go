@@ -21,7 +21,7 @@ const (
 	beaconLazyMinConn = 3
 )
 
-type pairKey struct{ src, dst string }
+type pairKey struct{ sensor, src, dst string }
 type strobeKey struct{ src, dst string }
 type exfilKey struct{ src, dst string }
 type offKey struct{ src, dst string }
@@ -71,8 +71,11 @@ func (a *Analyzer) analyzeConn(files []string) {
 	lateralSeen := make(map[string]struct{})
 	c2Seen := make(map[string]struct{})
 
-	dsMin := math.MaxFloat64
-	dsMax := 0.0
+	// Per-sensor capture windows — drives histogram + duration scoring
+	// for beacons in this analyzer pass. Accumulated locally to avoid
+	// taking a.mu per record; merged into a.sensorWindows once at the
+	// end of the file loop.
+	localWindows := map[string]sensorWindow{}
 
 	// Conn files are processed sequentially so per-pair interval math stays
 	// ordering-correct without cross-goroutine coordination. Coarse phase-1
@@ -84,6 +87,8 @@ func (a *Analyzer) analyzeConn(files []string) {
 		if !a.waitIfPaused() {
 			break
 		}
+
+		sensor := a.sensorOf(path)
 
 		_ = parser.ParseLog(path, func(rec map[string]any) bool {
 			src := parser.GetStr(rec, "id.orig_h")
@@ -105,12 +110,14 @@ func (a *Analyzer) analyzeConn(files []string) {
 			proto := parser.GetStr(rec, "proto")
 
 			if ts > 0 {
-				if ts < dsMin {
-					dsMin = ts
+				w := localWindows[sensor]
+				if w.min == 0 || ts < w.min {
+					w.min = ts
 				}
-				if ts > dsMax {
-					dsMax = ts
+				if ts > w.max {
+					w.max = ts
 				}
+				localWindows[sensor] = w
 			}
 
 			sk := strobeKey{src, dst}
@@ -202,7 +209,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 				}
 			}
 
-			pk := pairKey{src, dst}
+			pk := pairKey{sensor, src, dst}
 			pairCounts[pk]++
 			if pairCounts[pk] < beaconLazyMinConn {
 				return true
@@ -243,17 +250,20 @@ func (a *Analyzer) analyzeConn(files []string) {
 		})
 	}
 
+	// Merge per-sensor windows accumulated above into the analyzer-wide
+	// map. Phase 2 (analyzeHTTP) reads these for HTTP-beacon scoring.
 	a.mu.Lock()
-	if dsMin < a.datasetMin {
-		a.datasetMin = dsMin
-	}
-	if dsMax > a.datasetMax {
-		a.datasetMax = dsMax
+	for s, w := range localWindows {
+		aw := a.sensorWindows[s]
+		if aw.min == 0 || w.min < aw.min {
+			aw.min = w.min
+		}
+		if w.max > aw.max {
+			aw.max = w.max
+		}
+		a.sensorWindows[s] = aw
 	}
 	a.mu.Unlock()
-	if dsMin == math.MaxFloat64 {
-		dsMin = 0
-	}
 
 	// ── Beaconing ────────────────────────────────────────────────────────────
 	for pk, st := range beacon {
@@ -275,8 +285,12 @@ func (a *Analyzer) analyzeConn(files []string) {
 		if len(byteVals) >= 3 {
 			dsScore = statisticalScore(byteVals, 0.0)
 		}
-		hScore, _ := histScoreFromHourMap(st.hourMap, dsMin, dsMax)
-		durScore := durationScoreFromHourMap(st.hourMap, st.minTs, st.maxTs, dsMin, dsMax, 6)
+		// Hist + duration are scored against this pair's sensor's
+		// capture window — not a global union across all /logs/ trees.
+		// Cross-sensor smearing was the bug fixed here.
+		w := localWindows[pk.sensor]
+		hScore, _ := histScoreFromHourMap(st.hourMap, w.min, w.max)
+		durScore := durationScoreFromHourMap(st.hourMap, st.minTs, st.maxTs, w.min, w.max, 6)
 
 		score := clamp(int(100*(tsScore*0.25+dsScore*0.25+hScore*0.25+durScore*0.25)), 1, 100)
 		if score < 1 {

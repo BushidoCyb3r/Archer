@@ -17,7 +17,7 @@ func TestOffHoursRespectsTimezone(t *testing.T) {
 	// firmly inside the 22-06 off-hours window. Off-Hours Transfer fires.
 	utcCfg := config.Default()
 	utcCfg.Timezone = ""
-	utc := New(utcCfg, nil, nil)
+	utc := New(utcCfg, "", nil, nil)
 	utc.feodoIPs = map[string]bool{}
 	utc.urlhausIPs = map[string]bool{}
 	utc.urlhausHosts = map[string]bool{}
@@ -31,7 +31,7 @@ func TestOffHoursRespectsTimezone(t *testing.T) {
 	// the window. Off-Hours Transfer must NOT fire.
 	nyCfg := config.Default()
 	nyCfg.Timezone = "America/New_York"
-	ny := New(nyCfg, nil, nil)
+	ny := New(nyCfg, "", nil, nil)
 	ny.feodoIPs = map[string]bool{}
 	ny.urlhausIPs = map[string]bool{}
 	ny.urlhausHosts = map[string]bool{}
@@ -43,7 +43,7 @@ func TestOffHoursRespectsTimezone(t *testing.T) {
 	// Asia/Tokyo is UTC+9. 02:00 UTC = 11:00 JST → still outside 22-06.
 	jstCfg := config.Default()
 	jstCfg.Timezone = "Asia/Tokyo"
-	jst := New(jstCfg, nil, nil)
+	jst := New(jstCfg, "", nil, nil)
 	jst.feodoIPs = map[string]bool{}
 	jst.urlhausIPs = map[string]bool{}
 	jst.urlhausHosts = map[string]bool{}
@@ -58,7 +58,7 @@ func TestOffHoursRespectsTimezone(t *testing.T) {
 func TestOffHoursBadTimezoneFallsBackToUTC(t *testing.T) {
 	cfg := config.Default()
 	cfg.Timezone = "Not/A/Real/Zone"
-	a := New(cfg, nil, nil)
+	a := New(cfg, "", nil, nil)
 	a.feodoIPs = map[string]bool{}
 	a.urlhausIPs = map[string]bool{}
 	a.urlhausHosts = map[string]bool{}

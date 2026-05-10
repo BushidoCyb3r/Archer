@@ -221,7 +221,7 @@ func runScenario(t *testing.T, dir string) {
 		t.Fatalf("load feeds.json in %s: %v", dir, err)
 	}
 
-	a := New(config.Default(), nil, nil)
+	a := New(config.Default(), "", nil, nil)
 	// Inject deterministic feeds. prefetchFeeds skips its live HTTP fetches
 	// when caches are non-nil, so the run never touches the public internet.
 	a.feodoIPs = feodoIPs

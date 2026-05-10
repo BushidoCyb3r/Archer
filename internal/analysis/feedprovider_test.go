@@ -23,7 +23,7 @@ func (s *stubFeedProvider) EnabledFeedIndicators() []feeds.SourcedIndicators {
 // the FeedProvider's snapshot onto the analyzer for the duration of
 // the run.
 func TestPrefetchPopulatesFeedSources(t *testing.T) {
-	a := New(config.Default(), nil, nil)
+	a := New(config.Default(), "", nil, nil)
 	a.feodoIPs = map[string]bool{}
 	a.urlhausIPs = map[string]bool{}
 	a.urlhausHosts = map[string]bool{}
@@ -57,7 +57,7 @@ func TestFeedIPIndicatorEmitsThreatIntelHit(t *testing.T) {
 		t.Fatalf("write conn.log: %v", err)
 	}
 
-	a := New(config.Default(), nil, nil)
+	a := New(config.Default(), "", nil, nil)
 	a.feodoIPs = map[string]bool{}
 	a.urlhausIPs = map[string]bool{}
 	a.urlhausHosts = map[string]bool{}
@@ -112,7 +112,7 @@ func TestFeedDomainIndicatorEmitsThreatIntelHit(t *testing.T) {
 		t.Fatalf("write dns.log: %v", err)
 	}
 
-	a := New(config.Default(), nil, nil)
+	a := New(config.Default(), "", nil, nil)
 	a.feodoIPs = map[string]bool{}
 	a.urlhausIPs = map[string]bool{}
 	a.urlhausHosts = map[string]bool{}

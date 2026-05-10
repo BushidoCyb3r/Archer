@@ -1375,7 +1375,10 @@ func (s *Server) launchTIOnly(files []string) {
 	}()
 
 	go func() {
-		az := analysis.New(cfg, progressCh, statusCh)
+		// Archive scan reuses the /logs/<sensor>/<date>/ layout under
+		// /data/archive — so passing archiveDir as the analyzer's path
+		// root yields the same sensor names that the live tree would.
+		az := analysis.New(cfg, archiveDir, progressCh, statusCh)
 		az.SetFeedProvider(s.store)
 
 		s.analyzerMu.Lock()

@@ -2,7 +2,6 @@ package analysis
 
 import (
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 
@@ -37,7 +36,7 @@ func csChecksum8(uri string) int {
 }
 
 func (a *Analyzer) analyzeHTTP(files []string) {
-	type beaconKey struct{ src, dst, host, uri string }
+	type beaconKey struct{ sensor, src, dst, host, uri string }
 	beaconCounts := make(map[beaconKey]int)
 	beacon := make(map[beaconKey]*httpBeaconState)
 
@@ -46,8 +45,16 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 	seenDF := make(map[[2]string]bool)
 	seenFile := make(map[[2]string]bool)
 
+	// Per-sensor windows for HTTP-beacon scoring. analyzeHTTP runs in
+	// phase 2 after analyzeConn has already populated a.sensorWindows
+	// for every sensor that has conn.log records, but a sensor with
+	// only http.log (no conn.log) wouldn't otherwise get a window.
+	// Accumulate locally and merge so the HTTP-only case stays sound.
+	localWindows := map[string]sensorWindow{}
+
 	httpFiles := filterFiles(files, "http")
 	for _, f := range httpFiles {
+		sensor := a.sensorOf(f)
 		_ = parser.ParseLog(f, func(rec map[string]any) bool {
 			src := parser.GetStr(rec, "id.orig_h")
 			dst := parser.GetStr(rec, "id.resp_h")
@@ -64,6 +71,17 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 
 			if src == "" {
 				return true
+			}
+
+			if ts > 0 {
+				w := localWindows[sensor]
+				if w.min == 0 || ts < w.min {
+					w.min = ts
+				}
+				if ts > w.max {
+					w.max = ts
+				}
+				localWindows[sensor] = w
 			}
 
 			portStr := fmt.Sprint(dstPort)
@@ -204,7 +222,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 			// Lazy-create per-key state after a minimum count to keep
 			// high-cardinality low-count keys at O(1) memory.
 			if uri != "" && host != "" {
-				bk := beaconKey{src, dst, host, uri}
+				bk := beaconKey{sensor, src, dst, host, uri}
 				beaconCounts[bk]++
 				if beaconCounts[bk] >= beaconLazyMinConn {
 					st := beacon[bk]
@@ -256,15 +274,24 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 		})
 	}
 
-	// ── HTTP Beaconing ────────────────────────────────────────────────────────
-	a.mu.RLock()
-	dsMin := a.datasetMin
-	dsMax := a.datasetMax
-	a.mu.RUnlock()
-	if dsMin == math.MaxFloat64 {
-		dsMin = 0
+	// Merge per-sensor windows accumulated above into the analyzer-wide
+	// map, then read snapshots for HTTP-beacon scoring. Conn analyzer
+	// already populated entries for sensors with conn.log records;
+	// HTTP-only sensors land here.
+	a.mu.Lock()
+	for s, w := range localWindows {
+		aw := a.sensorWindows[s]
+		if aw.min == 0 || w.min < aw.min {
+			aw.min = w.min
+		}
+		if w.max > aw.max {
+			aw.max = w.max
+		}
+		a.sensorWindows[s] = aw
 	}
+	a.mu.Unlock()
 
+	// ── HTTP Beaconing ────────────────────────────────────────────────────────
 	for bk, st := range beacon {
 		totalObserved := beaconCounts[bk]
 		if totalObserved < a.cfg.HTTPBeaconMinRequests {
@@ -284,8 +311,11 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 		if len(byteVals) >= 3 {
 			dsScore = statisticalScore(byteVals, 0.0)
 		}
-		hScore, _ := histScoreFromHourMap(st.hourMap, dsMin, dsMax)
-		durScore := durationScoreFromHourMap(st.hourMap, st.minTs, st.maxTs, dsMin, dsMax, 6)
+		// Hist + duration score against this beacon's sensor's capture
+		// window — not a global union across all /logs/ trees.
+		w := a.windowOf(bk.sensor)
+		hScore, _ := histScoreFromHourMap(st.hourMap, w.min, w.max)
+		durScore := durationScoreFromHourMap(st.hourMap, st.minTs, st.maxTs, w.min, w.max, 6)
 
 		score := int(100 * (tsScore*0.25 + dsScore*0.25 + hScore*0.25 + durScore*0.25))
 		if score < 1 {
