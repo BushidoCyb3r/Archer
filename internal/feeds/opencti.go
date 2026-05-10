@@ -136,7 +136,17 @@ func stixValue(pattern string) string {
 // normalized indicators across pages. On any per-page error the
 // accumulated set is returned alongside the error so partial
 // progress isn't lost.
-func (c *OpenCTIClient) Fetch(ctx context.Context) (FetchResult, error) {
+//
+// The since argument is accepted to satisfy the Adapter interface
+// but currently ignored — OpenCTI's GraphQL Indicators query has
+// cursor pagination that doesn't have the offset-degradation
+// problem MISP's restSearch suffers from, so the urgency to add
+// incremental support is lower. When this lands, the GraphQL
+// filter shape is `filters: [{key: "modified", values: [...],
+// operator: "gt"}]`.
+func (c *OpenCTIClient) Fetch(ctx context.Context, since int64) (FetchResult, error) {
+	_ = since
+
 	if c.BaseURL == "" {
 		return FetchResult{}, fmt.Errorf("opencti: empty base URL")
 	}

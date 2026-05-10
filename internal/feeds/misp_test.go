@@ -46,7 +46,7 @@ func TestMISPClient_Fetch_ParsesAndNormalizes(t *testing.T) {
 	defer srv.Close()
 
 	c := NewMISPClient(srv.URL, "test-key", false)
-	res, err := c.Fetch(context.Background())
+	res, err := c.Fetch(context.Background(), 0)
 	if err != nil {
 		t.Fatalf("Fetch returned error: %v", err)
 	}
@@ -114,6 +114,54 @@ func TestMISPClient_Fetch_ParsesAndNormalizes(t *testing.T) {
 	}
 }
 
+func TestMISPClient_Fetch_PassesTimestampFilterWhenSinceSet(t *testing.T) {
+	var gotBody map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"response":{"Attribute":[]}}`)
+	}))
+	defer srv.Close()
+
+	c := NewMISPClient(srv.URL, "test-key", false)
+	const since int64 = 1700000000
+	if _, err := c.Fetch(context.Background(), since); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+
+	v, ok := gotBody["timestamp"]
+	if !ok {
+		t.Fatalf("expected timestamp filter in request body, got %+v", gotBody)
+	}
+	// JSON unmarshals numeric values to float64.
+	if got := int64(v.(float64)); got != since {
+		t.Errorf("timestamp filter = %d, want %d", got, since)
+	}
+}
+
+func TestMISPClient_Fetch_OmitsTimestampFilterWhenSinceZero(t *testing.T) {
+	var gotBody map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"response":{"Attribute":[]}}`)
+	}))
+	defer srv.Close()
+
+	c := NewMISPClient(srv.URL, "test-key", false)
+	if _, err := c.Fetch(context.Background(), 0); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+
+	if _, ok := gotBody["timestamp"]; ok {
+		t.Errorf("timestamp filter should be absent on full pull, got %+v", gotBody["timestamp"])
+	}
+}
+
 func TestMISPClient_Fetch_PropagatesHTTPError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -121,7 +169,7 @@ func TestMISPClient_Fetch_PropagatesHTTPError(t *testing.T) {
 	defer srv.Close()
 
 	c := NewMISPClient(srv.URL, "bad-key", false)
-	_, err := c.Fetch(context.Background())
+	_, err := c.Fetch(context.Background(), 0)
 	if err == nil {
 		t.Fatalf("expected error on HTTP 401, got nil")
 	}
@@ -140,7 +188,7 @@ func TestMISPClient_Fetch_RejectsEmptyConfig(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := tt.client.Fetch(context.Background())
+			_, err := tt.client.Fetch(context.Background(), 0)
 			if err == nil {
 				t.Errorf("expected error for %s, got nil", tt.name)
 			}

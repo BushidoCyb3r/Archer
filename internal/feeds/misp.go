@@ -123,7 +123,15 @@ type mispResponse struct {
 // Caps the walk at PageLimit pages — when both the cap is hit and
 // the last page was full, the result is flagged as Truncated so
 // operators know they're not getting the whole feed.
-func (c *MISPClient) Fetch(ctx context.Context) (FetchResult, error) {
+//
+// When since > 0, MISP's restSearch `timestamp` filter is set so the
+// upstream returns only attributes whose timestamp is >= since. The
+// resulting page-walk is dramatically smaller than a full snapshot,
+// which is the whole point of incremental sync — MISP's offset
+// pagination degrades sharply with depth, and a since filter that
+// chops the result set down keeps the fetch close to the cheap
+// shallow-page region of the curve.
+func (c *MISPClient) Fetch(ctx context.Context, since int64) (FetchResult, error) {
 	if c.BaseURL == "" {
 		return FetchResult{}, fmt.Errorf("misp: empty base URL")
 	}
@@ -147,6 +155,14 @@ func (c *MISPClient) Fetch(ctx context.Context) (FetchResult, error) {
 			"page":               page,
 			"includeContext":     false,
 			"enforceWarninglist": true,
+		}
+		if since > 0 {
+			// MISP's restSearch `timestamp` filter: returns attributes
+			// whose timestamp >= this value (Unix seconds). Caller
+			// supplies the floor with overlap, so a missed or
+			// double-counted boundary attribute is fine — the upsert
+			// logic dedupes on (feed_id, indicator).
+			body["timestamp"] = since
 		}
 		buf, err := json.Marshal(body)
 		if err != nil {

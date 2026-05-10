@@ -82,12 +82,14 @@ const Feeds = (() => {
       const truncBadge = f.last_fetch_truncated
         ? ` <span title="Last fetch hit the adapter's page-walk cap — upstream has more indicators than were pulled. Consider narrowing the upstream query." style="color:var(--sev-medium);font-weight:600">⚠ truncated</span>`
         : '';
+      const lastFull = f.last_full_refresh_at ? _fmtTS(f.last_full_refresh_at) : 'never';
+      const refreshTip = `Last full sync: ${lastFull}\nIncrementals between fulls only fetch attributes modified since the previous run.`;
       return `<tr${lastErrTitle}>
         <td>${_esc(f.name)}${enabledMark}</td>
         <td>${_esc(f.source_type.toUpperCase())}</td>
         <td>${statusCol}</td>
         <td style="text-align:right">${count}${truncBadge}</td>
-        <td>${_fmtTS(f.last_refresh_at)}</td>
+        <td title="${_esc(refreshTip)}">${_fmtTS(f.last_refresh_at)}</td>
         <td>${_esc(f.indicator_aging_days)} d</td>
         <td style="text-align:right">${adminCtrls}</td>
       </tr>`;
