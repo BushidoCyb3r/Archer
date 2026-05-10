@@ -137,6 +137,8 @@ Archer runs five parallel analysis phases across all supported log types.
 
 For MISP/OpenCTI integration — adding a feed, configuration options, the per-feed TLS-verify bypass, indicator types that match (and ones that don't), aging behavior, and troubleshooting — see **[docs/FEEDS.md](docs/FEEDS.md)**. Feeds are admin-curated through the Feeds topbar dialog; findings carry per-feed provenance via the `SourceFile: feed:<name>` field.
 
+For the analyst-side workflow — how to actually hunt with these findings, what modern C2 tradecraft looks like in 2026, the eight-question triage checklist, worked examples (textbook benign, textbook malicious, realistic ambiguous, slow-burn exfil), false-positive patterns, escalation criteria, and detection blind spots — see **[docs/ANALYST_PLAYBOOK.md](docs/ANALYST_PLAYBOOK.md)**. Complements [docs/DETECTION_METHODS.md](docs/DETECTION_METHODS.md) (the math) with operational flow (the hunt).
+
 ### Composite Scoring
 
 | Detection Type | Description | Severity |
