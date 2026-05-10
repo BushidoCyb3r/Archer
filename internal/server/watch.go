@@ -287,13 +287,15 @@ func (s *Server) triggerWatchAnalysis() {
 
 // refreshFeedsBeforeFullPass runs a synchronous, all-feeds refresh
 // before the watch scheduler launches a full-pass analysis. Capped at
-// 10 minutes — large MISP deployments (100k+ indicators) can take 3+
-// minutes for a full sweep due to offset-based pagination degrading
-// with depth, and that whole walk happens before analysis kicks off.
-// Beyond 10 minutes the upstream is more likely stuck than slow.
-// The auto-cadence feed worker is intentionally disabled, so this is
-// the path that keeps MISP/OpenCTI indicators in sync with the watch
-// schedule. Incremental ticks deliberately skip this — they only use
+// 10 minutes — most ticks are cheap incrementals (MISP's restSearch
+// `timestamp` filter), but the periodic full sync at the per-feed
+// cadence still has to walk the whole feed and that's where the cap
+// matters. Type-shard parallelism keeps even the periodic full sync
+// well under the cap on realistic feeds; beyond 10 minutes the
+// upstream is more likely stuck than slow. The auto-cadence feed
+// worker is intentionally disabled, so this is the path that keeps
+// MISP/OpenCTI indicators in sync with the watch schedule.
+// Incremental analysis ticks deliberately skip this — they only use
 // the built-in Feodo Tracker / URLhaus indicators (see
 // launchIncrementalAnalysis).
 func (s *Server) refreshFeedsBeforeFullPass() {

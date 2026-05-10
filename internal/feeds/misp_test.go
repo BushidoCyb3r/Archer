@@ -36,13 +36,12 @@ var mispCannedAttrs = []map[string]any{
 // attributes whose type is in that list are returned. Captures the
 // last seen request body (under mu) so tests can spot-check.
 type mispTestHandler struct {
-	mu            sync.Mutex
-	auth          string
-	method        string
-	path          string
-	body          map[string]any
-	calls         int32
-	concurrentLog []time.Time
+	mu     sync.Mutex
+	auth   string
+	method string
+	path   string
+	body   map[string]any
+	calls  int32
 }
 
 func newMISPTestServer(t *testing.T) (*httptest.Server, *mispTestHandler) {
@@ -59,7 +58,6 @@ func newMISPTestServer(t *testing.T) (*httptest.Server, *mispTestHandler) {
 		h.method = r.Method
 		h.path = r.URL.Path
 		h.body = body
-		h.concurrentLog = append(h.concurrentLog, time.Now())
 		h.mu.Unlock()
 
 		// Filter mispCannedAttrs by the requested type set.
