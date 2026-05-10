@@ -1,6 +1,7 @@
 package store
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -62,6 +63,56 @@ func TestPruneFindingsBefore_NoOp(t *testing.T) {
 	}
 	if len(s.findings) != 2 {
 		t.Errorf("findings slice should be unchanged, got len=%d", len(s.findings))
+	}
+}
+
+// TestTryStartAnalysis_AtomicClaim covers NEW-31. Two near-
+// simultaneous callers must not both observe success. Pre-NEW-31
+// the call site was IsAnalyzing() followed by SetAnalyzing(true)
+// with a real TOCTOU window between the two; TryStartAnalysis
+// folds them into a single mutex-protected operation.
+func TestTryStartAnalysis_AtomicClaim(t *testing.T) {
+	s := New(config.Default())
+
+	// Serial: first claim wins, second loses, then a release lets
+	// the next claim win.
+	if !s.TryStartAnalysis() {
+		t.Fatal("first claim must succeed on a fresh store")
+	}
+	if s.TryStartAnalysis() {
+		t.Fatal("second claim must fail while first is still held")
+	}
+	s.SetAnalyzing(false)
+	if !s.TryStartAnalysis() {
+		t.Fatal("post-release claim must succeed")
+	}
+	s.SetAnalyzing(false)
+
+	// Concurrent: spawn N goroutines that all try to claim at once.
+	// Exactly one must observe true.
+	const N = 50
+	var wg sync.WaitGroup
+	wg.Add(N)
+	winners := make(chan bool, N)
+	start := make(chan struct{})
+	for i := 0; i < N; i++ {
+		go func() {
+			defer wg.Done()
+			<-start
+			winners <- s.TryStartAnalysis()
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(winners)
+	wins := 0
+	for w := range winners {
+		if w {
+			wins++
+		}
+	}
+	if wins != 1 {
+		t.Errorf("expected exactly 1 winner among %d concurrent claims; got %d", N, wins)
 	}
 }
 

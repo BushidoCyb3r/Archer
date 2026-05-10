@@ -133,6 +133,16 @@ func (s *Server) handleFeeds(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.recordAudit(r, "feed_create", auditEvent{
+			TargetType: "feed",
+			TargetID:   fmt.Sprintf("%d", id),
+			TargetName: req.Name,
+			AfterValue: map[string]any{
+				"source_type": req.SourceType, "name": req.Name, "url": req.URL,
+				"enabled": req.Enabled, "tls_skip_verify": req.TLSSkipVerify,
+				"indicator_aging_days": req.IndicatorAgingDays,
+			},
+		})
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": id})
 
@@ -181,6 +191,11 @@ func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		before := map[string]any{
+			"source_type": string(current.SourceType), "name": current.Name, "url": current.URL,
+			"enabled": current.Enabled, "tls_skip_verify": current.TLSSkipVerify,
+			"indicator_aging_days": current.IndicatorAgingDays,
+		}
 		// Empty api_key in PUT keeps the existing one. Setting a new
 		// non-empty key replaces it. To clear, the operator deletes
 		// and recreates the feed (rare and intentional enough to
@@ -198,6 +213,17 @@ func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.recordAudit(r, "feed_update", auditEvent{
+			TargetType:  "feed",
+			TargetID:    fmt.Sprintf("%d", id),
+			TargetName:  current.Name,
+			BeforeValue: before,
+			AfterValue: map[string]any{
+				"source_type": string(current.SourceType), "name": current.Name, "url": current.URL,
+				"enabled": current.Enabled, "tls_skip_verify": current.TLSSkipVerify,
+				"indicator_aging_days": current.IndicatorAgingDays,
+			},
+		})
 		jsonOK(w)
 
 	case http.MethodDelete:
@@ -205,7 +231,8 @@ func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		if _, err := s.store.GetFeed(id); err != nil {
+		feed, err := s.store.GetFeed(id)
+		if err != nil {
 			jsonError(w, "feed not found", http.StatusNotFound)
 			return
 		}
@@ -213,6 +240,15 @@ func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.recordAudit(r, "feed_delete", auditEvent{
+			TargetType: "feed",
+			TargetID:   fmt.Sprintf("%d", id),
+			TargetName: feed.Name,
+			BeforeValue: map[string]any{
+				"source_type": string(feed.SourceType), "name": feed.Name, "url": feed.URL,
+				"enabled": feed.Enabled,
+			},
+		})
 		jsonOK(w)
 
 	default:
@@ -257,9 +293,21 @@ func (s *Server) handleFeedRefresh(w http.ResponseWriter, r *http.Request, id in
 	// pass forceFull=false and let runFeedFetch decide via cadence.
 	added, refreshed, err := s.runFeedFetch(ctx, feed, true)
 	if err != nil {
+		s.recordAudit(r, "feed_refresh", auditEvent{
+			TargetType: "feed",
+			TargetID:   fmt.Sprintf("%d", id),
+			TargetName: feed.Name,
+			Details:    map[string]any{"ok": false, "error": err.Error()},
+		})
 		jsonError(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	s.recordAudit(r, "feed_refresh", auditEvent{
+		TargetType: "feed",
+		TargetID:   fmt.Sprintf("%d", id),
+		TargetName: feed.Name,
+		Details:    map[string]any{"ok": true, "added": added, "refreshed": refreshed},
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{

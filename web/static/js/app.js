@@ -3181,8 +3181,20 @@
     }
   }
 
+  // Canonical strong-_esc — handles &, <, >, ", '. Every module that
+  // interpolates server-supplied strings into innerHTML uses the same
+  // shape (see notifications.js, campaigns.js, feeds.js, sensors.js,
+  // table.js, detail.js). The codebase convention is one _esc per
+  // IIFE-scoped module rather than a shared helper, but every copy
+  // MUST escape all five characters — the SPA consistency test
+  // (Go-side, server/web_esc_consistency_test.go) walks the JS
+  // sources and fails if any copy diverges. Pre-NEW-30 there were
+  // three distinct shapes (strong, near-strong, weak) and the comment
+  // claiming "convention" was aspirational rather than descriptive.
+  // Audit 2026-05-10 NEW-30.
   function _esc(s) {
-    return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
   // ── Org-IP predicate (drives the Hosts tab filter) ─────────────────────────
@@ -3411,9 +3423,11 @@
       if (el) el.textContent = u.display || u.email || '';
       if (u.role === 'admin') {
         document.getElementById('users-btn').style.display = '';
+        document.getElementById('audit-btn').style.display = '';
         const wac = document.getElementById('watch-admin-controls');
         if (wac) wac.style.display = '';
         _refreshPendingBadge();
+        if (typeof AuditLog !== 'undefined') AuditLog.init();
       }
       // Sensors menu is visible to admin + analyst; only admins get the
       // enroll/disenroll/purge buttons (Sensors.init takes the gate).

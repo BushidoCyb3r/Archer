@@ -110,8 +110,11 @@ const Detail = (() => {
     }
   }
 
+  // Canonical strong-_esc — see app.js for the convention notes.
+  // Audit 2026-05-10 NEW-30.
   function _esc(s) {
-    return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
   function clear() {

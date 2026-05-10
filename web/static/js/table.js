@@ -62,10 +62,13 @@ const Table = (() => {
   // window can swap on every scroll event, so building thousands of <tr>s
   // up-front and then discarding them is wasteful. Escape user-controlled
   // fields so log content can't break out of attribute values.
+  //
+  // Canonical strong-_esc — see app.js for the convention notes.
+  // Pre-NEW-30 this copy escaped only & < > " (missing single quote).
+  // Audit 2026-05-10 NEW-30.
   function _esc(s) {
-    return (s == null ? '' : String(s))
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
   function _rowHTML(f, isSel) {

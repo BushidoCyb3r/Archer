@@ -1,0 +1,611 @@
+# OPERATIONS.md
+
+Operator-facing runbook for Archer. Audience: the engineer or SOC
+analyst responsible for keeping a deployment alive, applying upgrades,
+restoring from backup, and answering compliance questions about who
+did what.
+
+This document is the counterpart to `README.md` (features + install)
+and `docs/ARCHITECTURE.md` (dataflow + internals). When the answer to
+"how do I X?" is procedural, it lives here. When it's structural
+("why does this work this way?"), it lives in ARCHITECTURE.md.
+
+Everything below is current as of **v0.14.0**.
+
+---
+
+## Table of contents
+
+1. [Threat model](#threat-model)
+2. [Deployment hardening checklist](#deployment-hardening-checklist)
+3. [Upgrade procedure](#upgrade-procedure)
+4. [Backup and restore](#backup-and-restore)
+5. [Sensor lifecycle](#sensor-lifecycle)
+6. [Audit log](#audit-log)
+7. [TLS certificate rotation](#tls-certificate-rotation)
+8. [Disaster recovery](#disaster-recovery)
+9. [Scope decisions](#scope-decisions)
+
+---
+
+## Threat model
+
+Archer assumes the following deployment posture. Calibrate your
+hardening choices against deviations from this baseline.
+
+**In scope (Archer defends against):**
+
+- Hostile sensor-network traffic — the whole point. Any malicious
+  payload in a Zeek log gets parsed, detected, and surfaced.
+- Forged sensor heartbeats — closed by per-sensor HMAC in Quiver
+  protocol v2 (v0.12.0).
+- Stored XSS via feed-injected indicators — closed by ingest-side
+  shape validation (NEW-28) + SPA-side escaping (NEW-26, NEW-27).
+- Analyst-fabricated findings via `/api/import` — closed by
+  admin-only gate + per-finding validation (NEW-14).
+- CSV/XLSX formula injection in exports — closed by leading-char
+  quoting (NEW-17).
+- Feed-URL SSRF — closed by config-time literal-IP refusal + fetch-
+  time CheckRedirect (NEW-18).
+- Compromised analyst session — analyst can mark findings, add
+  notes, edit allowlists/IOC lists; cannot import findings,
+  manage users, manage sensors, manage feeds, or change config.
+- Compromised viewer session — read-only; cannot mutate state.
+
+**Out of scope (Archer does not defend against):**
+
+- Compromised admin session — admin actions are logged (see
+  [Audit log](#audit-log)) but not gated by anything beyond the
+  session cookie. Anyone with an admin session can do anything
+  an admin can do.
+- Physical access to the host filesystem — anyone with read access
+  to `/data/server.key` can impersonate the server's TLS;
+  anyone with read access to `/data/archer.db` sees every
+  finding and every feed API key. Encrypt the volume at rest if
+  this matters.
+- Privileged compromise of the sensor host — Quiver's chrooted
+  rrsync limits the blast radius to the sensor's own log
+  directory, but a root-compromised sensor can still ship
+  fabricated logs.
+- Resource exhaustion DoS from a high-volume sensor — `GOMEMLIMIT`
+  caps Go-heap use and `start.sh` budgets container resources at
+  70% RAM / 80% CPU, but a sensor pushing 10 GB/hour will degrade
+  analysis cadence.
+- Network-level attacks against the SSH port (2222) or HTTPS port
+  (8443) — handled by your network's existing controls. Archer
+  does no rate-limiting and no IP allowlist at the app layer.
+
+**Trust boundaries Archer assumes hold:**
+
+- The container's filesystem permissions (mode 0600 on
+  `/data/server.key`, `/etc/quiver/secret`).
+- The container's network isolation — Archer's listening ports are
+  exposed by docker-compose, and access to them is the operator's
+  network problem to solve.
+- The SQLite database's atomicity — WAL mode + single-writer
+  config rely on the underlying filesystem honoring fsync.
+- The Linux kernel — Archer's user-space defenses don't survive a
+  kernel exploit on the host.
+
+---
+
+## Deployment hardening checklist
+
+Run through this before exposing Archer to a multi-user team.
+
+### TLS
+
+- [ ] **Default auto-generated cert is fine for sensor-side pinned-
+      pubkey verification.** Sensors curl with `--pinnedpubkey
+      sha256//<fp>`, so chain validation is bypassed by design.
+- [ ] **For admin browser access, swap in a CA-signed cert.** Drop
+      the cert + key into `/data/tls/server.crt` and
+      `/data/tls/server.key` (both mode 0600). Restart the
+      container; the operator path validates expiry, parseability,
+      and key/cert match at startup. A startup error names the
+      file so a wrong cert is loudly visible.
+- [ ] **Don't share the auto-gen cert across hosts.** The
+      `--pinnedpubkey` fingerprint is host-specific; deploying
+      Archer to two hosts means two independent CAs (or two
+      independent self-signed certs).
+
+### Network
+
+- [ ] Expose port 8443 (HTTPS) only to admin networks. Sensors need
+      it for enrollment and checkin, but `/api/quiver/*` is the
+      only path they touch — consider a reverse proxy that limits
+      sensor sources to `/api/quiver/*` and admin sources to
+      everything else.
+- [ ] Expose port 2222 (sshd for log rsync) only to sensor
+      networks. The chrooted rrsync limits damage from a
+      compromised sensor, but the SSH attack surface itself is
+      best minimised at the network layer.
+- [ ] Egress from the Archer host to feed URLs (MISP, OpenCTI)
+      should pass through your standard outbound proxy /
+      monitoring. Feed URLs are admin-configurable; the SSRF
+      guards (NEW-18) refuse internal addresses but don't
+      restrict to a configured allowlist.
+
+### Secrets
+
+- [ ] **`/data/` volume contains sensitive material.** server.key
+      (TLS private key), archer.db (feed API keys, user
+      password hashes, sensor HMAC secrets). Treat the volume
+      as a secrets store.
+- [ ] **Don't commit `.env` or any file from `/data/`** to source
+      control. `.env` carries the operator-derived resource
+      caps but no secrets directly; `/data/` carries everything.
+- [ ] **Sensor secrets live at `/etc/quiver/secret`** (mode 0600,
+      owned by the `quiver` user) on each sensor. The same
+      secrecy posture as a private SSH key applies.
+
+### Log retention
+
+- [ ] **Findings persist until explicitly pruned.** The
+      `archive_after_days` setting (Settings → Log Archive)
+      moves `/logs/<sensor>/<date>/` trees into
+      `/data/archive/<sensor>/<date>/` after N days. Pruning
+      findings older than the archive cutoff is opt-in
+      (destructive toggle).
+- [ ] **The audit log is unbounded.** v0.14.0 doesn't prune the
+      `audit_log` table. If your compliance regime requires a
+      retention cap, periodically `DELETE FROM audit_log WHERE
+      ts < strftime('%s', 'now', '-N days');`. (No UI for this
+      yet — file under [Scope decisions](#scope-decisions).)
+- [ ] **Sensor archived logs persist until manually purged.**
+      Disenrolling a sensor moves its logs aside; purging
+      deletes them. The two-step flow exists so an admin can
+      retain the trail of a recently-removed sensor.
+
+### Auth posture
+
+- [ ] **First registered user becomes admin automatically.** Make
+      sure the first registration is from a trusted address.
+- [ ] **Passwords are bcrypt-hashed.** Cost factor is Go default
+      (10). No password complexity rules — the operator is
+      expected to enforce these at registration time via
+      whatever onboarding flow they use. (Not a Scope decision
+      — just an opt-in we haven't bolted on yet.)
+- [ ] **Sessions are in-memory only.** A container restart logs
+      everyone out. This is intentional — sessions are
+      ephemeral by design.
+- [ ] **Session validity is re-checked every request.** Demoting
+      a user from active → pending takes effect immediately
+      (NEW-8). Admin demotes propagate within one request
+      cycle.
+
+---
+
+## Upgrade procedure
+
+### Standard (non-breaking) release
+
+1. Pull the new tag in a checkout: `git fetch && git checkout v0.X.Y`.
+2. `./start.sh` rebuilds the image and recreates the container.
+3. Migrations run automatically at startup. A clean exit means
+   schema is up-to-date. Check `docker compose logs archer` for
+   the `applied schema migration` lines if you want explicit
+   confirmation.
+4. UI version pill (top-right) should show the new version.
+5. `/api/version` returns the same value programmatically.
+
+### Releases with `### Breaking` notes in CHANGELOG
+
+Read the release notes first. The known breaking-change categories
+(per CLAUDE.md) are:
+
+- **HTTP/SSE API contract** — external scripts may need updates.
+- **DB schema** — migrations apply automatically; no manual step.
+- **Quiver sensor protocol** — sensors may need re-enrollment
+  (v0.12.0 dropped v1; every sensor had to re-run the install
+  one-liner).
+- **Detection semantics** — score formulas / thresholds /
+  finding-type names changed; re-baseline downstream alerting.
+
+For Quiver protocol bumps specifically: the install one-liner from
+the Sensors modal always speaks the current server protocol, so
+re-running it on each sensor is the canonical upgrade path.
+
+### Downgrade
+
+**Not supported.** Migrations are forward-only; no down migrations
+exist. If a release introduces a regression, the recovery path is
+to restore from backup and pin to the working release.
+
+---
+
+## Backup and restore
+
+### What to back up
+
+Three pieces, in order of importance:
+
+1. **`/data/archer.db`** — every finding, every feed config, every
+   user, every sensor enrollment, every audit-log row, every
+   suppression. This is the source of truth. Roughly 10–500 MB
+   for a typical deployment depending on finding history.
+2. **`/data/tls/server.crt` + `/data/tls/server.key`** — if you
+   restore to a new host without these, sensors will need
+   re-enrollment because their pinned fingerprint won't match
+   the auto-regenerated cert. Tiny (< 2 KB).
+3. **`/logs/`** — Zeek logs as they came in. Useful for re-running
+   analysis with new detector tuning. Sizes from GB to TB.
+   Often the operator's existing log-retention infrastructure
+   covers this; if not, back it up here.
+
+Skip:
+
+- `/data/archive/` — derived from `/logs/`; can be re-created.
+- `/data/sshd/` — sshd host keys auto-regenerate on container
+  start.
+
+### Backup procedure
+
+For a running container:
+
+```sh
+docker compose exec archer sh -c '
+  sqlite3 /data/archer.db ".backup /data/archer.db.backup"
+'
+docker compose cp archer:/data/archer.db.backup ./backup-archer-db-$(date -u +%Y%m%dT%H%M%SZ).sqlite
+docker compose exec archer rm /data/archer.db.backup
+docker compose cp archer:/data/tls/ ./backup-tls-$(date -u +%Y%m%dT%H%M%SZ)/
+tar czf ./backup-logs-$(date -u +%Y%m%dT%H%M%SZ).tgz -C /var/lib/docker/volumes/archer_archer-data/_data logs
+```
+
+(Adjust the host-side volume path to match your docker setup.)
+
+The `sqlite3 .backup` command is online — safe to run against the
+live database; SQLite's WAL mode tolerates concurrent reads.
+
+### Restore procedure
+
+**Tested restore on a fresh host:**
+
+1. Stop any running container: `docker compose down`.
+2. Wipe the data volume: `docker volume rm archer_archer-data`.
+3. Recreate the container without starting Archer:
+   `docker compose up --no-start`.
+4. Copy backed-up files into the volume:
+   ```sh
+   docker compose cp ./backup-archer-db-*.sqlite archer:/data/archer.db
+   docker compose cp ./backup-tls-*/ archer:/data/tls/
+   ```
+5. Start the container: `docker compose start archer`.
+6. **Verify** the schema version matches the build:
+   `docker compose exec archer sqlite3 /data/archer.db
+   'SELECT max(version) FROM schema_migrations;'` — should be 9
+   on v0.14.0.
+7. **Verify** the UI loads and the version pill matches the build.
+8. **Verify** sensor checkins succeed — wait for the next hourly
+   tick, then check `/api/sensors` for fresh `last_seen_at`.
+
+**Cert continuity preserves sensor pinning.** As long as you
+restore the `/data/tls/` directory from backup, the server's
+cert fingerprint on the restored host matches the one every
+enrolled sensor pinned. Sensors don't notice the host swap — no
+re-enrollment is required, and the existing rsync + checkin
+channels continue to work uninterrupted. This is the whole reason
+TLS material is in the back-up set; tested-restore-on-different-host
+is the validation that the recovery story actually works.
+
+Bringing up on a fresh cert (no TLS backup) means every enrolled
+sensor's pinned fingerprint is stale and they'll fail to connect.
+Recovery: re-run the install one-liner on each sensor. There is
+no in-band re-issue path; this is by design (pinning is what
+makes the sensor channel resistant to MITM in the first place).
+
+### Schedule recommendation
+
+- Database: daily.
+- TLS material: on every cert rotation.
+- Logs: per your existing log-retention policy.
+- **Tested restore: quarterly, on a *different host*.** A backup
+  you've never restored is not a backup. A backup you've only
+  restored on the original host doesn't prove the TLS material is
+  in the bundle — restore to a fresh VM and verify sensors
+  continue pushing logs without re-enrollment. If they don't, the
+  TLS files didn't make it into the backup.
+
+---
+
+## Sensor lifecycle
+
+### Enrollment (initial install)
+
+1. Admin clicks Sensors → New token. Optionally sets an override
+   name (locks the sensor to a chosen name regardless of what its
+   hostname is).
+2. Admin copies the one-liner to the sensor host and runs it as
+   root.
+3. Sensor generates a fresh ed25519 SSH keypair, POSTs to
+   `/api/quiver/enroll` with token + name + pubkey + protocol
+   version (v2 as of v0.12.0).
+4. Server returns the schedule slot, the protocol version, and
+   the per-sensor HMAC secret. The sensor persists the secret at
+   `/etc/quiver/secret` (mode 0600).
+5. Sensor's `quiver.sh` cron entry fires at the assigned
+   minute-of-hour and posts a signed checkin. Logs follow via
+   rsync.
+
+### Disenrollment (clean removal)
+
+1. Admin clicks Sensors → Disenroll on the row.
+2. Server marks the row `disenrolling`, removes the
+   authorized_keys entry, rotates the sensor's logs to
+   `/_archived/<name>/<stamp>/`, retags the sensor's findings
+   (`<name>:disenrolled-<stamp>`), marks the row `disenrolled`.
+3. Sensor's next checkin gets `status=disenrolled` back; quiver.sh
+   self-cleans by running quiver-uninstall.sh.
+
+If step 2 crashes midway, the row sits in `disenrolling`. v0.12.0
+made the admin handler resumable — clicking Disenroll again
+re-runs the (idempotent) steps from where it stopped.
+
+### Purge (irreversible)
+
+The Purge action wipes the sensor's archived logs and findings.
+Run it only after you're sure the operational history can be
+discarded.
+
+### Re-enrollment (cert rotation, secret loss, sensor host reinstall)
+
+Re-run the install one-liner from the Sensors modal. The sensor
+gets a fresh HMAC secret. Old findings tagged with the previous
+enrollment stay attributed to the previous instance (suffixed
+`:disenrolled-<stamp>`).
+
+---
+
+## User offboarding
+
+When a team member leaves the org, run this sequence. The goal is
+to make the cookie they're holding stop working immediately, while
+preserving the audit trail of what they did.
+
+1. **Sign in as an admin** (a different account from the
+   departing user — admins cannot demote or delete their own
+   account; the API rejects self-targets to prevent
+   lock-yourself-out).
+2. **Open the Users dialog** (admin → Users).
+3. **Delete the user row.** This:
+   - Removes the row from the `users` table.
+   - Calls `DeleteSessionsForUser`, which removes every live
+     session token for that user from the in-memory session map.
+     The session cookie they hold becomes a 401 on the next
+     request — no waiting for TTL expiry.
+   - Emits a `user_delete` audit-log row with the deleted user's
+     email captured as `actor_email`/`target_name` (denormalised
+     at write time so the audit row survives the row deletion).
+   - The audit history of everything that user did before
+     offboarding stays intact. `actor_id` becomes a dangling
+     reference (no FK constraint), but `actor_email` was
+     denormalised at write time so the trail is readable.
+4. **Verify in the audit log** (admin → Audit) that the
+   `user_delete` row landed.
+
+**Demote rather than delete** if you want to retain the account
+shape (for re-onboarding, for audit-trail completeness without
+the dangling actor_id). Demote viewer → no admin actions
+possible. The `user_role_change` audit row captures the
+transition.
+
+**What this does NOT do:** revoke any export bundles, raw-log
+downloads, or other artefacts the user already pulled out of the
+system. Treat those as gone-once-they-leave-the-host. Out-of-band
+data-disposition belongs to your team's normal departure
+process — Archer can't recall data it already served.
+
+**SLA shape:** sessions auto-invalidate within one request
+cycle (single-digit milliseconds in practice — the auth
+middleware re-checks the session map every request, by design,
+NEW-8). There is no "TTL until logout" window to wait out.
+
+---
+
+## Audit log
+
+Every state-changing admin action since v0.14.0 lands in a
+`audit_log` table row. Admins see it via the Audit button in the
+top bar.
+
+**What gets logged:**
+
+Action names are snake_case, flat namespace — easier to filter
+than a hierarchical scheme and the bounded vocabulary makes
+compliance reporting tractable. Add new actions to the same flat
+namespace in `internal/server/audit.go` rather than freeform
+strings.
+
+| Action | Triggered by |
+|---|---|
+| `login_success` / `login_failure` | `/login` POST |
+| `user_create` / `user_role_change` / `user_status_change` / `user_delete` | User mgmt UI |
+| `enrollment_token_create` / `enrollment_token_revoke` | Sensors → Tokens |
+| `sensor_disenroll` / `sensor_purge` / `sensor_schedule_change` | Sensors modal |
+| `feed_create` / `feed_update` / `feed_delete` / `feed_refresh` | Feeds modal |
+| `suppression_add` / `suppression_delete` | Suppressions UI |
+| `allowlist_edit` / `ioc_edit` | Allowlist / IOC textareas |
+| `config_change` / `watch_change` | Settings |
+| `finding_import` | `/api/import` |
+
+**Schema columns** (see migration 0009 for rationale):
+
+- `actor_id` + `actor_email` — actor_email is denormalised at write
+  time so the audit row survives the user being deleted. The audit
+  trail of a deleted admin's actions stays intact (that's the whole
+  point).
+- `target_type` + `target_id` + `target_name` — target_name is
+  denormalised for the same reason: six months later, "sensor 12"
+  is unhelpful; "sensor 12 (edge-fw-east)" is.
+- `before_value` + `after_value` (JSON) — for true state
+  transitions (role change, feed update, allowlist edit). Empty for
+  non-transition events.
+- `details` (JSON) — fallback for events without a clean
+  before/after shape (login_failure records the reason; feed_refresh
+  records the indicator counts; finding_import records the bundle
+  sizes).
+
+**Append-only:** the `store` package contains NO UPDATE or DELETE
+statements against `audit_log`. This is a code-side invariant, not
+a SQLite trigger — a trigger would block the retention-prune query
+documented below. Preserve the discipline when adding new
+operations.
+
+**What doesn't get logged:**
+
+- Read-only GET endpoints — too noisy.
+- Sensor-initiated enrollment — the sensor isn't an admin user.
+  (The admin who minted the enrollment token IS logged via
+  `enrollment_token_create`, so the trail back to the human is intact.)
+- Sensor checkins — logged separately via `last_seen_at`; flooding
+  the audit log with checkins would drown out the human actions.
+- System-initiated watch ticks — also too noisy.
+
+**Querying directly:**
+
+```sh
+docker compose exec archer sqlite3 /data/archer.db '
+  SELECT datetime(ts, "unixepoch"), actor_email, action,
+         target_type, target_id, target_name, before_value, after_value
+  FROM audit_log
+  WHERE ts > strftime("%s", "now", "-30 days")
+  ORDER BY ts DESC
+  LIMIT 100;
+'
+```
+
+**Incident-response queries:**
+
+```sh
+# Everything user X did in the last 7 days (uses idx_audit_log_actor_ts)
+docker compose exec archer sqlite3 /data/archer.db '
+  SELECT datetime(ts, "unixepoch"), action, target_type, target_name
+  FROM audit_log
+  WHERE actor_email = "alice@example.com"
+    AND ts > strftime("%s", "now", "-7 days")
+  ORDER BY ts DESC;
+'
+
+# All failed logins in the last 24 hours (uses idx_audit_log_ts_action)
+docker compose exec archer sqlite3 /data/archer.db '
+  SELECT datetime(ts, "unixepoch"), actor_email, source_ip, details
+  FROM audit_log
+  WHERE action = "login_failure"
+    AND ts > strftime("%s", "now", "-1 day")
+  ORDER BY ts DESC;
+'
+```
+
+**Retention:**
+
+The table is unbounded as of v0.14.0. See
+[Deployment hardening](#deployment-hardening-checklist) for the
+manual prune query.
+
+---
+
+## TLS certificate rotation
+
+### Auto-generated cert (default)
+
+Cert is valid for 10 years. Rotation isn't a routine concern; if
+you must rotate, delete `/data/tls/server.crt` and
+`/data/tls/server.key`, restart the container, and re-enroll every
+sensor (the pinned fingerprint changes).
+
+### CA-signed cert
+
+1. Generate a new cert + key with your CA. SANs MUST include
+   every hostname and IP a sensor might use to reach the server.
+2. Stop the container.
+3. Replace `/data/tls/server.crt` and `/data/tls/server.key`
+   in the volume.
+4. Restart the container.
+5. Startup validation parses both, verifies expiry, verifies
+   key/cert match. A failure surfaces in the container's first
+   log lines naming the file.
+6. **Sensors using `--pinnedpubkey` will fail until re-enrolled.**
+   This is the cost of pinning — when the cert rotates, the
+   trust anchor rotates with it. Re-run the install one-liner
+   on each sensor. (Future work: a "trust CA bundle" sensor mode
+   that lets sensors validate the chain instead of pinning the
+   cert. See [Scope decisions](#scope-decisions).)
+
+---
+
+## Disaster recovery
+
+### Symptoms → first step
+
+| Symptom | First check |
+|---|---|
+| Web UI won't load | `docker compose logs archer` — TLS validation failure on path 1 names the file |
+| Sensors all show "stale" simultaneously | Container restart (sessions also dropped) or TLS rotation; check sensor logs for pinning failure |
+| One sensor shows "stale" | Check that sensor's `quiver.sh` cron, `/etc/quiver/secret` presence, network reachability |
+| Findings count dropping | Check archive policy; check if "Discard findings & re-analyze" was triggered |
+| Migration error on upgrade | Check `schema_migrations` table state; restore from backup if a partial migration left bad state |
+| Audit log empty after upgrade | Migration 0009 didn't run; check `schema_migrations` table |
+
+### Full restore from cold backup
+
+See [Backup and restore](#backup-and-restore) → Restore procedure.
+
+### When in doubt
+
+1. Stop the container.
+2. Snapshot the data volume (so anything we touch is recoverable).
+3. Read `docker compose logs archer` from the most recent start.
+4. Walk the symptom table above.
+5. Restore from the most recent verified-good backup if you
+   can't resolve in 30 minutes.
+
+---
+
+## Scope decisions
+
+These are *deliberate* non-features. They are documented here so
+the team knows what NOT to expect rather than discovering them by
+absence.
+
+### Out of scope
+
+- **SSO / OIDC / SAML / cross-deployment identity.** Archer
+  authentication is local-only: a per-instance user table, email +
+  password, sessions in SQLite. Multi-instance identity is the
+  deploying team's problem — there is no shared identity plane and
+  there will not be one. If a team runs more than one Archer, each
+  is its own user list. If SSO is required, deploy Archer behind an
+  authenticating reverse proxy that handles it and pin Archer's
+  listener to localhost so the proxy is the only ingress.
+- **Multi-tenant separation.** Single-tenant by design. Each
+  Archer deployment is one team's view of one network. Use
+  separate deployments for separate teams. The audit log is
+  per-instance; do not attempt to merge audit logs across
+  instances — `actor_id` is local-scope and would collide.
+- **Public OSS positioning.** The codebase is on GitHub
+  publicly, but the audience for the *product* is internal hunt
+  teams. Onboarding docs assume an operator who already knows
+  what Zeek is.
+- **Hot config reload without restart.** Settings persist
+  immediately and take effect on the next analysis tick; for
+  changes that affect the running listener (TLS, port), restart
+  is the upgrade path.
+
+### Roadmapped (not yet)
+
+- **Metrics endpoint** (`/metrics` Prometheus-style) — see
+  MATURATION_PLAN section 11. Monitor Archer with your existing
+  monitoring stack rather than via UI screen-scraping.
+- **Trust-CA-bundle sensor mode** — alternative to pubkey
+  pinning so CA rotation doesn't force fleet-wide re-enrollment.
+  See MATURATION_PLAN section 11.
+- **Audit-log retention UI** — currently manual SQL. See the
+  retention note in [Deployment hardening](#deployment-hardening-checklist).
+- **Password complexity / lockout policies** — enforce at the
+  onboarding-flow layer for now.
+
+If a team needs one of these and the workaround above doesn't fit,
+the right path is to file an issue with the use case rather than
+attempt an integration that doesn't match Archer's deployment
+model.

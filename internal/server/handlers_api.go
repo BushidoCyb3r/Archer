@@ -49,11 +49,6 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.store.IsAnalyzing() {
-		jsonError(w, "analysis already running", http.StatusConflict)
-		return
-	}
-
 	var req struct {
 		Config json.RawMessage `json:"config"`
 	}
@@ -76,7 +71,13 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		s.store.SetConfig(cfg)
 	}
 
-	s.launchAnalysis(files)
+	// launchAnalysis does the atomic TryStartAnalysis claim — see
+	// NEW-31. The pre-fix IsAnalyzing check was racy against
+	// concurrent invocations (watch tick fires while user clicks).
+	if !s.launchAnalysis(files) {
+		jsonError(w, "analysis already running", http.StatusConflict)
+		return
+	}
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{"status": "started"})
 }
@@ -93,17 +94,16 @@ func (s *Server) handleAnalyzeReset(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if s.store.IsAnalyzing() {
-		jsonError(w, "analysis already running", http.StatusConflict)
-		return
-	}
 	files := s.scanLogsDir()
 	if len(files) == 0 {
 		jsonError(w, "no logs found in /logs", http.StatusBadRequest)
 		return
 	}
 	cleared := s.store.ClearFindings()
-	s.launchAnalysis(files)
+	if !s.launchAnalysis(files) {
+		jsonError(w, "analysis already running", http.StatusConflict)
+		return
+	}
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]any{
 		"status":           "started",
@@ -1028,7 +1028,13 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "off_hours_start and off_hours_end must be in [0, 23]", http.StatusBadRequest)
 			return
 		}
+		before := s.store.GetConfig()
 		s.store.SetConfig(cfg)
+		s.recordAudit(r, "config_change", auditEvent{
+			TargetType:  "config",
+			BeforeValue: configToAuditMap(before),
+			AfterValue:  configToAuditMap(cfg),
+		})
 		jsonOK(w)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1050,7 +1056,13 @@ func (s *Server) handleAllowlist(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
+		beforeAllow := s.store.GetAllowlist()
 		s.store.SetAllowlist(entries)
+		s.recordAudit(r, "allowlist_edit", auditEvent{
+			TargetType:  "allowlist",
+			BeforeValue: map[string]any{"entries": beforeAllow, "entry_count": len(beforeAllow)},
+			AfterValue:  map[string]any{"entries": entries, "entry_count": len(entries)},
+		})
 		jsonOK(w)
 	}
 }
@@ -1070,7 +1082,13 @@ func (s *Server) handleIOC(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
+		beforeIOC := s.store.GetIOCList()
 		s.store.SetIOCList(entries)
+		s.recordAudit(r, "ioc_edit", auditEvent{
+			TargetType:  "ioc_list",
+			BeforeValue: map[string]any{"entries": beforeIOC, "entry_count": len(beforeIOC)},
+			AfterValue:  map[string]any{"entries": entries, "entry_count": len(entries)},
+		})
 		jsonOK(w)
 	}
 }
@@ -1126,6 +1144,14 @@ func (s *Server) handleSuppressions(w http.ResponseWriter, r *http.Request) {
 		}
 		expiry := time.Now().Add(time.Duration(req.Days * float64(24*time.Hour)))
 		s.store.AddSuppression(req.Target, expiry, req.Detail)
+		s.recordAudit(r, "suppression_add", auditEvent{
+			TargetType: "suppression",
+			TargetID:   req.Target,
+			TargetName: req.Target,
+			AfterValue: map[string]any{
+				"days": req.Days, "detail": req.Detail, "expiry": expiry.Unix(),
+			},
+		})
 		jsonOK(w)
 	}
 }
@@ -1153,6 +1179,11 @@ func (s *Server) handleDeleteSuppression(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.store.RemoveSuppression(target)
+	s.recordAudit(r, "suppression_delete", auditEvent{
+		TargetType: "suppression",
+		TargetID:   target,
+		TargetName: target,
+	})
 	jsonOK(w)
 }
 
@@ -1293,12 +1324,26 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 		default:
 			req.IntervalHours = 0
 		}
+		beforeTime, beforeEnabled := s.store.GetWatch()
+		beforeTZ := s.store.GetTimezone()
+		beforeInterval := s.store.GetWatchInterval()
 		s.store.SetWatch(req.Time, req.Timezone, req.Enabled, req.IntervalHours)
 		if req.Enabled {
 			s.startWatch()
 		} else {
 			s.stopWatch()
 		}
+		s.recordAudit(r, "watch_change", auditEvent{
+			TargetType: "watch",
+			BeforeValue: map[string]any{
+				"enabled": beforeEnabled, "time": beforeTime,
+				"timezone": beforeTZ, "interval_hours": beforeInterval,
+			},
+			AfterValue: map[string]any{
+				"enabled": req.Enabled, "time": req.Time,
+				"timezone": req.Timezone, "interval_hours": req.IntervalHours,
+			},
+		})
 		jsonOK(w)
 
 	default:
@@ -1383,16 +1428,22 @@ func (s *Server) handleArchiveScan(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if s.store.IsAnalyzing() {
-		jsonError(w, "another analysis is already in progress", http.StatusConflict)
-		return
-	}
 	files := s.scanArchiveDir()
 	if len(files) == 0 {
 		jsonError(w, "no archived logs to scan", http.StatusBadRequest)
 		return
 	}
-	s.launchTIOnly(files)
+	// launchTIOnly does the atomic TryStartAnalysis claim — see
+	// NEW-31 in store.go. We don't separately IsAnalyzing here
+	// because the claim is the source of truth; a separate check
+	// would just re-introduce the TOCTOU window. On contention
+	// launchTIOnly emits an SSE status message and returns; the
+	// HTTP response below still says "started" but the SSE is the
+	// authoritative signal.
+	if !s.launchTIOnly(files) {
+		jsonError(w, "another analysis is already in progress", http.StatusConflict)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"status": "started", "files": len(files)})
 }
@@ -1402,9 +1453,15 @@ func (s *Server) handleArchiveScan(w http.ResponseWriter, r *http.Request) {
 // findings via SetFindings's fingerprint merge, and reuses the regular
 // progress/status/done/notification SSE events so the existing UI shows
 // the run without any frontend changes.
-func (s *Server) launchTIOnly(files []string) {
+//
+// Returns false if another analysis is already in flight — the caller
+// must handle the contention (typically with a 409 Conflict response).
+// Audit 2026-05-10 NEW-31.
+func (s *Server) launchTIOnly(files []string) bool {
+	if !s.store.TryStartAnalysis() {
+		return false
+	}
 	cfg := s.store.GetConfig()
-	s.store.SetAnalyzing(true)
 	progressCh := make(chan analysis.ProgressEvent, 32)
 	statusCh := make(chan string, 32)
 
@@ -1470,6 +1527,7 @@ func (s *Server) launchTIOnly(files []string) {
 		})
 		s.broker.Publish(SSEEvent{Type: "done", Data: string(data)})
 	}()
+	return true
 }
 
 // Exports honor the same query-string filters as /api/findings. Passing no
@@ -1614,6 +1672,14 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request) {
 	if len(payload.IOCList) > 0 {
 		s.store.SetIOCList(payload.IOCList)
 	}
+	s.recordAudit(r, "finding_import", auditEvent{
+		TargetType: "import",
+		Details: map[string]any{
+			"findings":  len(payload.Findings),
+			"allowlist": len(payload.Allowlist),
+			"ioc_list":  len(payload.IOCList),
+		},
+	})
 	jsonOK(w)
 }
 

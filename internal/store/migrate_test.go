@@ -112,6 +112,12 @@ func TestRunMigrations_ExistingPreFrameworkDB_StampsVersion1(t *testing.T) {
 		`CREATE TABLE suppressions (id INTEGER PRIMARY KEY)`,
 		`CREATE TABLE enrollment_tokens (id INTEGER PRIMARY KEY)`,
 		`CREATE TABLE unauthorized_attempts (id INTEGER PRIMARY KEY)`,
+		// audit_log is created by migration 0009. Pre-framework
+		// installs predated that migration so they don't have the
+		// table — but later migrations don't ALTER it either, so
+		// no seed is needed here. This comment lives in the loop
+		// body to remind future-you that 0009 was post-Phase-3
+		// and doesn't need pre-seeding.
 	}
 	for _, ddl := range preFrameworkTables {
 		if _, err := db.Exec(ddl); err != nil {

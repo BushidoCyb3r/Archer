@@ -276,6 +276,11 @@ func (s *Server) routes() {
 	// configuration changes (allowlist / IOC list, both also written
 	// by /api/import) belong to admins. Audit 2026-05-10 NEW-14.
 	s.mux.Handle("/api/import", admin(s.handleImportJSON))
+
+	// Audit log — admin-only read endpoint. Covers every state-
+	// changing admin action recorded post-v0.14.0. See audit.go for
+	// the action naming convention and recordAudit() callers.
+	s.mux.Handle("/api/audit-log", admin(s.handleAuditLog))
 }
 
 // handleFindingRouter dispatches /api/findings/{id} and /api/findings/{id}/escalate.

@@ -537,16 +537,39 @@ func (s *Server) scanLogsDir() []string {
 // It is shared between the HTTP handler and the watch scheduler. Manual
 // invocations should use this (which always runs); watch uses the "options"
 // form below with force=false to honor the dataset-fingerprint skip.
-func (s *Server) launchAnalysis(files []string) {
-	s.launchAnalysisWithOptions(files, true)
+//
+// Returns true if the analysis was claimed and launched, false if another
+// analysis is already in flight. HTTP handlers can use the return to emit
+// a 409 Conflict; the watch scheduler doesn't need to react since its
+// outer guard already checks IsAnalyzing. Audit 2026-05-10 NEW-31.
+func (s *Server) launchAnalysis(files []string) bool {
+	return s.launchAnalysisWithOptions(files, true)
 }
 
-func (s *Server) launchAnalysisWithOptions(files []string, force bool) {
+func (s *Server) launchAnalysisWithOptions(files []string, force bool) bool {
+	// Atomic check-and-set claim on the analysis slot. Pre-NEW-31
+	// callers separately checked IsAnalyzing then later called
+	// SetAnalyzing(true), leaving a TOCTOU window where a near-
+	// simultaneous trigger (watch tick fires while user clicks
+	// "Analyze sensor logs", or two watch ticks fire in quick
+	// succession when a run takes longer than the watch interval)
+	// could pass both guards and spawn parallel analyzer goroutines.
+	// Consequences were nasty: cancel-button semantics broke (only
+	// the second goroutine stopped), SSE progress events
+	// interleaved, memory doubled. TryStartAnalysis collapses the
+	// check+set into one mutex-protected operation. Audit 2026-05-10
+	// NEW-31.
+	if !s.store.TryStartAnalysis() {
+		s.broker.Publish(SSEEvent{Type: "status", Data: `{"msg":"Analysis already in progress — second trigger ignored."}`})
+		return false
+	}
+
 	if !force {
 		fp := s.datasetFingerprint(files)
 		if fp != "" && fp == s.store.GetLastAnalysisFingerprint() {
+			s.store.SetAnalyzing(false)
 			s.broker.Publish(SSEEvent{Type: "status", Data: `{"msg":"No changes since last analysis — skipping."}`})
-			return
+			return true
 		}
 	}
 
@@ -557,7 +580,6 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) {
 	}
 
 	cfg := s.store.GetConfig()
-	s.store.SetAnalyzing(true)
 	progressCh := make(chan analysis.ProgressEvent, 32)
 	statusCh := make(chan string, 32)
 
@@ -663,4 +685,5 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) {
 		})
 		s.broker.Publish(SSEEvent{Type: "done", Data: string(data)})
 	}()
+	return true
 }
