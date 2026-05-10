@@ -30,6 +30,194 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.14.0] — 2026-05-10
+
+Sixth audit-driven correctness release, plus the first round
+focused on team-deployment readiness rather than bug-finding. Two
+audit items (NEW-30, NEW-31), one major operational addition
+(audit log), and supporting documentation (OPERATIONS.md). The
+auditor's "is this ready for a mature team?" check listed several
+operational gaps; this release closes the highest-impact ones
+(audit log, operator runbook) and explicitly scopes the rest (SSO
+out, multi-tenant out, metrics roadmapped).
+
+### Added
+
+- **`audit_log` table + admin-only viewer (v0.14.0 feature).**
+  Migration 0009 adds the table with a structured incident-
+  response shape: `id`, `ts`, `actor_id` (FK-shaped but not
+  declared FK so deleting an admin doesn't cascade away their
+  audit trail), `actor_email` (denormalised at write time so the
+  email at the time of the action survives later renames or row
+  deletions), `action`, `target_type`, `target_id`,
+  `target_name` (denormalised for the same reason — six months
+  later "sensor 12" is unhelpful, "sensor 12 (edge-fw-east)" is),
+  `before_value` / `after_value` (JSON, for state transitions
+  like role change, feed update, allowlist edit), `details`
+  (JSON fallback for non-transition events), `source_ip`.
+  Composite indexes `(ts DESC, action)` for the dominant most-
+  recent-filtered-by-action UI query and `(actor_id, ts DESC)`
+  for the "show me everything user X did" incident-response
+  query.
+
+  Append-only is a code-side invariant — the `store` package
+  has no UPDATE or DELETE statements against `audit_log`. Not a
+  SQLite trigger because a trigger would block the documented
+  retention-prune path in OPERATIONS.md.
+
+  Action names use snake_case in a flat namespace (bounded
+  vocabulary, easier filter): `login_success` / `login_failure`,
+  `user_create` / `user_role_change` / `user_status_change` /
+  `user_delete`, `enrollment_token_create` /
+  `enrollment_token_revoke`, `sensor_disenroll` / `sensor_purge`
+  / `sensor_schedule_change`, `feed_create` / `feed_update` /
+  `feed_delete` / `feed_refresh`, `suppression_add` /
+  `suppression_delete`, `allowlist_edit` / `ioc_edit`,
+  `config_change` / `watch_change`, `finding_import`.
+
+  New `Store.LogAuditEvent` / `ListAuditLog` / `CountAuditLog`
+  helpers (cursor-based pagination capped at 500 server-side).
+  New `Server.recordAudit(r, action, auditEvent{...})` wraps the
+  store call to pull actor identity and source IP from the
+  request context; sites populate `BeforeValue` / `AfterValue`
+  for true state transitions and `Details` for non-transition
+  events. New `Server.recordAuditLogin` handles the login
+  handler where the actor isn't in the request context yet
+  (failure paths log `actor_id=0` as SQL NULL, success path logs
+  the authenticated user).
+
+  Config-change audit redacts API-key fields (`*_api_key`) —
+  records "set"/"" rather than the secret value, so an audit
+  reader can see that a key was added/removed/rotated without
+  the audit log becoming a credential leak vector. Read-only
+  GETs and sensor checkins are not logged (would drown out the
+  actual decisions). New `GET /api/audit-log?cursor=…&count=…`
+  endpoint plus an Audit dialog in the admin UI
+  (`web/static/js/audit_log.js`, new module) that renders the
+  transition as `before:` / `after:` k=v lines, falling back to
+  the details bag for non-transition events.
+
+- **Go-side `_esc()` consistency test
+  (`TestEscConsistency_AcrossSPAModules`).** Walks every JS
+  file in `web/static/js/`, finds every `function _esc(...)`
+  body, and asserts each contains references to all five HTML
+  entities (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;`). Pre-
+  NEW-30 there were three distinct shapes (strong, near-strong,
+  weak) and the comment claiming a "convention" was
+  aspirational rather than descriptive; this test makes the
+  invariant enforceable rather than wished-for. NEW-30.
+
+- **`Store.TryStartAnalysis() bool` atomic claim (NEW-31).**
+  Folds the racy `IsAnalyzing()` + `SetAnalyzing(true)` pair
+  into one mutex-protected operation. New regression test
+  `TestTryStartAnalysis_AtomicClaim` covers the serial case
+  plus a 50-goroutine concurrent claim — exactly one winner
+  must observe true. Audit 2026-05-10 NEW-31.
+
+- **`docs/OPERATIONS.md` operator runbook.** Threat model
+  (in-scope vs. out-of-scope defenses + trust boundaries),
+  deployment hardening checklist (TLS, network, secrets, log
+  retention, auth posture), upgrade procedure (standard and
+  breaking), backup + tested-restore procedure (with explicit
+  "test the restore on a *different* host" guidance — the only
+  way to verify the TLS material is actually in the bundle and
+  sensors don't need re-enrollment after a host swap), sensor
+  lifecycle (enrollment / disenrollment / purge /
+  re-enrollment), user offboarding runbook (admin deletes user
+  row → `DeleteSessionsForUser` evicts live sessions within one
+  request cycle → `user_delete` audit row with denormalised
+  email preserves the trail), audit-log schema and action
+  catalog with incident-response query examples, TLS
+  certificate rotation, disaster recovery symptom→first-step
+  table, and scope decisions (SSO/identity explicitly local-
+  only with the deploy-behind-reverse-proxy guidance for teams
+  that need SSO, multi-tenant out, metrics roadmapped).
+  Companion to README.md (features + install) and
+  docs/ARCHITECTURE.md (internals).
+
+### Changed
+
+- **All seven `_esc()` implementations in the SPA collapsed
+  to the canonical strong shape (NEW-30).** Pre-NEW-30 the
+  codebase had three distinct profiles across seven files:
+  strong (`& < > " '` — notifications.js, campaigns.js,
+  feeds.js, sensors.js), near-strong (missing `'` —
+  table.js), and weak (missing `"` and `'` — app.js,
+  detail.js). The weak instances were only safe in HTML-text
+  contexts where `< &` escape suffices; a developer copy-
+  pasting an attribute-context interpolation into app.js or
+  detail.js (`title="${_esc(x)}"`) would have silently
+  introduced XSS without realizing the local function was
+  weaker than its name. Now every copy is the same regex+
+  table form from feeds.js/sensors.js; each carries a
+  comment pointing back to app.js for the convention notes
+  and at the Go-side consistency test. Audit 2026-05-10
+  NEW-30.
+
+- **`launchAnalysisWithOptions` and `launchTIOnly` now use
+  `TryStartAnalysis` (NEW-31).** Pre-fix both did the racy
+  `IsAnalyzing()` + `SetAnalyzing(true)` pair, leaving a
+  real (if narrow) TOCTOU window where two near-
+  simultaneous triggers (watch tick fires while user clicks
+  "Analyze sensor logs", or two watch ticks fire in quick
+  succession when a run takes longer than the watch
+  interval) could both pass the guard and spawn parallel
+  analyzer goroutines. Consequences were nasty:
+  cancel-button semantics broke (only the second goroutine
+  stopped, the first ran to completion regardless), SSE
+  progress events interleaved, memory doubled. Both
+  functions now return `bool` (true on claim, false on
+  contention); HTTP handlers convert false to 409 Conflict;
+  watch tick handler emits an SSE status message and exits.
+  Audit 2026-05-10 NEW-31.
+
+### Maturation lessons
+
+- **Aspirational comments vs. descriptive comments.**
+  Recorded in MATURATION_PLAN section 8. Comments that
+  describe codebase invariants must either be backed by a
+  test (and survive drift) or self-mark as aspirational.
+  Writing the test in the same hour as the comment is the
+  convention going forward.
+
+- **Audit-log writes are observability, not enforcement.**
+  The shape decision worth recording from this round:
+  `LogAuditEvent` is best-effort. Refusing an admin action
+  because the audit table couldn't be written would be a
+  denial-of-service on the most-privileged paths — worse
+  than a gap in the audit log. The gap is visible (action
+  counts vs. UI activity); the DoS would be invisible until
+  production.
+
+### Scope decisions (explicit)
+
+These are declared NON-features. They're documented in
+`docs/OPERATIONS.md` so the team knows what NOT to expect.
+
+- **SSO / OIDC / SAML integration — out of scope.** Deploy
+  Archer behind an authenticating reverse proxy that handles
+  it; the in-tree SSO client doesn't match Archer's
+  operator-pragmatic scope. Recorded in MATURATION_PLAN
+  section 5.
+
+- **Multi-tenant separation — out of scope.** Single-tenant by
+  design. Separate deployments for separate teams. Adding
+  per-tenant findings views and RBAC would distort the schema
+  and UI without serving the intended audience.
+
+- **Metrics endpoint (`/metrics`) — roadmapped, not yet.**
+  See MATURATION_PLAN section 11d-2 for the refined
+  implementation sketch: counts and histograms only (no
+  findings detail — scrape ports are usually less protected
+  than the SPA, so finding labels would functionally become
+  an exfil vector), gated either via a separate localhost-
+  only port (Prometheus over SSH tunnel / sidecar) OR an API
+  token in `Authorization` header — explicitly NOT behind SPA
+  session auth (breaks scraping ergonomics, tempts session-
+  TTL extension regressions on NEW-8), and explicitly NOT
+  public (sensor names + finding counts are reconnaissance
+  fodder for an insider attacker).
+
 ## [v0.13.0] — 2026-05-10
 
 Fifth audit-driven correctness release. Five items (NEW-25 through
@@ -2440,7 +2628,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.14.0...HEAD
+[v0.14.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.13.0...v0.14.0
 [v0.13.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.12.0...v0.13.0
 [v0.12.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.11.0...v0.12.0
 [v0.11.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.10.0...v0.11.0
