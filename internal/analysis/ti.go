@@ -8,6 +8,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -30,11 +31,11 @@ func (a *Analyzer) prefetchFeeds(_ []string) {
 	var wg sync.WaitGroup
 	if a.feodoIPs == nil {
 		wg.Add(1)
-		go func() { defer wg.Done(); a.feodoIPs = fetchFeodo(client) }()
+		go func() { defer wg.Done(); a.feodoIPs = a.fetchFeodo(client) }()
 	}
 	if a.urlhausIPs == nil || a.urlhausHosts == nil {
 		wg.Add(1)
-		go func() { defer wg.Done(); a.urlhausIPs, a.urlhausHosts = fetchURLhaus(client) }()
+		go func() { defer wg.Done(); a.urlhausIPs, a.urlhausHosts = a.fetchURLhaus(client) }()
 	}
 	wg.Wait()
 
@@ -347,7 +348,7 @@ func (a *Analyzer) checkTI(files []string) {
 	// OTX — cap at 20 IPs
 	if a.cfg.OTXAPIKey != "" && len(dstIPSet) > 0 {
 		for _, ip := range pickN(dstIPSet, 20) {
-			detail, score := checkOTX(client, ip, a.cfg.OTXAPIKey)
+			detail, score := a.checkOTX(client, ip, a.cfg.OTXAPIKey)
 			if detail != "" {
 				sev := model.SevHigh
 				if score >= 7 {
@@ -366,7 +367,7 @@ func (a *Analyzer) checkTI(files []string) {
 	// AbuseIPDB — cap at 10 IPs
 	if a.cfg.AbuseIPDBAPIKey != "" && len(dstIPSet) > 0 {
 		for _, ip := range pickN(dstIPSet, 10) {
-			detail, score := checkAbuseIPDB(client, ip, a.cfg.AbuseIPDBAPIKey)
+			detail, score := a.checkAbuseIPDB(client, ip, a.cfg.AbuseIPDBAPIKey)
 			if detail != "" {
 				sev := model.SevHigh
 				if score >= 80 {
@@ -705,12 +706,31 @@ func pickN(m map[string]bool, limit int) []string {
 	return out
 }
 
-func fetchFeodo(client *http.Client) map[string]bool {
+// All four functions below carry status-aware error reporting.
+// Pre-fix any non-2xx response (401 bad key, 429 rate limited, 503
+// upstream sick) silently fell through to "no hit" because the
+// JSON decoder happily decoded the (often empty / HTML-error /
+// short-circuit) response body into the empty target struct, and
+// the caller used count==0 to mean "clean." Operators looked at a
+// finding-detail panel showing OTX clean and concluded the dataset
+// was clean. Audit 2026-05-10 NEW-1; same trust-bug class as the
+// parser swallowing fix one release earlier. Now: status checked
+// before the body is decoded; failures route through
+// Analyzer.recordTIError so they surface in the SSE status banner
+// and accumulate in TIErrors() for end-of-run reporting.
+
+func (a *Analyzer) fetchFeodo(client *http.Client) map[string]bool {
+	const source = "Feodo Tracker"
 	resp, err := client.Get("https://feodotracker.abuse.ch/downloads/ipblocklist.txt")
 	if err != nil {
+		a.recordTIError(source, err)
 		return nil
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		a.recordTIError(source, fmt.Errorf("HTTP %d", resp.StatusCode))
+		return nil
+	}
 	ips := make(map[string]bool)
 	sc := bufio.NewScanner(resp.Body)
 	for sc.Scan() {
@@ -723,15 +743,21 @@ func fetchFeodo(client *http.Client) map[string]bool {
 	return ips
 }
 
-func fetchURLhaus(client *http.Client) (ips, hosts map[string]bool) {
+func (a *Analyzer) fetchURLhaus(client *http.Client) (ips, hosts map[string]bool) {
+	const source = "URLhaus"
 	ips = make(map[string]bool)
 	hosts = make(map[string]bool)
 	// csv_online = only currently-active URLs (much smaller than full history)
 	resp, err := client.Get("https://urlhaus.abuse.ch/downloads/csv_online/")
 	if err != nil {
+		a.recordTIError(source, err)
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		a.recordTIError(source, fmt.Errorf("HTTP %d", resp.StatusCode))
+		return
+	}
 	body, _ := io.ReadAll(resp.Body)
 	sc := bufio.NewScanner(strings.NewReader(string(body)))
 	for sc.Scan() {
@@ -759,21 +785,28 @@ func fetchURLhaus(client *http.Client) (ips, hosts map[string]bool) {
 	return
 }
 
-func checkOTX(client *http.Client, ip, apiKey string) (string, float64) {
+func (a *Analyzer) checkOTX(client *http.Client, ip, apiKey string) (string, float64) {
+	const source = "OTX"
 	url := fmt.Sprintf("https://otx.alienvault.com/api/v1/indicators/IPv4/%s/general", ip)
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("X-OTX-API-KEY", apiKey)
 	resp, err := client.Do(req)
 	if err != nil {
+		a.recordTIError(source, err)
 		return "", 0
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		a.recordTIError(source, fmt.Errorf("HTTP %d (lookup of %s)", resp.StatusCode, ip))
+		return "", 0
+	}
 	var data struct {
 		PulseInfo struct {
 			Count int `json:"count"`
 		} `json:"pulse_info"`
 	}
-	if json.NewDecoder(resp.Body).Decode(&data) != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		a.recordTIError(source, fmt.Errorf("decode (lookup of %s): %w", ip, err))
 		return "", 0
 	}
 	if data.PulseInfo.Count == 0 {
@@ -782,16 +815,22 @@ func checkOTX(client *http.Client, ip, apiKey string) (string, float64) {
 	return fmt.Sprintf("OTX: %d threat pulses for %s", data.PulseInfo.Count, ip), float64(data.PulseInfo.Count)
 }
 
-func checkAbuseIPDB(client *http.Client, ip, apiKey string) (string, float64) {
+func (a *Analyzer) checkAbuseIPDB(client *http.Client, ip, apiKey string) (string, float64) {
+	const source = "AbuseIPDB"
 	url := fmt.Sprintf("https://api.abuseipdb.com/api/v2/check?ipAddress=%s&maxAgeInDays=90", ip)
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Key", apiKey)
 	req.Header.Set("Accept", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
+		a.recordTIError(source, err)
 		return "", 0
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		a.recordTIError(source, fmt.Errorf("HTTP %d (lookup of %s)", resp.StatusCode, ip))
+		return "", 0
+	}
 	var data struct {
 		Data struct {
 			AbuseConfidenceScore int    `json:"abuseConfidenceScore"`
@@ -799,7 +838,8 @@ func checkAbuseIPDB(client *http.Client, ip, apiKey string) (string, float64) {
 			CountryCode          string `json:"countryCode"`
 		} `json:"data"`
 	}
-	if json.NewDecoder(resp.Body).Decode(&data) != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		a.recordTIError(source, fmt.Errorf("decode (lookup of %s): %w", ip, err))
 		return "", 0
 	}
 	score := float64(data.Data.AbuseConfidenceScore)
@@ -809,25 +849,52 @@ func checkAbuseIPDB(client *http.Client, ip, apiKey string) (string, float64) {
 	return fmt.Sprintf("AbuseIPDB: confidence=%d%% reports=%d country=%s", data.Data.AbuseConfidenceScore, data.Data.TotalReports, data.Data.CountryCode), score
 }
 
+// isIPAddr reports whether s is a literal IP address. Used inside
+// checkTI to route bucket queries between IP and domain matchers.
+//
+// Pre-fix this counted dots and treated 3 dots as IPv4 (and 2+ colons
+// as IPv6). 3-dot FQDNs like cdn.staging.example.com or
+// subdomain.team.acme.io fell into the IP bucket and never got
+// matched against the domain feeds — a malicious 3-label hostname
+// on URLhaus would silently miss. Audit 2026-05-10 NEW-3.
+//
+// net.ParseIP is the canonical answer: returns nil for any string
+// that isn't a literal v4 or v6 address. One round-trip through
+// the stdlib parser per call; cheap relative to the surrounding
+// matcher work.
 func isIPAddr(s string) bool {
-	dots := strings.Count(s, ".")
-	colons := strings.Count(s, ":")
-	return dots == 3 || colons >= 2
+	return net.ParseIP(s) != nil
 }
 
+// extractHost returns the host of a URL string, dropping scheme,
+// userinfo, port, and path. Pre-fix the hand-rolled trim chain
+// missed `user:pass@host` URLs — the early colon in the userinfo
+// was misread by the port-strip step (which checks for "no other
+// colon before the last colon"), leaving `user:pass@evil.com`
+// unmatched against URLhaus / feed buckets. Audit 2026-05-10.
+// net/url.Parse handles all of this; falls back to the legacy
+// trim chain if the input lacks a scheme (URLhaus's CSV occasionally
+// emits scheme-less host strings).
 func extractHost(rawURL string) string {
-	// Strip scheme
+	if u, err := url.Parse(rawURL); err == nil {
+		if h := u.Hostname(); h != "" {
+			return h
+		}
+	}
+	// Fallback for scheme-less inputs that net/url.Parse won't
+	// recognise as URLs (treats them as paths).
 	for _, scheme := range []string{"https://", "http://"} {
 		if strings.HasPrefix(rawURL, scheme) {
 			rawURL = rawURL[len(scheme):]
 			break
 		}
 	}
-	// Strip path
+	if i := strings.Index(rawURL, "@"); i >= 0 {
+		rawURL = rawURL[i+1:]
+	}
 	if i := strings.Index(rawURL, "/"); i >= 0 {
 		rawURL = rawURL[:i]
 	}
-	// Strip port
 	if i := strings.LastIndex(rawURL, ":"); i >= 0 && !strings.Contains(rawURL[:i], ":") {
 		rawURL = rawURL[:i]
 	}

@@ -54,15 +54,18 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 	dstMatcher := parseIPMatcher(q.Get("dst_ip"))
 	portSet := parsePortSet(q.Get("dst_port"))
 
+	// User-supplied datetime-local strings are parsed in the operator's
+	// configured timezone; the analyzer's own Timestamp field stays UTC.
+	opLoc := s.operatorLocation()
 	var from, to time.Time
 	var haveFrom, haveTo bool
-	if s := q.Get("from"); s != "" {
-		if t, ok := parseFindingTime(s); ok {
+	if str := q.Get("from"); str != "" {
+		if t, ok := parseFindingTime(str, opLoc); ok {
 			from, haveFrom = t, true
 		}
 	}
-	if s := q.Get("to"); s != "" {
-		if t, ok := parseFindingTime(s); ok {
+	if str := q.Get("to"); str != "" {
+		if t, ok := parseFindingTime(str, opLoc); ok {
 			to, haveTo = t, true
 		}
 	}
@@ -109,7 +112,8 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 			continue
 		}
 		if haveFrom || haveTo {
-			ft, ok := parseFindingTime(f.Timestamp)
+			// Finding.Timestamp is the analyzer's UTC emit format.
+			ft, ok := parseFindingTime(f.Timestamp, time.UTC)
 			// Findings without a parseable timestamp are excluded when a time
 			// window is specified — they can't be placed.
 			if !ok {
@@ -205,8 +209,20 @@ func parsePortSet(s string) map[string]bool {
 	return out
 }
 
-// parseIPMatcher accepts an IP, a CIDR, or the empty string. Returns a
-// matcher function (nil when the input is empty or unparseable).
+// parseIPMatcher accepts an IP, a CIDR, a hostname pattern, or the
+// empty string. Returns a matcher function (nil when the input is
+// empty or doesn't plausibly represent a host).
+//
+// The substring fallback covers hostnames the analyzer may have
+// stashed in SrcIP / DstIP for unresolved records, but is gated on
+// "looks like a hostname" — at least one ASCII letter present, OR a
+// dot inside a non-numeric token. Pre-fix the fallback fired on any
+// input: typing "1" in the Src IP filter substring-matched every
+// finding whose IP contained a 1 (most of the dataset); typing "19"
+// while building "192.168.x.x" did the same. Audit 2026-05-10
+// NEW-5. The new gate refuses purely-numeric inputs that aren't
+// valid IPs/CIDRs — a typo in the middle of typing an IP now
+// returns nil (no filter applied) rather than matching everything.
 func parseIPMatcher(s string) func(string) bool {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -225,20 +241,49 @@ func parseIPMatcher(s string) func(string) bool {
 			return ci != nil && ci.String() == target
 		}
 	}
-	// Last-ditch: substring match on the raw string (covers hostnames the
-	// analyzer may have stashed in SrcIP / DstIP for unresolved records).
+	// Hostname-shaped fallback: must contain at least one ASCII
+	// letter, otherwise refuse rather than substring-matching every
+	// finding. Hyphen/dot/digit-only inputs without a letter are
+	// almost always partial IP addresses being typed.
+	hasLetter := false
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			hasLetter = true
+			break
+		}
+	}
+	if !hasLetter {
+		return nil
+	}
 	lower := strings.ToLower(s)
 	return func(candidate string) bool {
 		return strings.Contains(strings.ToLower(candidate), lower)
 	}
 }
 
-// parseFindingTime handles both the analyzer's "2006-01-02 15:04:05" UTC
-// format and RFC3339 inputs the UI might send from a datetime picker.
-func parseFindingTime(s string) (time.Time, bool) {
+// parseFindingTime parses a timestamp string in the supplied location.
+// Layouts include the analyzer's "2006-01-02 15:04:05" emit format,
+// HTML datetime-local input shape ("2006-01-02T15:04"), and RFC3339.
+//
+// Callers parsing the analyzer's own emitted Timestamp pass time.UTC
+// (the analyzer always writes in UTC). Callers parsing operator-
+// supplied filter inputs from the UI's datetime-local picker pass
+// the operator's configured timezone — pre-fix the function used
+// time.Parse with no location, which Go silently treats as UTC, so
+// a Tampa operator entering "9:00 AM" got findings between
+// 04:00–12:00 UTC (i.e. 23:00 the previous day to 07:00 local) —
+// off by 5 hours. Audit 2026-05-10 NEW-4. The off-hours detector
+// already respected cfg.Timezone; the findings filter didn't.
+//
+// Output is normalized to UTC so the result compares directly with
+// the analyzer's UTC-emitted Timestamp field.
+func parseFindingTime(s string, loc *time.Location) (time.Time, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return time.Time{}, false
+	}
+	if loc == nil {
+		loc = time.UTC
 	}
 	// HTML datetime-local inputs produce "2006-01-02T15:04" with no seconds.
 	layouts := []string{
@@ -249,9 +294,25 @@ func parseFindingTime(s string) (time.Time, bool) {
 		"2006-01-02",
 	}
 	for _, l := range layouts {
-		if t, err := time.Parse(l, s); err == nil {
+		if t, err := time.ParseInLocation(l, s, loc); err == nil {
 			return t.UTC(), true
 		}
 	}
 	return time.Time{}, false
+}
+
+// operatorLocation returns the operator's configured timezone, or
+// UTC when the config string is empty or unparseable. Mirrors the
+// fallback shape analyzeConn uses for off-hours detection — a bad
+// timezone config falls back to UTC silently rather than disabling
+// the dependent feature.
+func (s *Server) operatorLocation() *time.Location {
+	tz := strings.TrimSpace(s.store.GetConfig().Timezone)
+	if tz == "" {
+		return time.UTC
+	}
+	if loc, err := time.LoadLocation(tz); err == nil {
+		return loc
+	}
+	return time.UTC
 }

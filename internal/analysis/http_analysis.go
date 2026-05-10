@@ -313,15 +313,12 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 				}
 			}
 
-			// Store HTTP UID index for potential use
-			if uid != "" {
-				a.mu.Lock()
-				a.httpUIDIndex[uid] = httpEntry{
-					method: method, host: host, uri: uri, userAgent: ua,
-				}
-				a.mu.Unlock()
-			}
-
+			// httpUIDIndex was populated here for cross-protocol pivot
+			// but never read — same dead-state pattern as the v0.9.0
+			// st.total cleanup. Wasting one map entry per HTTP record
+			// adds up on big captures. If a real cross-protocol pivot
+			// against http.log emerges, mirror sslUIDIndex's shape and
+			// reintroduce. Audit 2026-05-10.
 			return true
 		})
 	}

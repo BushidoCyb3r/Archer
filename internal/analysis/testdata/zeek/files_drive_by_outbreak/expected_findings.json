@@ -1,0 +1,29 @@
+[
+  {
+    "type": "Suspicious File Download",
+    "severity": "HIGH",
+    "score": 72,
+    "src_ip": "192.168.5.10",
+    "dst_ip": "203.0.113.50",
+    "detail": "MIME: application/x-dosexec | File: malware.exe",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Suspicious File Download",
+    "severity": "HIGH",
+    "score": 72,
+    "src_ip": "192.168.5.20",
+    "dst_ip": "203.0.113.50",
+    "detail": "MIME: application/x-dosexec | File: malware.exe",
+    "timestamp": "2024-01-15 12:02:00"
+  },
+  {
+    "type": "Suspicious File Download",
+    "severity": "HIGH",
+    "score": 72,
+    "src_ip": "192.168.5.30",
+    "dst_ip": "203.0.113.50",
+    "detail": "MIME: application/x-dosexec | File: malware.exe",
+    "timestamp": "2024-01-15 12:03:00"
+  }
+]

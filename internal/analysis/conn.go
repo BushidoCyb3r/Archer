@@ -22,9 +22,22 @@ const (
 )
 
 type pairKey struct{ sensor, src, dst string }
-type strobeKey struct{ src, dst string }
-type exfilKey struct{ src, dst string }
-type offKey struct{ src, dst string }
+
+// All four conn-level detector keys carry sensor for the same reason
+// pairKey does: a Quiver deployment with overlapping captures (two
+// sensors observing the same backbone) used to aggregate strobe
+// counts, exfil bytes, lateral-movement seen-set, and off-hours
+// bytes across sensors, so thresholds calibrated on single-sensor
+// traffic spuriously tripped (or, worse, passed thresholds that
+// should fail because each sensor saw half the traffic). Audit
+// 2026-05-10 NEW-6 flagged the asymmetry — beacons were sensor-
+// aware as of v0.8.0 but the rest weren't, with no comment
+// explaining why. They are now. Single-sensor deployments behave
+// identically (sensor field is constant); multi-sensor overlapping
+// deployments stop double-counting.
+type strobeKey struct{ sensor, src, dst string }
+type exfilKey struct{ sensor, src, dst string }
+type offKey struct{ sensor, src, dst string }
 
 // preBeaconRec captures the full per-connection contribution that the
 // lazy-init replay path has to back-fill into beaconState. Stashing
@@ -144,12 +157,12 @@ func (a *Analyzer) analyzeConn(files []string) {
 				localWindows[sensor] = w
 			}
 
-			sk := strobeKey{src, dst}
+			sk := strobeKey{sensor, src, dst}
 			strobeCounts[sk]++
 			if ts > 0 && (strobeFirst[sk] == 0 || ts < strobeFirst[sk]) {
 				strobeFirst[sk] = ts
 			}
-			ek := exfilKey{src, dst}
+			ek := exfilKey{sensor, src, dst}
 			exfilOrig[ek] += origB
 			exfilResp[ek] += respB
 			if ts > 0 && (exfilFirst[ek] == 0 || ts < exfilFirst[ek]) {
@@ -165,7 +178,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 					offHours = hour >= a.cfg.OffHoursStart && hour < a.cfg.OffHoursEnd
 				}
 				if offHours && origB > 0 {
-					ok2 := offKey{src, dst}
+					ok2 := offKey{sensor, src, dst}
 					offBytes[ok2] += origB
 					if offFirst[ok2] == 0 || ts < offFirst[ok2] {
 						offFirst[ok2] = ts
@@ -196,7 +209,10 @@ func (a *Analyzer) analyzeConn(files []string) {
 			}
 
 			if isPrivateIP(src) && isPrivateIP(dst) && model.LateralMovementPorts[dstPort] {
-				lk := fmt.Sprintf("%s→%s:%d", src, dst, dstPort)
+				// sensor prefix mirrors the strobe/exfil/off-hours
+				// keying — overlapping sensor captures stop firing two
+				// findings for the same (src, dst, port) seen twice.
+				lk := fmt.Sprintf("%s|%s→%s:%d", sensor, src, dst, dstPort)
 				if _, ok := lateralSeen[lk]; !ok {
 					lateralSeen[lk] = struct{}{}
 					a.add(model.Finding{
@@ -215,7 +231,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 
 			if !isPrivateIP(dst) {
 				if label, ok := model.KnownC2Ports[dstPort]; ok {
-					ck := fmt.Sprintf("%s→%s:%d", src, dst, dstPort)
+					ck := fmt.Sprintf("%s|%s→%s:%d", sensor, src, dst, dstPort)
 					if _, ok2 := c2Seen[ck]; !ok2 {
 						c2Seen[ck] = struct{}{}
 						a.add(model.Finding{

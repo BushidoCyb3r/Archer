@@ -102,26 +102,34 @@ func (a *Analyzer) anyFeedHashes() bool {
 }
 
 func (a *Analyzer) analyzeFiles(files []string) {
+	// Variable naming previously made the dedup-key bug invisible:
+	// `src` held the *sender* (tx_hosts) but the finding's SrcIP was
+	// the *receiver* (the downloader). Audit 2026-05-10 NEW-2 caught
+	// that the dedup key used `src` (sender), so 100 internal hosts
+	// downloading the same file from one external sender collapsed to
+	// one finding. Renamed to sender/receiver and the dedup key now
+	// includes the receiver, so each victim of a drive-by gets its
+	// own finding.
 	seen := make(map[[2]string]bool)
 
 	fileFiles := filterFiles(files, "files")
 	for _, f := range fileFiles {
 		a.parseLog(f, func(rec map[string]any) bool {
-			src := parser.GetStr(rec, "tx_hosts")
-			if src == "" {
+			sender := parser.GetStr(rec, "tx_hosts")
+			if sender == "" {
 				// tx_hosts might be an array
-				src = parser.GetStr(rec, "id.orig_h")
+				sender = parser.GetStr(rec, "id.orig_h")
 			}
-			dst := parser.GetStr(rec, "rx_hosts")
+			receiver := parser.GetStr(rec, "rx_hosts")
 			mime := strings.ToLower(parser.GetStr(rec, "mime_type"))
 			filename := parser.GetStr(rec, "filename")
 			ts := parser.GetFloat(rec, "ts")
 
 			// Clean up array-style fields like ["1.2.3.4"]
-			src = strings.Trim(src, "[]\"")
-			dst = strings.Trim(dst, "[]\"")
+			sender = strings.Trim(sender, "[]\"")
+			receiver = strings.Trim(receiver, "[]\"")
 
-			if src == "" {
+			if sender == "" {
 				return true
 			}
 
@@ -150,10 +158,15 @@ func (a *Analyzer) analyzeFiles(files []string) {
 				return true
 			}
 
-			key := [2]string{src, filename + mime}
+			// Dedup by (receiver, file) — one finding per victim per
+			// (filename + mime). Multiple internal victims of the same
+			// drive-by each get their own finding; repeated downloads
+			// of the same file by the same victim collapse to one.
+			// Mirrors checkFileHashes' (rx, hash) keying convention.
+			key := [2]string{receiver, filename + mime}
 			if !seen[key] {
 				seen[key] = true
-				detail := fmt.Sprintf("%s", reason)
+				detail := reason
 				if filename != "" {
 					detail += " | File: " + filename
 				}
@@ -161,8 +174,8 @@ func (a *Analyzer) analyzeFiles(files []string) {
 					Type:       "Suspicious File Download",
 					Severity:   model.SevHigh,
 					Score:      72,
-					SrcIP:      dst,
-					DstIP:      src,
+					SrcIP:      receiver, // downloader is the SrcIP per our convention
+					DstIP:      sender,
 					Detail:     detail,
 					Timestamp:  fmtTS(ts),
 					SourceFile: f,

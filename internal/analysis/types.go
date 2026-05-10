@@ -13,14 +13,6 @@ type sslEntry struct {
 	issuer     string
 }
 
-// httpEntry holds HTTP metadata indexed by Zeek connection UID.
-type httpEntry struct {
-	method    string
-	host      string
-	uri       string
-	userAgent string
-}
-
 // ProgressEvent is sent to the SSE broker during analysis.
 type ProgressEvent struct {
 	Pct  int    `json:"pct"`
