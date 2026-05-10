@@ -30,6 +30,23 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Changed
+
+- **Settings section "Threat Intelligence" renamed to "Threat Intel
+  Lookup APIs".** Operator question raised whether the per-finding
+  enrichment keys (VirusTotal, AbuseIPDB, OTX, CrowdSec, GreyNoise,
+  Censys) should move into the Feeds dialog alongside MISP/OpenCTI
+  for one-stop TI configuration. Considered: consolidating into the
+  Feeds dialog as a second zone. Preserved: the split between
+  detection-input feeds (bulk indicator pulls on a watch cadence)
+  and lookup APIs (per-finding analyst pivots), since they have
+  different operational shapes and the Feeds dialog's CRUD-row UI
+  doesn't fit flat key-value config. Shipped: the cheaper rename
+  plus a one-line helper text pointing operators at the Feeds
+  dialog if they're looking for bulk-indicator sources. The new
+  label matches the existing consumer-side vocabulary used on the
+  finding-detail Threat Intel Lookup panel.
+
 ## [v0.8.0] — 2026-05-10
 
 ### Added
