@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -316,16 +318,25 @@ func (s *Server) runFeedFetch(ctx context.Context, feed feeds.Feed, forceFull bo
 		}
 	}
 
-	mark := feed
-	mark.Status = "fetching"
-	_ = s.store.UpdateFeed(mark)
+	// Refresh-state mutations all go through targeted UPDATEs that
+	// only touch the columns the refresh path owns (status,
+	// last_refresh_at, last_full_refresh_at, last_indicator_count,
+	// last_fetch_truncated, last_error). Pre-fix this code used
+	// UpdateFeed, which rewrites the entire mutable row from a
+	// pre-fetch snapshot — a concurrent admin PUT to /api/feeds/{id}
+	// (URL rotation, API-key rollover) landing mid-fetch was
+	// silently reverted when the fetch finished and wrote back the
+	// stale snapshot. Audit 2026-05-10 NEW-22.
+	_ = s.store.UpdateFeedStatus(feed.ID, "fetching")
 
 	res, fetchErr := adapter.Fetch(ctx, since)
 	if fetchErr != nil {
-		failed := feed
-		failed.Status = "error"
-		failed.LastError = fetchErr.Error()
-		_ = s.store.UpdateFeed(failed)
+		_ = s.store.UpdateFeedRefreshState(
+			feed.ID, "error",
+			feed.LastRefreshAt, feed.LastFullRefreshAt,
+			feed.LastIndicatorCount, feed.LastFetchTruncated,
+			fetchErr.Error(),
+		)
 		return 0, 0, fetchErr
 	}
 
@@ -340,17 +351,15 @@ func (s *Server) runFeedFetch(ctx context.Context, feed feeds.Feed, forceFull bo
 	}
 
 	totals := s.store.CountIndicatorsByFeed()
-
-	done := feed
-	done.LastRefreshAt = now
+	lastFullRefreshAt := feed.LastFullRefreshAt
 	if full {
-		done.LastFullRefreshAt = now
+		lastFullRefreshAt = now
 	}
-	done.LastIndicatorCount = totals[feed.ID]
-	done.LastFetchTruncated = res.Truncated
-	done.LastError = ""
-	done.Status = "ok"
-	_ = s.store.UpdateFeed(done)
+	_ = s.store.UpdateFeedRefreshState(
+		feed.ID, "ok",
+		now, lastFullRefreshAt,
+		totals[feed.ID], res.Truncated, "",
+	)
 	return added, refreshed, nil
 }
 
@@ -464,6 +473,9 @@ func validateFeedRequest(req feedRequest, requireAPIKey bool) error {
 	if !strings.HasPrefix(req.URL, "http://") && !strings.HasPrefix(req.URL, "https://") {
 		return fmt.Errorf("url must include scheme (http:// or https://)")
 	}
+	if err := rejectInternalFeedURL(req.URL); err != nil {
+		return err
+	}
 	if requireAPIKey && strings.TrimSpace(req.APIKey) == "" {
 		return fmt.Errorf("api_key is required")
 	}
@@ -471,4 +483,68 @@ func validateFeedRequest(req feedRequest, requireAPIKey bool) error {
 		return fmt.Errorf("indicator_aging_days must be >= 0 (0 = no aging)")
 	}
 	return nil
+}
+
+// rejectInternalFeedURL refuses feed URLs that obviously target
+// loopback / link-local / RFC1918 / cloud-metadata address space at
+// config time. The SSRF threat: a compromised admin (or one pasting
+// the wrong URL from a tutorial) can configure a feed at
+// http://169.254.169.254/latest/meta-data/iam/security-credentials/
+// (AWS metadata), http://localhost:6379 (Redis if exposed on the
+// host), or http://10.0.0.5/internal-api — and the feed worker will
+// fetch from inside the host's network with whatever credentials the
+// admin attached as api_key.
+//
+// Two-layer defense:
+//
+//  1. Config-time (this function): refuse URL hosts that are
+//     SYNTACTIC IP literals in the deny set. No DNS lookup — DNS
+//     failure during config (transient nameserver hiccup, captive
+//     portal, slow upstream) shouldn't block valid public URLs.
+//
+//  2. Fetch-time: feeds.httpClientWithTLS's CheckRedirect resolves
+//     redirect targets and refuses any that land in internal space.
+//     That's the layer that catches a public-looking hostname
+//     redirecting to 169.254.169.254.
+//
+// Audit 2026-05-10 NEW-18.
+func rejectInternalFeedURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("url parse: %v", err)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("url must have a host")
+	}
+	// Reject hosts that look like loopback regardless of DNS — a
+	// literal "localhost" can be aliased in /etc/hosts to anywhere
+	// but the operator-facing semantic is "the local machine."
+	switch strings.ToLower(host) {
+	case "localhost", "ip6-localhost", "ip6-loopback":
+		return fmt.Errorf("url host %q is a loopback alias; refused to prevent SSRF", host)
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if isInternalIP(ip) {
+			return fmt.Errorf("url host %s is an internal address; refused to prevent SSRF", host)
+		}
+	}
+	return nil
+}
+
+// isInternalIP reports whether the given IP is in any of the address
+// ranges Archer refuses to fetch feeds from: loopback, link-local
+// (incl. cloud metadata 169.254.169.254), unspecified, RFC1918
+// private, IPv6 unique-local (fc00::/7) and IPv6 link-local
+// (fe80::/10). These are the standard SSRF deny-list ranges from
+// OWASP guidance.
+func isInternalIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsInterfaceLocalMulticast() || ip.IsUnspecified() || ip.IsPrivate() {
+		return true
+	}
+	return false
 }

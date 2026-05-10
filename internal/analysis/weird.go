@@ -26,7 +26,15 @@ func (a *Analyzer) analyzeWeird(files []string) {
 			src := parser.GetStr(rec, "id.orig_h")
 			dst := parser.GetStr(rec, "id.resp_h")
 			name := parser.GetStr(rec, "name")
-			notice := parser.GetStr(rec, "notice")
+			// Zeek's weird.notice field is bool. GetStr produces
+			// "true"/"false" by way of json.Marshal on the
+			// underlying bool, so the previous detail-line
+			// concatenation appended literal "true" or "false"
+			// regardless of value, producing "Zeek weird: x | true"
+			// for any record (since "false" != "" && != "-"). Use
+			// GetBool and only annotate the genuinely-noticed
+			// weirds. Audit 2026-05-10 LOW.
+			noticed := parser.GetBool(rec, "notice")
 			ts := parser.GetFloat(rec, "ts")
 
 			if name == "" {
@@ -47,8 +55,8 @@ func (a *Analyzer) analyzeWeird(files []string) {
 			}
 
 			detail := fmt.Sprintf("Zeek weird: %s", name)
-			if notice != "" && notice != "-" {
-				detail += " | " + notice
+			if noticed {
+				detail += " (also notice)"
 			}
 
 			a.add(model.Finding{

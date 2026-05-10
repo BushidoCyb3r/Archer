@@ -1,7 +1,6 @@
 package store
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -116,6 +115,60 @@ func (s *Store) UpdateFeed(f feeds.Feed) error {
 	return nil
 }
 
+// UpdateFeedRefreshState writes back ONLY the columns the refresh
+// worker mutates: status, last_refresh_at, last_full_refresh_at,
+// last_indicator_count, last_fetch_truncated, last_error. Pre-fix
+// the refresh path used UpdateFeed, which rewrites every mutable
+// column from a snapshot taken before the fetch began. A concurrent
+// admin PUT to /api/feeds/{id} that landed mid-fetch (e.g. URL or
+// API-key rotation during a 90-second MISP page) was silently
+// reverted when the refresh finished and wrote back the stale
+// snapshot's URL/APIKey. Targeted updates touch only the columns
+// the refresh actually owns; admin-owned columns (URL, APIKey,
+// Name, IndicatorAgingDays, Enabled, TLSSkipVerify) flow exclusively
+// through UpdateFeed. Audit 2026-05-10 NEW-22.
+func (s *Store) UpdateFeedRefreshState(id int64, status string, lastRefreshAt, lastFullRefreshAt int64, lastIndicatorCount int, lastFetchTruncated bool, lastError string) error {
+	if s.db == nil {
+		return fmt.Errorf("store: db not initialized")
+	}
+	_, err := s.db.Exec(`
+		UPDATE feeds SET
+			status = ?,
+			last_refresh_at = ?,
+			last_full_refresh_at = ?,
+			last_indicator_count = ?,
+			last_fetch_truncated = ?,
+			last_error = ?,
+			updated_at = ?
+		WHERE id = ?`,
+		status, lastRefreshAt, lastFullRefreshAt, lastIndicatorCount,
+		boolToInt(lastFetchTruncated), lastError, time.Now().Unix(), id,
+	)
+	if err != nil {
+		return fmt.Errorf("store: update feed refresh state %d: %w", id, err)
+	}
+	s.invalidateFeedBuckets()
+	return nil
+}
+
+// UpdateFeedStatus writes only the status column (and updated_at).
+// Used by the refresh path's "fetching" mark so a concurrent admin
+// edit can't be clobbered by a transient status update either. Same
+// motivation as UpdateFeedRefreshState. Audit 2026-05-10 NEW-22.
+func (s *Store) UpdateFeedStatus(id int64, status string) error {
+	if s.db == nil {
+		return fmt.Errorf("store: db not initialized")
+	}
+	_, err := s.db.Exec(
+		`UPDATE feeds SET status = ?, updated_at = ? WHERE id = ?`,
+		status, time.Now().Unix(), id,
+	)
+	if err != nil {
+		return fmt.Errorf("store: update feed status %d: %w", id, err)
+	}
+	return nil
+}
+
 // DeleteFeed removes a feed and (via FK ON DELETE CASCADE) its
 // indicators. Use UpdateFeed to disable instead of delete when the
 // operator wants the feed to come back later.
@@ -181,6 +234,16 @@ func (s *Store) UpsertFeedIndicators(feedID int64, inds []feeds.Indicator, now i
 // transaction. Pulled out of UpsertFeedIndicators so the batch loop can
 // commit between batches without leaving prepared statements open across
 // commit boundaries (each batch gets its own tx + prepared stmts).
+//
+// Pre-v0.12.0 the implementation issued one SELECT per indicator
+// (existence check) followed by either INSERT or UPDATE — three round
+// trips per row, 3M queries on a 1M-attribute MISP refresh. The
+// SQLite ON CONFLICT clause collapses that to one INSERT-or-UPDATE
+// per row. The added/refreshed split previously came from separate
+// statement paths; SQLite's CHANGES() doesn't distinguish "insert"
+// from "update on conflict," so we rely on whether first_seen ==
+// last_seen post-statement (true on insert, false on update). RETURNING
+// keeps that read in the same round trip. Audit 2026-05-10 LOW.
 func (s *Store) upsertFeedIndicatorBatch(feedID int64, inds []feeds.Indicator, now int64) (added, refreshed int, err error) {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -192,41 +255,30 @@ func (s *Store) upsertFeedIndicatorBatch(feedID int64, inds []feeds.Indicator, n
 		}
 	}()
 
-	check, err := tx.Prepare(`SELECT id FROM feed_indicators WHERE feed_id = ? AND indicator = ?`)
-	if err != nil {
-		return 0, 0, fmt.Errorf("store: prepare check: %w", err)
-	}
-	defer check.Close()
-	insert, err := tx.Prepare(`
+	upsert, err := tx.Prepare(`
 		INSERT INTO feed_indicators (feed_id, indicator, indicator_type, first_seen, last_seen, source_id, tags)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(feed_id, indicator) DO UPDATE SET
+			last_seen = excluded.last_seen,
+			tags = excluded.tags,
+			source_id = excluded.source_id
+		RETURNING first_seen`)
 	if err != nil {
-		return 0, 0, fmt.Errorf("store: prepare insert: %w", err)
+		return 0, 0, fmt.Errorf("store: prepare upsert: %w", err)
 	}
-	defer insert.Close()
-	update, err := tx.Prepare(`
-		UPDATE feed_indicators SET last_seen = ?, tags = ?, source_id = ? WHERE id = ?`)
-	if err != nil {
-		return 0, 0, fmt.Errorf("store: prepare update: %w", err)
-	}
-	defer update.Close()
+	defer upsert.Close()
 
 	for _, ind := range inds {
 		tagsJSON, _ := json.Marshal(ind.Tags)
-		var existingID int64
-		err := check.QueryRow(feedID, ind.Indicator).Scan(&existingID)
-		switch {
-		case err == sql.ErrNoRows:
-			if _, err := insert.Exec(feedID, ind.Indicator, string(ind.Type), now, now, ind.SourceID, string(tagsJSON)); err != nil {
-				return added, refreshed, fmt.Errorf("store: insert indicator: %w", err)
-			}
+		var firstSeen int64
+		if err := upsert.QueryRow(
+			feedID, ind.Indicator, string(ind.Type), now, now, ind.SourceID, string(tagsJSON),
+		).Scan(&firstSeen); err != nil {
+			return added, refreshed, fmt.Errorf("store: upsert indicator: %w", err)
+		}
+		if firstSeen == now {
 			added++
-		case err != nil:
-			return added, refreshed, fmt.Errorf("store: check indicator: %w", err)
-		default:
-			if _, err := update.Exec(now, string(tagsJSON), ind.SourceID, existingID); err != nil {
-				return added, refreshed, fmt.Errorf("store: update indicator: %w", err)
-			}
+		} else {
 			refreshed++
 		}
 	}

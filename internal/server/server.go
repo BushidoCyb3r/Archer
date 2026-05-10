@@ -43,6 +43,19 @@ type Server struct {
 	diskCacheMu   sync.Mutex
 	diskCacheAt   time.Time
 	diskCacheData []byte
+
+	// Per-sensor lastLogMTime cache. handleSensorsList originally walked
+	// every sensor's log tree on every GET — O(sensors × files-per-day)
+	// stat calls per UI tick. Fine for a homelab with a handful of
+	// sensors but quadratic-ish for fleet scale. Audit 2026-05-10 LOW.
+	// Invalidated implicitly by the per-entry TTL.
+	sensorMtimeMu    sync.Mutex
+	sensorMtimeCache map[string]sensorMtimeEntry
+}
+
+type sensorMtimeEntry struct {
+	mtime    int64
+	cachedAt time.Time
 }
 
 // New creates and wires all routes, then starts the watch loop if configured.
@@ -254,7 +267,15 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/export/json", any(s.handleExportJSON))
 	s.mux.Handle("/api/export/csv", any(s.handleExportCSV))
 	s.mux.Handle("/api/export/xlsx", any(s.handleExportXLSX))
-	s.mux.Handle("/api/import", write(s.handleImportJSON))
+	// /api/import is admin-only. The handler can wholly replace the
+	// findings slice with attacker-supplied content (status, score,
+	// type, detail) — granting that to analysts violates the
+	// "findings come from the analyzer; analysts annotate" boundary
+	// because an analyst could fabricate a Critical TI Hit on any
+	// IP they wanted flagged. Admin-only matches the principle that
+	// configuration changes (allowlist / IOC list, both also written
+	// by /api/import) belong to admins. Audit 2026-05-10 NEW-14.
+	s.mux.Handle("/api/import", admin(s.handleImportJSON))
 }
 
 // handleFindingRouter dispatches /api/findings/{id} and /api/findings/{id}/escalate.

