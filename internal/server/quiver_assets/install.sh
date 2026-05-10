@@ -57,7 +57,7 @@ UNINSTALL_SH_B64="{{UNINSTALL_SH_B64}}"
 # error so the operator sees "your sensor is on vN, server requires v..."
 # instead of an opaque rsync failure later. See docs/QUIVER.md "Protocol
 # versioning" for what counts as a bump and the compatibility rules.
-PROTOCOL_VERSION=1
+PROTOCOL_VERSION=2
 
 # ── Preconditions ───────────────────────────────────────────────────────────
 
@@ -139,6 +139,10 @@ ensure_cmd ssh        "$PKG_SSH_CLIENT"     || exit 1
 ensure_cmd ssh-keygen "$PKG_SSH_CLIENT"     || exit 1
 ensure_cmd flock      util-linux            || exit 1
 ensure_cmd sudo       sudo                  || exit 1
+# openssl is required for HMAC-SHA256 signing of checkin payloads under
+# Quiver protocol v2. Most distros ship it as part of the base set, but
+# minimal Alpine and stripped Debian images sometimes don't.
+ensure_cmd openssl    openssl               || exit 1
 # awk, grep, sed, find, base64, tr are part of every distro's base; skip.
 
 # Make sure the cron daemon is installed and running. /etc/cron.d/quiver
@@ -257,6 +261,18 @@ SRV=$(echo "$RESP" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')
 SRV=${SRV:-$NAME}
 H=${H:-0}
 M=${M:-0}
+
+# Per-sensor HMAC secret (Quiver protocol v2). Returned exactly once
+# in the enroll response — no GET ever echoes it back. The server
+# loses its copy if its DB row is wiped, in which case the operator's
+# recovery is the same as for any other unrecoverable enroll-state
+# loss: re-enroll the sensor. Persist with strict perms so only the
+# quiver user can read.
+SECRET=$(echo "$RESP" | sed -n 's/.*"checkin_secret":"\([^"]*\)".*/\1/p')
+if [ -z "$SECRET" ]; then
+    echo "quiver: enroll response did not include checkin_secret — server is older than v0.12.0?" >&2
+    exit 1
+fi
 echo "quiver: enrolled as '$SRV', scheduled hourly at :$(printf '%02d' "$M") UTC"
 
 # ── Drop the daily script and the uninstall helper ──────────────────────────
@@ -324,6 +340,17 @@ touch /etc/quiver/known_hosts
 chown quiver:quiver /etc/quiver/known_hosts
 chmod 644 /etc/quiver/known_hosts
 
+# Persist the per-sensor checkin secret. mode 0600 owned by quiver so
+# only the quiver user (and root) can read it. The cron-driven
+# quiver.sh runs as the quiver user and reads this on every tick to
+# HMAC-sign its checkin body. Audit 2026-05-10 NEW-16.
+umask_save=$(umask)
+umask 077
+printf '%s' "$SECRET" > /etc/quiver/secret
+umask "$umask_save"
+chown quiver:quiver /etc/quiver/secret
+chmod 600 /etc/quiver/secret
+
 # ── Sudoers fragment limited to the uninstall script ────────────────────────
 
 cat > /etc/sudoers.d/quiver <<SUDO
@@ -355,6 +382,7 @@ if command -v restorecon >/dev/null 2>&1; then
                   /etc/quiver/keys/id_ed25519 \
                   /etc/quiver/keys/id_ed25519.pub \
                   /etc/quiver/known_hosts \
+                  /etc/quiver/secret \
                   /etc/quiver/config 2>/dev/null || true
 fi
 

@@ -58,16 +58,36 @@ fi
 
 CHECKIN_URL="https://${ARCHER_HOST}:${ARCHER_HTTPS_PORT}/api/quiver/checkin"
 
-# PROTOCOL_VERSION is sourced from /etc/quiver/config. Older configs
-# written before protocol versioning landed don't define it; default to
-# 1 so an in-place quiver.sh upgrade against a stale config doesn't
-# silently break checkin. The server applies the same backwards-compat
-# rule (missing field == v1) on its end.
-: "${PROTOCOL_VERSION:=1}"
+# PROTOCOL_VERSION is sourced from /etc/quiver/config. v0.12.0+ servers
+# require v2 (per-sensor HMAC on every checkin); v1 is no longer
+# accepted. A v1-vintage sensor that hasn't been re-enrolled will get
+# protocol_unsupported back and the operator must re-run the install
+# one-liner.
+: "${PROTOCOL_VERSION:=2}"
+
+# Read the per-sensor checkin secret. The server returns it once at
+# enrollment; install.sh persists it at /etc/quiver/secret with mode
+# 0600 owned by the quiver user. A missing or empty file means the
+# sensor enrolled under v1 (pre-v0.12.0) and must be re-enrolled —
+# checkin will fail with a clear error rather than silently sending
+# unsigned requests.
+SECRET_FILE=/etc/quiver/secret
+if [ ! -s "$SECRET_FILE" ]; then
+    echo "quiver: missing checkin secret at ${SECRET_FILE}; re-run the install one-liner from the Archer admin UI to enroll under protocol v2" >&2
+    exit 0
+fi
+CHECKIN_SECRET=$(cat "$SECRET_FILE")
+
+# Sign the body. openssl is on every distro that ships curl + cron, so
+# no extra dependency. The server re-derives the same digest server-
+# side and constant-time-compares against the X-Quiver-Sig header.
+BODY="{\"name\":\"${SENSOR_NAME}\",\"protocol_version\":${PROTOCOL_VERSION}}"
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$CHECKIN_SECRET" | sed 's/^.*= *//')
 
 resp=$(curl -fsSL -k --pinnedpubkey "sha256//${ARCHER_TLS_FP}" --max-time 30 \
     -H "Content-Type: application/json" \
-    -X POST -d "{\"name\":\"${SENSOR_NAME}\",\"protocol_version\":${PROTOCOL_VERSION}}" \
+    -H "X-Quiver-Sig: ${SIG}" \
+    -X POST -d "$BODY" \
     "${CHECKIN_URL}" 2>/dev/null || echo '{"status":"network_error"}')
 
 status=$(echo "$resp" | sed -n 's/.*"status":"\([^"]*\)".*/\1/p')

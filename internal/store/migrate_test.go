@@ -93,12 +93,30 @@ func TestRunMigrations_FreshDB_AppliesAllMigrations(t *testing.T) {
 func TestRunMigrations_ExistingPreFrameworkDB_StampsVersion1(t *testing.T) {
 	db := openTestDB(t)
 
-	// Simulate a pre-Phase-3 install: create findings (the sentinel table)
-	// directly without using the migration framework, leave schema_migrations
-	// nonexistent. RunMigrations should detect the existing schema and stamp
-	// version 1 without trying to re-run 0001.
-	if _, err := db.Exec(`CREATE TABLE findings (id INTEGER PRIMARY KEY)`); err != nil {
-		t.Fatalf("seed findings table: %v", err)
+	// Simulate a pre-Phase-3 install: tables created directly without
+	// the migration framework, leaving schema_migrations nonexistent.
+	// RunMigrations should detect the existing schema and stamp
+	// version 1 without trying to re-run 0001. The sentinel for the
+	// pre-framework detection is `findings`; the rest of the tables
+	// are seeded as stubs because 0001 created all of them and any
+	// later migration that ALTERs a 0001-defined table would fail
+	// against a single-table seed (e.g. 0007 ADD COLUMN on `sensors`,
+	// or any future ALTER of `users`).
+	preFrameworkTables := []string{
+		`CREATE TABLE findings (id INTEGER PRIMARY KEY)`,
+		`CREATE TABLE sensors (id INTEGER PRIMARY KEY)`,
+		`CREATE TABLE users (id INTEGER PRIMARY KEY)`,
+		`CREATE TABLE allowlist (id INTEGER PRIMARY KEY)`,
+		`CREATE TABLE ioc_list (id INTEGER PRIMARY KEY)`,
+		`CREATE TABLE settings (id INTEGER PRIMARY KEY)`,
+		`CREATE TABLE suppressions (id INTEGER PRIMARY KEY)`,
+		`CREATE TABLE enrollment_tokens (id INTEGER PRIMARY KEY)`,
+		`CREATE TABLE unauthorized_attempts (id INTEGER PRIMARY KEY)`,
+	}
+	for _, ddl := range preFrameworkTables {
+		if _, err := db.Exec(ddl); err != nil {
+			t.Fatalf("seed pre-framework table: %v", err)
+		}
 	}
 
 	if err := RunMigrations(db); err != nil {

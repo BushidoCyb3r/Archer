@@ -21,6 +21,14 @@ import (
 )
 
 // Sensor is a Quiver-enrolled (or formerly enrolled) endpoint.
+//
+// CheckinSecret is the per-sensor HMAC key established at enrollment
+// (v0.12.0+). The sensor signs each checkin payload with HMAC-SHA256
+// keyed on this secret; the server's checkin handler verifies. Empty
+// for sensors that enrolled under protocol v1 (pre-v0.12.0) — those
+// must re-enroll to upgrade. Tagged "-" so it never leaks into JSON
+// responses; the secret is only echoed once, in the enroll response,
+// to the sensor that's about to persist it. Audit 2026-05-10 NEW-16.
 type Sensor struct {
 	ID             int64  `json:"id"`
 	Name           string `json:"name"`
@@ -31,6 +39,7 @@ type Sensor struct {
 	Status         string `json:"status"` // enrolled | disenrolling | disenrolled
 	PubkeyFP       string `json:"pubkey_fp"`
 	AuthKeyLine    string `json:"-"` // exact authorized_keys line we wrote; used to remove on disenroll
+	CheckinSecret  string `json:"-"` // HMAC key for checkin authentication; never serialized
 	ScheduleHour   int    `json:"schedule_hour"`
 	ScheduleMinute int    `json:"schedule_minute"`
 	LastSeenAt     int64  `json:"last_seen_at"`
@@ -77,10 +86,10 @@ func (s *Store) CreateSensor(sn Sensor) (int64, error) {
 		return 0, nil
 	}
 	res, err := s.db.Exec(
-		`INSERT INTO sensors(name, host, source_ip, enrolled_at, enrolled_by, status, pubkey_fp, authkey_line, schedule_hour, schedule_minute)
-		 VALUES (?,?,?,?,?,'enrolled',?,?,?,?)`,
+		`INSERT INTO sensors(name, host, source_ip, enrolled_at, enrolled_by, status, pubkey_fp, authkey_line, schedule_hour, schedule_minute, checkin_secret)
+		 VALUES (?,?,?,?,?,'enrolled',?,?,?,?,?)`,
 		sn.Name, sn.Host, sn.SourceIP, sn.EnrolledAt, sn.EnrolledBy,
-		sn.PubkeyFP, sn.AuthKeyLine, sn.ScheduleHour, sn.ScheduleMinute,
+		sn.PubkeyFP, sn.AuthKeyLine, sn.ScheduleHour, sn.ScheduleMinute, sn.CheckinSecret,
 	)
 	if err != nil {
 		return 0, err
@@ -98,13 +107,14 @@ func (s *Store) GetSensors() []Sensor {
 	// COALESCE the nullable text columns — see ListEnrollmentTokens for
 	// the same trap (NULL → Scan into *string fails silently → row dropped).
 	rows, err := s.db.Query(`SELECT id, name,
-	                                COALESCE(host,'')         AS host,
-	                                COALESCE(source_ip,'')    AS source_ip,
+	                                COALESCE(host,'')          AS host,
+	                                COALESCE(source_ip,'')     AS source_ip,
 	                                enrolled_at,
-	                                COALESCE(enrolled_by,'')  AS enrolled_by,
+	                                COALESCE(enrolled_by,'')   AS enrolled_by,
 	                                status,
-	                                COALESCE(pubkey_fp,'')    AS pubkey_fp,
-	                                COALESCE(authkey_line,'') AS authkey_line,
+	                                COALESCE(pubkey_fp,'')     AS pubkey_fp,
+	                                COALESCE(authkey_line,'')  AS authkey_line,
+	                                COALESCE(checkin_secret,'') AS checkin_secret,
 	                                schedule_hour, schedule_minute, last_seen_at, last_files, last_bytes
 	                         FROM sensors ORDER BY enrolled_at DESC, id DESC`)
 	if err != nil {
@@ -115,7 +125,7 @@ func (s *Store) GetSensors() []Sensor {
 	var out []Sensor
 	for rows.Next() {
 		var sn Sensor
-		if err := rows.Scan(&sn.ID, &sn.Name, &sn.Host, &sn.SourceIP, &sn.EnrolledAt, &sn.EnrolledBy, &sn.Status, &sn.PubkeyFP, &sn.AuthKeyLine, &sn.ScheduleHour, &sn.ScheduleMinute, &sn.LastSeenAt, &sn.LastFiles, &sn.LastBytes); err == nil {
+		if err := rows.Scan(&sn.ID, &sn.Name, &sn.Host, &sn.SourceIP, &sn.EnrolledAt, &sn.EnrolledBy, &sn.Status, &sn.PubkeyFP, &sn.AuthKeyLine, &sn.CheckinSecret, &sn.ScheduleHour, &sn.ScheduleMinute, &sn.LastSeenAt, &sn.LastFiles, &sn.LastBytes); err == nil {
 			out = append(out, sn)
 		}
 	}
@@ -132,17 +142,18 @@ func (s *Store) GetActiveSensorByName(name string) (Sensor, bool) {
 		return Sensor{}, false
 	}
 	row := s.db.QueryRow(`SELECT id, name,
-	                             COALESCE(host,'')         AS host,
-	                             COALESCE(source_ip,'')    AS source_ip,
+	                             COALESCE(host,'')          AS host,
+	                             COALESCE(source_ip,'')     AS source_ip,
 	                             enrolled_at,
-	                             COALESCE(enrolled_by,'')  AS enrolled_by,
+	                             COALESCE(enrolled_by,'')   AS enrolled_by,
 	                             status,
-	                             COALESCE(pubkey_fp,'')    AS pubkey_fp,
-	                             COALESCE(authkey_line,'') AS authkey_line,
+	                             COALESCE(pubkey_fp,'')     AS pubkey_fp,
+	                             COALESCE(authkey_line,'')  AS authkey_line,
+	                             COALESCE(checkin_secret,'') AS checkin_secret,
 	                             schedule_hour, schedule_minute, last_seen_at, last_files, last_bytes
 	                      FROM sensors WHERE name=? AND status IN ('enrolled','disenrolling') ORDER BY id DESC LIMIT 1`, name)
 	var sn Sensor
-	if err := row.Scan(&sn.ID, &sn.Name, &sn.Host, &sn.SourceIP, &sn.EnrolledAt, &sn.EnrolledBy, &sn.Status, &sn.PubkeyFP, &sn.AuthKeyLine, &sn.ScheduleHour, &sn.ScheduleMinute, &sn.LastSeenAt, &sn.LastFiles, &sn.LastBytes); err != nil {
+	if err := row.Scan(&sn.ID, &sn.Name, &sn.Host, &sn.SourceIP, &sn.EnrolledAt, &sn.EnrolledBy, &sn.Status, &sn.PubkeyFP, &sn.AuthKeyLine, &sn.CheckinSecret, &sn.ScheduleHour, &sn.ScheduleMinute, &sn.LastSeenAt, &sn.LastFiles, &sn.LastBytes); err != nil {
 		return Sensor{}, false
 	}
 	return sn, true
@@ -309,6 +320,25 @@ func (s *Store) ConsumeEnrollmentToken(token string, sensorName string, now int6
 		return EnrollmentToken{}, false
 	}
 	return t, true
+}
+
+// ResetEnrollmentToken rolls back a successful ConsumeEnrollmentToken
+// by clearing used_at and consumed_by. Used by the enrollment handler
+// when a step *after* token consumption fails (authorized_keys write,
+// log dir creation, sensor row insert) — without rollback the operator
+// is stuck: their token is permanently used_at!=0 but no sensor was
+// recorded, and they can't re-enroll without minting a new token. The
+// existing rollback of AppendAuthKey shows the author intended this to
+// be transactional; this completes the transaction. Audit 2026-05-10
+// NEW-19.
+func (s *Store) ResetEnrollmentToken(id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
+	_, err := s.db.Exec(`UPDATE enrollment_tokens SET used_at=0, consumed_by=NULL WHERE id=?`, id)
+	return err
 }
 
 // DeleteEnrollmentToken removes a token row by id. Used to revoke an

@@ -14,14 +14,23 @@ import (
 // validate against supportedQuiverProtocols and reject mismatches with
 // a structured error so the operator sees "your sensor is on v1, server
 // requires v2+" instead of an opaque rsync failure later.
-const QuiverProtocolVersion = 1
+//
+// v2 (v0.12.0): per-sensor HMAC-SHA256 secret established at
+// enrollment, required on every checkin. Closes NEW-16 — pre-v2 a
+// checkin's only credential was the sensor's name (not a secret in
+// the design), so anyone who could reach the TLS endpoint and guess
+// the name could forge LastSeenAt heartbeats. v1 enrollments are
+// dropped because there's no in-band path to retroactively issue an
+// HMAC secret to a v1 sensor; the operator's upgrade is to re-enroll
+// every sensor on v0.12.0. Audit 2026-05-10 NEW-16.
+const QuiverProtocolVersion = 2
 
 // supportedQuiverProtocols enumerates every version this server still
-// accepts. Drop entries when their compatibility window closes; today
-// only v1 exists. Listed as a set for O(1) membership and so the
-// supported list can be surfaced in error responses verbatim.
+// accepts. Listed as a set for O(1) membership and so the supported
+// list can be surfaced in error responses verbatim. v1 dropped in
+// v0.12.0 — see protocol-version comment above.
 var supportedQuiverProtocols = map[int]bool{
-	1: true,
+	2: true,
 }
 
 // supportedQuiverProtocolList returns the supported set as a sorted
@@ -43,12 +52,10 @@ func supportedQuiverProtocolList() []int {
 }
 
 // resolveQuiverProtocol normalises an incoming sensor's protocol_version
-// field. A missing field (the *int is nil) is treated as v1: that's the
-// one-cycle backwards-compat window for sensors that were installed
-// before protocol versioning landed. Once every fielded sensor has
-// shipped a checkin or re-enrolled with an explicit version, the server
-// can flip this to a hard error in a future release; until then,
-// missing == v1 keeps existing fleets functional during the upgrade.
+// field. A missing field (the *int is nil) is treated as v1, which is
+// no longer supported in v0.12.0 — the resolver returns it explicitly
+// so the error response surfaces "sensor reported v1; server requires
+// v2" rather than blaming a missing field.
 //
 // Returns the resolved version and ok=true on success. On unsupported
 // versions returns ok=false and the caller should respond with an error.

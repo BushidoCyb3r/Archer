@@ -193,7 +193,18 @@ func (s *Server) handleSensorDisenroll(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "sensor not found", http.StatusNotFound)
 		return
 	}
-	if sn.Status != "enrolled" {
+	// Pre-fix this rejected anything other than "enrolled", which
+	// included sensors stuck in "disenrolling" from a server crash or
+	// a SetSensorStatus failure mid-sequence. The admin then had no
+	// path through the UI to complete the disenroll; they had to edit
+	// the SQLite database manually. Every step in the disenroll
+	// sequence is already idempotent (RemoveAuthKey is no-op if line
+	// absent, rotateSensorLogs returns immediately if /logs/<name>/
+	// is missing, RetagFindings has nothing to retag if it ran
+	// already, SetSensorStatus is unconditionally settable). Resuming
+	// from "disenrolling" reuses that resilience. Audit 2026-05-10
+	// NEW-23.
+	if sn.Status != "enrolled" && sn.Status != "disenrolling" {
 		jsonError(w, "sensor is not currently enrolled", http.StatusConflict)
 		return
 	}
@@ -328,9 +339,25 @@ func (s *Server) handleUnauthorizedDismiss(w http.ResponseWriter, r *http.Reques
 
 // ── Filesystem helpers ────────────────────────────────────────────────────
 
-// rotateSensorLogs moves /logs/<name>/ aside to /logs/_archived/<name>-<stamp>/.
-// Best-effort: a missing source directory or a busy filesystem won't fail
-// the disenroll. The archive directory is created on first need.
+// rotateSensorLogs moves /logs/<name>/ aside to
+// /logs/_archived/<name>/<stamp>/. Best-effort: a missing source
+// directory or a busy filesystem won't fail the disenroll. The archive
+// directory is created on first need.
+//
+// Pre-v0.12.0 the layout was /logs/_archived/<name>-<stamp>/ — flat,
+// hyphen-delimited. validSensorName allows hyphens, so sensors named
+// "abc" and "abc-east" produced archive directories with overlapping
+// prefixes (`abc-2026-01-15` and `abc-east-2026-01-20`). The matching
+// purgeSensorLogs implementation used HasPrefix(name + "-"), so
+// purging "abc" would also wipe "abc-east"'s archive — silently
+// destroying the second sensor's logs. Naming conventions like
+// region-hostname ("east-fw01", "east-fw02", "west-fw01") are common
+// for sensor fleets, so the collision wasn't theoretical.
+//
+// Nesting <name>/<stamp> moves the per-sensor namespace into a
+// directory rather than a path prefix; purge becomes a single
+// `os.RemoveAll(/_archived/<name>)` with no prefix matching, no
+// collision possible. Audit 2026-05-10 NEW-21.
 func (s *Server) rotateSensorLogs(name, stamp string) {
 	if s.logsDir == "" || name == "" {
 		return
@@ -339,50 +366,66 @@ func (s *Server) rotateSensorLogs(name, stamp string) {
 	if _, err := os.Stat(src); err != nil {
 		return
 	}
-	archiveRoot := filepath.Join(s.logsDir, "_archived")
+	archiveRoot := filepath.Join(s.logsDir, "_archived", name)
 	_ = os.MkdirAll(archiveRoot, 0o755)
-	dst := filepath.Join(archiveRoot, name+"-"+stamp)
+	dst := filepath.Join(archiveRoot, stamp)
 	// If a previous disenroll on the same calendar day already used this
 	// path, suffix a counter so we don't merge the trees.
 	for i := 2; ; i++ {
 		if _, err := os.Stat(dst); os.IsNotExist(err) {
 			break
 		}
-		dst = filepath.Join(archiveRoot, fmt.Sprintf("%s-%s-%d", name, stamp, i))
+		dst = filepath.Join(archiveRoot, fmt.Sprintf("%s-%d", stamp, i))
 	}
 	if err := os.Rename(src, dst); err != nil {
 		fmt.Fprintf(os.Stderr, "rotateSensorLogs: %v\n", err)
 	}
 }
 
-// purgeSensorLogs removes every archived directory for the sensor name.
+// purgeSensorLogs removes the archived directory for the sensor name.
 // The active directory is gone by this point — purge only runs after a
-// successful disenroll.
+// successful disenroll. Single-level removal is safe because the
+// nested-by-name layout (rotateSensorLogs) puts every archived
+// snapshot for a sensor under its own /_archived/<name>/ directory,
+// so there's no chance of catching another sensor's logs the way the
+// pre-v0.12.0 prefix-match implementation did. Audit 2026-05-10
+// NEW-21.
 func (s *Server) purgeSensorLogs(name string) {
 	if s.logsDir == "" || name == "" {
 		return
 	}
-	archiveRoot := filepath.Join(s.logsDir, "_archived")
-	entries, err := os.ReadDir(archiveRoot)
-	if err != nil {
-		return
-	}
-	prefix := name + "-"
-	for _, e := range entries {
-		if !strings.HasPrefix(e.Name(), prefix) {
-			continue
-		}
-		_ = os.RemoveAll(filepath.Join(archiveRoot, e.Name()))
-	}
+	dir := filepath.Join(s.logsDir, "_archived", name)
+	_ = os.RemoveAll(dir)
 }
 
 // lastLogMTime returns the most recent file mtime under /logs/<name>/ as
 // a unix timestamp, or 0 if the directory is empty / missing. Disenrolled
 // sensors don't have an active log directory, so we skip them.
+//
+// Cached for sensorMtimeCacheTTL because handleSensorsList — the only
+// caller — fires on every Sensors-modal poll. Pre-cache a 50-sensor
+// fleet with a busy log tree could spend 100+ ms just stat'ing files
+// per UI tick. The TTL is short enough that a sensor that just went
+// idle still shows fresh data within ~5 seconds; a sensor that just
+// pushed shows up at most that delayed. Audit 2026-05-10 LOW.
+const sensorMtimeCacheTTL = 5 * time.Second
+
 func (s *Server) lastLogMTime(name, status string) int64 {
 	if s.logsDir == "" || name == "" || status == "disenrolled" {
 		return 0
 	}
+	now := time.Now()
+
+	s.sensorMtimeMu.Lock()
+	if s.sensorMtimeCache == nil {
+		s.sensorMtimeCache = make(map[string]sensorMtimeEntry)
+	}
+	if e, ok := s.sensorMtimeCache[name]; ok && now.Sub(e.cachedAt) < sensorMtimeCacheTTL {
+		s.sensorMtimeMu.Unlock()
+		return e.mtime
+	}
+	s.sensorMtimeMu.Unlock()
+
 	dir := filepath.Join(s.logsDir, name)
 	var newest int64
 	_ = filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
@@ -394,5 +437,9 @@ func (s *Server) lastLogMTime(name, status string) int64 {
 		}
 		return nil
 	})
+
+	s.sensorMtimeMu.Lock()
+	s.sensorMtimeCache[name] = sensorMtimeEntry{mtime: newest, cachedAt: now}
+	s.sensorMtimeMu.Unlock()
 	return newest
 }

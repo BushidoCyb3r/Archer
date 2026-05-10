@@ -104,6 +104,17 @@ func NewMISPClient(baseURL, apiKey string, tlsSkipVerify bool) *MISPClient {
 // MISP while still detecting a genuinely stuck connection. The parent
 // context (5-minute manual refresh, 10-minute watch full-pass) caps
 // total fetch time across all pages.
+//
+// CheckRedirect enforces the same SSRF guard the admin-side
+// validateFeedRequest applies: a redirect target whose host resolves
+// to loopback / link-local / RFC1918 / IPv6 unique-local space is
+// refused. Without this, an attacker who controls an external feed
+// URL pointed at by the admin's config could redirect to
+// http://169.254.169.254/... or http://10.0.0.5/... and reach
+// internal services with whatever credentials the admin attached.
+// Stdlib's default CheckRedirect follows up to 10 redirects with no
+// host validation; we bound it at 5 and validate each hop. Audit
+// 2026-05-10 NEW-18.
 func httpClientWithTLS(skipVerify bool) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if skipVerify {
@@ -112,7 +123,42 @@ func httpClientWithTLS(skipVerify bool) *http.Client {
 	return &http.Client{
 		Timeout:   90 * time.Second,
 		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("feed: too many redirects (>5)")
+			}
+			host := req.URL.Hostname()
+			if host == "" {
+				return nil
+			}
+			addrs, err := net.LookupIP(host)
+			if err != nil {
+				return fmt.Errorf("feed redirect host lookup failed: %v", err)
+			}
+			for _, ip := range addrs {
+				if isInternalAddr(ip) {
+					return fmt.Errorf("feed: refused redirect to internal address %s (%s)", ip, host)
+				}
+			}
+			return nil
+		},
 	}
+}
+
+// isInternalAddr matches the same deny-list as the admin-side
+// rejectInternalFeedURL — kept duplicated here so the feeds package
+// doesn't import server. The set: loopback, link-local (incl.
+// cloud-metadata 169.254.169.254), unspecified, RFC1918 private,
+// IPv6 unique-local. Audit 2026-05-10 NEW-18.
+func isInternalAddr(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsInterfaceLocalMulticast() || ip.IsUnspecified() || ip.IsPrivate() {
+		return true
+	}
+	return false
 }
 
 // Source satisfies Adapter.Source.

@@ -130,13 +130,19 @@ func writeFindingsSheet(xf *excelize.File, name string, findings []model.Finding
 		_ = xf.SetCellValue(name, cell, h)
 	}
 	for row, f := range findings {
+		// Every string field passes through spreadsheetSafe. The
+		// XLSX format interprets cells starting with =/+/-/@ as
+		// formulas the same way CSV does — see spreadsheetSafe's
+		// docstring. Non-string fields (Score, IOCMatch, IsNew)
+		// are pass-through; ints and bools never carry a leading
+		// dangerous character. Audit 2026-05-10 NEW-17.
 		vals := []any{
-			f.Score, string(f.Severity), f.Type,
-			f.SrcIP, f.DstIP, f.DstPort,
-			f.Timestamp, f.Detail,
-			f.Sensor, f.SourceFile,
-			string(f.Status), f.Analyst, f.AnalystNote,
-			f.IOCMatch, f.IOCSource, f.IsNew,
+			f.Score, string(f.Severity), spreadsheetSafe(f.Type),
+			spreadsheetSafe(f.SrcIP), spreadsheetSafe(f.DstIP), spreadsheetSafe(f.DstPort),
+			spreadsheetSafe(f.Timestamp), spreadsheetSafe(f.Detail),
+			spreadsheetSafe(f.Sensor), spreadsheetSafe(f.SourceFile),
+			string(f.Status), spreadsheetSafe(f.Analyst), spreadsheetSafe(f.AnalystNote),
+			f.IOCMatch, spreadsheetSafe(f.IOCSource), f.IsNew,
 		}
 		for col, v := range vals {
 			cell, _ := excelize.CoordinatesToCellName(col+1, row+2)
@@ -219,7 +225,7 @@ func writeCampaignsSheet(xf *excelize.File, name string, rows []campaignRollup) 
 		_ = xf.SetCellValue(name, cell, h)
 	}
 	for row, r := range rows {
-		vals := []any{r.MaxScore, r.Dst, r.Port, r.HostCount, strings.Join(r.Types, " ")}
+		vals := []any{r.MaxScore, spreadsheetSafe(r.Dst), spreadsheetSafe(r.Port), r.HostCount, spreadsheetSafe(strings.Join(r.Types, " "))}
 		for col, v := range vals {
 			cell, _ := excelize.CoordinatesToCellName(col+1, row+2)
 			_ = xf.SetCellValue(name, cell, v)
@@ -361,7 +367,7 @@ func writeHostsSheet(xf *excelize.File, name string, rows []hostRollup) {
 		_ = xf.SetCellValue(name, cell, h)
 	}
 	for row, r := range rows {
-		vals := []any{r.Score, r.IP, r.Count, r.TopSev, strings.Join(r.Types, " ")}
+		vals := []any{r.Score, spreadsheetSafe(r.IP), r.Count, r.TopSev, spreadsheetSafe(strings.Join(r.Types, " "))}
 		for col, v := range vals {
 			cell, _ := excelize.CoordinatesToCellName(col+1, row+2)
 			_ = xf.SetCellValue(name, cell, v)

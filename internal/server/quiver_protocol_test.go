@@ -12,10 +12,15 @@ import (
 	"github.com/BushidoCyb3r/Archer/internal/store"
 )
 
-func TestResolveQuiverProtocol_NilDefaultsToV1(t *testing.T) {
+func TestResolveQuiverProtocol_NilResolvesToV1ButRejected(t *testing.T) {
+	// v0.12.0 dropped the v1 backwards-compat window: missing
+	// protocol_version still resolves to 1 (so the error response
+	// surfaces "sensor reported v1; server requires v2") but ok=false
+	// because v1 is no longer supported. Pre-v0.12.0 this returned
+	// ok=true. Audit 2026-05-10 NEW-16.
 	got, ok := resolveQuiverProtocol(nil)
-	if !ok {
-		t.Fatalf("missing protocol_version should resolve to v1 (one-cycle backwards-compat); got ok=false")
+	if ok {
+		t.Fatalf("v1 (nil) should no longer be supported in v0.12.0+; got ok=true")
 	}
 	if got != 1 {
 		t.Fatalf("expected resolved=1 for nil input, got %d", got)
@@ -36,7 +41,7 @@ func TestResolveQuiverProtocol_SupportedVersions(t *testing.T) {
 }
 
 func TestResolveQuiverProtocol_UnsupportedRejected(t *testing.T) {
-	for _, v := range []int{0, 2, 99, -1} {
+	for _, v := range []int{0, 1, 99, -1} {
 		v := v
 		if supportedQuiverProtocols[v] {
 			continue // skip if a future bump promotes one of these to supported
@@ -128,11 +133,12 @@ func TestHandleQuiverEnroll_RejectsUnsupportedProtocolVersion(t *testing.T) {
 	}
 }
 
-func TestHandleQuiverEnroll_AcceptsMissingProtocolVersion(t *testing.T) {
-	// Missing field is the pre-Phase-2 backwards-compat path. The request
-	// should pass protocol validation and fail later (on the missing token,
-	// because we don't supply a real one) — that's "validation passed, the
-	// token check rejected us" not "protocol mismatch."
+func TestHandleQuiverEnroll_RejectsMissingProtocolVersion(t *testing.T) {
+	// v0.12.0+ dropped the v1 backwards-compat window for enroll. A
+	// sensor still on the v1 install path (no protocol_version field
+	// in the body) is now rejected with the same protocol-error JSON
+	// shape any other unsupported version produces. Audit 2026-05-10
+	// NEW-16.
 	s := newQuiverTestServer(t)
 
 	body, _ := json.Marshal(map[string]any{
@@ -147,15 +153,15 @@ func TestHandleQuiverEnroll_AcceptsMissingProtocolVersion(t *testing.T) {
 
 	s.handleQuiverEnroll(w, req)
 
-	// Token is bogus so we expect 403; the important assertion is that we
-	// got past the protocol-validation 400 path. Anything other than 400
-	// means protocol validation accepted the missing field.
-	if w.Code == http.StatusBadRequest {
-		var resp map[string]any
-		_ = json.Unmarshal(w.Body.Bytes(), &resp)
-		if _, hasSensor := resp["sensor_version"]; hasSensor {
-			t.Fatalf("missing protocol_version was rejected as unsupported; backwards-compat broken (body: %s)", w.Body.String())
-		}
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("missing protocol_version should be rejected as v1 (unsupported); got %d body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("response not JSON: %v", err)
+	}
+	if resp["sensor_version"] != float64(1) {
+		t.Errorf("sensor_version should resolve to 1 for missing field; got %v", resp["sensor_version"])
 	}
 }
 
@@ -194,7 +200,11 @@ func TestHandleQuiverCheckin_RejectsUnsupportedProtocolVersion(t *testing.T) {
 	}
 }
 
-func TestHandleQuiverCheckin_AcceptsMissingProtocolVersion(t *testing.T) {
+func TestHandleQuiverCheckin_RejectsMissingProtocolVersion(t *testing.T) {
+	// v0.12.0+ a missing protocol_version checkin gets the
+	// "protocol_unsupported" status discriminator (HTTP 200 — see
+	// quiverProtocolUnsupportedCheckin for why) rather than being
+	// silently accepted as v1. Audit 2026-05-10 NEW-16.
 	s := newQuiverTestServer(t)
 
 	body, _ := json.Marshal(map[string]any{"name": "unknown-sensor"})
@@ -205,17 +215,16 @@ func TestHandleQuiverCheckin_AcceptsMissingProtocolVersion(t *testing.T) {
 	s.handleQuiverCheckin(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("missing protocol_version should not 400 (backwards-compat); got %d body=%s", w.Code, w.Body.String())
+		t.Fatalf("checkin protocol mismatch should be 200 (status discriminator); got %d", w.Code)
 	}
 	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("response not JSON: %v", err)
 	}
-	if resp["status"] == "protocol_unsupported" {
-		t.Fatalf("missing protocol_version was rejected; backwards-compat broken")
+	if resp["status"] != "protocol_unsupported" {
+		t.Fatalf("missing protocol_version should be rejected; got status=%v", resp["status"])
 	}
-	// Unknown sensor name — expected status, since we never enrolled it.
-	if resp["status"] != "unknown" {
-		t.Logf("checkin returned status=%v; that's fine as long as it isn't protocol_unsupported", resp["status"])
+	if resp["sensor_version"] != float64(1) {
+		t.Errorf("sensor_version should resolve to 1 for missing field; got %v", resp["sensor_version"])
 	}
 }
