@@ -12,6 +12,8 @@
 const Feeds = (() => {
   let _isAdmin = false;
   let _editingID = null; // null = creating, else editing this feed id
+  let _pollTimer = null; // setInterval handle for live-progress polling
+  let _pollOn = false;
 
   function _api(url, opts) {
     return fetch(url, opts || {}).then(r => {
@@ -71,7 +73,12 @@ const Feeds = (() => {
            <button class="dlg-btn secondary feeds-row-edit" data-id="${f.id}">Edit</button>
            <button class="dlg-btn danger feeds-row-delete" data-id="${f.id}">Delete</button>`
         : '';
-      const count = (f.last_indicator_count || 0).toLocaleString();
+      const isFetching = f.status === 'fetching';
+      const liveCount = (f.live_indicator_count || 0).toLocaleString();
+      const settledCount = (f.last_indicator_count || 0).toLocaleString();
+      const count = isFetching
+        ? `<span title="ingested so far this fetch — climbs while the import runs">${liveCount} <span style="color:var(--fg-dim);font-style:italic">ingesting…</span></span>`
+        : settledCount;
       const truncBadge = f.last_fetch_truncated
         ? ` <span title="Last fetch hit the adapter's page-walk cap — upstream has more indicators than were pulled. Consider narrowing the upstream query." style="color:var(--sev-medium);font-weight:600">⚠ truncated</span>`
         : '';
@@ -184,6 +191,25 @@ const Feeds = (() => {
     }
   }
 
+  // ── live-progress polling ─────────────────────────────────────────────
+
+  function _startPoll() {
+    if (_pollOn) return;
+    _pollOn = true;
+    _pollTimer = setInterval(() => {
+      if (!_pollOn) return;
+      refresh().catch(() => { /* swallow — next tick retries */ });
+    }, 2500);
+  }
+
+  function _stopPoll() {
+    _pollOn = false;
+    if (_pollTimer) {
+      clearInterval(_pollTimer);
+      _pollTimer = null;
+    }
+  }
+
   // ── init ──────────────────────────────────────────────────────────────
 
   function init(isAdmin) {
@@ -201,8 +227,13 @@ const Feeds = (() => {
     btn.addEventListener('click', async () => {
       await refresh();
       dlg.showModal();
+      _startPoll();
     });
-    document.getElementById('feeds-close').addEventListener('click', () => dlg.close());
+    document.getElementById('feeds-close').addEventListener('click', () => {
+      _stopPoll();
+      dlg.close();
+    });
+    dlg.addEventListener('close', _stopPoll);
 
     const editDlg = document.getElementById('feeds-edit-dlg');
     const newBtn = document.getElementById('feeds-new-btn');

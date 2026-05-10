@@ -252,6 +252,34 @@ func (s *Store) RemoveStaleIndicators(feedID int64, before int64) (int, error) {
 	return int(n), nil
 }
 
+// CountIndicatorsByFeed returns the live indicator count for every
+// feed_id present in feed_indicators, in a single GROUP BY query.
+// Used by /api/feeds to surface live progress during a long fetch —
+// the count reflects what's currently in the table, not the
+// last_indicator_count snapshot frozen at the previous successful
+// fetch. Feeds with zero indicators (never fetched, just-deleted)
+// are absent from the map; callers should default to 0.
+func (s *Store) CountIndicatorsByFeed() map[int64]int {
+	if s.db == nil {
+		return nil
+	}
+	rows, err := s.db.Query(`SELECT feed_id, COUNT(*) FROM feed_indicators GROUP BY feed_id`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := make(map[int64]int)
+	for rows.Next() {
+		var id int64
+		var c int
+		if err := rows.Scan(&id, &c); err != nil {
+			continue
+		}
+		out[id] = c
+	}
+	return out
+}
+
 // ListFeedIndicators returns every current indicator for a feed.
 // Used by the matcher composer (slice 4) to build the union matcher
 // over operator IOC list + all enabled feeds. Returns empty slice
