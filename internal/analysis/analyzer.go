@@ -41,6 +41,22 @@ type ParseError struct {
 	Err  string
 }
 
+// tiErr is the in-flight record of a TI source failure (HTTP non-2xx,
+// network error, decode error). Same shape as parseErr — the run
+// continues past a single bad lookup while the operator still gets
+// a clear signal that some TI coverage is incomplete.
+type tiErr struct {
+	source string
+	err    string
+}
+
+// TIError is the read-only view of a TI source failure exposed via
+// Analyzer.TIErrors().
+type TIError struct {
+	Source string
+	Err    string
+}
+
 // Analyzer orchestrates all Zeek log analysis steps.
 type Analyzer struct {
 	cfg           config.Config
@@ -52,8 +68,8 @@ type Analyzer struct {
 	nextID        int
 	sensorWindows map[string]sensorWindow
 	sslUIDIndex   map[string]sslEntry
-	httpUIDIndex  map[string]httpEntry
 	parseErrs     []parseErr
+	tiErrs        []tiErr
 
 	// Pre-fetched threat intel feeds (populated during phase 0)
 	feodoIPs     map[string]bool
@@ -92,7 +108,6 @@ func New(cfg config.Config, logsDir string, progressCh chan<- ProgressEvent, sta
 		statusCh:      statusCh,
 		sensorWindows: make(map[string]sensorWindow),
 		sslUIDIndex:   make(map[string]sslEntry),
-		httpUIDIndex:  make(map[string]httpEntry),
 		ctx:           ctx,
 		cancel:        cancel,
 		resumeCh:      resumeCh,
@@ -402,6 +417,37 @@ func (a *Analyzer) ParseErrors() []ParseError {
 	out := make([]ParseError, len(a.parseErrs))
 	for i, e := range a.parseErrs {
 		out[i] = ParseError{Path: e.path, Err: e.err}
+	}
+	return out
+}
+
+// recordTIError surfaces a per-source TI lookup or feed-fetch
+// failure to the operator and tracks it on the analyzer. Same shape
+// as recordParseError. The 2026-05-10 audit's NEW-1 raised this:
+// pre-fix every external HTTP client (OTX, AbuseIPDB, Feodo Tracker,
+// URLhaus) silently treated non-2xx responses as "no hit" — JSON
+// decoded into the empty struct, count == 0 → "clean" reported.
+// Operator looked at a finding-detail panel showing OTX clean,
+// concluded the dataset was clean, when in reality 401 (bad key) /
+// 429 (rate limited) / 503 (upstream sick) was the actual answer.
+// Same trust-bug class as the parser swallowing fix.
+func (a *Analyzer) recordTIError(source string, err error) {
+	a.mu.Lock()
+	a.tiErrs = append(a.tiErrs, tiErr{source: source, err: err.Error()})
+	a.mu.Unlock()
+	a.sendStatus(fmt.Sprintf("TI warning: %s — %v (results may be incomplete)", source, err))
+}
+
+// TIErrors returns the list of TI source failures observed during
+// this run. Empty slice on a clean run. Caller (UI, future CLI)
+// should consult to surface a "TI checks didn't all complete"
+// indicator alongside findings.
+func (a *Analyzer) TIErrors() []TIError {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	out := make([]TIError, len(a.tiErrs))
+	for i, e := range a.tiErrs {
+		out[i] = TIError{Source: e.source, Err: e.err}
 	}
 	return out
 }

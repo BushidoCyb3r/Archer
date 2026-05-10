@@ -105,7 +105,7 @@ func (s *Server) handleFindingRaw(w http.ResponseWriter, r *http.Request, id int
 	var winStart, winEnd time.Time
 	var haveWindow bool
 	if !noWindow {
-		if ft, ok := parseFindingTime(f.Timestamp); ok {
+		if ft, ok := parseFindingTime(f.Timestamp, time.UTC); ok {
 			winStart = ft.Add(-time.Duration(windowHours) * time.Hour).Add(-2 * time.Hour)
 			winEnd = ft.Add(time.Duration(windowHours) * time.Hour).Add(2 * time.Hour)
 			haveWindow = true

@@ -19,7 +19,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s.renderAuth(w, "login.html", map[string]any{"Error": ""})
 	case http.MethodPost:
-		email := strings.TrimSpace(r.FormValue("email"))
+		// Normalize the email exactly the way registration does (trim
+		// + lowercase) before authenticating. The SQL lookup uses
+		// COLLATE NOCASE so login works either way today, but the
+		// normalization mismatch is a footgun: anyone removing the
+		// COLLATE clause thinking emails are normalized at write
+		// time would silently break login. Audit 2026-05-10.
+		email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 		password := r.FormValue("password")
 
 		if !validEmail(email) {

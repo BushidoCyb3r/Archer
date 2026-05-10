@@ -3,10 +3,28 @@ package analysis
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/BushidoCyb3r/Archer/internal/model"
 	"github.com/BushidoCyb3r/Archer/internal/parser"
 )
+
+// truncateRunes returns s capped at n runes (not bytes). Used by
+// the notice truncator to keep the trailing ellipsis from landing
+// inside a multi-byte UTF-8 character.
+func truncateRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	count := 0
+	for i := range s {
+		if count == n {
+			return s[:i]
+		}
+		count++
+	}
+	return s
+}
 
 func (a *Analyzer) analyzeNotice(files []string) {
 	seen := make(map[[3]string]bool)
@@ -43,8 +61,13 @@ func (a *Analyzer) analyzeNotice(files []string) {
 
 			detail := fmt.Sprintf("Notice: %s", noteType)
 			if msg != "" && msg != "-" {
-				if len(msg) > 200 {
-					msg = msg[:197] + "…"
+				// Rune-aware truncation. Pre-fix `msg[:197]` could
+				// land mid-multi-byte-character on UTF-8 input, and
+				// the trailing ellipsis would produce invalid UTF-8.
+				// Audit 2026-05-10. Iterate runes, cap at 197 of
+				// them, append the ellipsis.
+				if utf8.RuneCountInString(msg) > 200 {
+					msg = truncateRunes(msg, 197) + "…"
 				}
 				detail += " | " + msg
 			}
