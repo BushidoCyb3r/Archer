@@ -27,7 +27,12 @@ type feedResponse struct {
 	URL                string `json:"url"`
 	IndicatorAgingDays int    `json:"indicator_aging_days"`
 	LastRefreshAt      int64  `json:"last_refresh_at"`
-	LastIndicatorCount int    `json:"last_indicator_count"`
+	// LastFullRefreshAt is the most recent full pull (incrementals
+	// don't update it). UI renders it as a tooltip on the refresh-
+	// time cell so operators can tell which fetches were cheap
+	// incrementals vs the periodic deep sync.
+	LastFullRefreshAt  int64 `json:"last_full_refresh_at"`
+	LastIndicatorCount int   `json:"last_indicator_count"`
 	// LiveIndicatorCount is the current row count in feed_indicators
 	// for this feed, computed at request time. Equals LastIndicatorCount
 	// when a fetch has settled; climbs visibly during a fetch while
@@ -52,6 +57,7 @@ func toFeedResponse(f feeds.Feed) feedResponse {
 		URL:                f.URL,
 		IndicatorAgingDays: f.IndicatorAgingDays,
 		LastRefreshAt:      f.LastRefreshAt,
+		LastFullRefreshAt:  f.LastFullRefreshAt,
 		LastIndicatorCount: f.LastIndicatorCount,
 		LastFetchTruncated: f.LastFetchTruncated,
 		LastError:          f.LastError,
@@ -246,7 +252,11 @@ func (s *Server) handleFeedRefresh(w http.ResponseWriter, r *http.Request, id in
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
 
-	added, refreshed, err := s.runFeedFetch(ctx, feed)
+	// Manual refresh is always a full pull. Operators clicking Refresh
+	// are expressing intent to verify upstream state; an incremental
+	// here would defeat that. Watch ticks (refreshAllFeedsForWatch)
+	// pass forceFull=false and let runFeedFetch decide via cadence.
+	added, refreshed, err := s.runFeedFetch(ctx, feed, true)
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusBadGateway)
 		return
@@ -265,17 +275,45 @@ func (s *Server) handleFeedRefresh(w http.ResponseWriter, r *http.Request, id in
 // refresh handler. Updates the feed row's status / last_refresh_at /
 // last_error around the fetch so the Feeds dialog reflects what
 // happened.
-func (s *Server) runFeedFetch(ctx context.Context, feed feeds.Feed) (added, refreshed int, err error) {
+//
+// When forceFull is true the fetch is unconditionally a full pull
+// (manual refresh, or the very first pull on a brand-new feed). When
+// forceFull is false runFeedFetch picks full vs incremental based on
+// fullRefreshDue: if the gap since LastFullRefreshAt has exceeded the
+// per-feed cadence, this fetch is full; otherwise it's incremental
+// against MISP's restSearch `timestamp` filter, asking only for
+// attributes modified since LastRefreshAt minus an overlap.
+//
+// Aging-prune only runs on full pulls. Incrementals don't see the
+// indicators that haven't changed upstream, so pruning by last_seen
+// after an incremental would erroneously delete current-but-stable
+// indicators. The full-refresh cadence is sized below the aging
+// window to guarantee unchanged-but-still-current indicators get
+// last_seen bumped before they age out.
+func (s *Server) runFeedFetch(ctx context.Context, feed feeds.Feed, forceFull bool) (added, refreshed int, err error) {
 	adapter, err := s.buildFeedAdapter(feed)
 	if err != nil {
 		return 0, 0, err
+	}
+
+	full := forceFull || fullRefreshDue(feed, time.Now().Unix())
+	var since int64
+	if !full {
+		// 5-minute overlap absorbs upstream clock skew and any boundary
+		// attribute that was being written exactly at LastRefreshAt.
+		// The upsert dedupes on (feed_id, indicator), so re-observing a
+		// few attributes is harmless.
+		since = feed.LastRefreshAt - 300
+		if since < 0 {
+			since = 0
+		}
 	}
 
 	mark := feed
 	mark.Status = "fetching"
 	_ = s.store.UpdateFeed(mark)
 
-	res, fetchErr := adapter.Fetch(ctx)
+	res, fetchErr := adapter.Fetch(ctx, since)
 	if fetchErr != nil {
 		failed := feed
 		failed.Status = "error"
@@ -289,19 +327,55 @@ func (s *Server) runFeedFetch(ctx context.Context, feed feeds.Feed) (added, refr
 	if err != nil {
 		return added, refreshed, err
 	}
-	if feed.IndicatorAgingDays > 0 {
+	if full && feed.IndicatorAgingDays > 0 {
 		cutoff := now - int64(feed.IndicatorAgingDays)*86400
 		_, _ = s.store.RemoveStaleIndicators(feed.ID, cutoff)
 	}
 
+	totals := s.store.CountIndicatorsByFeed()
+
 	done := feed
 	done.LastRefreshAt = now
-	done.LastIndicatorCount = added + refreshed
+	if full {
+		done.LastFullRefreshAt = now
+	}
+	done.LastIndicatorCount = totals[feed.ID]
 	done.LastFetchTruncated = res.Truncated
 	done.LastError = ""
 	done.Status = "ok"
 	_ = s.store.UpdateFeed(done)
 	return added, refreshed, nil
+}
+
+// fullRefreshDue reports whether the next fetch for this feed should
+// be a full pull rather than an incremental. Forced full when no full
+// has ever happened (LastFullRefreshAt == 0) or when the gap since the
+// last full has exceeded the per-feed full-refresh cadence.
+func fullRefreshDue(f feeds.Feed, now int64) bool {
+	if f.LastFullRefreshAt == 0 {
+		return true
+	}
+	return now-f.LastFullRefreshAt >= fullRefreshCadenceSeconds(f)
+}
+
+// fullRefreshCadenceSeconds derives the per-feed full-refresh cadence
+// from the aging window. Half the aging window: ensures indicators
+// that haven't changed in MISP still get last_seen bumped before
+// the aging sweep deletes them. Floored at 24 hours so a 1-day-aging
+// feed doesn't try to full-refresh every 12 hours and blow back the
+// incremental win. When aging is disabled (IndicatorAgingDays == 0),
+// defaults to weekly — without aging there's no correctness deadline,
+// but a periodic full sweep still catches deletes/replacements
+// happening upstream that incremental wouldn't see.
+func fullRefreshCadenceSeconds(f feeds.Feed) int64 {
+	if f.IndicatorAgingDays > 0 {
+		half := int64(f.IndicatorAgingDays) * 86400 / 2
+		if half < 86400 {
+			return 86400
+		}
+		return half
+	}
+	return 7 * 86400
 }
 
 // refreshAllFeedsForWatch fetches every enabled feed in parallel and
@@ -338,7 +412,10 @@ func (s *Server) refreshAllFeedsForWatch(ctx context.Context) {
 		wg.Add(1)
 		go func(feed feeds.Feed) {
 			defer wg.Done()
-			if _, _, err := s.runFeedFetch(ctx, feed); err != nil {
+			// Watch ticks let runFeedFetch decide full vs incremental
+			// based on the cadence — most ticks are cheap incrementals;
+			// the periodic full keeps the aging window honest.
+			if _, _, err := s.runFeedFetch(ctx, feed, false); err != nil {
 				log.Printf("watch: feed refresh failed for %s: %v", feed.Name, err)
 			}
 		}(f)

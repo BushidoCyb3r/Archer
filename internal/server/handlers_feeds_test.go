@@ -221,3 +221,62 @@ func TestHandleFeedItem_BadID(t *testing.T) {
 		t.Errorf("non-numeric id should 400, got %d", w.Code)
 	}
 }
+
+func TestFullRefreshDue(t *testing.T) {
+	const day = int64(86400)
+	const now = int64(2_000_000_000)
+
+	cases := []struct {
+		name   string
+		feed   feeds.Feed
+		expect bool
+	}{
+		{
+			name:   "never had a full",
+			feed:   feeds.Feed{IndicatorAgingDays: 30, LastFullRefreshAt: 0},
+			expect: true,
+		},
+		{
+			name:   "fresh full just now",
+			feed:   feeds.Feed{IndicatorAgingDays: 30, LastFullRefreshAt: now - 60},
+			expect: false,
+		},
+		{
+			name:   "30-day aging, 14 days since full → not yet due",
+			feed:   feeds.Feed{IndicatorAgingDays: 30, LastFullRefreshAt: now - 14*day},
+			expect: false,
+		},
+		{
+			name:   "30-day aging, 16 days since full → due",
+			feed:   feeds.Feed{IndicatorAgingDays: 30, LastFullRefreshAt: now - 16*day},
+			expect: true,
+		},
+		{
+			name:   "1-day aging, 11 hours since full → not yet due (24h floor)",
+			feed:   feeds.Feed{IndicatorAgingDays: 1, LastFullRefreshAt: now - 39600},
+			expect: false,
+		},
+		{
+			name:   "1-day aging, 25 hours since full → due (24h floor crossed)",
+			feed:   feeds.Feed{IndicatorAgingDays: 1, LastFullRefreshAt: now - 25*3600},
+			expect: true,
+		},
+		{
+			name:   "no aging, 6 days since full → not yet due (weekly default)",
+			feed:   feeds.Feed{IndicatorAgingDays: 0, LastFullRefreshAt: now - 6*day},
+			expect: false,
+		},
+		{
+			name:   "no aging, 8 days since full → due",
+			feed:   feeds.Feed{IndicatorAgingDays: 0, LastFullRefreshAt: now - 8*day},
+			expect: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := fullRefreshDue(tc.feed, now); got != tc.expect {
+				t.Errorf("fullRefreshDue = %v, want %v", got, tc.expect)
+			}
+		})
+	}
+}

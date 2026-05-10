@@ -45,7 +45,15 @@ type Feed struct {
 	URL                string
 	APIKey             string
 	IndicatorAgingDays int
-	LastRefreshAt      int64 // unix seconds; 0 = never
+	LastRefreshAt      int64 // unix seconds, any fetch (full or incremental); 0 = never
+	// LastFullRefreshAt is the most recent *full* sync, separate
+	// from LastRefreshAt which records any kind. Drives the choice
+	// between full and incremental on the next watch tick: if the
+	// gap exceeds the per-feed full-refresh cadence (derived from
+	// IndicatorAgingDays), the next fetch is full so unchanged
+	// indicators get last_seen bumped before they age out. 0 means
+	// "never had a full pull" — the next fetch is forced full.
+	LastFullRefreshAt  int64
 	LastIndicatorCount int
 	LastFetchTruncated bool // last fetch hit the adapter's page-walk cap
 	LastError          string
@@ -75,8 +83,8 @@ type Indicator struct {
 
 // Adapter is what each source-type implementation satisfies. The
 // fetcher worker holds one Adapter per configured Feed; calling Fetch
-// returns the current full indicator set for that feed (the worker
-// dedupes against the previous snapshot).
+// returns the indicator set for that feed (the worker dedupes against
+// the previous snapshot).
 //
 // Implementations should: respect ctx cancellation, time-out network
 // calls (the adapter owns the http.Client), and never panic on
@@ -87,10 +95,15 @@ type Adapter interface {
 	// worker uses it for logging and metrics; the SourceType in the
 	// Feed row chooses which adapter constructor to invoke.
 	Source() SourceType
-	// Fetch returns the current indicator set. May be empty (legitimate
-	// "no new entries" response) or partial on transient upstream error
-	// (return what was collected plus the error).
-	Fetch(ctx context.Context) (FetchResult, error)
+	// Fetch returns the indicator set. The since argument is a Unix
+	// timestamp (seconds): zero means "full pull", non-zero means
+	// "only indicators modified since this time" (incremental). An
+	// adapter that doesn't support incremental should ignore since
+	// and always return the full set; the caller handles the aging-
+	// window correctness consequences via a periodic full refresh
+	// cadence. May return empty (legitimate "no new entries" on an
+	// incremental) or partial on transient upstream error.
+	Fetch(ctx context.Context, since int64) (FetchResult, error)
 }
 
 // FetchResult is what an Adapter returns. Indicators is the

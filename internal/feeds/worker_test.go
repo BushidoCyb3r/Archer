@@ -82,7 +82,8 @@ type fakeAdapter struct {
 }
 
 func (a *fakeAdapter) Source() SourceType { return SourceMISP }
-func (a *fakeAdapter) Fetch(ctx context.Context) (FetchResult, error) {
+func (a *fakeAdapter) Fetch(ctx context.Context, since int64) (FetchResult, error) {
+	_ = since
 	a.mu.Lock()
 	a.calls++
 	a.mu.Unlock()

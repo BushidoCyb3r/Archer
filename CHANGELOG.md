@@ -32,6 +32,32 @@ relevant, `### Detection changes` in each release entry.
 
 ### Added
 
+- **Incremental MISP feed sync.** Watch-tick feed refreshes now use
+  MISP's `restSearch` `timestamp` filter to fetch only attributes
+  modified since the previous run, instead of paginating the full
+  snapshot every time. On feeds with hundreds of thousands of
+  attributes, restSearch's offset pagination degrades from ~150ms at
+  page 1 to several seconds at page 100; cutting the result set down
+  with the `timestamp` filter keeps the fetch in the cheap
+  shallow-page region. New `last_full_refresh_at` column on the
+  `feeds` table tracks the most recent full pull separately from
+  `last_refresh_at` (which now records any kind of fetch). The
+  scheduler picks full vs incremental per-feed based on the
+  full-refresh cadence: half the configured aging window with a
+  24-hour floor, or weekly when aging is disabled. The cadence is
+  sized below the aging window so unchanged-but-still-current
+  indicators get `last_seen` bumped before the aging sweep would
+  delete them. Aging-prune runs only on full pulls. The per-row
+  Refresh button on the admin Feeds dialog is unchanged in shape but
+  now always forces a full pull — operators clicking Refresh are
+  asking for verification, not a cheap delta. The Feeds row's
+  refresh-time cell gains a tooltip showing the last full refresh
+  timestamp so operators can tell which fetches were cheap
+  incrementals vs the periodic deep sync. OpenCTI's adapter accepts
+  the `since` argument to satisfy the new interface but ignores it
+  for now — its cursor pagination doesn't suffer from the
+  offset-degradation problem MISP's does, so the urgency is lower.
+
 - **Live indicator-count progress in the Feeds dialog.** While a feed's
   `status` is `fetching` the row now shows the running `feed_indicators`
   row count for that feed (e.g. `184,237 ingesting…`) instead of the

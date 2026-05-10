@@ -194,7 +194,10 @@ func (w *Worker) tick(ctx context.Context, feedID int64) {
 	mark.Status = "fetching"
 	_ = w.store.UpdateFeed(mark)
 
-	res, err := adapter.Fetch(ctx)
+	// The vestigial worker path always does a full pull; it's no
+	// longer the live refresh path, and per-feed incremental cadence
+	// is decided by the watch scheduler.
+	res, err := adapter.Fetch(ctx, 0)
 	if err != nil {
 		w.recordError(f, "fetch: "+err.Error())
 		return
