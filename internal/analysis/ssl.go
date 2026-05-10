@@ -15,7 +15,7 @@ func (a *Analyzer) analyzeSSL(files []string) {
 
 	sslFiles := filterFiles(files, "ssl")
 	for _, f := range sslFiles {
-		_ = parser.ParseLog(f, func(rec map[string]any) bool {
+		a.parseLog(f, func(rec map[string]any) bool {
 			src := parser.GetStr(rec, "id.orig_h")
 			dst := parser.GetStr(rec, "id.resp_h")
 			dstPort := parser.GetInt(rec, "id.resp_p")

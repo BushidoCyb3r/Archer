@@ -10,7 +10,6 @@ import (
 )
 
 type httpBeaconState struct {
-	total    int
 	lastTs   float64
 	ivs      []float64
 	ivsSeen  int
@@ -40,10 +39,12 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 	beaconCounts := make(map[beaconKey]int)
 	beacon := make(map[beaconKey]*httpBeaconState)
 
-	// Pre-allocation timestamp stash. See conn.go's preBeaconTs for the
-	// reasoning — connections 1 and 2 of each pair would otherwise lose
-	// their intervals to the lazy-init guard.
-	preBeaconTs := make(map[beaconKey][]float64)
+	// Pre-allocation full-record stash. See conn.go's preBeaconRecs for
+	// the reasoning — pre-v0.8.1 only the timestamp got stashed, so
+	// the lazy-init replay only repaired the timing axis. Stashing
+	// (ts, origB, respB) lets the replay also touch byteVals,
+	// hourMap, tsData, firstTs, minTs.
+	preBeaconRecs := make(map[beaconKey][]preBeaconRec)
 
 	seenUA := make(map[[2]string]bool)
 	seenCS := make(map[[3]string]bool)
@@ -60,7 +61,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 	httpFiles := filterFiles(files, "http")
 	for _, f := range httpFiles {
 		sensor := a.sensorOf(f)
-		_ = parser.ParseLog(f, func(rec map[string]any) bool {
+		a.parseLog(f, func(rec map[string]any) bool {
 			src := parser.GetStr(rec, "id.orig_h")
 			dst := parser.GetStr(rec, "id.resp_h")
 			dstPort := parser.GetInt(rec, "id.resp_p")
@@ -230,9 +231,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 				bk := beaconKey{sensor, src, dst, host, uri}
 				beaconCounts[bk]++
 				if beaconCounts[bk] < beaconLazyMinConn {
-					if ts > 0 {
-						preBeaconTs[bk] = append(preBeaconTs[bk], ts)
-					}
+					preBeaconRecs[bk] = append(preBeaconRecs[bk], preBeaconRec{ts: ts, origB: origB, respB: respB})
 				} else {
 					st := beacon[bk]
 					if st == nil {
@@ -242,32 +241,64 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 							minTs:   ts,
 							maxTs:   ts,
 						}
-						// Replay stashed pre-state timestamps so intervals
-						// 1→2 and 2→3 land in the reservoir.
-						if early := preBeaconTs[bk]; len(early) > 0 {
-							for _, ets := range early {
-								if st.lastTs > 0 && ets > st.lastTs {
-									iv := ets - st.lastTs
+						// Replay every dimension that requests 1 and 2
+						// contributed to: timing intervals, byte-size
+						// samples, chart triples, hour buckets, and the
+						// firstTs/minTs window. Pre-v0.8.1 the replay
+						// only touched intervals; the rest of the state
+						// was initialised from request 3. Audited
+						// 2026-05-10. Same shape as conn.go's
+						// preBeaconRecs replay.
+						for _, e := range preBeaconRecs[bk] {
+							if e.ts > 0 {
+								if st.firstTs == 0 || e.ts < st.firstTs {
+									st.firstTs = e.ts
+								}
+								if st.minTs == 0 || e.ts < st.minTs {
+									st.minTs = e.ts
+								}
+								if e.ts > st.maxTs {
+									st.maxTs = e.ts
+								}
+							}
+							if e.ts > st.lastTs {
+								if st.lastTs > 0 {
+									iv := e.ts - st.lastTs
 									st.ivs, st.ivsSeen = reservoirAddF(st.ivs, st.ivsSeen, iv, beaconIvCap)
 								}
-								st.lastTs = ets
+								st.lastTs = e.ts
 							}
-							delete(preBeaconTs, bk)
+							if e.origB > 0 {
+								st.byteVals, st.byteSeen = reservoirAddF(st.byteVals, st.byteSeen, e.origB, beaconByteCap)
+							}
+							st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{e.ts, e.origB, e.respB}, beaconTsCap)
+							if e.ts > 0 {
+								st.hourMap[int(e.ts)/3600]++
+							}
 						}
+						delete(preBeaconRecs, bk)
 						beacon[bk] = st
 					}
-					st.total++
 					if ts < st.minTs {
 						st.minTs = ts
 					}
 					if ts > st.maxTs {
 						st.maxTs = ts
 					}
-					if st.lastTs > 0 && ts > st.lastTs {
-						iv := ts - st.lastTs
-						st.ivs, st.ivsSeen = reservoirAddF(st.ivs, st.ivsSeen, iv, beaconIvCap)
+					// Only advance lastTs when the new record moves forward.
+					// Pre-fix the assignment was unconditional, so an
+					// out-of-order record (multi-sensor clock drift,
+					// HTTP requests that finish after a subsequent
+					// request when running close-time logging) would
+					// rewind lastTs backward and poison the next valid
+					// interval calculation. Audited 2026-05-10.
+					if ts > st.lastTs {
+						if st.lastTs > 0 {
+							iv := ts - st.lastTs
+							st.ivs, st.ivsSeen = reservoirAddF(st.ivs, st.ivsSeen, iv, beaconIvCap)
+						}
+						st.lastTs = ts
 					}
-					st.lastTs = ts
 					if origB > 0 {
 						st.byteVals, st.byteSeen = reservoirAddF(st.byteVals, st.byteSeen, origB, beaconByteCap)
 					}

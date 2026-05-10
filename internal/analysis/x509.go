@@ -14,7 +14,7 @@ func (a *Analyzer) analyzeX509(files []string) {
 
 	x509Files := filterFiles(files, "x509")
 	for _, f := range x509Files {
-		_ = parser.ParseLog(f, func(rec map[string]any) bool {
+		a.parseLog(f, func(rec map[string]any) bool {
 			subject := parser.GetStr(rec, "certificate.subject")
 			issuer := parser.GetStr(rec, "certificate.issuer")
 			notBefore := parser.GetStr(rec, "certificate.not_valid_before")

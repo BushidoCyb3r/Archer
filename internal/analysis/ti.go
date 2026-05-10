@@ -58,7 +58,7 @@ func (a *Analyzer) checkSuspiciousURLs(files []string) {
 	}
 	seen := make(map[[2]string]bool)
 	for _, f := range filterFiles(files, "http") {
-		_ = parser.ParseLog(f, func(rec map[string]any) bool {
+		a.parseLog(f, func(rec map[string]any) bool {
 			src := parser.GetStr(rec, "id.orig_h")
 			dst := parser.GetStr(rec, "id.resp_h")
 			host := parser.GetStr(rec, "host")
@@ -194,7 +194,7 @@ func (a *Analyzer) checkTI(files []string) {
 	}
 
 	a.parallelEach(conns, func(path string) {
-		_ = parser.ParseLog(path, func(rec map[string]any) bool {
+		a.parseLog(path, func(rec map[string]any) bool {
 			dst := parser.GetStr(rec, "id.resp_h")
 			if dst != "" && !isPrivateIP(dst) && isIPAddr(dst) {
 				addDstIP(dst)
@@ -203,7 +203,7 @@ func (a *Analyzer) checkTI(files []string) {
 		})
 	})
 	a.parallelEach(dnsLogs, func(path string) {
-		_ = parser.ParseLog(path, func(rec map[string]any) bool {
+		a.parseLog(path, func(rec map[string]any) bool {
 			q := parser.GetStr(rec, "query")
 			if q != "" && !isIPAddr(q) {
 				addDstDomain(q)
@@ -212,7 +212,7 @@ func (a *Analyzer) checkTI(files []string) {
 		})
 	})
 	a.parallelEach(httpLogs, func(path string) {
-		_ = parser.ParseLog(path, func(rec map[string]any) bool {
+		a.parseLog(path, func(rec map[string]any) bool {
 			host := parser.GetStr(rec, "host")
 			if host == "" {
 				return true
@@ -455,7 +455,7 @@ func (a *Analyzer) checkTI(files []string) {
 
 	// Source 1 (targeted): conn.log, only for winning dsts.
 	a.parallelEach(conns, func(path string) {
-		_ = parser.ParseLog(path, func(rec map[string]any) bool {
+		a.parseLog(path, func(rec map[string]any) bool {
 			dst := parser.GetStr(rec, "id.resp_h")
 			if !winnerIPs[dst] {
 				return true
@@ -476,7 +476,7 @@ func (a *Analyzer) checkTI(files []string) {
 	// "the host that did the lookup Zeek observed", which is at least one
 	// hop short of the workstation but better than no attribution.
 	a.parallelEach(dnsLogs, func(path string) {
-		_ = parser.ParseLog(path, func(rec map[string]any) bool {
+		a.parseLog(path, func(rec map[string]any) bool {
 			q := parser.GetStr(rec, "query")
 			if !winnerDomains[q] {
 				return true
@@ -492,7 +492,7 @@ func (a *Analyzer) checkTI(files []string) {
 	// Source 3 (targeted): http.log. Both winnerIPs (Host header is a
 	// bare IP) and winnerDomains (Host header is a name) are checked.
 	a.parallelEach(httpLogs, func(path string) {
-		_ = parser.ParseLog(path, func(rec map[string]any) bool {
+		a.parseLog(path, func(rec map[string]any) bool {
 			host := parser.GetStr(rec, "host")
 			if host == "" {
 				return true

@@ -27,7 +27,7 @@ func (a *Analyzer) checkFileHashes(files []string) {
 	}
 	seen := make(map[[2]string]bool)
 	for _, f := range filterFiles(files, "files") {
-		_ = parser.ParseLog(f, func(rec map[string]any) bool {
+		a.parseLog(f, func(rec map[string]any) bool {
 			tx := strings.Trim(parser.GetStr(rec, "tx_hosts"), "[]\"")
 			rx := strings.Trim(parser.GetStr(rec, "rx_hosts"), "[]\"")
 			if tx == "" {
@@ -106,7 +106,7 @@ func (a *Analyzer) analyzeFiles(files []string) {
 
 	fileFiles := filterFiles(files, "files")
 	for _, f := range fileFiles {
-		_ = parser.ParseLog(f, func(rec map[string]any) bool {
+		a.parseLog(f, func(rec map[string]any) bool {
 			src := parser.GetStr(rec, "tx_hosts")
 			if src == "" {
 				// tx_hosts might be an array

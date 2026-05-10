@@ -22,7 +22,7 @@ func (a *Analyzer) analyzeWeird(files []string) {
 
 	weirdFiles := filterFiles(files, "weird")
 	for _, f := range weirdFiles {
-		_ = parser.ParseLog(f, func(rec map[string]any) bool {
+		a.parseLog(f, func(rec map[string]any) bool {
 			src := parser.GetStr(rec, "id.orig_h")
 			dst := parser.GetStr(rec, "id.resp_h")
 			name := parser.GetStr(rec, "name")

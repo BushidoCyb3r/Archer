@@ -6,7 +6,7 @@
     "src_ip": "192.168.3.60",
     "dst_ip": "203.0.113.105",
     "detail": "Requests: 10 | Host: tracker.evil.com | URI: /api/heartbeat | Score: ts=1.00 ds=1.00 hist=0.00 dur=0.00",
-    "timestamp": "2024-01-15 12:02:00"
+    "timestamp": "2024-01-15 12:00:00"
   },
   {
     "type": "Host Risk Score",
@@ -15,6 +15,6 @@
     "src_ip": "192.168.3.60",
     "dst_ip": "(network)",
     "detail": "Composite risk: 28 | Detections: [HTTP Beaconing]",
-    "timestamp": "2024-01-15 12:02:00"
+    "timestamp": "2024-01-15 12:00:00"
   }
 ]
