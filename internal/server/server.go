@@ -166,6 +166,15 @@ func (s *Server) routes() {
 		staticHandler.ServeHTTP(w, r)
 	}))
 
+	// Favicon — browsers request /favicon.ico from the root path
+	// even when the HTML carries an explicit <link rel="icon">.
+	// Serve the SVG crosshairs from /static/img/ in both responses
+	// so we don't paint 404s in access logs. Public, unauthenticated:
+	// a favicon isn't a secret.
+	s.mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, filepath.Join(staticDir, "img", "favicon.svg"))
+	})
+
 	// Auth — no session required
 	s.mux.HandleFunc("/login", s.handleLogin)
 	s.mux.HandleFunc("/register", s.handleRegister)
