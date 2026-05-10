@@ -2399,6 +2399,7 @@
   function _populateSettings(cfg) {
     const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
     set('cfg-beacon-thresh',  cfg.beacon_min_connections);
+    set('cfg-http-beacon-thresh', cfg.http_beacon_min_requests);
     set('cfg-strobe-thresh',  cfg.strobe_min_connections);
     set('cfg-longconn',       cfg.long_conn_min_hours);
     set('cfg-exfil',          cfg.exfil_min_bytes_mb);
@@ -2460,8 +2461,9 @@
       .map(s => s.trim())
       .filter(s => s.length > 0);
     return {
-      beacon_min_connections:   parseInt(g('cfg-beacon-thresh'))  || 10,
-      strobe_min_connections:   parseInt(g('cfg-strobe-thresh'))  || 1000,
+      beacon_min_connections:   parseInt(g('cfg-beacon-thresh'))      || 10,
+      http_beacon_min_requests: parseInt(g('cfg-http-beacon-thresh')) || 8,
+      strobe_min_connections:   parseInt(g('cfg-strobe-thresh'))      || 1000,
       long_conn_min_hours:      parseFloat(g('cfg-longconn'))     || 1.0,
       exfil_min_bytes_mb:       parseFloat(g('cfg-exfil'))        || 5.0,
       dns_nxdomain_threshold:   parseInt(g('cfg-nxdomain'))       || 200,

@@ -53,6 +53,14 @@ relevant, `### Detection changes` in each release entry.
   page-offset lookup; useful to any external script that wants to
   navigate to a specific finding within a paginated view.
 
+- **HTTP Min Requests input in the Settings dialog.** The
+  `http_beacon_min_requests` threshold was already documented in
+  the README and read by the analyzer, but the Settings dialog
+  never exposed an input for it — admins had to drive `/api/config`
+  directly to tune it. New control sits next to Min Connections
+  in the Beaconing section and round-trips through the same
+  `/api/config` PUT the existing controls use.
+
 ### Removed
 
 - **Four beacon-config fields that no analyzer ever read.**
