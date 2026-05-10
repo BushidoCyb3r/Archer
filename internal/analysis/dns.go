@@ -11,6 +11,20 @@ import (
 	"github.com/BushidoCyb3r/Archer/internal/parser"
 )
 
+// dnsEntropyMinLabelLen is the minimum first-label length the DNS
+// Tunneling entropy signal requires before firing. Pre-v0.10.x
+// entropy alone gated the signal at 3.5 bits, which falsely
+// flagged legitimate compound English-with-hyphens labels of
+// length 20-30 (SaaS verification tokens like
+// `google-site-verification`). Real DNS-tunnel payloads are
+// long-by-construction (>= 50 chars typically) — channel
+// capacity and base32/base36 encoding overhead force length —
+// so requiring a 30-char floor on the entropy signal removes
+// the false-positive band without losing real coverage. The
+// label-length-alone signal at DNSTunnelLabelLen=50 still
+// catches the long-but-low-entropy edge case independently.
+const dnsEntropyMinLabelLen = 30
+
 // apexFromQuery extracts the registrable domain (eTLD+1) using the
 // Mozilla Public Suffix List. Pre-fix the apex was the last two
 // labels joined: that broke for multi-component eTLDs like .co.uk
@@ -154,9 +168,21 @@ func (a *Analyzer) analyzeDNS(files []string) {
 				reasons = append(reasons, fmt.Sprintf("long label (%d chars)", len(firstLabel)))
 			}
 			ent := shannonEntropy(firstLabel)
-			if ent >= a.cfg.DNSTunnelEntropy {
+			// Entropy fires only on labels long enough to carry a
+			// realistic tunnel payload. Pre-fix any label crossing
+			// 3.5 bits fired regardless of length, which trapped
+			// legitimate compound English labels of length 20-30
+			// (`google-site-verification`, `atlassian-domain-
+			// verification`, `stripe-verification`) — compound
+			// English with hyphens has higher per-char entropy
+			// than long base32 streams because the alphabet is
+			// less constrained. Real DNS tunnel labels are
+			// >= 50 chars; 30 is a generous floor that excludes
+			// compound English while keeping every realistic
+			// tunnel shape. Audit 2026-05-10 follow-up.
+			if ent >= a.cfg.DNSTunnelEntropy && len(firstLabel) >= dnsEntropyMinLabelLen {
 				isTunnel = true
-				reasons = append(reasons, fmt.Sprintf("high entropy (%.2f)", ent))
+				reasons = append(reasons, fmt.Sprintf("high entropy (%.2f) on %d-char label", ent, len(firstLabel)))
 			}
 			depth := strings.Count(query, ".")
 			if depth >= a.cfg.DNSTunnelMinDepth {

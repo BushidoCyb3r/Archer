@@ -30,6 +30,54 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Changed
+
+- **`Store.IsSuppressed` is now a pure read; suppression cleanup
+  moved to a periodic sweep loop.** Audit 2026-05-10 cosmetic
+  deferred from v0.10.0. Pre-fix the read path took a write lock
+  and ran `DELETE FROM suppressions WHERE target = ?` on every
+  call that observed an expired entry; two concurrent filter
+  requests for the same expired IP both ran the (idempotent)
+  DELETE and the hot read path took the writer lock for
+  no-correctness-benefit work. Considered: singleflight around
+  the DELETE so concurrent peeks coalesce. Preferred: move the
+  cleanup off the read path entirely. Shipped: `IsSuppressed`
+  is RLock-only and treats expired entries as not-suppressed
+  without mutating; `GetSuppressions` filters expired on read so
+  the admin UI never lists a stale row; new
+  `Store.PruneExpiredSuppressions` runs one bulk
+  `DELETE … WHERE expiry <= now()` and a single map walk under
+  the write lock; new `Server.startSuppressionsPruneLoop`
+  spawns a 5-minute-cadence sweep goroutine on server start
+  (sibling of the existing unauthorized-attempts prune loop).
+  Boot-time prune in `InitDB` already exists for cold-start
+  catch-up.
+
+### Detection changes
+
+- **DNS Tunneling entropy signal now gated on label length.**
+  Pre-fix the entropy floor at 3.5 bits Shannon fired regardless
+  of label length, which trapped legitimate compound English
+  labels of length 20-30 — SaaS verification tokens like
+  `google-site-verification` (24 chars, ent 3.61),
+  `atlassian-domain-verification` (29 chars, ent 3.62),
+  `stripe-verification` (19 chars, ent 3.51). Compound English
+  has higher per-char entropy than long base32 streams because
+  the alphabet is less constrained. New
+  `dnsEntropyMinLabelLen = 30` constant gates the entropy
+  signal so it only fires on labels long enough to plausibly
+  carry a tunnel payload. Real tunnel labels are
+  long-by-construction (channel capacity + base32/base36
+  encoding overhead), so the 30-char floor removes the false-
+  positive band without losing real coverage. The
+  label-length-alone signal at `DNSTunnelLabelLen=50` still
+  catches the long-but-low-entropy edge case independently.
+  Observed during v0.9.0 fixture work; deferred to here so the
+  fix could ship with its own regression coverage.
+  `dns_txt_legitimate` fixture expanded to include the three
+  SaaS verification tokens that previously had to be excluded;
+  golden remains the empty array.
+
 ## [v0.10.0] — 2026-05-10
 
 Second audit-driven correctness release in two days. Six new
