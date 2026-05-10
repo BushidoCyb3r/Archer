@@ -246,6 +246,118 @@ func durationScore(timestamps []float64, datasetMin, datasetMax float64, minBars
 	return consistency
 }
 
+// intervalMultimodalScore augments the timing-axis regularity score
+// for beacons whose intervals cluster around 2-4 distinct values
+// rather than one. Bowley + MAD on the raw distribution penalise
+// such beacons heavily — a 60s heartbeat plus a 600s tasking cycle
+// looks like noise to median-centric statistics, even though both
+// modes are individually tight. This routine bins intervals on a
+// log2 axis, identifies peaks, and scores each peak's tightness
+// independently. Returns 0 (deferring to the existing math) when
+// the distribution is single-mode (≤1 peak), too noisy (≥5 peaks),
+// or any peak is too loose to qualify as regular. The caller takes
+// max(raw, multimodal) so single-mode beacons are unaffected.
+func intervalMultimodalScore(intervals []float64) float64 {
+	if len(intervals) < 6 {
+		return 0
+	}
+	// Buckets cover 2^i to 2^(i+1) seconds for i in [0, 17], reaching
+	// ~3 days. Beacon periods of operational interest fall within.
+	const nBuckets = 18
+	buckets := make([][]float64, nBuckets)
+	for _, iv := range intervals {
+		if iv <= 0 {
+			continue
+		}
+		idx := int(math.Log2(iv))
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= nBuckets {
+			idx = nBuckets - 1
+		}
+		buckets[idx] = append(buckets[idx], iv)
+	}
+
+	maxCount := 0
+	for _, b := range buckets {
+		if len(b) > maxCount {
+			maxCount = len(b)
+		}
+	}
+	if maxCount == 0 {
+		return 0
+	}
+
+	// Peak: a bucket with count ≥ 50% of the max bucket. Adjacent
+	// peak-buckets merge, since a single mode can straddle a log2
+	// boundary (e.g. a 60s mode lands in [32,64) but tail samples
+	// at 65s spill into [64,128)).
+	const peakThreshold = 0.5
+	threshold := float64(maxCount) * peakThreshold
+	type peak struct{ samples []float64 }
+	var peaks []peak
+	var current peak
+	inPeak := false
+	for _, b := range buckets {
+		if len(b) > 0 && float64(len(b)) >= threshold {
+			current.samples = append(current.samples, b...)
+			inPeak = true
+		} else if inPeak {
+			peaks = append(peaks, current)
+			current = peak{}
+			inPeak = false
+		}
+	}
+	if inPeak {
+		peaks = append(peaks, current)
+	}
+
+	// Multimodal classification fires for 2-4 peaks. Single-peak
+	// distributions are handed back to the existing Bowley+MAD math.
+	// Five-or-more peaks are too scattered to be a beacon.
+	if len(peaks) < 2 || len(peaks) > 4 {
+		return 0
+	}
+
+	// Per-peak tightness via the same (median - MAD) / median formula
+	// the existing math uses. A peak that's not at least 0.5-tight is
+	// rejected as insufficiently regular.
+	const peakTightnessFloor = 0.5
+	totalCount := 0
+	weighted := 0.0
+	for _, p := range peaks {
+		if len(p.samples) < 2 {
+			return 0
+		}
+		med := fmedian(p.samples)
+		if med <= 0 {
+			return 0
+		}
+		deviations := make([]float64, len(p.samples))
+		for i, v := range p.samples {
+			deviations[i] = math.Abs(v - med)
+		}
+		mad := fmedian(deviations)
+		score := (med - mad) / med
+		if score < 0 {
+			score = 0
+		}
+		if score > 1 {
+			score = 1
+		}
+		if score < peakTightnessFloor {
+			return 0
+		}
+		weighted += score * float64(len(p.samples))
+		totalCount += len(p.samples)
+	}
+	if totalCount == 0 {
+		return 0
+	}
+	return weighted / float64(totalCount)
+}
+
 // shannonEntropy computes Shannon entropy of a lowercase string.
 func shannonEntropy(s string) float64 {
 	s = strings.ToLower(s)

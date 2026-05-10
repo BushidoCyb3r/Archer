@@ -30,6 +30,24 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-period beacon detection on the timing axis.** A new
+  `intervalMultimodalScore` helper rescues beacons whose intervals
+  cluster around 2–4 distinct values (heartbeat + tasking, idle +
+  active, etc.) — those would otherwise be under-scored by Bowley
+  and MAD applied to the raw distribution. Algorithm: log2-bin
+  intervals, find peaks, score each peak's tightness via
+  `(median − MAD) / median`, weighted-average the per-peak scores.
+  Returns 0 (deferring to the existing math) for single-mode
+  distributions, ≥5-mode distributions (too noisy), or any peak
+  loose enough to score below 0.5. Caller takes `max(raw, multimodal)`,
+  so single-mode beacons are unaffected. New
+  `multimode_beacon` golden fixture exercises a 60s-heartbeat plus
+  600s-tasking pattern and demonstrates the rescue: `ts=0.99` lifts
+  the Beacon finding into HIGH severity (score 54) where the raw
+  math would have left it well below threshold.
+
 ### Fixed
 
 - **Lazy-init beacon state no longer drops the first two intervals.**
@@ -118,6 +136,16 @@ relevant, `### Detection changes` in each release entry.
   next config save naturally drops the dead fields.
 
 ### Detection changes
+
+- **Multi-period beacon scores rise on the timing axis.** See the
+  `### Added` entry for the new `intervalMultimodalScore` path.
+  A beacon with a 60s heartbeat plus a 600s tasking cycle that
+  scored ts≈0.59 under raw Bowley+MAD now scores ts≈0.99 — moving
+  the overall composite from below detection threshold into HIGH
+  severity. Single-mode beacons are unaffected (the helper
+  returns 0 and the caller falls back to the existing math).
+  Re-baseline any min-score alerting if your environment has
+  multi-period beacons that were previously being missed.
 
 - **Beacon `ts_score` rises slightly when intervals 1→2 and 2→3
   are recovered.** The lazy-init replay fix above feeds two
