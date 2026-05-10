@@ -78,7 +78,18 @@ func (s *Server) computeDiskUsage() diskUsageResp {
 
 	// Per-sensor /logs tree. The first level under logsDir is the sensor
 	// name (matches how the rest of the app maps directory → sensor).
+	//
+	// Filter against the enrolled-sensor name set so a manually-dropped
+	// /logs/test/ directory (analyst stash, debugging tree, leftover from
+	// a manually-cleaned-up previous deployment) doesn't show up in the
+	// admin-facing breakdown as if it were a real sensor. The total still
+	// includes them (the bytes are real on disk) but the per-sensor list
+	// only names known sensors. Audit 2026-05-10 LOW.
 	if s.logsDir != "" {
+		enrolledNames := make(map[string]bool)
+		for _, sn := range s.store.GetSensors() {
+			enrolledNames[sn.Name] = true
+		}
 		entries, _ := os.ReadDir(s.logsDir)
 		for _, e := range entries {
 			if !e.IsDir() {
@@ -91,8 +102,11 @@ func (s *Server) computeDiskUsage() diskUsageResp {
 			}
 			path := filepath.Join(s.logsDir, e.Name())
 			size := dirSize(path)
-			resp.BySensor = append(resp.BySensor, sensorUsage{Name: e.Name(), Bytes: size})
 			resp.LogsTotalBytes += size
+			if !enrolledNames[e.Name()] {
+				continue
+			}
+			resp.BySensor = append(resp.BySensor, sensorUsage{Name: e.Name(), Bytes: size})
 		}
 		sort.Slice(resp.BySensor, func(i, j int) bool { return resp.BySensor[i].Bytes > resp.BySensor[j].Bytes })
 	}
@@ -137,6 +151,12 @@ func dirSize(path string) int64 {
 // statfsBytes returns free + total bytes for the volume hosting path.
 // Wrapped so non-Linux builds (none today, but cheap insurance) can stub
 // it without breaking the JSON shape.
+//
+// Pre-fix the multiplication did int64(st.Bavail) * int64(st.Bsize) on
+// uint64 inputs. On a sufficiently large filesystem (PB-class storage,
+// or a future host with EB-class capacity) the int64 product overflows
+// signed and the UI renders negative bytes. Compute in uint64, clamp
+// to math.MaxInt64 on conversion. Audit 2026-05-10 LOW.
 func statfsBytes(path string) volumeStats {
 	if path == "" {
 		return volumeStats{}
@@ -145,8 +165,22 @@ func statfsBytes(path string) volumeStats {
 	if err := syscall.Statfs(path, &st); err != nil {
 		return volumeStats{}
 	}
-	return volumeStats{
-		FreeBytes:  int64(st.Bavail) * int64(st.Bsize),
-		TotalBytes: int64(st.Blocks) * int64(st.Bsize),
+	bsize := uint64(st.Bsize)
+	if bsize == 0 {
+		return volumeStats{}
 	}
+	return volumeStats{
+		FreeBytes:  clampUint64ToInt64(uint64(st.Bavail) * bsize),
+		TotalBytes: clampUint64ToInt64(uint64(st.Blocks) * bsize),
+	}
+}
+
+// clampUint64ToInt64 clamps to math.MaxInt64 on overflow rather than
+// silently wrapping to a negative.
+func clampUint64ToInt64(v uint64) int64 {
+	const maxInt64 uint64 = 1<<63 - 1
+	if v > maxInt64 {
+		return int64(maxInt64)
+	}
+	return int64(v)
 }

@@ -376,8 +376,19 @@ func normalizeMISPAttribute(a mispAttribute) (Indicator, bool) {
 			typ = IndicatorIP
 		}
 	case "domain", "hostname":
+		// Refuse anything that doesn't fit the RFC1035-ish shape.
+		// Pre-fix any non-empty string was accepted, including HTML
+		// payloads. Audit 2026-05-10 NEW-28.
+		if !validDomain(val) {
+			return Indicator{}, false
+		}
 		typ = IndicatorDomain
 	case "md5", "sha1", "sha256":
+		// Hash indicators must be hex-of-fixed-length — same NEW-28
+		// shape control. MD5=32, SHA1=40, SHA256=64.
+		if !validHash(val) {
+			return Indicator{}, false
+		}
 		typ = IndicatorHash
 	default:
 		return Indicator{}, false

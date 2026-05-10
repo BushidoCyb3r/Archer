@@ -1443,6 +1443,31 @@
       showToast(msg, 6000);
     });
 
+    // resync_required is the canary the server sends when an SSE
+    // buffer overflowed and we missed events. Best-effort live
+    // updates is fine for most apps but Archer's live channel
+    // includes new TI hits, unauthorized sensor attempts, and
+    // CRITICAL findings — silent drops there mean the analyst sees
+    // "all quiet" while real alerts piled up server-side. The fix:
+    // re-fetch the source-of-truth endpoints (findings list +
+    // notifications) so the UI converges to the actual state.
+    // Audit 2026-05-10 NEW-29.
+    SSE.on('resync_required', () => {
+      showToast('Live updates fell behind — re-syncing from server', 4000);
+      loadFindings(_currentFilterParams()).catch(() => {});
+      fetch('/api/notifications')
+        .then(r => r.json())
+        .then(data => {
+          if (Array.isArray(data)) {
+            // Notifications.dismissAll() would also POST a dismiss-all to the
+            // server, which we don't want. Just rebuild the local list from
+            // the freshly-fetched server state.
+            data.filter(n => !n.dismissed).forEach(n => Notifications.add(n));
+          }
+        })
+        .catch(() => {});
+    });
+
     SSE.connect();
 
     document.getElementById('analysis-alert-ok').addEventListener('click', () => {

@@ -262,8 +262,15 @@ func normalizeOpenCTINode(node struct {
 			typ = IndicatorIP
 		}
 	case "Domain-Name", "Hostname":
+		// Same shape control as MISP. Audit 2026-05-10 NEW-28.
+		if !validDomain(val) {
+			return Indicator{}, false
+		}
 		typ = IndicatorDomain
 	case "StixFile":
+		if !validHash(val) {
+			return Indicator{}, false
+		}
 		typ = IndicatorHash
 	default:
 		return Indicator{}, false
