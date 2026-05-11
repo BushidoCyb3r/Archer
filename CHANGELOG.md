@@ -30,6 +30,132 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.14.8] — 2026-05-11
+
+Hotfix on top of v0.14.7. One Critical from the long-standing-
+code rotation audit the v0.14.7 maturation note committed to,
+plus the v0.14.7-promised decoder-discipline cleanup and two
+small hygiene items.
+
+### Security
+
+- **POST `/api/analyze` no longer accepts a config-rewrite body
+  (NEW-60).** Pre-fix the analyze handler was registered behind
+  the `write` middleware (analyst+) but its body accepted a
+  `{"config": {...}}` payload and silently rewrote the
+  analyzer config via `json.Unmarshal` + `store.SetConfig` —
+  bypassing the admin gate, range validation (off-hours
+  equality, port bounds), AND the `config_change` audit row
+  that `PUT /api/config` enforces. A compromised analyst
+  session could:
+   - Disable beacon detection (`beacon_min_connections:
+     1000000`).
+   - Silently disable off-hours detection — the very condition
+     `PUT /api/config` validates against because the silent-
+     disable mode was a real bug discovered earlier and the
+     validation gate exists specifically for it.
+   - Rotate operator API keys (OTX, AbuseIPDB, VirusTotal,
+     Censys) to attacker-controlled values, redirecting
+     threat-intel lookups to attacker infrastructure.
+   - Shift the operator timezone, displacing the off-hours
+     window from the operator's actual off-hours.
+  None of this audited. The `config_change` row was
+  bypassed because the mutation went through a different
+  handler.
+
+  Asymmetric-validation: same shape as NEW-15 (sensor name
+  validated at enroll, not checkin) and NEW-37 (status
+  validated at import, not PATCH). The same operation had two
+  entry points; one validated and audited, one didn't.
+
+  Fix removes the config-rewrite path from the analyze handler
+  entirely. The handler reverts to a pure trigger-an-analysis
+  shape with no body. Config changes go through PUT
+  `/api/config` (admin-only, validated, audited). The SPA
+  never sent a config body to analyze, so the UI is
+  unaffected. Audit 2026-05-11 NEW-60.
+
+  This was a thirteenth-round miss. The audit lesson recorded
+  in v0.14.7's CHANGELOG ("long-standing-code rotation: read
+  unchanged modules quarterly") realized in the very next
+  release. NEW-31 (atomic analysis claim) had this handler
+  open and noted the route gate, but didn't read the
+  config-mutation path — checking that the surface was
+  correct, not that the surface matched the operation behind
+  it. Same shape as NEW-49 at one layer of abstraction up.
+
+### Changed
+
+- **Six more raw `json.NewDecoder(r.Body).Decode(...)` chains
+  migrated to `decodeJSONBody` (NEW-61).** NEW-35 / NEW-40 /
+  NEW-50 / NEW-58 collectively established the discipline
+  ("every request-body decode is size-capped, returns 413 on
+  cap-trip, never echoes raw decoder error text"). Six
+  endpoints had escaped the migration: `handleNotifications`,
+  `handleWatch`, `handleArchive`, `handleArchiveRun`,
+  `handleImportJSON`, and two sites in `handleFeeds`. None
+  were known-vulnerable in isolation (most admin-only,
+  narrower risk profile than the analyst-facing endpoints
+  the previous waves covered) but the discipline needs to be
+  uniform across all handlers — a gap is exactly the surface
+  area a future regression slips into. All seven sites now
+  go through `decodeJSONBody`. `handleImportJSON` specifically
+  was the last site reflecting raw `err.Error()` text back to
+  the caller (decoder offsets, character positions) — the
+  exact echo-decoder-internals shape NEW-40 was meant to
+  eliminate for the admin endpoints. Audit 2026-05-11 NEW-61.
+
+- **`handleNotifications` rejects unrecognized actions and
+  unsupported methods (NEW-63).** Pre-fix an unknown
+  `req.Action` value silently returned 200 OK with no
+  effect, and verbs other than GET/POST got an empty
+  response that net/http defaulted to 200 OK — confusing
+  API surface where clients couldn't tell their request did
+  nothing. Now both fall through to clear 400 / 405
+  responses. Audit 2026-05-11 NEW-63.
+
+### Removed
+
+- **Vestigial `Access-Control-Allow-Origin: *` header on the
+  SSE endpoint (NEW-62).** The SPA is same-origin, CORS
+  isn't needed; Archer doesn't set
+  `Access-Control-Allow-Credentials`, so cross-origin
+  EventSource attempts couldn't carry the session cookie
+  regardless — the header was confusing review noise from
+  an early experiment. Removed entirely. Audit 2026-05-11
+  NEW-62.
+
+### Added
+
+- **`TestNoRawJSONDecoderOnRequestBody` regression test
+  (NEW-61).** Walks every `.go` file in the server package
+  and asserts no handler contains
+  `json.NewDecoder(r.Body)` without a surrounding
+  `MaxBytesReader` call. Same shape as NEW-30's `_esc`
+  consistency test and NEW-41's action-vocabulary
+  consistency test: the rule is the test, not a docstring
+  that drifts as new handlers are added. A future
+  contributor adding a new endpoint with an ad-hoc raw
+  decoder fails CI rather than fragmenting the discipline.
+
+### Maturation lessons
+
+- **The rotation discipline works, and it surfaces the
+  highest-impact misses.** v0.14.7's CHANGELOG committed to
+  "rotating audit attention through unchanged code on a
+  schedule" specifically because NEW-46 and NEW-49 were
+  pre-existing bugs that survived ten+ rounds. NEW-60 is the
+  same shape: it's been in the codebase since the analyze
+  handler was first written and survived thirteen prior
+  audit rounds because the auditor was checking new code each
+  time. The rotation found it in the very next release. The
+  practical question to add to each rotation pass:
+  **"does the role gate on this route match the operations
+  the handler performs?"** Not "is there a role gate?" —
+  whether the gate's permissions are correctly scoped for
+  what the handler can do. Recorded in MATURATION_PLAN
+  alongside the existing rotation discipline.
+
 ## [v0.14.7] — 2026-05-11
 
 Hygiene and operational-discoverability release closing the
