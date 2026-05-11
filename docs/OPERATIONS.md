@@ -15,7 +15,7 @@ read this whole document, start with **`docs/QUICKSTART_OPS.md`**
 — it's the 5-minute "deploy + restore + three things to know"
 companion. Come back here when the questions get deeper.
 
-Everything below is current as of **v0.14.3**.
+Everything below is current as of **v0.14.4**.
 
 ---
 
@@ -494,16 +494,45 @@ reconstructible from the log without inferring end-times from the
 absence of subsequent activity. v0.14.3 NEW-44.
 
 **Audit-log flood protection.** The three unauthenticated audit-
-emitting paths (`/login`, `/register`, `/api/quiver/checkin`) are
-gated behind a per-source-IP token bucket: 10 requests per minute
-per IP, with continuous refill (1 token per 6 seconds). Excess
-returns HTTP 429 *and* emits a `request_rate_limited` audit row
-once per bucket trip so the limit-trip itself is visible without
-the hammering scaling the log. A legitimate sensor's hourly
-checkin and a user's interactive login are both nowhere near the
-bucket; only attack traffic trips it. Idle buckets are evicted
-after 10 minutes to bound memory under long-running distributed
-floods. v0.14.3 NEW-39.
+emitting paths (`/login`, `/register`, and the unknown-name /
+bad-HMAC branches of `/api/quiver/checkin`) are gated behind a
+token bucket: 10 requests per minute per source bucket, with
+continuous refill (1 token per 6 seconds). The bucket key is the
+full IPv4 address; for IPv6, the /64 prefix (NEW-48) so a
+residential / cloud attacker rotating through SLAAC privacy
+addresses inside their /64 can't bypass the limit. Excess returns
+HTTP 429 and emits a `request_rate_limited` audit row **once per
+bucket-trip** (NEW-47) — subsequent excess on the same already-
+tripped bucket is silently refused. The trip flag clears the next
+time the bucket admits a legitimate request, so an attacker who
+pauses and resumes audits again on the new trip; an attacker who
+sustains their flood audits exactly once.
+
+A legitimate sensor's hourly checkin path **does not consume from
+the bucket at all** (v0.14.4 NEW-45). Pre-NEW-45 the rate limit
+gated every checkin including successful HMAC-verified ones,
+which broke fleets sharing a NAT egress IP — 20 sensors behind
+one NAT all consumed from one shared bucket and a mass-restart /
+mass-re-enrollment / hourly burst could 429 the 11th-onward
+sensor. The asymmetric placement: rate-limit only auth-failure
+outcomes, so authenticated successful traffic never touches the
+limiter regardless of NAT topology.
+
+Idle buckets are evicted after 10 minutes to bound memory under
+long-running distributed floods. v0.14.3 NEW-39 + v0.14.4
+NEW-45/47/48.
+
+**IPv6 deployment caveat.** Rate-limit aggregation at the /64
+prefix matches the smallest customer allocation unit on most
+ISP and cloud networks. An attacker who owns multiple /64s (a
+large allocation from a hosting provider, multiple residential
+connections) can still rotate buckets — IP-based rate limiting
+will always be defeatable by a sufficiently-resourced attacker.
+The bucket-trip audit row remains O(1) per /64, so the audit-log
+flood path is closed; the open compute-DoS path against bcrypt
+is mitigated separately by the timing-pad on the unknown-email
+login path (NEW-46) which equalises wall-clock cost across all
+failure outcomes.
 
 **Schema columns** (see migration 0009 for rationale):
 

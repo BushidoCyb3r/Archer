@@ -26,14 +26,19 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		// COLLATE clause thinking emails are normalized at write
 		// time would silently break login. Audit 2026-05-10.
 		srcIP := sourceIP(r)
-		if !s.rateLimit.allow(srcIP) {
-			// Rate-limit trip is itself audit-worthy — a real operator
-			// reviewing the log can see "we got hammered from X"
-			// without the hammering scaling the log. v0.14.3 NEW-39.
-			s.recordAuditLogin(r, "request_rate_limited", 0, "", map[string]any{
-				"path":   "/login",
-				"reason": "unauth_rate_limit",
-			})
+		if allowed, shouldAudit := s.rateLimit.allow(srcIP); !allowed {
+			// Audit only the FIRST refusal per bucket-trip (NEW-47);
+			// subsequent excess on the same already-tripped bucket
+			// returns 429 silently so an attacker cannot scale the
+			// audit-log volume by sustaining their flood. The flag
+			// clears on the next admitted request, so a re-trip
+			// after legitimate traffic resumes audits again.
+			if shouldAudit {
+				s.recordAuditLogin(r, "request_rate_limited", 0, "", map[string]any{
+					"path":   "/login",
+					"reason": "unauth_rate_limit",
+				})
+			}
 			http.Error(w, "rate limit exceeded — try again shortly", http.StatusTooManyRequests)
 			return
 		}
@@ -81,11 +86,13 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		s.renderAuth(w, "register.html", map[string]any{"Error": "", "FirstName": "", "LastName": "", "Email": ""})
 	case http.MethodPost:
 		srcIP := sourceIP(r)
-		if !s.rateLimit.allow(srcIP) {
-			s.recordAuditLogin(r, "request_rate_limited", 0, "", map[string]any{
-				"path":   "/register",
-				"reason": "unauth_rate_limit",
-			})
+		if allowed, shouldAudit := s.rateLimit.allow(srcIP); !allowed {
+			if shouldAudit {
+				s.recordAuditLogin(r, "request_rate_limited", 0, "", map[string]any{
+					"path":   "/register",
+					"reason": "unauth_rate_limit",
+				})
+			}
 			http.Error(w, "rate limit exceeded — try again shortly", http.StatusTooManyRequests)
 			return
 		}
