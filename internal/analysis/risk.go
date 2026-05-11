@@ -95,7 +95,12 @@ func (a *Analyzer) aggregateRisk(_ []string) {
 		if src == "" || src == "(cert)" || src == "(escalation)" || src == "(network)" {
 			return
 		}
-		if f.Type == "Host Risk Score" {
+		// Roll-up types are excluded from contribution: Host Risk
+		// Score is the roll-up we're regenerating (recursive
+		// feedback), and Correlated Activity is itself a roll-up
+		// whose constituents are already counted via their
+		// underlying detector types (double-counting).
+		if model.IsRollupType(f.Type) {
 			return
 		}
 		hd := hosts[src]

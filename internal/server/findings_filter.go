@@ -21,15 +21,19 @@ import (
 //
 // Supported query parameters:
 //
-//	search      — case-insensitive substring across type/src/dst/port/detail/ts/severity
-//	type        — exact finding type ("All" or "" disables)
-//	severity    — exact severity  ("All" or "" disables)
-//	min_score   — minimum score (integer)
-//	delta       — "true" restricts to IsNew findings
-//	src_ip      — IP or CIDR; matches finding.SrcIP
-//	dst_ip      — IP or CIDR; matches finding.DstIP
-//	sensor      — exact sensor match
-//	from, to    — inclusive Timestamp window; either "2006-01-02 15:04:05" or RFC3339
+//	search        — case-insensitive substring across type/src/dst/port/detail/ts/severity
+//	type          — exact finding type ("All" or "" disables)
+//	severity      — exact severity  ("All" or "" disables)
+//	min_score     — minimum score (integer)
+//	delta         — "true" restricts to IsNew findings
+//	src_ip        — IP or CIDR; matches finding.SrcIP
+//	dst_ip        — IP or CIDR; matches finding.DstIP
+//	sensor        — exact sensor match
+//	from, to      — inclusive Timestamp window; either "2006-01-02 15:04:05" or RFC3339
+//	spectral_only — "true" restricts to Beaconing findings whose timing axis
+//	                was rescued by the spectral path (Detail contains
+//	                "Spectral rescued:"). Used by the calibration loop to
+//	                triage which rescue candidates are true vs false positives.
 //
 // Allowlisted and currently-suppressed findings are always excluded —
 // filtering doesn't undo those admin decisions. Shared between the findings
@@ -49,6 +53,7 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 	sensorF := q.Get("sensor")
 	statusF := q.Get("status") // "open" | "acknowledged" | "escalated"
 	iocOnly := q.Get("ioc_only") == "true"
+	spectralOnly := q.Get("spectral_only") == "true"
 
 	srcMatcher := parseIPMatcher(q.Get("src_ip"))
 	dstMatcher := parseIPMatcher(q.Get("dst_ip"))
@@ -175,6 +180,15 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 			}
 		}
 		if iocOnly && !ioMatch {
+			continue
+		}
+		// Spectral-rescued filter: matches the tag the analyzer
+		// writes into Detail at emit time. Substring match is
+		// adequate — the tag is a fixed prefix the analyzer
+		// controls; nothing else in the codebase emits that exact
+		// string. If/when the rescue annotation surface needs
+		// stronger typing, this is the call site to upgrade.
+		if spectralOnly && !strings.Contains(f.Detail, "Spectral rescued:") {
 			continue
 		}
 		f.IOCMatch = ioMatch

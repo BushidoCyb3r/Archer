@@ -48,6 +48,15 @@ type Finding struct {
 	Intervals []float64    `json:"intervals,omitempty"`
 	TSData    [][3]float64 `json:"ts_data,omitempty"`
 	Notes     []Note       `json:"notes,omitempty"`
+	// Correlations carries the IDs of sibling findings that share this
+	// finding's (SrcIP, DstIP) pair and contributed to a Correlated
+	// Activity roll-up. Populated by the analyzer's correlation phase
+	// on each contributor and on the Correlated Activity row itself.
+	// Empty for findings that don't participate in a correlation. The
+	// table UI surfaces a `+N correlated` chip when the slice is
+	// non-empty so analysts can pivot from one detector's hit to the
+	// other detectors firing on the same host pair.
+	Correlations []int `json:"correlations,omitempty"`
 }
 
 // Threat-intel finding types. Split into IP / Domain / Hash flavors in
@@ -61,6 +70,37 @@ const (
 	TypeSuspiciousURL = "Suspicious URL"
 	TypeTIHitLegacy   = "Threat Intel Hit" // pre-v0.7.0 — kept recognized so old DBs still classify correctly
 )
+
+// Roll-up finding types — analyzer outputs derived from the rest of
+// the finding set rather than from a single Zeek record. Two
+// properties distinguish them:
+//  1. They have an authoritative regeneration phase in the analyzer
+//     (aggregateRisk for HRS, correlateFindings for Correlated
+//     Activity), so SetFindings's preserve-historical loop must
+//     purge stale instances whose contributing findings are gone —
+//     otherwise an orphan row lingers indefinitely.
+//  2. They must not feed themselves: aggregateRisk excludes Host
+//     Risk Score from its contributor set, correlateFindings
+//     excludes both itself and Host Risk Score from its eligible
+//     types. The recursive-feedback hazard is the same shape NEW-67
+//     documented for HRS.
+const (
+	TypeHostRiskScore      = "Host Risk Score"
+	TypeCorrelatedActivity = "Correlated Activity"
+)
+
+// IsRollupType reports whether a finding type is an analyzer roll-up
+// rather than a per-record detection. Used by Store.SetFindings to
+// drop stale roll-up rows whose fingerprints aren't regenerated this
+// run — preserving them would leave orphans behind once their
+// underlying detections age out or get archived.
+func IsRollupType(t string) bool {
+	switch t {
+	case TypeHostRiskScore, TypeCorrelatedActivity:
+		return true
+	}
+	return false
+}
 
 // IsThreatIntelType reports whether a finding type is feed-driven —
 // the IOC Hits tab, notification eligibility, IOC export filter, and
@@ -224,11 +264,14 @@ var LateralMovementPorts = map[int]bool{
 // ScoreExplanations provides analyst context for each detection type.
 var ScoreExplanations = map[string]string{
 	"Beaconing": "Score = ts×0.25 + ds×0.25 + hist×0.25 + dur×0.25 (0–100)\n" +
-		"ts = statistical score on inter-arrival intervals (Bowley skewness + MAD)\n" +
+		"ts = max(Bowley+MAD on intervals, multimodal log2-bucket peaks, entropy of bucket occupancy, spectral rescue)\n" +
+		"  Spectral rescue: Lomb-Scargle periodogram over reservoir timestamps, runs when ts < SpectralRescueThreshold (default 0.5)\n" +
+		"  Catches jittered C2 (σ/period < 0.45) where the interval distribution defeats statistical scoring\n" +
 		"ds = statistical score on orig byte counts\n" +
 		"hist = histogram regularity (CV + bimodal) over 24 time buckets\n" +
 		"dur = temporal persistence (coverage + consecutive-run consistency)\n" +
 		"CRITICAL ≥ 80 | HIGH < 80\n" +
+		"Detail tags 'Spectral rescue: period≈Xs' when the frequency-domain path won.\n" +
 		"False positives: backup clients, update agents, NTP heartbeats.",
 
 	"HTTP Beaconing": "Same multi-dimensional analysis as conn-level but on (src, host, URI path) triples.\n" +
@@ -306,6 +349,13 @@ var ScoreExplanations = map[string]string{
 		"Beaconing +30 | HTTP Beaconing +28 | CS URI +40 | C2 URI Pattern +38\n" +
 		"Domain Fronting +32 | Malicious JA3 +40 | TI Hit +35 | Exfiltration +25\n" +
 		"CRITICAL ≥75 | HIGH ≥50 | MEDIUM ≥25",
+
+	"Correlated Activity": "Cross-detector roll-up: same (src, dst) pair, ≥N distinct detector types\n" +
+		"N defaults to 2 (correlation_min_types). Catches kill-chain progression:\n" +
+		"Beaconing + DNS Tunneling, Suspicious File + TI Hit (Hash), etc.\n" +
+		"Score = max(contributor scores) + 5 per extra distinct type above N, capped 99.\n" +
+		"Contributing findings get a `+N corr` chip linking back to this roll-up.\n" +
+		"Excluded from contribution: Host Risk Score, Correlated Activity (recursion), Zeek Notice, Long Connection.",
 
 	"Zeek Notice": "Score: 92 (attack notices) | 68 (general)\n" +
 		"Zeek policy script detections: Sensitive_Signature, Scan, Attack, Brute.",

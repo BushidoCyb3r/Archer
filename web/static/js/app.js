@@ -575,6 +575,8 @@
       document.getElementById('filter-type').value = '';
       document.getElementById('filter-sensor').value = '';
       document.getElementById('filter-score').value = '0';
+      const sOnly = document.getElementById('filter-spectral-only');
+      if (sOnly) sOnly.checked = false;
       const rs = document.getElementById('filter-range');
       if (rs) rs.value = '1mo';
       // Reset goes through the same path as applyFilter so the active
@@ -712,6 +714,10 @@
     const dst = g('filter-dst').trim(); if (dst) params.dst_ip = dst;
     const port = g('filter-port').trim(); if (port) params.dst_port = port;
     const sn  = g('filter-sensor');     if (sn)  params.sensor = sn;
+    // Spectral-rescued: server-side filter on Detail-string substring.
+    // Calibration-loop helper — see docs/DETECTION_METHODS.md §2.
+    const specOnly = document.getElementById('filter-spectral-only');
+    if (specOnly && specOnly.checked) params.spectral_only = 'true';
     // Date filter comes from the Time-range dropdown only. Custom
     // From/To inputs were removed from the Advanced bar — the dropdown
     // covers every common hunt window and the perf cost of a date
@@ -2447,6 +2453,26 @@
     if (cidrEl) cidrEl.value = Array.isArray(cfg.org_internal_cidrs) ? cfg.org_internal_cidrs.join('\n') : '';
     const alwaysFull = document.getElementById('cfg-watch-always-full');
     if (alwaysFull) alwaysFull.checked = !!cfg.watch_always_full;
+    const specEn = document.getElementById('cfg-spectral-enabled');
+    // spectral_enabled defaults true in config.Default(); upgraded
+    // installs preserve that value because json.Unmarshal only
+    // overwrites fields present in the stored blob. Treat undefined
+    // as the default (true) so the checkbox reflects what the
+    // analyzer will actually do.
+    if (specEn) specEn.checked = cfg.spectral_enabled !== false;
+    // Spectral calibration knobs. Missing-on-upgrade behavior: the
+    // server seeds Default() before unmarshal so the in-memory cfg
+    // already has the right defaults — but the JSON returned to the
+    // SPA reflects whatever the server has, which after upgrade may
+    // include defaults that weren't in the stored blob. Use the
+    // fallback only for genuinely-absent fields (undefined), not for
+    // legitimate operator-set zeros.
+    const specMinObs  = document.getElementById('cfg-spectral-min-obs');
+    if (specMinObs)  specMinObs.value  = cfg.spectral_min_observations  != null ? cfg.spectral_min_observations  : 16;
+    const specFAP    = document.getElementById('cfg-spectral-fap');
+    if (specFAP)     specFAP.value     = cfg.spectral_fap_threshold     != null ? cfg.spectral_fap_threshold     : 12;
+    const specRescue = document.getElementById('cfg-spectral-rescue');
+    if (specRescue)  specRescue.value  = cfg.spectral_rescue_threshold  != null ? cfg.spectral_rescue_threshold  : 0.5;
   }
 
   function _populateArchive(a) {
@@ -2503,6 +2529,10 @@
       censys_api_secret:        g('cfg-censys-secret').trim(),
       org_internal_cidrs:       cidrs,
       watch_always_full:        !!(document.getElementById('cfg-watch-always-full') || {}).checked,
+      spectral_enabled:         !!(document.getElementById('cfg-spectral-enabled') || {}).checked,
+      spectral_min_observations: parseInt(g('cfg-spectral-min-obs'))  || 16,
+      spectral_fap_threshold:    parseFloat(g('cfg-spectral-fap'))    || 12,
+      spectral_rescue_threshold: parseFloat(g('cfg-spectral-rescue')) || 0.5,
     };
   }
 

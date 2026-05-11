@@ -146,9 +146,67 @@ A perfectly concentrated distribution scores 1.0; a maximally scattered
 distribution scores ≈0. Orthogonal to Bowley + MAD: it cares about *which
 buckets* are populated, not the spread *within* a bucket.
 
-**Final timing score.** `ts_score = max(raw_ts, multimodal, entropy)`. Each
-augmentation only fires when the others miss; single-mode tight beacons see
-no change because both augmentations also score ≈1.0 in that case.
+**Spectral rescue.** The three statistical paths above all derive
+from the inter-arrival *interval distribution*. A beacon whose
+intervals are spread enough to confuse every distribution-based
+score (Bowley + MAD on raw values, multimodal on log2-binned
+peaks, entropy on bin occupancy) can still have very clear
+*frequency-domain* structure. Adversaries who care about evading
+timing-regularity detection use exactly this shape: a fixed
+schedule with bounded random jitter around it. The intervals look
+noisy; the spectrum has a sharp peak.
+
+The spectral path runs a Lomb-Scargle periodogram over the pair's
+reservoir-sampled connection timestamps. Lomb-Scargle (rather than
+a binned FFT) handles unevenly-spaced data natively, sidestepping
+bin-choice tuning. The Rayleigh power form gives the standard
+null-hypothesis distribution (exponential with mean 1.0 under
+Poisson arrivals), so the false-alarm threshold has a clean
+interpretation: power > 12 corresponds to per-frequency false
+alarm ≈ exp(-12) ≈ 6e-6, and across the 2000-point log-spaced
+period grid (5s to window/2) total expected FAP ≈ 0.001 per pair.
+
+The path is gated to keep its CPU cost off the hot path:
+1. **`SpectralEnabled` flag** (default on). Operator can disable
+   if real-corpus calibration shows too many false positives or if
+   per-run runtime budget is tight.
+2. **Rescue-only invocation.** Spectral runs only when the
+   statistical chain already scored `ts < SpectralRescueThreshold`
+   (default 0.5) — pairs that scored well don't get spectral run
+   on them.
+3. **Reservoir floor.** Below `SpectralMinObservations` (default
+   16) the path returns zero. Below 8 it short-circuits
+   defensively regardless of operator config — the math is
+   unreliable on too few samples.
+
+When the spectral path wins (`spec.Score > tsScore`), the
+Beaconing finding's Detail string gets a tag:
+
+```
+Connections: 200 | Mean interval: 60.4s | CV: 0.32 |
+Score components: ts=0.62 ds=0.85 hist=0.71 dur=0.40 |
+Spectral rescue: period≈60.3s
+```
+
+So an analyst triaging the finding can see which signal drove
+the timing score. A beacon at CV ≈ 0.5 that scored High via
+spectral rescue is operationally different from one that scored
+High via Bowley + MAD: the former is more likely deliberately
+jittered C2, the latter more likely tight automation.
+
+**CPU cost.** ~4 ms per pair on a 200-timestamp reservoir against
+the 2000-point grid. Combined with the rescue-only gate, a hunt-
+session run with 1000 pairs sees at most a few seconds of
+spectral overhead total. Real cost scales linearly with the
+number of pairs the rescue gate opens for, which is bounded by
+how good the statistical-augmentation chain already is — on
+real traffic, that's typically a small minority.
+
+**Final timing score.** `ts_score = max(raw_ts, multimodal,
+entropy, spectral)`. Each path only contributes when the others
+miss; single-mode tight beacons see no change because the
+distribution-based paths already score ≈1.0 and the spectral
+gate doesn't open.
 
 #### (b) ds_score — payload size regularity (data size)
 
@@ -231,11 +289,20 @@ Score components: ts=0.97 ds=0.95 hist=0.91 dur=1.00
 Catches: fixed-interval implants (Cobalt Strike default 60s, Empire 5min,
 custom RATs), long-running tunnels with constant-size keepalives.
 
-Misses (intentionally, to limit false positives): jittered beacons with
-intentionally randomized intervals — those degrade the timing score. The
-bytes axis and histogram axis can still flag them, but the score will be
-lower. This is a deliberate trade-off: Archer biases toward precision over
-recall here.
+Catches (via the spectral rescue path): bounded-jitter beacons —
+fixed schedule with random offsets around each scheduled
+timestamp. The statistical paths score these poorly because the
+interval distribution looks spread; Lomb-Scargle finds the
+underlying period because phase doesn't accumulate. The
+`Spectral rescue: period≈Xs` tag in the Detail line marks
+findings that the frequency-domain path rescued.
+
+Misses (intentionally, to limit false positives): adversarial
+jitter at σ/period > 0.45 where the spectral peak itself washes
+out (sinc(π·σ/T) → 0). Above that threshold, the timing signal
+is effectively destroyed and rescuing it would risk flagging
+legitimate sporadic traffic. The histogram and bytes axes still
+contribute if those signals survive.
 
 ---
 
@@ -728,6 +795,81 @@ score = 68 otherwise
 
 This means Zeek's own detections are visible in the same UI as Archer's —
 analysts don't have to swivel-chair between two log surfaces.
+
+---
+
+## 13a. Correlated Activity
+
+**Where.** `internal/analysis/correlate.go`.
+
+Per-record detectors are independent — Beaconing fires on `conn.log`,
+DNS Tunneling fires on `dns.log`, TI Hit (Hash) fires on `files.log`.
+Each is a useful signal on its own, but the *combination* of multiple
+detectors lighting up on the **same (SrcIP, DstIP) pair** is
+qualitatively stronger evidence than any one of them: it's kill-chain
+progression on a single host pair, not coincidence.
+
+After Phase 3 (TI checks) and before Phase 4 (Host Risk Score), the
+analyzer walks every finding and groups them by `(SrcIP, DstIP)`. When
+a pair carries findings from `correlation_min_types` or more distinct
+*eligible* detector types, the analyzer emits a `Correlated Activity`
+finding and annotates the contributing findings with the IDs of their
+siblings via `Finding.Correlations`.
+
+**Eligibility.** The following types do not contribute toward the
+threshold:
+
+- `Host Risk Score` and `Correlated Activity` — both are roll-ups
+  rather than per-record detections. Folding them in would
+  double-count and risk recursive feedback the same way
+  `aggregateRisk` would double-count itself if not type-filtered.
+- `Zeek Notice` — passthrough of upstream Zeek policy hits; too noisy
+  and too varied in shape to be a useful correlation signal in
+  isolation.
+- `Long Connection` — by itself a weak signal (legitimate VPNs,
+  keepalives, long-lived SaaS sessions). Pairing it with one other
+  type would inflate correlation counts on every busy host.
+
+**Scoring.** Score = max(contributor scores) + 5 per distinct type
+above the minimum, capped at 99. Severity from standard score bands
+(`≥80 Critical | ≥60 High | ≥40 Medium | else Low`). Concrete
+examples:
+
+- Beaconing(85) + DNS Tunneling(60) → 85 (Critical)
+- Beaconing(70) + DNS Tunneling(60) + Data Exfil(50) + Strobe(40)
+  → 70 + 5×2 = 80 (Critical, two extra types above minimum of 2)
+- HTTP Beaconing(50) + Suspicious URL(45) → 50 (High)
+
+**Historical context.** Like `aggregateRisk`, `correlateFindings`
+unions this-run findings with the historical store snapshot via
+`FindingsProvider` (NEW-67 pattern). A pair whose contributing
+detections existed last run but didn't re-fire this run still
+correlates as long as the historical findings are still in the store
+— removes the "yesterday's DNS Tunneling + today's Beaconing don't
+correlate because we only see today's findings" gap.
+
+**Stale-row handling.** `Store.SetFindings` purges historical
+`Correlated Activity` (and `Host Risk Score`) rows whose fingerprints
+aren't regenerated this run. Without that, a pair that dropped below
+the threshold would leave an orphan roll-up pointing at contributors
+that may have been archived or fallen out of scope. The roll-up has
+an authoritative regeneration phase; absence-from-regeneration is
+authoritative.
+
+**Tuning.** `correlation_min_types` (default 2) controls the
+threshold. Raise to 3 if multi-protocol SaaS (AWS SDK polling + DNS
+to S3 + TLS to CloudFront) produces too many false-positive
+correlations on benign destinations. Value < 2 is rejected at the
+config API and short-circuited defensively in `correlateFindings`
+itself (NEW-66 defense-in-depth pattern).
+
+**UI surface.** Each contributor row in the Findings table shows a
+`+N corr` chip next to its Type. Clicking the chip pivots to the
+`Correlated Activity` row so analysts can read the full
+multi-detector context from one place. If the roll-up row isn't in
+the currently-loaded findings (pagination, active filter), the chip
+falls back to selecting the originating finding — its Detail field
+lists every contributing ID and the analyst can navigate from there.
 
 ---
 

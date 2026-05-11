@@ -1104,6 +1104,30 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "off_hours_start and off_hours_end must be in [0, 23]", http.StatusBadRequest)
 			return
 		}
+		// correlation_min_types < 2 is degenerate — a single-detector
+		// pair would always trip, drowning the findings table in
+		// useless roll-ups. Boundary rejection matches the NEW-66
+		// pattern; correlate.go also short-circuits defensively.
+		if cfg.CorrelationMinTypes < 2 {
+			jsonError(w, "correlation_min_types must be at least 2", http.StatusBadRequest)
+			return
+		}
+		// Spectral-detector bounds. Same NEW-66 shape: each detector
+		// also defends itself at the analyzer call site, but the
+		// boundary check rejects nonsense values loudly rather than
+		// letting them silently disable the feature.
+		if cfg.SpectralMinObservations < 8 {
+			jsonError(w, "spectral_min_observations must be at least 8 (below this Lomb-Scargle on impulse trains produces unreliable peaks)", http.StatusBadRequest)
+			return
+		}
+		if cfg.SpectralFAPThreshold <= 0 {
+			jsonError(w, "spectral_fap_threshold must be > 0 (the false-alarm cutoff above noise)", http.StatusBadRequest)
+			return
+		}
+		if cfg.SpectralRescueThreshold < 0 || cfg.SpectralRescueThreshold > 1 {
+			jsonError(w, "spectral_rescue_threshold must be in [0, 1]", http.StatusBadRequest)
+			return
+		}
 		before := s.store.GetConfig()
 		s.store.SetConfig(cfg)
 		s.recordAudit(r, "config_change", auditEvent{

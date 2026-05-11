@@ -395,11 +395,27 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 	// out of /logs. Removal is explicit-only — admin-driven via archive
 	// pruning (PruneFindingsOnArchive) or manual deletion — never a side
 	// effect of re-analysis.
+	//
+	// Roll-up types are the exception: Host Risk Score and Correlated
+	// Activity have authoritative regeneration phases in the analyzer
+	// (aggregateRisk, correlateFindings) and are derived from the other
+	// findings. Preserving a roll-up whose contributors are all gone — or
+	// whose contributor set no longer meets the roll-up's threshold —
+	// leaves a stale row with no defensible source. The NEW-67 union fix
+	// closed the common case for HRS (host quiet this run but historical
+	// detections still in store), but the narrow case where every
+	// contributor has been archived or deleted still left orphans. The
+	// IsRollupType filter here closes both the HRS narrow case and the
+	// same shape for Correlated Activity introduced alongside it.
 	for fp, old := range existing {
-		if !newFPSet[fp] {
-			old.IsNew = false
-			findings = append(findings, old)
+		if newFPSet[fp] {
+			continue
 		}
+		if model.IsRollupType(old.Type) {
+			continue
+		}
+		old.IsNew = false
+		findings = append(findings, old)
 	}
 
 	s.findings = findings

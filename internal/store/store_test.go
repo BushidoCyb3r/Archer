@@ -188,3 +188,78 @@ func TestFindingsIdx_StaysConsistentAcrossMutations(t *testing.T) {
 		t.Errorf("findingsIdx not cleared: %v", s.findingsIdx)
 	}
 }
+
+// TestSetFindings_PurgesStaleRollups verifies the IsRollupType filter
+// in the preserve-historical loop. A Host Risk Score or Correlated
+// Activity row from a prior run whose fingerprint isn't regenerated
+// this run must be dropped — preserving it would leave an orphan
+// pointing at contributors that no longer exist or that have dropped
+// below the roll-up's threshold. Closes the narrow case left open by
+// NEW-67 (HRS) and the same shape introduced alongside Correlated
+// Activity.
+func TestSetFindings_PurgesStaleRollups(t *testing.T) {
+	s := New(config.Default())
+
+	// Seed: Beaconing finding + an HRS row for the same host + a
+	// Correlated Activity row for the same pair.
+	s.SetFindings([]model.Finding{
+		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
+		{Type: "Host Risk Score", SrcIP: "10.0.0.1", DstIP: "(network)", Score: 50, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
+		{Type: "Correlated Activity", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 85, Severity: model.SevCritical, Timestamp: "2026-05-10 12:00:00"},
+	})
+
+	// Second run regenerates only the Beaconing finding — neither
+	// the roll-up phase has anything to emit (suppose the operator
+	// re-ran analysis after toggling a setting that suppresses HRS
+	// and correlation). Both roll-up rows should be purged; the
+	// Beaconing finding should remain.
+	s.SetFindings([]model.Finding{
+		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00"},
+	})
+
+	gotTypes := map[string]int{}
+	for _, f := range s.findings {
+		gotTypes[f.Type]++
+	}
+	if gotTypes["Beaconing"] != 1 {
+		t.Errorf("Beaconing count = %d, want 1", gotTypes["Beaconing"])
+	}
+	if gotTypes["Host Risk Score"] != 0 {
+		t.Errorf("stale Host Risk Score not purged; got %d row(s)", gotTypes["Host Risk Score"])
+	}
+	if gotTypes["Correlated Activity"] != 0 {
+		t.Errorf("stale Correlated Activity not purged; got %d row(s)", gotTypes["Correlated Activity"])
+	}
+}
+
+// TestSetFindings_PreservesNonRollupHistorical confirms the purge is
+// scoped to roll-up types only. A Beaconing finding from a prior run
+// that doesn't re-fire must still be preserved — its absence from the
+// current run isn't authoritative (the source logs may have been
+// archived but the historical observation is still valid). Same
+// guarantee as before the rollup-purge change.
+func TestSetFindings_PreservesNonRollupHistorical(t *testing.T) {
+	s := New(config.Default())
+
+	s.SetFindings([]model.Finding{
+		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
+		{Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 60, Severity: model.SevMedium, Timestamp: "2026-05-10 12:00:00"},
+	})
+
+	// Second run only emits Beaconing; DNS Tunneling must be
+	// preserved as a historical detection.
+	s.SetFindings([]model.Finding{
+		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00"},
+	})
+
+	gotTypes := map[string]int{}
+	for _, f := range s.findings {
+		gotTypes[f.Type]++
+	}
+	if gotTypes["Beaconing"] != 1 {
+		t.Errorf("Beaconing count = %d, want 1", gotTypes["Beaconing"])
+	}
+	if gotTypes["DNS Tunneling"] != 1 {
+		t.Errorf("DNS Tunneling not preserved; got %d row(s)", gotTypes["DNS Tunneling"])
+	}
+}

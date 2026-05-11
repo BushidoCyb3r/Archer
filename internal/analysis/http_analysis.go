@@ -362,6 +362,25 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 		if eh := intervalEntropyScore(ivs); eh > tsScore {
 			tsScore = eh
 		}
+		// Spectral rescue — same shape as the conn-level Beaconing
+		// path. C2-over-HTTP is the same fingerprint as conn-level
+		// C2 except the periodicity is at the request layer; the
+		// detector inputs are different but the rescue logic is
+		// identical.
+		var spectralRescued bool
+		var spectralResult SpectralResult
+		if a.cfg.SpectralEnabled && tsScore < a.cfg.SpectralRescueThreshold && len(st.tsData) >= a.cfg.SpectralMinObservations {
+			tsOnly := make([]float64, len(st.tsData))
+			for i, row := range st.tsData {
+				tsOnly[i] = row[0]
+			}
+			spec := spectralScore(tsOnly, a.cfg.SpectralMinObservations, a.cfg.SpectralFAPThreshold)
+			if spec.Score > tsScore {
+				tsScore = spec.Score
+				spectralRescued = true
+				spectralResult = spec
+			}
+		}
 		dsScore := 0.0
 		if len(byteVals) >= 3 {
 			dsScore = statisticalScore(byteVals, 0.0)
@@ -389,13 +408,18 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 		copy(tsData, st.tsData)
 		sort.Slice(tsData, func(i, j int) bool { return tsData[i][0] < tsData[j][0] })
 
+		detail := fmt.Sprintf("Requests: %d | Host: %s | URI: %s | Score: ts=%.2f ds=%.2f hist=%.2f dur=%.2f", totalObserved, bk.host, bk.uri, tsScore, dsScore, hScore, durScore)
+		if spectralRescued {
+			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (dominant period %.1fs, power %.1f, FAP threshold %.1f)",
+				spectralResult.Score, spectralResult.Period, spectralResult.RawPower, a.cfg.SpectralFAPThreshold)
+		}
 		a.add(model.Finding{
 			Type:      "HTTP Beaconing",
 			Severity:  sev,
 			Score:     score,
 			SrcIP:     bk.src,
 			DstIP:     bk.dst,
-			Detail:    fmt.Sprintf("Requests: %d | Host: %s | URI: %s | Score: ts=%.2f ds=%.2f hist=%.2f dur=%.2f", totalObserved, bk.host, bk.uri, tsScore, dsScore, hScore, durScore),
+			Detail:    detail,
 			Timestamp: fmtTS(st.firstTs),
 			TSData:    tsData,
 		})
