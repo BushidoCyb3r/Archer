@@ -30,6 +30,106 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.14.10] — 2026-05-11
+
+Sixteenth-round rotation audit, residual hygiene phase. Two
+mechanical fixes from a deliberate read of the analyzer's host-risk
+roll-up — both pre-existing latent issues surfaced by the audit
+discipline rather than new regressions. A third audit item
+(periodic session prune) was a false positive: `pruneSessionsLoop`
+has been wired from `NewUserStore` since the user store was
+written. Captured as a maturation note rather than re-implementing
+what's already there.
+
+### Detection changes
+
+- **Host Risk Score now reflects the host's complete detection
+  footprint, not just this run's (NEW-67).** Pre-fix
+  `aggregateRisk` computed HRS from `a.findings` alone — the fresh
+  per-run slice. A host whose contributing detections were
+  preserved in the store from a prior run but went silent this
+  run never got a fresh HRS row; combined with `SetFindings`'s
+  preserve-historical loop, the OLD HRS row survived in the
+  store indefinitely with whatever score it was last assigned.
+  Operationally visible as: the Hosts tab shows a host at risk
+  65, the analyst clicks through to find none of the
+  contributing detections are currently re-firing, the scores
+  on the two tabs don't match the visible evidence.
+
+  The fix wires a `FindingsProvider` interface (mirroring
+  `FeedProvider`) and has `aggregateRisk` union the preserved
+  finding set with this-run's `a.findings` before composing
+  per-host scores. The interface accepts nil so tests and the
+  archive-scan path (which intentionally scopes to one log
+  bundle, no historical context) keep their current shape.
+  Existing `Host Risk Score` rows are explicitly filtered from
+  the contributor union — they're the roll-up, not a detector,
+  and folding them in would double-count and spiral upward
+  across runs. The store still preserves prior HRS rows by
+  fingerprint, so re-emitting overwrites in place and the row's
+  ID is preserved across runs. Audit 2026-05-11 NEW-67.
+
+  Stale-HRS-when-detections-are-actually-gone (operator
+  explicitly archived/deleted all contributing rows for a host)
+  is a separate case that this fix does not address — the
+  aggregator has nothing to compute from in that case, so the
+  old HRS persists. That's the right shape for "archive doesn't
+  rewrite history" semantics; if a deployment ever needs to
+  bulk-purge HRS, that's an admin tool, not analyzer logic.
+
+- **`aggregateRisk` iterates hosts in sorted order (NEW-68).**
+  Pre-fix `for src, hd := range hosts` used Go's randomized map
+  iteration; `a.add` assigns finding IDs in call order, so two
+  fresh runs on identical input (post-ClearFindings) produced
+  different HRS IDs for the same host. Doesn't matter in steady
+  state — `SetFindings` carries IDs forward by fingerprint — but
+  was a real concern for golden-test reproducibility and for any
+  analyst workflow that compares notes by ID across fresh
+  baselines. Sorting the host keys before iteration is the same
+  pattern `risk.go`'s `typeList` already used at the inner
+  level. Audit 2026-05-11 NEW-68.
+
+### Added
+
+- **Regression tests for the two `aggregateRisk` fixes.**
+  `TestAggregateRisk_UnionsHistoricalFindings` codifies NEW-67
+  by feeding a stub historical set and asserting the quiet host
+  gets a fresh HRS row with the correct composite, while
+  preventing the stale-HRS-feeds-back-in double-count failure
+  mode. `TestAggregateRisk_DeterministicHostOrder` runs five
+  trials and asserts the HRS rows emerge in sorted SrcIP order
+  every time, codifying NEW-68.
+
+### Maturation lessons
+
+- **The rotation discipline produces both real fixes and false
+  positives — and that's healthy.** NEW-69 (periodic session
+  prune) was flagged as a missing feature; the implementation
+  has been there since the user store was written
+  (`pruneSessionsLoop` wired from `NewUserStore`). The auditor
+  reasoning was sound — they were checking for a "session
+  cleanup" pattern by grep'ing `start*PruneLoop` in
+  `server.go`, which is where the other prune loops live. The
+  user-store loop is hidden in the store constructor instead.
+  Not a bug, but the inconsistency is the kind of thing that
+  causes future audits to keep re-discovering "missing"
+  features. Worth a future cosmetic pass to surface
+  `startSessionPruneLoop` from `server.go` for symmetry — but
+  not at the cost of inventing a parallel loop just to satisfy
+  the convention. Discoverability for the next reader matters
+  more than perfect grep-locality.
+
+- **Roll-up findings must be type-filtered out of their own
+  inputs.** NEW-67's union introduces the hazard that the
+  contributor set would include the previous run's HRS rows,
+  which would feed back into the new composite and spiral
+  scores upward across runs. The filter is one line — but the
+  hazard is exactly the kind of recursive-feedback bug that's
+  invisible in casual review and would surface as "the Hosts
+  tab risk scores keep climbing" after a few runs. Pattern to
+  watch for: any future aggregator that reads from the merged
+  finding set should explicitly exclude its own output type.
+
 ## [v0.14.9] — 2026-05-11
 
 Residual-risk-and-hygiene pass after fifteen rounds. Three items
