@@ -65,9 +65,16 @@ func (a *Analyzer) correlateFindings() {
 		return
 	}
 
-	// type pairKey = (src, dst). Map values track the contributing
-	// finding IDs plus the distinct type set per pair. Iteration
-	// later happens in sorted-key order.
+	// pairKey is sensor-partitioned: a single (src, dst) pair observed
+	// by two different sensors in an overlapping-capture deployment
+	// (multiple Quiver collectors watching the same backbone) is two
+	// distinct observations, not one. Pre-fix correlate.go keyed only
+	// on (src, dst) and would conflate findings emitted by different
+	// sensors into a single correlation row — same shape NEW-6 flagged
+	// for beacon pair keys in v0.10.0. Single-sensor deployments
+	// behave identically (Sensor field is constant); multi-sensor
+	// overlapping deployments stop cross-sensor smearing. NEW-73.
+	type pairKey struct{ sensor, src, dst string }
 	type pairData struct {
 		types      map[string]bool
 		findingIDs []int
@@ -78,7 +85,7 @@ func (a *Analyzer) correlateFindings() {
 		// SetFindings's ID-carry-forward).
 		idsByID map[int]bool
 	}
-	pairs := make(map[[2]string]*pairData)
+	pairs := make(map[pairKey]*pairData)
 
 	contribute := func(f model.Finding) {
 		if !correlationEligibleType(f.Type) {
@@ -95,7 +102,7 @@ func (a *Analyzer) correlateFindings() {
 		if f.DstIP == "(network)" || f.SrcIP == "(cert)" || f.SrcIP == "(escalation)" || f.SrcIP == "(TI)" {
 			return
 		}
-		key := [2]string{f.SrcIP, f.DstIP}
+		key := pairKey{sensor: f.Sensor, src: f.SrcIP, dst: f.DstIP}
 		pd := pairs[key]
 		if pd == nil {
 			pd = &pairData{
@@ -133,15 +140,21 @@ func (a *Analyzer) correlateFindings() {
 	}
 
 	// Sort pair keys so emitted correlation IDs are deterministic.
-	pairKeys := make([][2]string, 0, len(pairs))
+	// Lexicographic sort across (sensor, src, dst) keeps the ordering
+	// stable per multi-sensor deployment too — within one sensor, the
+	// same src/dst pairs always sort identically.
+	pairKeys := make([]pairKey, 0, len(pairs))
 	for k := range pairs {
 		pairKeys = append(pairKeys, k)
 	}
 	sort.Slice(pairKeys, func(i, j int) bool {
-		if pairKeys[i][0] != pairKeys[j][0] {
-			return pairKeys[i][0] < pairKeys[j][0]
+		if pairKeys[i].sensor != pairKeys[j].sensor {
+			return pairKeys[i].sensor < pairKeys[j].sensor
 		}
-		return pairKeys[i][1] < pairKeys[j][1]
+		if pairKeys[i].src != pairKeys[j].src {
+			return pairKeys[i].src < pairKeys[j].src
+		}
+		return pairKeys[i].dst < pairKeys[j].dst
 	})
 
 	// Track which IDs to annotate after we know which pairs actually
@@ -215,10 +228,11 @@ func (a *Analyzer) correlateFindings() {
 			Type:     model.TypeCorrelatedActivity,
 			Severity: sev,
 			Score:    score,
-			SrcIP:    key[0],
-			DstIP:    key[1],
+			SrcIP:    key.src,
+			DstIP:    key.dst,
+			Sensor:   key.sensor,
 			Detail: fmt.Sprintf("Multi-stage activity on (%s → %s): %s | Contributing finding IDs: %s",
-				key[0], key[1], strings.Join(typeList, ", "), strings.Join(idStrs, ", ")),
+				key.src, key.dst, strings.Join(typeList, ", "), strings.Join(idStrs, ", ")),
 			Timestamp:    pd.earliestTS,
 			Correlations: contributorIDs,
 		})

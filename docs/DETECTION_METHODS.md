@@ -856,6 +856,35 @@ that may have been archived or fallen out of scope. The roll-up has
 an authoritative regeneration phase; absence-from-regeneration is
 authoritative.
 
+**ID translation across SetFindings (v0.15.1, NEW-71).** The analyzer
+populates each contributor's `Correlations` slice with the per-run
+`a.nextID++` IDs at emit time, before SetFindings has had a chance
+to rewrite IDs via fingerprint match. SetFindings now builds a
+fresh-ID → persisted-ID map during its existing rewrite loop and
+translates every new finding's `Correlations` slice through it.
+Preserved historical findings (not regenerated this run) keep their
+slices unchanged — those references were already translated when
+the prior SetFindings persisted them, and stay in terms of persisted
+IDs. References that don't survive translation (would only happen if
+correlate.go annotated a finding with an ID that doesn't appear in
+the current run, which the implementation prevents) are dropped
+defensively.
+
+**Historical-correlation semantics (v0.15.1, NEW-75).** A
+preserved-historical contributor that participated in a correlation
+last run keeps its `Correlations` slice through SetFindings, but
+correlate.go's annotation pass walks only this-run's `a.findings`
+slice and doesn't touch historical findings. The result: a
+contributor preserved across re-analyses (e.g. DNS Tunneling fires
+once a week, Beaconing fires daily) carries its slice as a record
+of *past co-firing* rather than a guarantee of *current
+co-firing*. This is honest for analyst use — the chip click still
+resolves to a Correlated Activity row by (src, dst) triple, and if
+the present-day correlation no longer holds the chip count is the
+historical record. Analysts inspecting an old finding with a chip
+should treat the slice as "this finding was correlated with these
+others at some point in its history."
+
 **Tuning.** `correlation_min_types` (default 2) controls the
 threshold. Raise to 3 if multi-protocol SaaS (AWS SDK polling + DNS
 to S3 + TLS to CloudFront) produces too many false-positive
