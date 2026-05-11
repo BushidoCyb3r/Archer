@@ -78,6 +78,25 @@ if [ ! -s "$SECRET_FILE" ]; then
 fi
 CHECKIN_SECRET=$(cat "$SECRET_FILE")
 
+# Sanity-check the secret shape. The server-side enrollment response
+# produces 32 random bytes URL-safe-base64-encoded (RawURLEncoding):
+# 43 characters, charset [A-Za-z0-9_-], no padding. A partial-disk-write
+# during sensor reboot, an FS error, or an accidental operator edit
+# corrupts the file and openssl below silently HMACs with the wrong
+# key — producing endless bad_hmac unauthorized_attempt rows server-
+# side with the sensor appearing healthy locally. Loud warning here
+# routes the operator straight to the re-enrollment fix instead of
+# the audit-log archaeology path. v0.14.7 NEW-57.
+SECRET_LEN=${#CHECKIN_SECRET}
+case "$CHECKIN_SECRET" in
+    *[!A-Za-z0-9_-]*)
+        echo "quiver: ${SECRET_FILE} contains characters outside the expected base64url charset — file is corrupted or hand-edited. Re-run the install one-liner from the Archer admin UI to refresh the secret." >&2
+        ;;
+esac
+if [ "$SECRET_LEN" != 43 ]; then
+    echo "quiver: ${SECRET_FILE} is ${SECRET_LEN} chars; expected 43 (32 random bytes URL-safe-base64). File is corrupted or truncated. Re-run the install one-liner from the Archer admin UI to refresh the secret." >&2
+fi
+
 # Sign the body. openssl is on every distro that ships curl + cron, so
 # no extra dependency. The server re-derives the same digest server-
 # side and constant-time-compares against the X-Quiver-Sig header.
@@ -123,8 +142,19 @@ case "$status" in
         exit 0
         ;;
     unknown|network_error|"")
-        # Unknown to the server (admin probably purged the row) or a
-        # transient network blip. Either way, push nothing this tick.
+        # Unknown to the server (admin probably purged the row), a
+        # transient network blip, OR — most operationally annoying —
+        # the server thinks our HMAC is bad. The server's response is
+        # the same "unknown" verdict for unknown-name AND bad-HMAC
+        # paths by design (a forger shouldn't be able to distinguish
+        # them), so the sensor can't tell from the status alone which
+        # case it's in. Tell the operator where to look: the audit
+        # log on the server narrows it to one of the two via
+        # details.reason. v0.14.7 NEW-57. Either way, push nothing
+        # this tick.
+        if [ "$status" = "unknown" ]; then
+            echo "quiver: server returned 'unknown' for this sensor. Could be an admin-purged sensor row OR a corrupted ${SECRET_FILE} (bad_hmac). Check the Archer audit log: action=sensor_unauthorized_attempt with details.reason narrows it. If reason=bad_hmac, re-run the install one-liner from the Archer admin UI." >&2
+        fi
         exit 0
         ;;
 esac

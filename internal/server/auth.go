@@ -214,11 +214,22 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		s.users.DeleteSession(c.Value)
 	}
+	// All security-relevant attributes (Secure, HttpOnly, SameSite)
+	// match the login-success SetCookie sites. Pre-v0.14.7 the
+	// clearing cookie omitted them — deletion still worked because
+	// RFC 6265 §5.3 matches on (name, path, domain) only, but the
+	// drift between "set" and "clear" paths was exactly the
+	// "aspirational convention" failure mode NEW-30 was about. The
+	// invariant now is "every Set-Cookie for sessionCookie carries
+	// the same security flags." v0.14.7 NEW-56.
 	http.SetCookie(w, &http.Cookie{
-		Name:   sessionCookie,
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
+		Name:     sessionCookie,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
 	})
 	if u.ID != 0 {
 		s.recordAuditLogin(r, "logout", u.ID, u.Email, nil)

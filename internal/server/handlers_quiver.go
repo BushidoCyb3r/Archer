@@ -11,6 +11,8 @@ import (
 	_ "embed"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -116,8 +118,7 @@ func (s *Server) handleQuiverEnroll(w http.ResponseWriter, r *http.Request) {
 		Pubkey          string `json:"pubkey"`
 		ProtocolVersion *int   `json:"protocol_version,omitempty"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
-		jsonError(w, "invalid JSON", http.StatusBadRequest)
+	if err := decodeJSONBody(w, r, &req, 8<<10); err != nil {
 		return
 	}
 	// Validate the sensor's protocol version before any state-changing work
@@ -313,8 +314,21 @@ func (s *Server) handleQuiverCheckin(w http.ResponseWriter, r *http.Request) {
 	// burst (Archer restart, mass-reboot, mass-re-enrollment). The
 	// asymmetric placement means legitimate sensor traffic never
 	// touches the limiter; only unknown-name or bad-HMAC failures do.
+	// Unlike the other JSON endpoints this one can't use decodeJSONBody:
+	// the raw body bytes need to be available for HMAC verification
+	// (validQuiverCheckinSig hashes the exact bytes the sensor signed,
+	// not the re-encoded form). So we read+cap manually, then JSON-
+	// decode from the captured bytes, then re-use the same bytes for
+	// HMAC. Cap-overflow returns 413 to match the rest of the API's
+	// body-size semantics (v0.14.3 NEW-40 / v0.14.7 NEW-58); other read
+	// errors are 400.
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, checkinMaxBytes))
 	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			jsonError(w, fmt.Sprintf("body exceeds %d byte cap", mbe.Limit), http.StatusRequestEntityTooLarge)
+			return
+		}
 		jsonError(w, "could not read body", http.StatusBadRequest)
 		return
 	}
