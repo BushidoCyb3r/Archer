@@ -30,6 +30,15 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.16.0] — 2026-05-11
+
+Detection-depth release. Two new layers on the Beaconing and HTTP
+Beaconing detectors: DGA hostname augmentation that bumps the
+score on algorithmically-shaped destination names, and a 30-day
+score evolution history chart in the finding detail pane. Neither
+detector adds new finding types — both make the existing Beaconing
+output more triage-actionable.
+
 ### Added
 
 - **DGA hostname augmentation on Beaconing / HTTP Beaconing.** New
