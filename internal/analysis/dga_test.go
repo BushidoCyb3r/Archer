@@ -251,16 +251,16 @@ func TestIsIPLiteral(t *testing.T) {
 		host string
 		want bool
 	}{
-		{"185.43.7.92", true},     // bare IPv4
-		{"185.43.7.92:443", true}, // IPv4 + port
-		{"::1", true},             // IPv6 loopback
-		{"2001:db8::1", true},     // IPv6
-		{"fe80::1", true},         // hex-only chars are still IP-shaped
-		{"example.com", false},    // domain has 'x' / 'm' / 'p' / 'l'
-		{"localhost", false},      // 'l' / 's' / 't'
-		{"kx9j3qm2pflw.com", false},     // DGA-shaped name, not IP
-		{"185.k7x9q3.7.92", false},      // IP-shaped but has 'k' / 'x' / 'q'
-		{"", false},                     // empty
+		{"185.43.7.92", true},       // bare IPv4
+		{"185.43.7.92:443", true},   // IPv4 + port
+		{"::1", true},               // IPv6 loopback
+		{"2001:db8::1", true},       // IPv6
+		{"fe80::1", true},           // hex-only chars are still IP-shaped
+		{"example.com", false},      // domain has 'x' / 'm' / 'p' / 'l'
+		{"localhost", false},        // 'l' / 's' / 't'
+		{"kx9j3qm2pflw.com", false}, // DGA-shaped name, not IP
+		{"185.k7x9q3.7.92", false},  // IP-shaped but has 'k' / 'x' / 'q'
+		{"", false},                 // empty
 	}
 	for _, tc := range cases {
 		got := isIPLiteral(tc.host)
