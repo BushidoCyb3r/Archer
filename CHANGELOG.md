@@ -30,6 +30,113 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.14.4] — 2026-05-11
+
+Ninth audit-driven correctness release. Four items from the post-
+v0.14.3 review, three of which (NEW-45, NEW-47, NEW-48) are
+direct consequences of the rate limiter shipped in v0.14.3 —
+adversary-adapted thinking against the new defense that should
+have been part of the v0.14.3 review pass and wasn't. The fourth
+(NEW-46) is a textbook web-auth bug that survived ten prior
+audit rounds because the auditor focused on the audit-log
+additions of recent rounds and didn't read the long-standing
+auth code with the same scrutiny.
+
+### Changed
+
+- **Quiver checkin rate limit now fires only on auth-failure
+  outcomes (NEW-45).** Pre-fix the limit gated every checkin at
+  the handler entrypoint, including authenticated successful
+  ones. For deployments where multiple sensors share a NAT egress
+  IP (sensor segment NAT'd through one gateway to reach Archer —
+  common in team-scale deployments), the per-IP bucket was
+  shared across the whole fleet. Hourly checkin with random-
+  minute distribution kept the average comfortable, but a fleet
+  burst (Archer restart, NTP sync triggering immediate-on-boot
+  checkin, scheduled mass-reboot, mass-re-enrollment) would 429
+  the 11th-onward sensor and leave the operator looking at a
+  fleet that's "mysteriously offline." Fix moves the
+  `s.rateLimit.allow(srcIP)` call from the handler entrypoint
+  into `recordUnauthorizedCheckin` — the helper that only runs
+  on unknown_name or bad_hmac outcomes — so legitimate HMAC-
+  verified checkins never touch the limiter regardless of NAT
+  topology. Audit 2026-05-11 NEW-45.
+
+- **Rate-limit-trip audit row is now O(1) per bucket-trip, not
+  O(N) per refused request (NEW-47).** Pre-fix the v0.14.3
+  maturation note claimed the rate limiter closed the "audit-log-
+  flood-as-DoS path" the v0.14.0 maturation note acknowledged.
+  It didn't. The compute attack was closed (200s of bcrypt → 2s)
+  but the audit emission still fired on every refused request, so
+  an attacker hitting `/login` 1000 times in a minute produced
+  ~10 `login_failure` audit rows plus ~990 `request_rate_limited`
+  rows from the same IP — same volume, different label. Fix adds
+  a `tripAudited bool` to each bucket. First refusal on a fresh
+  bucket: audit + set flag. Subsequent refusals while flag set:
+  silently refuse, no audit. Next admitted request: clear flag.
+  Under sustained attack the audit gets exactly one
+  `request_rate_limited` row per bucket-trip; an attacker who
+  pauses and resumes audits exactly once more per restart cycle,
+  which is the signal an audit reader actually wants. Closes the
+  flood path the v0.14.3 note claimed but didn't close in code.
+  Audit 2026-05-11 NEW-47.
+
+- **Rate-limit bucket key uses IPv6 /64 prefix aggregation
+  (NEW-48).** Pre-fix the bucket was keyed on the full source IP.
+  For IPv4 this is correct — an attacker has one IP. For IPv6 an
+  attacker owning a /64 (the standard residential / cloud
+  allocation unit per customer) has 2^64 source addresses they
+  can rotate through automatically via SLAAC privacy extensions
+  or temporary addresses; each fresh address gets a fresh bucket
+  with full capacity. The rate limit was effectively bypassed
+  for any IPv6-reachable attacker. New `bucketKey()` helper:
+  IPv4 keys on the full address; IPv6 keys on the `/64` prefix
+  (the smallest unit per customer; sub-/64 rotation comes free
+  with most ISP/cloud setups, /64-and-above rotation requires
+  actual additional infrastructure). Test coverage in
+  `rate_limit_test.go::TestRateLimit_IPv6BucketsAtSlash64` and
+  `::TestRateLimit_IPv4PerAddress`. Audit 2026-05-11 NEW-48.
+
+- **`Authenticate` runs `EnumerationTimingPad` on the unknown-
+  email path (NEW-46).** Pre-fix two failure paths had very
+  different latencies: email not in DB returned in ~1ms (no
+  bcrypt invocation), email exists with wrong password ran the
+  full bcrypt cost (~200ms at DefaultCost). UI message was
+  identical, but an attacker measuring response time could
+  enumerate which emails were registered — a textbook timing-
+  oracle, present in the codebase since the first auth commit.
+  NEW-39's rate limit slows enumeration but doesn't eliminate
+  the leak: the first 10 attempts per IP/min still leak, and at
+  10/min × hours a determined attacker can still distinguish
+  exists-vs-not. Fix runs `us.EnumerationTimingPad(password)`
+  before returning on the unknown-email path, equalising
+  wall-clock latency across the two outcomes — same pattern the
+  registration handler already used for the same reason. Test
+  coverage in `userstore_timing_test.go::TestAuthenticate_TimingPad`
+  asserts the unknown-email latency is at least 50% of the
+  wrong-password latency. Audit 2026-05-11 NEW-46.
+
+### Maturation lessons
+
+- **New defenses get their own adversary-adapted review pass.**
+  NEW-45 and NEW-47 are the kind of bugs that come from auditing
+  for "does this fix the bug" without also asking "what does an
+  attacker do after this lands?" The rate limiter addressed the
+  log-flood it was specced for, but it broke shared-NAT sensor
+  fleets and replaced one shape of audit-log flood with another.
+  Future security-relevant additions should not ship without an
+  explicit "if I were the adversary, how would I adapt?" pass.
+  Recorded in MATURATION_PLAN as a discipline check.
+
+- **Long-standing code is not implicitly safe.** NEW-46 is a
+  textbook web-auth bug that survived ten prior rounds because
+  attention was on the new audit-log surfaces. The "less likely"
+  prior on old code is not "zero," and the audit window must
+  occasionally re-read the original auth/parser/analyzer layers
+  with the same scrutiny new code gets. The login-timing-oracle
+  pattern is well-known enough that its survival here was a
+  systematic-coverage failure, not a tactical miss.
+
 ## [v0.14.3] — 2026-05-11
 
 Eighth audit-driven correctness release. Five Medium items
