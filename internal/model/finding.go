@@ -48,6 +48,16 @@ type Finding struct {
 	Intervals []float64    `json:"intervals,omitempty"`
 	TSData    [][3]float64 `json:"ts_data,omitempty"`
 	Notes     []Note       `json:"notes,omitempty"`
+	// Hostname is the destination hostname the analyzer associated
+	// with this finding at emit time. Populated for Beaconing
+	// (from SNI via sslUIDIndex) and HTTP Beaconing (from the Host
+	// header in http.log records). Empty when no hostname signal
+	// was available — pure-IP beacons that don't observe DNS, SNI,
+	// or Host headers get no Hostname. Consumed by the DGA
+	// augmentation pass to decide whether the destination looks
+	// algorithmic-shaped; future detectors (asset enrichment,
+	// hostname-based correlation) can read it without re-deriving.
+	Hostname string `json:"hostname,omitempty"`
 	// Correlations carries the IDs of sibling findings that share this
 	// finding's (SrcIP, DstIP) pair and contributed to a Correlated
 	// Activity roll-up. Populated by the analyzer's correlation phase
@@ -272,10 +282,12 @@ var ScoreExplanations = map[string]string{
 		"dur = temporal persistence (coverage + consecutive-run consistency)\n" +
 		"CRITICAL ≥ 80 | HIGH < 80\n" +
 		"Detail tags 'Spectral rescue: period≈Xs' when the frequency-domain path won.\n" +
+		"DGA augmentation: +15 score, one-step severity upgrade when the destination Hostname's SLD has Shannon entropy > dga_entropy_threshold (default 3.5) AND bigram log-likelihood < dga_bigram_threshold (default -4.5). Detail tags 'DGA-suspect destination: <host> (SLD=..., entropy=..., bigram=...)'.\n" +
 		"False positives: backup clients, update agents, NTP heartbeats.",
 
 	"HTTP Beaconing": "Same multi-dimensional analysis as conn-level but on (src, host, URI path) triples.\n" +
 		"ts+ds+hist+dur components — catches C2 over CDN where many IPs share one domain.\n" +
+		"DGA augmentation applies on the destination Host header: +15 score / severity bump when SLD entropy and bigram log-likelihood both cross their thresholds.\n" +
 		"False positives: telemetry endpoints, analytics beacons, keepalive polls.",
 
 	"Domain Fronting": "Score: 88 (fixed — SSL SNI ≠ HTTP Host header)\n" +

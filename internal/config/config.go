@@ -43,6 +43,19 @@ type Config struct {
 	SpectralFAPThreshold    float64 `json:"spectral_fap_threshold"`
 	SpectralRescueThreshold float64 `json:"spectral_rescue_threshold"`
 
+	// DGA hostname augmentation for beacon scoring. When a Beaconing
+	// or HTTP Beaconing finding's destination hostname (SNI for TLS,
+	// Host header for HTTP) is algorithmic-shaped (high character
+	// entropy AND low bigram log-likelihood against an embedded
+	// English-corpus frequency table), bump the score and severity
+	// to surface it as high-confidence C2. Both thresholds must
+	// agree before the bump fires — either alone produces too many
+	// false positives on legitimate algorithmic hostnames (CDN cache
+	// keys, blob storage IDs, ad-network endpoints).
+	DGAEnabled          bool    `json:"dga_enabled"`
+	DGAEntropyThreshold float64 `json:"dga_entropy_threshold"`
+	DGABigramThreshold  float64 `json:"dga_bigram_threshold"`
+
 	TITimeoutSec     int    `json:"ti_timeout_sec"`
 	OTXAPIKey        string `json:"otx_api_key"`
 	AbuseIPDBAPIKey  string `json:"abuseipdb_api_key"`
@@ -161,7 +174,18 @@ func Default() Config {
 		SpectralMinObservations: 16,
 		SpectralFAPThreshold:    12.0,
 		SpectralRescueThreshold: 0.5,
-		TITimeoutSec:            12,
+		// DGA defaults — calibrated against the embedded
+		// bigrams.txt table so legit English domains pass and
+		// algorithmically-generated names trip. The bigram
+		// threshold default -4.5 sits between the population
+		// averages (English ~ -3.0 to -4.0, DGA ~ -5.5 to -6.5).
+		// The entropy threshold default 3.5 catches the high-
+		// uniform-character-distribution shape DGAs produce
+		// without ruling out borderline English words.
+		DGAEnabled:          true,
+		DGAEntropyThreshold: 3.5,
+		DGABigramThreshold:  -4.5,
+		TITimeoutSec:        12,
 
 		ArchiveAfterDays: 30,
 	}
