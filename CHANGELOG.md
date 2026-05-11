@@ -30,6 +30,180 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.14.5] — 2026-05-11
+
+Tenth audit-driven correctness release. **Breaking deployment
+change**: the plaintext `:8080` listener has been removed (NEW-49).
+Archer is HTTPS-only as of v0.14.5; every role (admin, analyst,
+viewer, sensor) authenticates and operates over TLS. Plus five
+smaller items from the same review pass (NEW-50 through NEW-54).
+
+### Breaking
+
+- **The plaintext `:8080` listener is removed (NEW-49).** Pre-fix
+  Archer ran a plain HTTP listener on `:8080` for the analyst UI
+  and a TLS listener on `:8443` for sensor traffic; the operator
+  documentation and code both described `:8080` as "the analyst
+  UI" and every user role (admin / analyst / viewer) logged in
+  over cleartext. Passwords, session cookies, audit-log reads,
+  finding pivots, analyst notes, feed API keys, IOC/allowlist
+  contents — all in plaintext on the wire over the LAN that
+  Archer is deployed to *monitor for adversaries*. For a tool
+  whose threat model is "the LAN may be hostile" this is
+  load-bearing flaw. Same broadcast domain, ARP spoofer,
+  compromised IoT device on the admin LAN, or even a switch in
+  monitor mode all captured the entire admin session in clear.
+  No mature security team would accept this; we shouldn't have
+  shipped with it.
+
+  Fix collapses to a single TLS listener. The `--addr` flag is
+  removed entirely; `--tls-addr` (default `:8443`) is the only
+  listener configuration knob. TLS-bootstrap failure is now
+  fatal (`log.Fatal`) rather than logged-and-continued —
+  there's no fallback because there's no plaintext fallback to
+  fall back to. The session cookie gets `Secure: true`
+  unconditionally so the browser will never downgrade it to a
+  plaintext channel that no longer exists.
+
+  Concurrency / cert implications:
+   - The unified listener has no concurrency concerns. Sensor
+     heartbeat traffic is statistical noise (~0.014 req/sec per
+     50-sensor fleet) compared to analyst SPA load; Go's
+     `http.Server` multiplexes both at the OS socket level
+     trivially.
+   - One cert satisfies both audiences. Sensors pin the public
+     key via `--pinnedpubkey sha256//<fp>` (no chain validation
+     — pinning checks SubjectPublicKeyInfo, not the chain).
+     Browsers chain-validate against the CA. The operator-CA
+     deployment path already documented in OPERATIONS.md
+     produces a cert that does both simultaneously.
+   - Log pushes are not on `:8443` and never were — sensors
+     rsync logs over SSH on `:2222`. Collapsing the HTTPS
+     listeners doesn't affect the log pipeline.
+
+  Deployment impact:
+   - Existing `start.sh` / `docker compose` deployments rebuild
+     and start on `:8443` only. Old bookmarks to
+     `http://archer:8080/` get a connection refused (hard-drop,
+     not 308 redirect).
+   - First load shows a browser cert warning if you're still on
+     the auto-generated self-signed cert. Operator path: drop a
+     CA-signed cert from your internal PKI into
+     `/data/tls/server.{crt,key}` per OPERATIONS.md → TLS
+     certificate rotation. Sensors re-pin during next
+     enrollment.
+   - `Dockerfile`'s `EXPOSE` and `docker-compose.yml`'s `ports`
+     no longer publish 8080; CMD argument list drops `--addr`.
+
+  Audit 2026-05-11 NEW-49.
+
+### Added
+
+- **`store.NormalizeEmail(s) string` — NFC + ASCII-fold + trim
+  (NEW-51).** Pre-fix the email normalization at every entry
+  point (login, register, admin user-create) was
+  `strings.ToLower(strings.TrimSpace(s))` — handles Unicode
+  case folding but does NOT normalize composed-vs-decomposed
+  forms. So `café@example.com` written as NFC (U+00E9) and NFD
+  (U+0065 U+0301) hashed to different strings in both the Go-
+  side `EmailExists` check and SQLite's `COLLATE NOCASE` index;
+  an attacker could register a near-duplicate email that
+  bypassed the duplicate-detection. Narrow for hunt-team
+  scope (internal team members don't pick unusual
+  normalization forms deliberately) but the fix is mechanical
+  and the discipline is worth applying. New helper in
+  `internal/store/userstore.go`; `golang.org/x/text/unicode/norm`
+  promoted from indirect to direct dependency. Audit 2026-05-11
+  NEW-51.
+
+### Changed
+
+- **Session cookie is `Secure: true` unconditionally.** Was
+  unset previously, which combined with the plaintext `:8080`
+  listener meant the browser sent the cookie in clear on every
+  HTTP request to the admin UI. Now that the plaintext path is
+  gone (NEW-49), `Secure` enforces the invariant from the
+  browser side too — no future regression can re-introduce a
+  plaintext leak by re-adding an HTTP listener.
+
+- **Admin user-create (`POST /api/users`) and user-update
+  (`PATCH /api/users/{id}`) now use `decodeJSONBody` (NEW-50).**
+  Pre-fix these two endpoints decoded request bodies with
+  `json.NewDecoder(r.Body).Decode(...)` — no size cap. NEW-35
+  was scoped to analyst-facing endpoints; these are admin-only
+  with a narrower risk profile but the "no decoder reads
+  unbounded" discipline should apply uniformly. Caps: 4 KiB
+  for user-create, 1 KiB for user-update. Audit 2026-05-11
+  NEW-50.
+
+- **`/api/quiver/enroll` runs through the rate limiter
+  (NEW-52).** Enrollment tokens are 24 random bytes from
+  `crypto/rand` and unguessable in any realistic time, but
+  each enroll request consumes work (token lookup, body
+  decode, validation, authorized_keys write on success). A
+  hostile client hammering enroll without rate limiting is a
+  modest DoS surface. Same per-source-IP token bucket the
+  other unauth endpoints use; uses the v0.14.4 NEW-47
+  "audit once per trip" discipline so a sustained attack
+  doesn't scale audit volume. Audit 2026-05-11 NEW-52.
+
+- **Misleading comment on the Quiver route registration block
+  removed (NEW-53).** Pre-fix the comment claimed Quiver
+  routes were "served over the TLS listener" — false, since
+  the routes were registered on the shared `mux` and reachable
+  from both listeners. Comment now describes the actual
+  topology (one TLS listener, shared mux, no session auth on
+  Quiver paths because sensors aren't users). Aspirational vs.
+  descriptive — same NEW-30 / NEW-41 lesson. Audit 2026-05-11
+  NEW-53.
+
+- **OPERATIONS.md threat-model section calls out the
+  Sensors-modal vs. audit-log undercount under flood
+  (NEW-54).** The v0.14.4 NEW-45 fix moved the rate limiter
+  inside `recordUnauthorizedCheckin`, which means once a
+  bucket trips, both the `unauthorized_attempts` row insert
+  AND the audit-log emit are short-circuited. The Sensors-
+  modal UI count is bounded by the rate limiter (~10 attempts
+  per bucket cycle); the audit log is the authoritative
+  attempt count via `request_rate_limited` rows. Doc note
+  tells analysts to reconcile UI count against the audit log
+  during sustained-flood incidents. Audit 2026-05-11 NEW-54.
+
+### Documentation
+
+- README, OPERATIONS, ARCHITECTURE, API, QUIVER, QUICKSTART_OPS,
+  RELEASING, `start.sh`, `reset.sh` all updated for the
+  HTTPS-only deployment. First-login URL is now
+  `https://<host>:8443/` everywhere; install scripts log the
+  new URL; OPERATIONS' deployment-hardening checklist promotes
+  "generate a CA-signed cert from your internal PKI" to a
+  REQUIRED item; OPERATIONS' threat model explicitly states
+  "there is no plaintext HTTP listener."
+
+### Maturation lessons
+
+- **Deployment-posture audits are their own pass.** NEW-49
+  survived ten audit rounds because attention was on handler
+  logic, store mutations, and front-end escape correctness —
+  not on what `cmd/archer/main.go` and the deployment
+  artifacts (Dockerfile, docker-compose.yml, start.sh) say
+  about how the binary is reachable. Going forward
+  `cmd/archer/main.go` + Dockerfile + docker-compose +
+  OPERATIONS.md should be audited together as a
+  deployment-posture unit at least once per quarter; the
+  threat model documents posture, and the code may not
+  enforce it. Recorded in MATURATION_PLAN as a discipline
+  check.
+
+- **Defaults must match the threat model.** Pre-v0.14.5 the
+  threat model said "the LAN may be hostile" and the default
+  deployment said "transmit admin auth in cleartext on that
+  same LAN." Those two are incompatible. The fix is to make
+  the secure choice the only available default. Operators
+  who want plaintext for testing have to deliberately rebuild
+  with a fork — there is no `--insecure-http` flag. Recorded
+  alongside the lesson above.
+
 ## [v0.14.4] — 2026-05-11
 
 Ninth audit-driven correctness release. Four items from the post-
