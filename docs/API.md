@@ -349,34 +349,57 @@ configured API keys (see `/api/ti/services`).
 ```json
 [
   {
-    "day_utc":    "2026-04-12",
-    "score":      62,
-    "severity":   "HIGH",
-    "ts_score":   0.81,
-    "ds_score":   0.92,
-    "hist_score": 0.10,
-    "dur_score":  0.65
+    "day_utc":       "2026-04-12",
+    "max_score":     88,
+    "max_score_at":  1712923200,
+    "last_score":    62,
+    "last_score_at": 1712944800,
+    "severity":      "CRITICAL",
+    "ts_score":      0.93,
+    "ds_score":      0.92,
+    "hist_score":    0.30,
+    "dur_score":     0.78
   },
   {
-    "day_utc":    "2026-04-13",
-    "score":      78,
-    "severity":   "HIGH",
-    "ts_score":   0.94,
-    "ds_score":   0.92,
-    "hist_score": 0.20,
-    "dur_score":  0.78
+    "day_utc":       "2026-04-13",
+    "max_score":     78,
+    "max_score_at":  1713009600,
+    "last_score":    78,
+    "last_score_at": 1713009600,
+    "severity":      "HIGH",
+    "ts_score":      0.94,
+    "ds_score":      0.92,
+    "hist_score":    0.20,
+    "dur_score":     0.78
   }
 ]
 ```
 
 Sorted ascending by `day_utc`. Up to 30 rows per beacon (retention
-window). `ts_score / ds_score / hist_score / dur_score` are the four
-per-axis sub-scores that compose the Beaconing total (each in
-`[0, 1]`); `score` is the composite (0-100, the same value as
-`Finding.score` on the day the row was captured). Rows are written
-at most once per UTC day by `Store.SetFindings` (first full pass of
-the day wins via `INSERT … ON CONFLICT DO NOTHING`). The endpoint
-returns `[]` for finding types other than Beaconing / HTTP Beaconing.
+window).
+
+- `max_score` (0-100) is the highest composite score observed for
+  this beacon on that UTC day across every analyze pass that ran.
+  `max_score_at` is its Unix-second timestamp. The SPA's evolution
+  chart renders `max_score` — the spike is the trajectory-meaningful
+  number.
+- `last_score` (0-100) is the most recent composite score written
+  for this beacon on that UTC day. `last_score_at` is its Unix-second
+  timestamp. Exposed for forensic / per-pass detail; not rendered on
+  the v1 chart.
+- `ts_score / ds_score / hist_score / dur_score` are the four
+  per-axis sub-scores (each in `[0, 1]`) that composed the
+  *max-score* write — so an analyst inspecting a high-score day
+  sees the sub-axis breakdown that drove the high.
+- `severity` matches the max-score write.
+
+Rows are written by `Store.SetFindings` via
+`INSERT … ON CONFLICT DO UPDATE`: max_* updates conditionally when
+the new score exceeds the existing max; last_* always updates.
+This captures mid-day score shifts that pre-v0.16.1's
+`DO NOTHING` semantics silently dropped — see CHANGELOG v0.16.1
+NEW-76. The endpoint returns `[]` for finding types other than
+Beaconing / HTTP Beaconing.
 
 ### Configuration
 

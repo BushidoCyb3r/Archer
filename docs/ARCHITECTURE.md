@@ -189,22 +189,25 @@ CREATE TABLE findings (
 );
 
 CREATE TABLE beacon_history (
-    fingerprint  TEXT NOT NULL,        -- BeaconHistoryKey: canonical-string identity
-                                       -- (Type|SrcIP|DstIP|DstPort|Host|URI joined by \x1f)
-    day_utc      TEXT NOT NULL,        -- YYYY-MM-DD
-    finding_type TEXT NOT NULL,        -- 'Beaconing' or 'HTTP Beaconing'
-    src_ip       TEXT NOT NULL,
-    dst_ip       TEXT NOT NULL,
-    dst_port     TEXT NOT NULL DEFAULT '',
-    host         TEXT NOT NULL DEFAULT '',
-    uri          TEXT NOT NULL DEFAULT '',
-    score        INTEGER NOT NULL,     -- composite, 0-100
-    severity     TEXT NOT NULL,
-    ts_score     REAL NOT NULL DEFAULT 0,
-    ds_score     REAL NOT NULL DEFAULT 0,
-    hist_score   REAL NOT NULL DEFAULT 0,
-    dur_score    REAL NOT NULL DEFAULT 0,
-    created_at   INTEGER NOT NULL,
+    fingerprint    TEXT NOT NULL,        -- BeaconHistoryKey: canonical-string identity
+                                         -- (Type|SrcIP|DstIP|DstPort|Host|URI joined by \x1f)
+    day_utc        TEXT NOT NULL,        -- YYYY-MM-DD
+    finding_type   TEXT NOT NULL,        -- 'Beaconing' or 'HTTP Beaconing'
+    src_ip         TEXT NOT NULL,
+    dst_ip         TEXT NOT NULL,
+    dst_port       TEXT NOT NULL DEFAULT '',
+    host           TEXT NOT NULL DEFAULT '',
+    uri            TEXT NOT NULL DEFAULT '',
+    max_score      INTEGER NOT NULL,     -- highest composite seen this day (0-100)
+    max_score_at   INTEGER NOT NULL,     -- Unix-second when the max was observed
+    last_score     INTEGER NOT NULL,     -- most recent composite seen this day
+    last_score_at  INTEGER NOT NULL,     -- Unix-second when the last reading was observed
+    severity       TEXT NOT NULL,        -- severity from the max-score write
+    ts_score       REAL NOT NULL DEFAULT 0,  -- sub-axes from the max-score write
+    ds_score       REAL NOT NULL DEFAULT 0,
+    hist_score     REAL NOT NULL DEFAULT 0,
+    dur_score      REAL NOT NULL DEFAULT 0,
+    created_at     INTEGER NOT NULL,
     PRIMARY KEY (fingerprint, day_utc)
 );
 
@@ -281,9 +284,13 @@ After the merge persists, `SetFindings` also writes one row per
 Beaconing / HTTP Beaconing finding to `beacon_history`, keyed by
 `(Finding.BeaconHistoryKey(), today_UTC)` with the four sub-axis
 scores. The composite PRIMARY KEY + `INSERT … ON CONFLICT DO
-NOTHING` means the first full pass of the UTC day wins — noon
-re-runs against partial logs don't overwrite the morning's
-representative snapshot. Retention is 30 days, swept on the
+UPDATE` means a single daily row carries both the max score
+observed across every analyze pass that ran that day and the
+most recent reading. Under sub-daily watch cadence (or
+admin-triggered re-analysis), a noon spike followed by an evening
+fallback is captured as `max_score=88, last_score=50` rather
+than silently dropped — the v0.16.0 `DO NOTHING` shape was
+corrected in v0.16.1 NEW-76. Retention is 30 days, swept on the
 watch's first-tick-of-UTC-day branch via
 `Store.PurgeBeaconHistory()`.
 

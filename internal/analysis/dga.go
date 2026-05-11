@@ -63,9 +63,12 @@ var englishBigramFreq map[string]float64
 // well below the suspect threshold, but not so punishing that an
 // English word containing one or two uncommon-but-real bigrams (like
 // "rf" in surf, "mb" in amber) gets unfairly dragged down. Combined
-// with bigramThreshold default -4.0, the configuration produces a
-// clean separation: average English bigrams land around -3.0 to
-// -3.8, DGA bigrams average -5.5 to -6.5.
+// with bigramThreshold default -4.5 (config.go DGABigramThreshold),
+// the configuration produces a clean separation: average English
+// bigrams land around -3.0 to -3.8 (above the threshold), DGA
+// bigrams average -5.5 to -6.5 (below). The 1-unit gap between
+// English-typical and threshold gives one or two unusual-bigram
+// English words headroom before they trip the gate.
 const bigramFloor = -5.5
 
 // cdnAllowlistSuffixes covers legitimate algorithmic-shaped
@@ -346,6 +349,21 @@ func (a *Analyzer) applyDGAScoring(allowlistMatches func(string) bool) {
 			continue
 		}
 		if f.Hostname == "" {
+			continue
+		}
+		// IP-literal short-circuit. TLS SNI (RFC 6066 discourages but
+		// doesn't ban it) and malformed HTTP Host headers can carry a
+		// bare IP string in the Hostname field; some malware
+		// deliberately sets SNI to an IP to bypass naive DPI. Without
+		// this guard, extractSLD would treat "185.43.7.92" as a
+		// domain and score "43" — meaningless on real IPs, but
+		// edge-case strings like "185.k7x9q3.7.92" that happen to
+		// look IP-shaped while carrying an algorithmic-looking
+		// non-numeric component could trip the bump on a destination
+		// that isn't actually a domain. NEW-77 from the eighteenth
+		// audit round: the function existed with a docstring naming
+		// the invariant but no caller enforced it.
+		if isIPLiteral(f.Hostname) {
 			continue
 		}
 		// Operator allowlist precedence — same shape the findings

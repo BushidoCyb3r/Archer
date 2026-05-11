@@ -93,7 +93,12 @@ const BeaconEvolution = (() => {
       .map((v, i) => `${i === 0 ? 'M' : 'L'} ${xOf(i).toFixed(1)} ${yFn(v).toFixed(1)}`)
       .join(' ');
 
-    const scoreLine = linePath(rows.map(r => r.score), yScore);
+    // Render max_score as the primary trajectory line. The spike value
+    // is what triage cares about — a beacon that hit 88 at noon and
+    // fell back to 60 by evening is a different story from one that
+    // held at 60 all day, and the chart distinguishes them. last_score
+    // is in the row payload for forensic detail but not drawn here.
+    const scoreLine = linePath(rows.map(r => r.max_score), yScore);
     const tsLine    = linePath(rows.map(r => r.ts_score),   ySub);
     const dsLine    = linePath(rows.map(r => r.ds_score),   ySub);
     const histLine  = linePath(rows.map(r => r.hist_score), ySub);

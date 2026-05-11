@@ -77,8 +77,11 @@ func TestFindingHistory_ReturnsBeaconRows(t *testing.T) {
 		t.Fatalf("rows = %d, want 1", len(rows))
 	}
 	r := rows[0]
-	if r.Score != 80 {
-		t.Errorf("Score = %d, want 80", r.Score)
+	if r.MaxScore != 80 {
+		t.Errorf("MaxScore = %d, want 80", r.MaxScore)
+	}
+	if r.LastScore != 80 {
+		t.Errorf("LastScore = %d, want 80 (single-write day)", r.LastScore)
 	}
 	if r.TSScore != 0.92 {
 		t.Errorf("TSScore = %f, want 0.92", r.TSScore)

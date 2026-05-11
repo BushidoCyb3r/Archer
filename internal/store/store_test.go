@@ -473,27 +473,37 @@ func TestSetFindings_WritesBeaconHistory(t *testing.T) {
 
 	today := time.Now().UTC().Format("2006-01-02")
 
-	if score, ok := s.hasBeaconHistoryRow(beacon.BeaconHistoryKey(), today); !ok {
+	if maxScore, lastScore, ok := s.beaconHistoryRowSnapshot(beacon.BeaconHistoryKey(), today); !ok {
 		t.Errorf("Beaconing history row missing for %s on %s", beacon.BeaconHistoryKey(), today)
-	} else if score != 80 {
-		t.Errorf("Beaconing history score = %d, want 80", score)
+	} else if maxScore != 80 || lastScore != 80 {
+		t.Errorf("Beaconing first-write: max=%d last=%d, want max=80 last=80", maxScore, lastScore)
 	}
-	if score, ok := s.hasBeaconHistoryRow(httpBeacon.BeaconHistoryKey(), today); !ok {
+	if maxScore, lastScore, ok := s.beaconHistoryRowSnapshot(httpBeacon.BeaconHistoryKey(), today); !ok {
 		t.Errorf("HTTP Beaconing history row missing")
-	} else if score != 65 {
-		t.Errorf("HTTP Beaconing history score = %d, want 65", score)
+	} else if maxScore != 65 || lastScore != 65 {
+		t.Errorf("HTTP Beaconing first-write: max=%d last=%d, want max=65 last=65", maxScore, lastScore)
 	}
-	if _, ok := s.hasBeaconHistoryRow(dns.BeaconHistoryKey(), today); ok {
+	if _, _, ok := s.beaconHistoryRowSnapshot(dns.BeaconHistoryKey(), today); ok {
 		t.Errorf("DNS Tunneling wrote a beacon_history row; only beacon types should")
 	}
 }
 
-// TestSetFindings_BeaconHistorySameDayKeepsFirstWrite codifies the
-// "morning's snapshot wins" semantics of the (fingerprint, day_utc)
-// PRIMARY KEY + INSERT … ON CONFLICT DO NOTHING. A noon re-analysis
-// against partial logs would otherwise overwrite the morning's more
-// representative score with a lower one.
-func TestSetFindings_BeaconHistorySameDayKeepsFirstWrite(t *testing.T) {
+// TestSetFindings_BeaconHistorySameDayUPSERT codifies the v0.16.1
+// NEW-76 redesign: a single (fingerprint, day_utc) row carries both
+// max_score (the spike — what the chart renders) and last_score (the
+// most recent reading). Pre-v0.16.1 used INSERT … ON CONFLICT DO
+// NOTHING which silently dropped subsequent same-day writes, hiding
+// the adversarial-tuning case where a C2 operator changes dwell
+// mid-day.
+//
+// Three writes simulating a tuning attempt across one UTC day:
+//   - morning write at score 60 → row created, max=60, last=60
+//   - noon write at score 88 (the spike) → max upgrades to 88, last=88
+//   - evening write at score 50 (fallback) → max holds at 88, last=50
+//
+// By the next morning's chart render, max=88 captures the spike;
+// last=50 records what the beacon was last actually emitting.
+func TestSetFindings_BeaconHistorySameDayUPSERT(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "store.db")
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -507,26 +517,45 @@ func TestSetFindings_BeaconHistorySameDayKeepsFirstWrite(t *testing.T) {
 	s := New(config.Default())
 	s.InitDB(db)
 
-	first := model.Finding{
+	morning := model.Finding{
 		Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
-		Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00",
+		Score: 60, Severity: model.SevHigh, Timestamp: "2026-05-11 06:00:00",
 	}
-	s.SetFindings([]model.Finding{first})
-
-	// Same fingerprint, same UTC day, different score — simulates the
-	// noon re-run with partial logs.
-	second := first
-	second.Score = 35
-	second.Severity = model.SevLow
-	s.SetFindings([]model.Finding{second})
+	s.SetFindings([]model.Finding{morning})
 
 	today := time.Now().UTC().Format("2006-01-02")
-	score, ok := s.hasBeaconHistoryRow(first.BeaconHistoryKey(), today)
+	maxScore, lastScore, ok := s.beaconHistoryRowSnapshot(morning.BeaconHistoryKey(), today)
 	if !ok {
-		t.Fatalf("beacon_history row missing after two SetFindings calls")
+		t.Fatalf("morning row missing")
 	}
-	if score != 80 {
-		t.Errorf("beacon_history score = %d after re-write; want 80 (morning snapshot preserved)", score)
+	if maxScore != 60 || lastScore != 60 {
+		t.Errorf("after morning write: max=%d last=%d, want max=60 last=60", maxScore, lastScore)
+	}
+
+	// Noon write at higher score → both max and last update.
+	noon := morning
+	noon.Score = 88
+	noon.Severity = model.SevCritical
+	s.SetFindings([]model.Finding{noon})
+	maxScore, lastScore, _ = s.beaconHistoryRowSnapshot(morning.BeaconHistoryKey(), today)
+	if maxScore != 88 || lastScore != 88 {
+		t.Errorf("after noon spike: max=%d last=%d, want max=88 last=88", maxScore, lastScore)
+	}
+
+	// Evening write at lower score → max holds at 88, last falls to 50.
+	// This is the critical assertion: pre-NEW-76 the noon spike (88)
+	// would not have been recorded at all, so the chart would render
+	// the morning's 60 instead of the trajectory-meaningful 88.
+	evening := morning
+	evening.Score = 50
+	evening.Severity = model.SevMedium
+	s.SetFindings([]model.Finding{evening})
+	maxScore, lastScore, _ = s.beaconHistoryRowSnapshot(morning.BeaconHistoryKey(), today)
+	if maxScore != 88 {
+		t.Errorf("after evening fallback: max=%d, want 88 (spike must be preserved across the day)", maxScore)
+	}
+	if lastScore != 50 {
+		t.Errorf("after evening fallback: last=%d, want 50 (most-recent reading)", lastScore)
 	}
 }
 
@@ -557,9 +586,11 @@ func TestPurgeBeaconHistory(t *testing.T) {
 	for _, day := range []string{insideWindow, atBoundary, outsideWindow} {
 		_, err := db.Exec(`INSERT INTO beacon_history
             (fingerprint, day_utc, finding_type, src_ip, dst_ip, dst_port, host, uri,
-             score, severity, ts_score, ds_score, hist_score, dur_score, created_at)
-            VALUES (?, ?, 'Beaconing', '10.0.0.1', '1.1.1.1', '443', '', '', 80, 'HIGH', 1, 1, 0, 1, ?)`,
-			"fp-"+day, day, now.Unix())
+             max_score, max_score_at, last_score, last_score_at,
+             severity, ts_score, ds_score, hist_score, dur_score, created_at)
+            VALUES (?, ?, 'Beaconing', '10.0.0.1', '1.1.1.1', '443', '', '',
+                    80, ?, 80, ?, 'HIGH', 1, 1, 0, 1, ?)`,
+			"fp-"+day, day, now.Unix(), now.Unix(), now.Unix())
 		if err != nil {
 			t.Fatalf("seed beacon_history row for %s: %v", day, err)
 		}
@@ -571,13 +602,13 @@ func TestPurgeBeaconHistory(t *testing.T) {
 	}
 
 	// insideWindow + atBoundary still present, outsideWindow gone.
-	if _, ok := s.hasBeaconHistoryRow("fp-"+insideWindow, insideWindow); !ok {
+	if _, _, ok := s.beaconHistoryRowSnapshot("fp-"+insideWindow, insideWindow); !ok {
 		t.Errorf("in-window row removed by purge")
 	}
-	if _, ok := s.hasBeaconHistoryRow("fp-"+atBoundary, atBoundary); !ok {
+	if _, _, ok := s.beaconHistoryRowSnapshot("fp-"+atBoundary, atBoundary); !ok {
 		t.Errorf("at-boundary row (day == retention) removed by purge")
 	}
-	if _, ok := s.hasBeaconHistoryRow("fp-"+outsideWindow, outsideWindow); ok {
+	if _, _, ok := s.beaconHistoryRowSnapshot("fp-"+outsideWindow, outsideWindow); ok {
 		t.Errorf("out-of-window row survived purge")
 	}
 }

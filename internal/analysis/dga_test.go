@@ -3,6 +3,9 @@ package analysis
 import (
 	"strings"
 	"testing"
+
+	"github.com/BushidoCyb3r/Archer/internal/config"
+	"github.com/BushidoCyb3r/Archer/internal/model"
 )
 
 // TestDGAScore_KnownDGANames verifies the detector fires on hostnames
@@ -237,6 +240,83 @@ func TestBigramData_Loaded(t *testing.T) {
 
 // TestCDNAllowlistSuffixes_ExpectedEntries spot-checks that common
 // cloud-provider CDN suffixes are present. A regression that
+// TestIsIPLiteral covers the classifier the applyDGAScoring loop
+// consults before running the per-finding DGA score. The function
+// existed in dga.go pre-v0.16.1 but no caller invoked it (NEW-77
+// dead-code finding); this test asserts the function correctly
+// distinguishes bare IP literals from hostnames with non-hex
+// alphabetic characters.
+func TestIsIPLiteral(t *testing.T) {
+	cases := []struct {
+		host string
+		want bool
+	}{
+		{"185.43.7.92", true},     // bare IPv4
+		{"185.43.7.92:443", true}, // IPv4 + port
+		{"::1", true},             // IPv6 loopback
+		{"2001:db8::1", true},     // IPv6
+		{"fe80::1", true},         // hex-only chars are still IP-shaped
+		{"example.com", false},    // domain has 'x' / 'm' / 'p' / 'l'
+		{"localhost", false},      // 'l' / 's' / 't'
+		{"kx9j3qm2pflw.com", false},     // DGA-shaped name, not IP
+		{"185.k7x9q3.7.92", false},      // IP-shaped but has 'k' / 'x' / 'q'
+		{"", false},                     // empty
+	}
+	for _, tc := range cases {
+		got := isIPLiteral(tc.host)
+		if got != tc.want {
+			t.Errorf("isIPLiteral(%q) = %v, want %v", tc.host, got, tc.want)
+		}
+	}
+}
+
+// TestApplyDGAScoring_SkipsIPLiteralHostnames codifies NEW-77: when
+// the destination Hostname carries a bare IP literal (TLS SNI set to
+// an IP, malformed HTTP Host header, etc.), applyDGAScoring must
+// short-circuit before extractSLD turns a meaningless octet into a
+// score input. Pre-v0.16.1 the isIPLiteral classifier existed in
+// source with a docstring naming this invariant but no caller
+// enforced it.
+func TestApplyDGAScoring_SkipsIPLiteralHostnames(t *testing.T) {
+	a := New(defaultCfgWithDGA(), "", nil, nil)
+
+	// Finding with bare-IPv4 SNI. Without the guard, extractSLD
+	// returns "43" — the second-from-last component — which is
+	// already below the SLD length floor in dgaHostnameScore, so the
+	// bug doesn't currently produce a false-positive bump in the
+	// common case. The guard is defense-in-depth: a future refactor
+	// that lowers the SLD floor, or an edge-case IP shape that
+	// happens to bypass the floor, would re-introduce the issue.
+	a.findings = append(a.findings, model.Finding{
+		Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "185.43.7.92", DstPort: "443",
+		Score: 50, Severity: model.SevHigh,
+		Hostname: "185.43.7.92",
+	})
+	before := a.findings[0].Score
+
+	a.applyDGAScoring(nil)
+
+	if a.findings[0].Score != before {
+		t.Errorf("IP-literal Hostname triggered DGA score bump: %d → %d", before, a.findings[0].Score)
+	}
+	if strings.Contains(a.findings[0].Detail, "DGA-suspect") {
+		t.Errorf("IP-literal Hostname got DGA-suspect Detail tag: %q", a.findings[0].Detail)
+	}
+}
+
+// defaultCfgWithDGA wraps config.Default with the DGA defaults
+// explicitly populated. Necessary because applyDGAScoring early-
+// returns on DGAEnabled=false, and a freshly-constructed Analyzer
+// in a test doesn't inherit settings from the operator's
+// Settings → Beaconing pane.
+func defaultCfgWithDGA() config.Config {
+	cfg := config.Default()
+	cfg.DGAEnabled = true
+	cfg.DGAEntropyThreshold = 3.5
+	cfg.DGABigramThreshold = -4.5
+	return cfg
+}
+
 // accidentally drops one of these would silently re-introduce a
 // class of false positives.
 func TestCDNAllowlistSuffixes_ExpectedEntries(t *testing.T) {

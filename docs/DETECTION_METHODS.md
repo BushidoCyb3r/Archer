@@ -384,9 +384,23 @@ Beaconing finding lands, one row is written to `beacon_history`
 keyed by `(Finding.BeaconHistoryKey(), today_UTC)` with the
 composite score plus the four sub-axis components (ts, ds, hist,
 dur). The PRIMARY KEY on `(fingerprint, day_utc)` plus
-`INSERT … ON CONFLICT DO NOTHING` means **the first full pass
-of the UTC day wins** — a noon re-run against partial logs
-won't overwrite the morning's representative snapshot.
+`INSERT … ON CONFLICT DO UPDATE` means **a single daily row
+captures both the highest score observed that day (`max_score`)
+and the most recent reading (`last_score`)**. Under sub-daily
+watch cadence or admin-triggered re-analysis, a beacon that
+spiked at noon and fell back by evening is recorded as
+`max_score=88, last_score=50` — the chart renders the max,
+and the analyst sees the trajectory shift the next morning.
+
+Pre-v0.16.1 used `INSERT … ON CONFLICT DO NOTHING` with a
+justifying comment claiming the morning pass was "the more
+representative score." That reasoning was technically wrong —
+the analyzer scores against an accumulated reservoir window, not
+"today's logs," so neither pass is structurally more
+representative than the other — and the silent-drop behavior
+hid the exact adversarial-tuning pattern the chart is supposed
+to surface. NEW-76 from the eighteenth audit round drove the
+redesign.
 
 **Fingerprint vs Finding.Fingerprint().** The history table uses
 a wider identity that includes Hostname and URI (canonical
@@ -408,10 +422,11 @@ triggers the full-pass analyze — so the sweep fires exactly
 once per day regardless of how many incremental ticks happen.
 
 **The API.** `GET /api/findings/{id}/history` returns
-`[{day_utc, score, severity, ts_score, ds_score, hist_score,
-dur_score}, ...]` sorted ascending. Returns `[]` (not 404) for
-non-Beaconing types so the SPA can call unconditionally on any
-finding-detail open.
+`[{day_utc, max_score, max_score_at, last_score, last_score_at,
+severity, ts_score, ds_score, hist_score, dur_score}, ...]`
+sorted ascending. Returns `[]` (not 404) for non-Beaconing types
+so the SPA can call unconditionally on any finding-detail open.
+See `docs/API.md` for the full shape.
 
 **The chart.** SVG-rendered in the detail pane immediately below
 the action buttons. Five lines:
