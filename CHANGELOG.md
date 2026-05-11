@@ -30,6 +30,8 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.15.0] — 2026-05-11
+
 Two feature waves after the v0.14 audit arc, both from
 MATURATION_PLAN section 13b on the operator's stated mission of
 best-in-class beacon hunting. **Same-pair multi-detector correlation**
@@ -82,6 +84,19 @@ defensive guards, and config tunables.
   doesn't fire). All four tunable via `PUT /api/config` with
   boundary rejection of degenerate values; the analyzer also
   defends itself defensively (NEW-66 pattern).
+- **Spectral calibration UI.** Spectral defaults are conservative
+  but the FAP/rescue/min-obs band only earns its keep against real
+  captures, so the calibration loop has to live in the SPA rather
+  than in curl/jq. Four pieces: (1) on/off toggle in the Beaconing
+  Settings group, (2) three threshold number inputs with tooltips
+  explaining which direction tightens vs loosens, (3) "Spectral
+  rescued only" checkbox in the advanced filter bar with a matching
+  `spectral_only=true` server-side query param on `/api/findings`,
+  (4) enriched Detail string on rescued findings showing score,
+  dominant period, raw Lomb-Scargle power, and the active FAP
+  threshold — enough for an analyst to judge "borderline (power
+  12.1 vs threshold 12.0)" vs "unambiguous (power 37.2 vs threshold
+  12.0)" from one row.
 
 ### Fixed
 
@@ -128,8 +143,9 @@ defensive guards, and config tunables.
   already handled aren't affected (their timing score stays
   unchanged because spectral doesn't fire). New findings — beacons
   with bounded jitter that the statistical chain scored low — get
-  a `Spectral rescue: period≈Xs` tag in the Detail string so
-  analysts know which signal drove the score. Same wiring for
+  a `Spectral rescued: score=… (dominant period …s, power …, FAP
+  threshold …)` tag in the Detail string so analysts know which
+  signal drove the score and at what confidence. Same wiring for
   HTTP Beaconing.
 
 ## [v0.14.10] — 2026-05-11
