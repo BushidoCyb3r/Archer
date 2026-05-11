@@ -30,6 +30,188 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.14.3] — 2026-05-11
+
+Eighth audit-driven correctness release. Five Medium items
+(NEW-37 through NEW-39, NEW-44, plus a doc-vs-code correction
+on the analyst playbook) and four Low quality-of-life items
+(NEW-40 through NEW-43) closing the audit-log coverage and
+flood-protection gaps the post-v0.14.2 review surfaced. The
+cluster's theme: boundary discipline at the audit-log
+perimeter is now even — every authenticated mutation already
+audited, and every *un*authenticated audit-emitting path now
+audits AND is rate-limited.
+
+### Added
+
+- **Audit coverage of self-service registration (NEW-38).**
+  Pre-fix the `/register` POST produced zero audit-log rows
+  on either branch — including the first-user admin
+  bootstrap, the single highest-privilege account-creation
+  event in a deployment's lifetime. `user_register` (normal
+  pending-viewer flow) and `admin_bootstrap` (first-user
+  auto-promotion) cover both branches. Bootstrap is a
+  separate action name so the audit-log filter can pinpoint
+  it operationally; self-service registrations land with
+  `actor_id=0` since the user isn't authenticated to act on
+  their own behalf yet, with the registered email and the
+  source IP captured for the trail. Both audit calls land
+  AFTER the email-existence timing pad so the enumeration
+  defence is unaffected. Audit 2026-05-10 NEW-38.
+
+- **Audit coverage of explicit logout (NEW-44).** `logout`
+  action lands on every `/logout` so session timelines are
+  reconstructible from the audit log without inferring
+  end-times from the absence of subsequent activity.
+  Symmetric with `login_success` / `login_failure`. Audit
+  2026-05-10 NEW-44.
+
+- **Per-source-IP rate limiter on unauthenticated endpoints
+  (NEW-39).** `/login`, `/register`, and `/api/quiver/checkin`
+  are now gated behind a token bucket (10/min per source IP,
+  continuous refill at 1 token per 6 seconds, idle buckets
+  evicted after 10 minutes). Excess returns HTTP 429 *and*
+  emits a `request_rate_limited` audit row so the limit-trip
+  is visible without the hammering scaling the log itself —
+  closing the audit-log-flood-as-DoS path the v0.14.0
+  maturation note acknowledged but didn't close in code. New
+  `internal/server/rate_limit.go`. Nil-safe on the receiver
+  (`(rl *rateLimiter).allow(srcIP) bool`) so tests that
+  construct a `*Server` directly without going through `New()`
+  aren't broken; production code always gets a non-nil
+  limiter. Audit 2026-05-10 NEW-39.
+
+- **`internal/server/audit_actions.go` with the action
+  vocabulary as Go constants (NEW-41).** Pre-fix every
+  `recordAudit(r, "...", ...)` call site was a free-form
+  string; a typo (`finding_status_chnage`) would silently
+  produce a new fragmented action name and break the
+  action-filter UI. New file declares every emitted action
+  as a `const` plus a `knownAuditActions` set; new
+  `audit_actions_test.go::TestAuditActionVocabulary` walks
+  every `.go` file in the package, regex-extracts the action
+  string from each `recordAudit` / `recordAuditLogin` /
+  `LogAuditEvent` call site, and asserts both directions:
+  every emission must use a known action *and* every
+  constant must be used at least once (dead vocabulary is a
+  test failure too). Same shape as the NEW-30 `_esc`
+  consistency test: the rule is the test, not a docstring
+  that drifts. Audit 2026-05-10 NEW-41.
+
+- **`internal/server/json_decode.go` decodeJSONBody helper
+  (NEW-40 + body-cap consolidation).** Single helper that
+  wraps `http.MaxBytesReader` and decodes into the target
+  struct with two failure modes: cap-exceeded returns 413
+  Request Entity Too Large with a clear `body exceeds N byte
+  cap` message; any other decode error returns 400 Bad
+  Request with a generic "invalid JSON" message. Pre-fix the
+  seven NEW-35 endpoints all wrote ad-hoc `json.NewDecoder(
+  http.MaxBytesReader(...)).Decode(...)` chains and responded
+  with 400 + raw decoder error text on every failure — which
+  made operators chase JSON-shape questions when the actual
+  issue was a size cap, and reflected internal parse offsets
+  back at the client. All seven sites switched to the helper.
+  Audit 2026-05-10 NEW-40.
+
+### Changed
+
+- **PATCH `/api/findings/{id}` validates the status enum
+  (NEW-37).** Pre-fix `model.Status(req.Status)` was a typed-
+  string cast with no validation — anything in the request
+  body's `status` field was written verbatim to the findings
+  table. An analyst account compromised by a script could
+  PATCH every Critical finding to `archived` and have the
+  UI's tab filters (open / acknowledged / escalated)
+  silently drop them from default views, with the audit log
+  faithfully recording the misleading "transition" as if it
+  were real. Mirrors the validation `validateImportedFinding`
+  already applies on `/api/import` — same asymmetric-
+  validation pattern as v0.13.0 NEW-15 (sensor name
+  validated at enrollment, not checkin). Audit 2026-05-10
+  NEW-37.
+
+- **`capStringSlice` samples from both ends of the sorted
+  diff (NEW-42).** Pre-fix the audit-row added/removed
+  sample was `xs[:n]` — alphabetically biased. A subtle
+  malicious entry like `zzz_evil.example.com` buried in a
+  bulk allowlist update would be alphabetically late and
+  silently truncated from the human-readable diff. Hash +
+  counts still caught the absolute fact of change, but the
+  audit reader's diff view was biased. Now samples
+  `xs[:n/2]` and `xs[len(xs)-(n-n/2):]` — half from each
+  end. Test coverage in `audit_helpers_test.go`
+  ::`TestCapStringSlice_BothEnds` anchors identifying
+  entries at both ends of a 200-entry sorted slice and
+  asserts both appear in the cap-50 sample. Audit 2026-05-10
+  NEW-42.
+
+- **`CountAuditLog` is now TTL-cached (NEW-43).** Pre-fix
+  every audit-dialog page-load ran `SELECT COUNT(*) FROM
+  audit_log`. For a hunt-team-scale table (thousands of
+  rows) invisible; for a long-running deployment that missed
+  the documented retention prune and grew to millions of
+  rows, seconds per page-load. Cache TTL is 60 seconds —
+  short enough that the "n total entries" readout never
+  feels stale and the worst-case scan rate is one per minute
+  regardless of UI poll frequency. Cache fields live on the
+  `Store` struct; refresh drops the read lock during the
+  `COUNT(*)` so readers aren't blocked. Audit 2026-05-10
+  NEW-43.
+
+- **Audit-dialog table columns are now dynamic-width with
+  current values as the floor.** Pre-fix the "From" column
+  was capped at 110px which truncated IPv6 source addresses.
+  Changed `width:Npx` to `min-width:Npx` on the headers and
+  added `white-space:nowrap` to the identity cells (When,
+  Actor, Action, Target, From) so long values force the
+  column wider rather than wrapping inside a fixed width.
+  The Change column stays elastic with `word-break:break-all`
+  so the diff column absorbs the slack.
+
+- **`docs/ANALYST_PLAYBOOK.md` aligned with Archer's actual
+  status enum.** Pre-fix the doc referenced
+  `Status → false_positive`, but Archer's `Status` has only
+  `open` / `acknowledged` / `escalated`. The Archer-aligned
+  analyst workflow is acknowledge + suppression / allowlist
+  entry for confirmed-benign findings; acknowledge with note
+  for ambiguous-but-looked-at; escalate for malicious. Doc
+  updated throughout (decision table, worked examples,
+  per-status templates, anti-patterns) to use the
+  acknowledge+suppress pattern instead of inventing a
+  non-existent fourth status. Auditor 2026-05-10 doc
+  correction. The alternative (adding `false_positive` as a
+  fourth status enum) was considered and rejected — the
+  allowlist/suppression artifact is the operational
+  remediation that actually prevents the finding from firing
+  again, so the three-status model + curation lists is the
+  right shape.
+
+### Maturation lessons
+
+- **Boundary discipline must be even.** Pre-v0.14.3 the
+  authenticated mutation paths all audited cleanly while
+  the unauthenticated audit-emitting paths audited
+  partially — registration not at all, login failure and
+  sensor unauthorized at the granularity of the underlying
+  store call only. v0.14.3 closes the unevenness on both
+  axes: coverage (every audit-emitting boundary now emits)
+  and flood protection (every unauthenticated boundary now
+  rate-limits, with the trip itself audited). Recorded in
+  MATURATION_PLAN as a discipline check for future audit
+  emission sites: "is this path authenticated? if no, is it
+  rate-limited? if no, fix that first, then add the
+  emission."
+
+- **Doc vs. code drift is its own bug class.** The
+  `false_positive` references in ANALYST_PLAYBOOK.md slipped
+  past review because the doc was written from how the
+  reviewer expected the tool to work, not from reading the
+  codebase. Going forward, analyst-facing docs must be
+  validated against the actual enum/API/UI surface before
+  shipping; treat doc-vs-code mismatch as a release
+  blocker. Same shape as the v0.14.0 NEW-30 "aspirational
+  vs. descriptive comment" lesson, generalised one level up.
+
 ## [v0.14.2] — 2026-05-10
 
 Patch release closing three items from the post-v0.14.1 audit pass
