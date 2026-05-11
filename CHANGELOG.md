@@ -30,6 +30,94 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.14.9] — 2026-05-11
+
+Residual-risk-and-hygiene pass after fifteen rounds. Three items
+from the post-v0.14.8 audit: HTTP server timeouts (slowloris /
+half-open idle-socket exposure), analyze-lifecycle audit emissions
+(the last unattributed surface), and a defensive analyzer-side
+guard against the silent off-hours-disable failure mode.
+
+### Security
+
+- **HTTPS listener now sets explicit ReadHeader/Read/Idle
+  timeouts (NEW-64).** Pre-fix Archer's listener was the bare
+  `http.ListenAndServeTLS` convenience wrapper, which builds an
+  `http.Server` with zero timeouts on every field. Practical
+  exposure is modest (the listener is rarely internet-facing for
+  the small-team deployments Archer targets), but slowloris-style
+  header drips, half-open idle sockets, and stalled bodies could
+  each hold a goroutine open indefinitely — exactly the shape of
+  bug that surfaces under load or under deliberate exhaustion.
+  `ReadHeaderTimeout: 10s` short-circuits header-stage starvation,
+  `ReadTimeout: 30s` bounds total body read (Archer's largest
+  legitimate body is the ~16 KB config JSON), `IdleTimeout: 120s`
+  closes quiet keep-alive sockets. `WriteTimeout` deliberately
+  stays at zero because `/events` is the long-lived SSE stream
+  for the analyst's whole session and progress events on long
+  analyses can space minutes apart — a non-zero WriteTimeout
+  would silently terminate those connections. Audit 2026-05-11
+  NEW-64.
+
+### Added
+
+- **Analyze-lifecycle endpoints emit audit rows (NEW-65).**
+  `POST /api/analyze`, `/api/analyze/cancel`, `/api/analyze/pause`,
+  `/api/analyze/resume`, and `/api/analyze/reset` now record
+  `analyze_start` / `analyze_cancel` / `analyze_pause` /
+  `analyze_resume` / `analyze_reset` actions. Pre-fix the only
+  forensic trace of an analyst kicking off, pausing, or
+  cancelling a run was the SSE status broadcast and the
+  analyzer's own log lines — both ephemeral. Now "who ran what
+  pipeline when" sits next to `config_change` in the audit
+  table. Watch-driven runs pass through `launchAnalysis`
+  directly without traversing these handlers, so they remain
+  unattributed by design — that's the intended split between
+  "operator action" and "scheduler tick." Audit 2026-05-11
+  NEW-65.
+
+### Detection changes
+
+- **Off-hours detection short-circuits on an invalid window
+  (NEW-66).** `PUT /api/config` rejects `OffHoursStart ==
+  OffHoursEnd` (and out-of-range hours) at the API boundary
+  because the equality case silently disables off-hours
+  detection — the `>Start` branch is false because the bounds
+  are equal, and the `>=Start && <End` branch can never hold
+  when Start == End. The API gate is the primary defense, but
+  the underlying settings row can be planted via direct DB
+  write, a future config-loading bug, or a half-applied
+  migration. The analyzer now hoists the validity test out of
+  the per-record hot path and skips off-hours scoring entirely
+  when the window is invalid. Failure mode shifts from "silently
+  produce wrong findings" to "off-hours produced no findings" —
+  the right shape for a security detector. Existing valid
+  windows are unaffected. Audit 2026-05-11 NEW-66.
+
+### Maturation lessons
+
+- **Audit-log emission is a route-level invariant, not a
+  per-feature decision.** NEW-65 closed the last unattributed
+  state-changing surface on the analyze pipeline; the rotation
+  discipline from v0.14.8 should add to its checklist:
+  **"does every state-mutating route on this handler emit an
+  audit row on the success path?"** Not "is there an audit row
+  somewhere in this file?" — every state-mutating endpoint.
+  The analyze handlers had this gap since the analyze surface
+  was first written; thirteen audit rounds checked other things
+  first.
+
+- **API-boundary validation is necessary but not sufficient
+  for security-relevant config.** NEW-66 is the second instance
+  this pass of "the boundary check catches the normal path,
+  but the consumer should fail gracefully when the value still
+  ends up invalid." For a security detector, "silently disabled"
+  is worse than "loudly broken" — the analyzer doing its own
+  shape check is cheap, the detector failure mode it prevents
+  is severe. Worth a sweep for other config fields where a
+  rogue value could silently disable a detection rather than
+  surface an error.
+
 ## [v0.14.8] — 2026-05-11
 
 Hotfix on top of v0.14.7. One Critical from the long-standing-
