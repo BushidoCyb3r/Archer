@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"syscall"
+	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/config"
 	"github.com/BushidoCyb3r/Archer/internal/server"
@@ -85,7 +86,38 @@ func main() {
 	srv.SetTLSFingerprint(fp)
 	log.Printf("Archer HTTPS listening on %s  (cert fingerprint sha256//%s)", *tlsAddr, fp)
 	log.Printf("  web: %s  logs: %s", *webDir, *logsDir)
-	if err := http.ListenAndServeTLS(*tlsAddr, certPath, keyPath, srv); err != nil {
+
+	// Pre-v0.14.9 the HTTPS listener was the bare http.ListenAndServeTLS
+	// convenience wrapper, which builds an http.Server with zero
+	// timeouts — meaning slowloris-style header drips, half-open
+	// idle sockets, and stalled bodies could each hold a goroutine
+	// open indefinitely. Concrete operational risk on a small-team
+	// deployment is modest (the listener is rarely internet-exposed)
+	// but the cost of explicit timeouts is one struct and zero
+	// behavioral changes for normal clients.
+	//
+	// ReadHeaderTimeout (10s) is the slowloris guard — covers the
+	// time from accept() to "headers fully received," cheaply
+	// short-circuiting bytes-per-second-style attacks. ReadTimeout
+	// (30s) bounds the entire request read; the largest legitimate
+	// body Archer accepts is the ~16 KB JSON config blob, which any
+	// real client transmits in milliseconds. IdleTimeout (120s)
+	// closes keep-alive sockets that have gone quiet between
+	// requests; the SPA's polling cadence is well inside that
+	// window. WriteTimeout is deliberately left at zero — /events
+	// SSE streams hold the response open for the analyst's entire
+	// session (sometimes hours) and Archer's progress events on
+	// long analyses can space minutes apart; a non-zero
+	// WriteTimeout would silently terminate those connections.
+	// v0.14.9 NEW-64.
+	httpSrv := &http.Server{
+		Addr:              *tlsAddr,
+		Handler:           srv,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	if err := httpSrv.ListenAndServeTLS(certPath, keyPath); err != nil {
 		log.Fatal(err)
 	}
 }

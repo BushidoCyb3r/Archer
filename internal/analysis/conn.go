@@ -85,6 +85,24 @@ func (a *Analyzer) analyzeConn(files []string) {
 		}
 	}
 
+	// Defensive guard: PUT /api/config rejects OffHoursStart == OffHoursEnd
+	// (the equality case silently disables off-hours detection — the
+	// >Start branch fails because they're equal, the <End branch is
+	// always false because hour can't simultaneously be >=Start and
+	// <End when Start==End) and rejects out-of-range hours. But the
+	// underlying settings row could be planted via direct DB write,
+	// a future config-loading bug, or a half-applied migration — and
+	// silently disabling a security detector is exactly the failure
+	// mode the v0.14.8 NEW-60 audit hammered on. Hoisting the
+	// validity test out of the per-record hot path makes the check
+	// effectively free, and skipping off-hours scoring entirely when
+	// the window is invalid is the right failure mode: better to
+	// surface "off-hours produced no findings" than to silently
+	// produce wrong findings. v0.14.9 NEW-66.
+	offHoursEnabled := a.cfg.OffHoursStart != a.cfg.OffHoursEnd &&
+		a.cfg.OffHoursStart >= 0 && a.cfg.OffHoursStart <= 23 &&
+		a.cfg.OffHoursEnd >= 0 && a.cfg.OffHoursEnd <= 23
+
 	pairCounts := make(map[pairKey]int)
 	beacon := make(map[pairKey]*beaconState)
 
@@ -169,7 +187,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 				exfilFirst[ek] = ts
 			}
 
-			if ts > 0 && !isPrivateIP(dst) {
+			if offHoursEnabled && ts > 0 && !isPrivateIP(dst) {
 				hour := time.Unix(int64(ts), 0).In(offHoursLoc).Hour()
 				var offHours bool
 				if a.cfg.OffHoursStart > a.cfg.OffHoursEnd {
