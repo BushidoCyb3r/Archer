@@ -30,6 +30,64 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.14.6] — 2026-05-11
+
+Hotfix on top of v0.14.5. The HTTPS-only deployment from v0.14.5
+shipped with the pre-existing Ed25519 self-signed cert, which
+browsers (Chrome, Safari, Firefox) refuse as a server cert —
+`ERR_SSL_VERSION_OR_CIPHER_MISMATCH` on every browser load.
+Sensors using `curl --pinnedpubkey` were fine because curl
+supports Ed25519, but admins / analysts / viewers couldn't reach
+the UI at all. NEW-55.
+
+### Changed
+
+- **Auto-gen TLS cert uses ECDSA P-256, not Ed25519 (NEW-55).**
+  Universally supported by every modern browser and TLS library
+  while still working with curl's `--pinnedpubkey` path that
+  sensors use — pinning is over SubjectPublicKeyInfo, not key
+  algorithm, so sensors don't care which algorithm produced the
+  public key. The original Ed25519 choice predates v0.14.5's
+  unification of the listeners; pre-v0.14.5 the cert was only
+  ever consumed by sensor curls, where Ed25519 worked. NEW-49's
+  redirect of browsers to the same cert exposed the limitation.
+
+- **Existing Ed25519 auto-gen certs are transparently upgraded
+  on next startup.** Detects the pre-v0.14.6 shape (Ed25519
+  public key + Subject CN="archer" + self-signed) and
+  regenerates with ECDSA P-256. Operator-supplied certs in any
+  algorithm (RSA, ECDSA, even Ed25519 — if the operator chose
+  it deliberately for a curl-only deployment with a non-"archer"
+  Subject) are honoured as-is. The auto-upgrade narrows on the
+  specific fingerprint of our auto-gen output so an operator-
+  supplied Ed25519 cert isn't accidentally replaced.
+
+  Regression tests in `tls_test.go`:
+   - `TestEnsureTLS_AutoGenIsECDSA`: new auto-gen output is
+     ECDSA P-256.
+   - `TestEnsureTLS_AutoUpgradesEd25519AutoGen`: pre-v0.14.6
+     auto-gen Ed25519 cert is replaced with ECDSA on next
+     startup.
+   - `TestEnsureTLS_PreservesOperatorEd25519`: an Ed25519 cert
+     with an operator-shaped Subject is NOT auto-replaced
+     (auto-upgrade is targeted, not aggressive).
+
+  **Sensor impact**: enrolled sensors will see a fingerprint
+  change on the next checkin if they were pinned against the
+  Ed25519 auto-gen cert. The fingerprint change is the same
+  shape as any cert rotation — sensors need to be re-enrolled
+  (re-run the install one-liner from the Sensors modal).
+  Pre-NEW-49 deployments where the Ed25519 cert was the
+  *original* cert never enrolled real sensors against it
+  (admins also couldn't reach the UI via browser), so this
+  affects only a narrow window of pre-v0.14.6 production
+  deployments. The cert-continuity guidance in OPERATIONS.md
+  applies: back up `/data/tls/` before any cert rotation
+  (auto-upgrade or operator-initiated), and operators who
+  wanted to avoid the re-enroll burden should have already
+  swapped in a CA-signed cert per OPERATIONS.md's recommended
+  pre-production hardening step.
+
 ## [v0.14.5] — 2026-05-11
 
 Tenth audit-driven correctness release. **Breaking deployment
