@@ -56,6 +56,19 @@ const (
 	ActionSuppressionDelete = "suppression_delete"
 	ActionWatchChange       = "watch_change"
 	ActionFindingImport     = "finding_import"
+
+	// Analyze pipeline lifecycle (v0.14.9 NEW-65). Watch-driven
+	// runs are unattributed and don't pass through these handlers;
+	// only user-initiated invocations on /api/analyze and its
+	// pause/resume/cancel/reset siblings emit. The audit row
+	// proves an operator chose to run/cancel/reset, which is the
+	// missing piece next to config_change for "who ran what
+	// pipeline when" forensics.
+	ActionAnalyzeStart  = "analyze_start"
+	ActionAnalyzeCancel = "analyze_cancel"
+	ActionAnalyzePause  = "analyze_pause"
+	ActionAnalyzeResume = "analyze_resume"
+	ActionAnalyzeReset  = "analyze_reset"
 )
 
 // knownAuditActions is the authoritative set of action names the
@@ -94,4 +107,9 @@ var knownAuditActions = map[string]struct{}{
 	ActionSuppressionDelete:         {},
 	ActionWatchChange:               {},
 	ActionFindingImport:             {},
+	ActionAnalyzeStart:              {},
+	ActionAnalyzeCancel:             {},
+	ActionAnalyzePause:              {},
+	ActionAnalyzeResume:             {},
+	ActionAnalyzeReset:              {},
 }

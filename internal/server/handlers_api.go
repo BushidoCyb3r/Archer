@@ -75,6 +75,11 @@ func sensorFromPath(logsDir, filePath string) string {
 // PATCH). The config-rewrite path is removed entirely. Config
 // changes go through PUT /api/config (admin-only, validated,
 // audited as config_change). v0.14.8 NEW-60.
+//
+// v0.14.9 NEW-65: emits an analyze_start audit row on successful
+// claim. Watch-driven runs call s.launchAnalysis directly without
+// passing through this handler, so they remain unattributed — that's
+// the intended split: "who clicked Run" vs. "scheduler tick fired."
 func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -93,6 +98,9 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "analysis already running", http.StatusConflict)
 		return
 	}
+	s.recordAudit(r, "analyze_start", auditEvent{
+		Details: map[string]any{"file_count": len(files)},
+	})
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{"status": "started"})
 }
@@ -119,6 +127,12 @@ func (s *Server) handleAnalyzeReset(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "analysis already running", http.StatusConflict)
 		return
 	}
+	s.recordAudit(r, "analyze_reset", auditEvent{
+		Details: map[string]any{
+			"file_count":       len(files),
+			"findings_cleared": cleared,
+		},
+	})
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]any{
 		"status":           "started",
@@ -156,6 +170,7 @@ func (s *Server) handleAnalyzeCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	az.Cancel()
+	s.recordAudit(r, "analyze_cancel", auditEvent{})
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -173,6 +188,7 @@ func (s *Server) handleAnalyzePause(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	az.Pause()
+	s.recordAudit(r, "analyze_pause", auditEvent{})
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -190,6 +206,7 @@ func (s *Server) handleAnalyzeResume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	az.Resume()
+	s.recordAudit(r, "analyze_resume", auditEvent{})
 	w.WriteHeader(http.StatusOK)
 }
 

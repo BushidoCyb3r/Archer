@@ -417,6 +417,13 @@ Manual control over the analyzer (separate from watch-mode auto-runs).
 Progress events stream over SSE as `progress` events with
 `{step, pct}` payloads.
 
+All five state-mutating endpoints emit an audit row on the success
+path (v0.14.9 NEW-65): `analyze_start`, `analyze_cancel`,
+`analyze_pause`, `analyze_resume`, `analyze_reset`. Watch-driven
+runs call the same internal pipeline but bypass these handlers, so
+they remain unattributed by design — the audit row exists to record
+operator-initiated invocations, not scheduler ticks.
+
 ### Logs
 
 | Method | Path | Role | Notes |
