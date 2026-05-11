@@ -25,6 +25,18 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		// normalization mismatch is a footgun: anyone removing the
 		// COLLATE clause thinking emails are normalized at write
 		// time would silently break login. Audit 2026-05-10.
+		srcIP := sourceIP(r)
+		if !s.rateLimit.allow(srcIP) {
+			// Rate-limit trip is itself audit-worthy — a real operator
+			// reviewing the log can see "we got hammered from X"
+			// without the hammering scaling the log. v0.14.3 NEW-39.
+			s.recordAuditLogin(r, "request_rate_limited", 0, "", map[string]any{
+				"path":   "/login",
+				"reason": "unauth_rate_limit",
+			})
+			http.Error(w, "rate limit exceeded — try again shortly", http.StatusTooManyRequests)
+			return
+		}
 		email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 		password := r.FormValue("password")
 
@@ -68,6 +80,15 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s.renderAuth(w, "register.html", map[string]any{"Error": "", "FirstName": "", "LastName": "", "Email": ""})
 	case http.MethodPost:
+		srcIP := sourceIP(r)
+		if !s.rateLimit.allow(srcIP) {
+			s.recordAuditLogin(r, "request_rate_limited", 0, "", map[string]any{
+				"path":   "/register",
+				"reason": "unauth_rate_limit",
+			})
+			http.Error(w, "rate limit exceeded — try again shortly", http.StatusTooManyRequests)
+			return
+		}
 		firstName := strings.TrimSpace(r.FormValue("first_name"))
 		lastName := strings.TrimSpace(r.FormValue("last_name"))
 		email := strings.TrimSpace(strings.ToLower(r.FormValue("email")))
@@ -129,10 +150,33 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if !isFirstUser {
+			// Self-service registration of a viewer in pending status.
+			// Pre-v0.14.3 this was the only admin-relevant path that
+			// produced zero audit-log rows; an attacker (or curious
+			// user) could land in pending state without surfacing in
+			// the audit trail until an admin approved them. Audit row
+			// uses actor_id=0 (the user isn't authenticated to act on
+			// their own behalf) with the registered email captured
+			// for the trail. v0.14.3 NEW-38.
+			s.recordAuditLogin(r, "user_register", 0, email, map[string]any{
+				"path":   "self_service",
+				"status": string(model.StatusPending),
+				"role":   model.RoleViewer,
+			})
 			s.renderAuth(w, "register.html", map[string]any{"Pending": true})
 			return
 		}
 
+		// First-user bootstrap is the single highest-privilege account-
+		// creation event in this deployment's lifetime. Distinct action
+		// name so it's filterable in the audit UI and operationally
+		// distinct from later self-service registrations. v0.14.3
+		// NEW-38.
+		s.recordAuditLogin(r, "admin_bootstrap", user.ID, user.Email, map[string]any{
+			"path":   "first_user",
+			"status": string(model.StatusActive),
+			"role":   model.RoleAdmin,
+		})
 		token := s.users.CreateSession(user.ID)
 		http.SetCookie(w, &http.Cookie{
 			Name:     sessionCookie,
@@ -148,8 +192,14 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleLogout clears the session cookie.
+// handleLogout clears the session cookie. v0.14.3 NEW-44 adds an
+// audit row so session timelines are reconstructible from the log
+// without inferring end-times from the absence of subsequent
+// activity.
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	// Snapshot the user before the cookie is cleared so the audit
+	// row captures who logged out.
+	u := userFromCtx(r)
 	c, err := r.Cookie(sessionCookie)
 	if err == nil {
 		s.users.DeleteSession(c.Value)
@@ -160,6 +210,9 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Path:   "/",
 		MaxAge: -1,
 	})
+	if u.ID != 0 {
+		s.recordAuditLogin(r, "logout", u.ID, u.Email, nil)
+	}
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 

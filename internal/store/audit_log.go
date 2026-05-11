@@ -125,16 +125,48 @@ func (s *Store) ListAuditLog(cursor int64, count int) []AuditEntry {
 	return out
 }
 
+// auditCountCacheTTL bounds how stale the audit-log total count
+// can be when surfaced in the UI. For hunt-team scale (thousands
+// of rows) the underlying SELECT COUNT(*) is fast; for a long-
+// running deployment where the operator missed the documented
+// retention prune and the table is millions of rows, the full
+// table scan on every audit-dialog page-load was seconds-per-
+// load. 60 seconds is short enough that the "n total entries"
+// readout never feels stale in practice and bounds the worst-case
+// cost to one scan per minute regardless of UI poll rate.
+// v0.14.3 NEW-43.
+const auditCountCacheTTL = 60 * time.Second
+
 // CountAuditLog returns the total row count. Used by the UI to
-// decide whether to show a "load more" affordance.
+// decide whether to show a "load more" affordance. Cached for
+// auditCountCacheTTL — see the constant's comment for the
+// rationale. Cache is invalidated implicitly by the TTL; writes
+// don't trigger an invalidation because the count's bound on
+// staleness is the TTL, not transactional correctness.
 func (s *Store) CountAuditLog() int64 {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	if s.db == nil {
+		s.mu.RUnlock()
 		return 0
 	}
+	if !s.auditCountAt.IsZero() && time.Since(s.auditCountAt) < auditCountCacheTTL {
+		n := s.auditCountValue
+		s.mu.RUnlock()
+		return n
+	}
+	s.mu.RUnlock()
+
+	// Refresh — drop the read lock first so the COUNT(*) doesn't
+	// hold readers blocked. We take the write lock briefly only to
+	// publish the new value.
 	var n int64
-	_ = s.db.QueryRow(`SELECT COUNT(*) FROM audit_log`).Scan(&n)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM audit_log`).Scan(&n); err != nil {
+		return 0
+	}
+	s.mu.Lock()
+	s.auditCountValue = n
+	s.auditCountAt = time.Now()
+	s.mu.Unlock()
 	return n
 }
 

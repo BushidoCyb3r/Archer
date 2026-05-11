@@ -288,6 +288,20 @@ func (s *Server) handleQuiverCheckin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	srcIP := sourceIP(r)
+	if !s.rateLimit.allow(srcIP) {
+		// Rate-limit the checkin endpoint so a flood of bad-HMAC or
+		// unknown-name attempts can't grow audit_log without bound.
+		// A legitimate sensor's hourly cadence is nowhere near the
+		// 10-per-minute bucket; only attack traffic trips this.
+		// v0.14.3 NEW-39.
+		s.recordAudit(r, "request_rate_limited", auditEvent{
+			TargetType: "sensor",
+			Details:    map[string]any{"path": "/api/quiver/checkin", "reason": "unauth_rate_limit"},
+		})
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, checkinMaxBytes))
 	if err != nil {
 		jsonError(w, "could not read body", http.StatusBadRequest)

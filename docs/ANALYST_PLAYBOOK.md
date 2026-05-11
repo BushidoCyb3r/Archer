@@ -35,7 +35,7 @@ in this file as they're written.
 8. [The eight-question triage checklist](#the-eight-question-triage-checklist)
 9. [Worked examples](#worked-examples)
 10. [Pivoting from a beacon](#pivoting-from-a-beacon)
-11. [False-positive patterns and the suppress-vs-allowlist rule](#false-positive-patterns-and-the-suppress-vs-allowlist-rule)
+11. [Benign-pattern catalog and the suppress-vs-allowlist rule](#benign-pattern-catalog-and-the-suppress-vs-allowlist-rule)
 12. [Note discipline](#note-discipline)
 13. [Anti-patterns — things that look like good triage but aren't](#anti-patterns--things-that-look-like-good-triage-but-arent)
 14. [Detection blind spots — what Archer cannot see](#detection-blind-spots--what-archer-cannot-see)
@@ -224,11 +224,23 @@ are calibrated for adversary tradecraft. Use both.
 
 **Step 5 — Decide one of four things:**
 
+Archer's finding status enum has three values: `open` (default,
+empty string), `acknowledged`, and `escalated`. There is no
+distinct "false_positive" status — confirmed-benign findings are
+handled by acknowledging with a clear note *plus* (when
+applicable) adding the destination to the allowlist or a
+suppression so the same finding doesn't recur. The three-status
+model + curation lists is intentional; the alternative
+(four-status with `false_positive`) was considered and rejected
+because the allowlist/suppression artifact is the operational
+remediation that actually prevents the finding from firing
+again.
+
 | Decision | When | What you do |
 |---|---|---|
 | **Escalate** | Beacon pattern + suspicious destination + can't explain it | Click Escalate, fill in the IPs and services for TI pivot, write a one-line note (date / what you saw / why escalating). Status becomes `escalated`. |
-| **Mark false positive** | You've matched it to a known software pattern (see FP catalog below). Add the source to allowlist or destination to suppression. | Status → `false_positive`. Note records *what software / what pattern / why* — your future self will need to remember why this one wasn't real. |
-| **Acknowledge** | You've decided it's not malicious but you don't want to suppress it (rare — usually you'd false-positive it). | Status → `acknowledged`. Note records the rationale. |
+| **Acknowledge + suppress** | You've matched it to a known software pattern (see FP catalog below). Add the destination to the allowlist or a suppression so the finding stops recurring. | Status → `acknowledged`. Note records *what software / what pattern / why*. Then add the destination to the allowlist (or create a suppression). Future analyses won't surface this finding again, but the audit log preserves who added the curation entry and when. |
+| **Acknowledge** | You've looked, decided it's not malicious, but don't want to add a permanent curation entry (because the destination is contextually fine *this time* but might warrant re-investigation if the pattern changes). | Status → `acknowledged`. Note records the rationale and the re-check condition. |
 | **Leave open** | You need to come back to it — wait another day for more data, ask a colleague, check a logfile | No status change. Add a note saying what you're waiting on. |
 
 The status transitions land in the audit log (v0.14.1) so a
@@ -294,7 +306,7 @@ open.
 
 **Notes.** Previous analyst observations on this finding (if
 it survived across analysis runs via fingerprint merge). Read
-them. If someone's already false-positived this exact pattern
+them. If someone's already acknowledged this exact pattern
 last quarter and the note explains why, your job is over.
 
 ---
@@ -499,9 +511,11 @@ all eight on every finding.
 
 If you finish all eight and none triggered escalate but the
 finding still feels off, write the note describing what feels
-off and acknowledge the finding (don't false-positive it). A
-future analyst seeing the same destination next week with one
-more red flag attached has the trail to pick up.
+off and acknowledge the finding *without* adding it to the
+allowlist or a suppression — a future analysis run will surface
+the same destination again, and a future analyst seeing the same
+destination next week with one more red flag attached has the
+trail to pick up.
 
 ---
 
@@ -566,9 +580,12 @@ workstation beaconing to S3 bucket; matches the cadence of
 the internal CI/CD tool poller. No anomalous payloads or
 methods. Re-check if the dst IP changes pattern."
 
-You don't false-positive this — there's nothing wrong with
-the detection. You acknowledge that you've looked and the
-destination is contextually fine.
+You acknowledge this rather than adding a permanent allowlist
+entry. There's nothing wrong with the detection — the destination
+is contextually fine *this time*, and if the cadence or
+destination shifts you want to see it again. A persistent
+allowlist for "this S3 bucket" would silence a real future
+finding that happens to share the destination.
 
 ### Example D — the slow-burn
 
@@ -642,7 +659,7 @@ it's an incident.
 
 ---
 
-## False-positive patterns and the suppress-vs-allowlist rule
+## Benign-pattern catalog and the suppress-vs-allowlist rule
 
 The cost of a missed FP is hours of analyst time. The cost
 of a false-FP'd actual beacon is much higher. Be careful
@@ -758,17 +775,18 @@ Action taken: <suppressed / acknowledged / escalated to IR ticket #>
 
 ### Per-status templates
 
-**False positive:**
+**Acknowledge + suppress** (the "FP" pattern — confirmed-benign,
+add curation to prevent recurrence):
 
 ```
-FP — <software/system identified>. <Confirming evidence>.
+ACK — <software/system identified>. <Confirming evidence>.
 Suppressed dst <ip/domain> for <N> days.
 ```
 
 Example:
 
 ```
-FP — Microsoft Defender cloud-delivered protection.
+ACK — Microsoft Defender cloud-delivered protection.
 Confirmed via Defender event log on src; dst resolves to
 wdcp.microsoft.com per cert SAN. Suppressed dst for 90d.
 ```
@@ -873,7 +891,7 @@ beacon — not the destination's reputation.
 **"It only triggered once, must be a false alarm."** Beacons
 need a full analysis window to score reliably. A finding
 that fires on day 1 with a borderline score may strengthen
-on day 2 as the sample grows. Don't false-positive a
+on day 2 as the sample grows. Don't acknowledge-and-suppress a
 borderline beacon on day 1 — leave it open with a note and
 look again tomorrow.
 
@@ -898,11 +916,13 @@ sustained over a 24-hour window is enough to escalate. Let
 IR pull the host artefacts; your job at this layer is to
 flag the network signal.
 
-**"I'll mark every borderline finding false-positive to
+**"I'll acknowledge-and-suppress every borderline finding to
 keep the queue clean."** This is how teams blind themselves.
 A borderline finding is a hypothesis, not noise. Leave it
-open with a note; close it only when you've matched it to a
-known pattern.
+open with a note; acknowledge it only when you've matched it
+to a known pattern, and only add an allowlist/suppression
+entry when the pattern is durable enough to warrant silencing
+the detector for future analyses.
 
 ---
 

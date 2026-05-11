@@ -102,6 +102,45 @@ func TestListEditAuditDetail_TruncationMarker(t *testing.T) {
 	}
 }
 
+// TestCapStringSlice_BothEnds covers the v0.14.3 NEW-42 fix —
+// the diff sample must include entries from both ends of the
+// sorted slice so an alphabetically-late buried entry
+// (`zzz_evil.example.com`) isn't silently truncated from the
+// audit reader's diff view. Pre-fix the sample was xs[:n], so any
+// entry past index n was invisible.
+func TestCapStringSlice_BothEnds(t *testing.T) {
+	// Build a 200-entry sorted slice with a distinguishing "buried"
+	// entry near the end and the alphabetic start.
+	xs := make([]string, 200)
+	for i := range xs {
+		xs[i] = "entry_" + string(rune('a'+(i%26))) + "_"
+	}
+	// Anchor identifiable entries at both ends.
+	xs[0] = "aaa_first.example"
+	xs[199] = "zzz_buried.example"
+
+	out := capStringSlice(xs, 50)
+	if len(out) != 50 {
+		t.Fatalf("cap = %d; want 50", len(out))
+	}
+
+	var sawFirst, sawLast bool
+	for _, e := range out {
+		if e == "aaa_first.example" {
+			sawFirst = true
+		}
+		if e == "zzz_buried.example" {
+			sawLast = true
+		}
+	}
+	if !sawFirst {
+		t.Error("capStringSlice missed the alphabetic-first entry")
+	}
+	if !sawLast {
+		t.Error("capStringSlice missed the alphabetic-last entry — NEW-42 regression")
+	}
+}
+
 // TestFindingAuditName covers the cosmetic improvement to TargetName
 // on finding_* audit rows — analysts skimming the audit log should
 // see distinguishing detail, not five rows all labeled "Beaconing".

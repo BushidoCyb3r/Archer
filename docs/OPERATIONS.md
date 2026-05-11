@@ -15,7 +15,7 @@ read this whole document, start with **`docs/QUICKSTART_OPS.md`**
 — it's the 5-minute "deploy + restore + three things to know"
 companion. Come back here when the questions get deeper.
 
-Everything below is current as of **v0.14.2**.
+Everything below is current as of **v0.14.3**.
 
 ---
 
@@ -424,7 +424,9 @@ strings.
 
 | Action | Triggered by |
 |---|---|
-| `login_success` / `login_failure` | `/login` POST |
+| `login_success` / `login_failure` / `logout` | `/login` POST / `/logout` |
+| `user_register` / `admin_bootstrap` | `/register` POST (v0.14.3) |
+| `request_rate_limited` | Unauth flood guard tripped on `/login`, `/register`, or `/api/quiver/checkin` (v0.14.3) |
 | `user_create` / `user_role_change` / `user_status_change` / `user_delete` | User mgmt UI |
 | `enrollment_token_create` / `enrollment_token_revoke` | Sensors → Tokens |
 | `sensor_disenroll` / `sensor_purge` / `sensor_schedule_change` | Sensors modal |
@@ -467,6 +469,41 @@ date Y" queries. v0.14.2 NEW-34.
 rather than just the finding type — five "Beaconing" rows in a
 row are otherwise indistinguishable in the audit-log UI. v0.14.2
 cosmetic.
+
+`finding_status_change` validates the incoming status against the
+finding-status enum (open / acknowledged / escalated). Pre-v0.14.3
+the PATCH path accepted any string verbatim, so a buggy automation
+client (or a compromised analyst session) could write
+`"archived"` and have it persist faithfully — invisible to the
+UI's default tab filters but recoverable from the database.
+v0.14.3 NEW-37.
+
+`user_register` and `admin_bootstrap` cover the previously-
+unaudited `/register` POST path. The bootstrap event (first user
+on a fresh deployment, auto-promoted to admin) gets its own
+action name because operationally that's the single
+highest-privilege account-creation event in the system's
+lifetime — worth its own filter. Self-service registrations
+land as `user_register` with `actor_id=0` (the user isn't
+authenticated to act on their own behalf yet). Both happen *after*
+the email-existence timing pad runs, so the existing
+enumeration defence is unaffected. v0.14.3 NEW-38.
+
+`logout` lands on every explicit sign-out so session timelines are
+reconstructible from the log without inferring end-times from the
+absence of subsequent activity. v0.14.3 NEW-44.
+
+**Audit-log flood protection.** The three unauthenticated audit-
+emitting paths (`/login`, `/register`, `/api/quiver/checkin`) are
+gated behind a per-source-IP token bucket: 10 requests per minute
+per IP, with continuous refill (1 token per 6 seconds). Excess
+returns HTTP 429 *and* emits a `request_rate_limited` audit row
+once per bucket trip so the limit-trip itself is visible without
+the hammering scaling the log. A legitimate sensor's hourly
+checkin and a user's interactive login are both nowhere near the
+bucket; only attack traffic trips it. Idle buckets are evicted
+after 10 minutes to bound memory under long-running distributed
+floods. v0.14.3 NEW-39.
 
 **Schema columns** (see migration 0009 for rationale):
 

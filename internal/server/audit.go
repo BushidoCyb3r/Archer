@@ -182,13 +182,22 @@ func hashStringList(xs []string) string {
 }
 
 // capStringSlice returns at most n entries from xs, used by audit
-// emission to bound the per-row diff size while still surfacing the
-// most-likely-useful subset for human review.
+// emission to bound the per-row diff size while still surfacing
+// the most-likely-useful subset for human review. Samples both
+// ends of the (sorted) input so an alphabetically-late entry like
+// `zzz_evil.example.com` buried in a bulk update doesn't get
+// silently truncated from the diff view. The hash + counts catch
+// the absolute fact of change; this just makes the human-readable
+// diff sample less biased. v0.14.3 NEW-42.
 func capStringSlice(xs []string, n int) []string {
 	if len(xs) <= n {
 		return xs
 	}
-	return xs[:n]
+	half := n / 2
+	out := make([]string, 0, n)
+	out = append(out, xs[:half]...)
+	out = append(out, xs[len(xs)-(n-half):]...)
+	return out
 }
 
 // findingAuditName formats a finding's identity into the
