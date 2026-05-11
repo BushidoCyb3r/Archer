@@ -251,16 +251,28 @@ func TestIsIPLiteral(t *testing.T) {
 		host string
 		want bool
 	}{
-		{"185.43.7.92", true},       // bare IPv4
-		{"185.43.7.92:443", true},   // IPv4 + port
-		{"::1", true},               // IPv6 loopback
-		{"2001:db8::1", true},       // IPv6
-		{"fe80::1", true},           // hex-only chars are still IP-shaped
+		{"185.43.7.92", true},     // bare IPv4
+		{"185.43.7.92:443", true}, // IPv4 + port
+		{"::1", true},             // IPv6 loopback
+		{"2001:db8::1", true},     // IPv6
+		{"fe80::1", true},         // hex-only chars are still IP-shaped
+		{"[::1]:443", true},       // bracketed IPv6 + port (HTTP Host shape)
+		{"[2001:db8::1]:8443", true},
 		{"example.com", false},      // domain has 'x' / 'm' / 'p' / 'l'
 		{"localhost", false},        // 'l' / 's' / 't'
 		{"kx9j3qm2pflw.com", false}, // DGA-shaped name, not IP
 		{"185.k7x9q3.7.92", false},  // IP-shaped but has 'k' / 'x' / 'q'
 		{"", false},                 // empty
+
+		// NEW-81 regression cases. The v0.16.1 hand-rolled classifier
+		// returned true for these because every character was either a
+		// digit / dot / hex-letter (a-f), so the "any non-hex letter
+		// rules out IP" gate didn't fire. The net.ParseIP-based
+		// classifier correctly identifies them as non-IPs.
+		{"face.beef", false}, // all-hex hostname, looks IP-ish but isn't a valid IP
+		{"abc.def", false},   // same
+		{"cafe.dead", false}, // same
+		{"dead.beef.cafe.babe", false},
 	}
 	for _, tc := range cases {
 		got := isIPLiteral(tc.host)

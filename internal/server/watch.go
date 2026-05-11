@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/analysis"
+	"github.com/BushidoCyb3r/Archer/internal/store"
 )
 
 // startWatch starts the watch loop if watch is enabled in the config.
@@ -266,7 +267,7 @@ func (s *Server) triggerWatchAnalysis() {
 		// rows of their own, so they have nothing to sweep.
 		if removed := s.store.PurgeBeaconHistory(); removed > 0 {
 			msg, _ := json.Marshal(map[string]any{
-				"msg": fmt.Sprintf("Purged %d beacon_history row(s) older than %d days.", removed, 30),
+				"msg": fmt.Sprintf("Purged %d beacon_history row(s) older than %d days.", removed, store.BeaconHistoryRetentionDays),
 			})
 			s.broker.Publish(SSEEvent{Type: "status", Data: string(msg)})
 		}

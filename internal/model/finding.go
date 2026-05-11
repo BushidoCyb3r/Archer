@@ -100,13 +100,37 @@ type Finding struct {
 // grows new identity-bearing fields later.
 //
 // ASCII Unit Separator (\x1f) is the delimiter — never appears in
-// valid URLs, hostnames, IPs, ports, or finding types, so no escaping
-// is needed.
+// valid URLs, hostnames, IPs, ports, or finding types in normal
+// operation. We defensively scrub any embedded \x1f from the input
+// fields anyway, replacing it with \x1e (Record Separator), because
+// a compromised sensor could craft an HTTP Host header containing the
+// literal byte to produce a key that collides with another beacon's
+// row. The threat model accepts that compromised-sensor data is
+// untrusted, but the cost of the defense (one strings.ContainsRune
+// + maybe one strings.ReplaceAll per field) is small enough to be
+// worth the collision-resistance. NEW-85 from the nineteenth audit
+// round.
 func (f Finding) BeaconHistoryKey() string {
 	const sep = "\x1f"
 	return strings.Join([]string{
-		f.Type, f.SrcIP, f.DstIP, f.DstPort, f.Hostname, f.URI,
+		scrubSeparator(f.Type),
+		scrubSeparator(f.SrcIP),
+		scrubSeparator(f.DstIP),
+		scrubSeparator(f.DstPort),
+		scrubSeparator(f.Hostname),
+		scrubSeparator(f.URI),
 	}, sep)
+}
+
+// scrubSeparator replaces any literal \x1f byte (the BeaconHistoryKey
+// delimiter) in s with \x1e. Cheap on the common path — strings.Contains
+// returns false immediately on the typical hostname/IP and ReplaceAll is
+// never called. Only the contrived crafted-input case allocates.
+func scrubSeparator(s string) string {
+	if !strings.ContainsRune(s, '\x1f') {
+		return s
+	}
+	return strings.ReplaceAll(s, "\x1f", "\x1e")
 }
 
 // Threat-intel finding types. Split into IP / Domain / Hash flavors in
