@@ -579,9 +579,9 @@ func TestPurgeBeaconHistory(t *testing.T) {
 	s.InitDB(db)
 
 	now := time.Now().UTC()
-	insideWindow := now.AddDate(0, 0, -(beaconHistoryRetentionDays - 1)).Format("2006-01-02")
-	atBoundary := now.AddDate(0, 0, -beaconHistoryRetentionDays).Format("2006-01-02")
-	outsideWindow := now.AddDate(0, 0, -(beaconHistoryRetentionDays + 1)).Format("2006-01-02")
+	insideWindow := now.AddDate(0, 0, -(BeaconHistoryRetentionDays - 1)).Format("2006-01-02")
+	atBoundary := now.AddDate(0, 0, -BeaconHistoryRetentionDays).Format("2006-01-02")
+	outsideWindow := now.AddDate(0, 0, -(BeaconHistoryRetentionDays + 1)).Format("2006-01-02")
 
 	for _, day := range []string{insideWindow, atBoundary, outsideWindow} {
 		_, err := db.Exec(`INSERT INTO beacon_history

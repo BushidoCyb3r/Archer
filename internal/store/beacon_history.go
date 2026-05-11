@@ -8,12 +8,18 @@ import (
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
 
-// beaconHistoryRetentionDays is the rolling window for beacon_history
+// BeaconHistoryRetentionDays is the rolling window for beacon_history
 // rows. Const, not config — the SPA's evolution chart range is also
 // 30 days, so longer retention is invisible until the chart range
 // grows. Promote to config.Config when an operator asks for it; the
 // migration is a five-line change.
-const beaconHistoryRetentionDays = 30
+//
+// Exported so callers that surface the retention in user-facing
+// strings (watch.go's purge status SSE, future Settings UI labels)
+// reference one source of truth rather than duplicating the literal.
+// NEW-82 from the nineteenth audit round closed the watch.go
+// duplication.
+const BeaconHistoryRetentionDays = 30
 
 // BeaconHistoryRow is the SPA-facing projection of one row in the
 // beacon_history table. Matches the JSON shape /api/findings/{id}/history
@@ -87,6 +93,16 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
 		log.Printf("store: beacon_history begin tx: %v", err)
 		return
 	}
+	// Known edge case (NEW-84): the severity branch fires only when
+	// excluded.max_score > max_score (strict). If a beacon already at
+	// score 99 has its severity bumped a step by the DGA augmentation
+	// in a later same-day pass (one-step severity upgrade applies
+	// even when score is already at the cap of 99), the history row
+	// keeps the earlier pass's severity. Realistic but rare —
+	// requires two same-day passes both producing the same numeric
+	// max, with the later pass having a different severity. Document
+	// here; restructure to a separate severity-tracking column only
+	// if operators see this in practice.
 	stmt, err := tx.Prepare(`
         INSERT INTO beacon_history
             (fingerprint, day_utc, finding_type, src_ip, dst_ip, dst_port,
@@ -196,7 +212,7 @@ func (s *Store) PurgeBeaconHistory() int64 {
 	if s.db == nil {
 		return 0
 	}
-	cutoff := time.Now().UTC().AddDate(0, 0, -beaconHistoryRetentionDays).Format("2006-01-02")
+	cutoff := time.Now().UTC().AddDate(0, 0, -BeaconHistoryRetentionDays).Format("2006-01-02")
 	res, err := s.db.Exec(`DELETE FROM beacon_history WHERE day_utc < ?`, cutoff)
 	if err != nil {
 		log.Printf("store: beacon_history purge: %v", err)

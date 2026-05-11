@@ -2,6 +2,7 @@ package analysis
 
 import (
 	_ "embed"
+	"net"
 	"strconv"
 	"strings"
 
@@ -190,6 +191,16 @@ func dgaHostnameScore(host string, entropyThreshold, bigramThreshold float64) DG
 	if host == "" {
 		return res
 	}
+	// IP-literal defense-in-depth. applyDGAScoring filters IP literals
+	// before calling this function (NEW-77), but dgaHostnameScore is
+	// package-internal and any future caller bypassing applyDGAScoring
+	// would skip the filter and hit extractSLD's IPv6-port collision
+	// (e.g. "2001:db8::1" → "2001" as a meaningless SLD). NEW-83 from
+	// the nineteenth audit round: enforce the invariant where the
+	// consequence happens rather than relying solely on the caller.
+	if isIPLiteral(host) {
+		return res
+	}
 	// CDN allowlist short-circuits before SLD scoring. cloudfront
 	// algorithmic subdomains (dvxlk2j9.cloudfront.net) would
 	// correctly score "cloudfront" as non-DGA via SLD extraction;
@@ -279,27 +290,47 @@ func extractSLD(host string) string {
 	return parts[len(parts)-2]
 }
 
-// isIPLiteral returns true when host looks like a bare IPv4 or IPv6
-// address. The DGA scorer should never run against IP literals —
-// they have no meaningful "domain" structure and extractSLD would
-// score a meaningless octet.
+// isIPLiteral returns true when host is a bare IPv4 or IPv6 address.
+// The DGA scorer should never run against IP literals — they have no
+// meaningful "domain" structure and extractSLD would score a
+// meaningless octet.
+//
+// Backed by net.ParseIP rather than a hand-rolled classifier. v0.16.1
+// shipped a heuristic that returned true for any string containing
+// only hex characters plus dots/colons; that incorrectly classified
+// all-hex hostnames like "face.beef", "abc.def", "cafe.dead" as IPs
+// and made applyDGAScoring skip them. The failure mode was a *false
+// negative for DGA detection*: an attacker could deliberately craft
+// an all-hex DGA name to evade the IP guard and (paradoxically) get
+// the DGA bump skipped. NEW-81 from the nineteenth audit round.
+//
+// Handles three forms:
+//
+//   - bare IPv4 / IPv6 ("185.43.7.92", "::1", "2001:db8::1")
+//   - IPv4-with-port ("185.43.7.92:443") — strip trailing :port
+//   - bracketed IPv6-with-port ("[::1]:443") — strip brackets + port
+//
+// Empty input returns false (treated as "no hostname" by the caller).
 func isIPLiteral(host string) bool {
-	// Strip optional port.
-	if i := strings.IndexByte(host, ':'); i >= 0 && !strings.Contains(host, "::") {
-		host = host[:i]
+	if host == "" {
+		return false
 	}
-	// Quick check: any letter present? IPv4/IPv6 addresses are all
-	// digits + dots + colons + hex digits. Any alphabetic char that
-	// isn't a hex digit (a-f) rules out IP-literal.
-	for _, r := range host {
-		if (r >= 'g' && r <= 'z') || (r >= 'G' && r <= 'Z') {
-			return false
+	// Bracketed IPv6 form: [<ip>]:<port>. The brackets disambiguate
+	// the IPv6 colons from the port colon and is the canonical
+	// representation in HTTP Host headers.
+	if host[0] == '[' {
+		if end := strings.IndexByte(host, ']'); end > 0 {
+			host = host[1:end]
+		}
+	} else if i := strings.LastIndexByte(host, ':'); i >= 0 {
+		// IPv4-with-port: single colon, no IPv6 syntax in front of it.
+		// We refuse to strip when host[:i] already contains colons —
+		// that's an IPv6 literal we should pass to ParseIP intact.
+		if !strings.ContainsRune(host[:i], ':') {
+			host = host[:i]
 		}
 	}
-	// Has dot → likely IPv4 if all numeric, has colon → likely IPv6.
-	hasDot := strings.Contains(host, ".")
-	hasColon := strings.Contains(host, ":")
-	return hasDot || hasColon
+	return net.ParseIP(host) != nil
 }
 
 // applyDGAScoring walks emitted Beaconing and HTTP Beaconing findings
