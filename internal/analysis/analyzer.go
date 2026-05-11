@@ -83,6 +83,14 @@ type Analyzer struct {
 	feedProvider FeedProvider
 	feedSources  []SourcedFeedIndicators
 
+	// Source for the previously-merged finding set, consulted by
+	// aggregateRisk so a quiet-this-run host doesn't keep a stale
+	// Host Risk Score row. Nil = analyzer runs with no historical
+	// context, which is the right shape for tests and for the
+	// archive-scan path where re-deriving HRS over preserved
+	// findings doesn't make sense. v0.14.10 NEW-67.
+	findingsProvider FindingsProvider
+
 	// Cancellation and pause
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -148,6 +156,13 @@ func (a *Analyzer) windowOf(sensor string) sensorWindow {
 // any time; the next prefetchFeeds invocation picks it up. Pass nil
 // to detach.
 func (a *Analyzer) SetFeedProvider(p FeedProvider) { a.feedProvider = p }
+
+// SetFindingsProvider wires the source of historical findings the
+// analyzer should consult when re-deriving Host Risk Score. Pass nil
+// to disable historical context — useful for tests and for archive
+// scans where the run is intentionally scoped to one log set.
+// v0.14.10 NEW-67.
+func (a *Analyzer) SetFindingsProvider(p FindingsProvider) { a.findingsProvider = p }
 
 // Cancel stops the analysis as soon as possible.
 func (a *Analyzer) Cancel() { a.cancel() }

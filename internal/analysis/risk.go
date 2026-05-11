@@ -67,7 +67,17 @@ func dampenComposite(raw int) int {
 }
 
 func (a *Analyzer) aggregateRisk(_ []string) {
-	// Group existing findings by src_ip
+	// Group findings by src_ip. The contributor set unions this run's
+	// fresh findings with the previously-merged finding set the store
+	// holds — without that union a host that detected last run but
+	// went silent this run keeps its stale Host Risk Score row
+	// indefinitely (the row's contributing detections are still in
+	// the store via SetFindings's preserve-historical loop, but
+	// aggregateRisk used to only see this-run's a.findings and so
+	// never re-emitted HRS for the host, leaving the old row
+	// untouched). Unioning the snapshots regenerates HRS over the
+	// host's complete detection footprint so the Hosts tab matches
+	// the visible evidence. v0.14.10 NEW-67.
 	type hostData struct {
 		types    map[string]bool
 		maxScore int
@@ -75,11 +85,18 @@ func (a *Analyzer) aggregateRisk(_ []string) {
 	}
 	hosts := make(map[string]*hostData)
 
-	a.mu.RLock()
-	for _, f := range a.findings {
+	// Existing HRS findings have to be excluded from contribution
+	// counting: they're the roll-up, not a detector, and folding them
+	// in would double-count and spiral upward across runs. They're
+	// also the type we're about to regenerate, so leaving them in
+	// would feed the previous-run's composite back into the new one.
+	contribute := func(f model.Finding) {
 		src := f.SrcIP
 		if src == "" || src == "(cert)" || src == "(escalation)" || src == "(network)" {
-			continue
+			return
+		}
+		if f.Type == "Host Risk Score" {
+			return
 		}
 		hd := hosts[src]
 		if hd == nil {
@@ -101,9 +118,40 @@ func (a *Analyzer) aggregateRisk(_ []string) {
 			hd.firstTS = f.Timestamp
 		}
 	}
+
+	a.mu.RLock()
+	for _, f := range a.findings {
+		contribute(f)
+	}
 	a.mu.RUnlock()
 
-	for src, hd := range hosts {
+	// Optional historical context. Nil provider = no union (tests +
+	// archive scans). The store snapshot is taken independently of
+	// a.mu — Store.GetFindings has its own lock — so there's no nested
+	// locking concern. v0.14.10 NEW-67.
+	if a.findingsProvider != nil {
+		for _, f := range a.findingsProvider.GetFindings() {
+			contribute(f)
+		}
+	}
+
+	// Iterate in sorted-key order so HRS finding IDs are deterministic
+	// across re-runs on identical input. Pre-fix `for src, hd := range
+	// hosts` used Go's randomized map iteration; a.add assigns sequential
+	// IDs in call order, so two fresh runs (post-ClearFindings) on the
+	// same logs produced different HRS IDs for the same host. Mostly a
+	// reproducibility-and-test-flake concern — steady-state preserves
+	// IDs via SetFindings fingerprint match — but the fix is mechanical
+	// and the same pattern risk.go:typeList already uses. v0.14.10
+	// NEW-68.
+	srcKeys := make([]string, 0, len(hosts))
+	for src := range hosts {
+		srcKeys = append(srcKeys, src)
+	}
+	sort.Strings(srcKeys)
+
+	for _, src := range srcKeys {
+		hd := hosts[src]
 		composite := 0
 		for t := range hd.types {
 			if w, ok := riskWeights[t]; ok {
