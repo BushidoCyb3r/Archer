@@ -11,7 +11,9 @@ package server
 
 import (
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
@@ -60,14 +62,41 @@ func EnsureTLS(dir string) (certPath, keyPath, fingerprint string, err error) {
 	keyPath = filepath.Join(dir, "server.key")
 	if _, e1 := os.Stat(certPath); e1 == nil {
 		if _, e2 := os.Stat(keyPath); e2 == nil {
-			fp, e := loadAndValidateOperatorTLS(certPath, keyPath)
-			return certPath, keyPath, fp, e
+			// Browsers (Chrome, Safari, Firefox) do not support
+			// Ed25519 server certs. Pre-v0.14.6 the auto-gen path
+			// used Ed25519 — fine for the original sensor pinning
+			// use case (curl supports Ed25519) but caught fire
+			// when v0.14.5 NEW-49 redirected admins to the same
+			// cert via browser, producing
+			// ERR_SSL_VERSION_OR_CIPHER_MISMATCH on every modern
+			// browser. Detect an Ed25519 auto-gen cert and
+			// regenerate it so existing deployments upgrade
+			// cleanly without manual file deletion. Operator-
+			// supplied certs in other algorithms (RSA, ECDSA) are
+			// honoured as-is — only Ed25519 self-signed certs get
+			// the auto-regen treatment because they're the only
+			// known-broken-for-browsers case.
+			if ed25519AutoGen(certPath, keyPath) {
+				log.Printf("server: regenerating Ed25519 TLS cert at %s with ECDSA P-256 (browsers don't support Ed25519 server certs — see CHANGELOG v0.14.6)", certPath)
+				if err = removeOldCertPair(certPath, keyPath); err != nil {
+					return
+				}
+			} else {
+				fp, e := loadAndValidateOperatorTLS(certPath, keyPath)
+				return certPath, keyPath, fp, e
+			}
 		}
 	}
 	if err = os.MkdirAll(dir, 0o700); err != nil {
 		return
 	}
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	// ECDSA P-256: universally supported by every modern browser
+	// and TLS library, including curl's --pinnedpubkey path that
+	// sensors use. The pin is over SubjectPublicKeyInfo, not the
+	// key algorithm, so sensors keep working regardless of which
+	// algorithm the cert uses — only the SPKI hash matters for
+	// pinning. v0.14.6 NEW-55.
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return
 	}
@@ -90,7 +119,7 @@ func EnsureTLS(dir string) (certPath, keyPath, fingerprint string, err error) {
 		DNSNames:              localDNSNames(),
 		IPAddresses:           localIPs(),
 	}
-	der, err := x509.CreateCertificate(rand.Reader, &tpl, &tpl, pub, priv)
+	der, err := x509.CreateCertificate(rand.Reader, &tpl, &tpl, &priv.PublicKey, priv)
 	if err != nil {
 		return
 	}
@@ -105,8 +134,57 @@ func EnsureTLS(dir string) (certPath, keyPath, fingerprint string, err error) {
 		return
 	}
 	fingerprint = pinnedPubkeyFromDER(der)
-	log.Printf("server: generated self-signed TLS cert at %s (sha256//%s)", certPath, fingerprint)
+	log.Printf("server: generated self-signed TLS cert at %s (ECDSA P-256, sha256//%s)", certPath, fingerprint)
 	return
+}
+
+// ed25519AutoGen reports whether the cert at certPath is the
+// specific "auto-gen Ed25519 self-signed" shape produced by
+// EnsureTLS before v0.14.6. Used to detect the broken-for-
+// browsers default and regenerate it with an ECDSA P-256 key.
+// Operator-supplied certs are not touched — only certs that
+// match every fingerprint of our pre-v0.14.6 auto-gen output
+// trigger the regeneration: Ed25519 public key AND
+// self-signed (Subject == Issuer) AND Subject CN == "archer".
+// An operator who deliberately provided an Ed25519 cert with a
+// different CN passes through to the operator-validation path
+// unchanged.
+func ed25519AutoGen(certPath, keyPath string) bool {
+	certPEM, err := os.ReadFile(certPath)
+	if err != nil {
+		return false
+	}
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return false
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return false
+	}
+	if _, ok := cert.PublicKey.(ed25519.PublicKey); !ok {
+		return false
+	}
+	if cert.Subject.CommonName != "archer" {
+		return false
+	}
+	// Self-signed: Subject == Issuer.
+	return cert.Subject.String() == cert.Issuer.String()
+}
+
+// removeOldCertPair deletes the previous auto-gen cert + key so
+// EnsureTLS's generation path runs. Used by the v0.14.6 Ed25519
+// auto-upgrade. Errors propagate so a permissions issue surfaces
+// at startup rather than masquerading as a quiet "cert didn't
+// rotate" mystery.
+func removeOldCertPair(certPath, keyPath string) error {
+	if err := os.Remove(certPath); err != nil {
+		return fmt.Errorf("server: remove old cert %s: %w", certPath, err)
+	}
+	if err := os.Remove(keyPath); err != nil {
+		return fmt.Errorf("server: remove old key %s: %w", keyPath, err)
+	}
+	return nil
 }
 
 // pinnedPubkeyFromDER returns the base64-encoded SHA256 of the cert's
