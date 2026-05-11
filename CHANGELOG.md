@@ -30,6 +30,78 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.16.2] — 2026-05-11
+
+Nineteenth external review round, first post-v0.16.1. Five
+findings: one real bug, three defensive tightenings, one
+documented edge case. The auditor's structural assessment was
+that the code is now in "defensible design vs could be tightened"
+territory — failures found are at the boundary, not in the core.
+
+The real bug (NEW-81) is mine to own: the hand-rolled
+`isIPLiteral` classifier I shipped in v0.16.1 returned `true`
+for any string composed of hex characters plus dots/colons.
+That's a false-positive on all-hex hostnames like `face.beef`
+or `cafe.dead`, which makes `applyDGAScoring` skip them. The
+paradoxical attack vector: a DGA author could craft an all-hex
+domain to *evade* the IP-literal filter and (because the filter
+skips them) get the DGA bump suppressed. Same shape of defense
+the wire-up was supposed to provide, broken by the classifier
+itself. `net.ParseIP` is the right tool and was always available
+— the hand-rolled heuristic was over-engineering with a real bug
+inside it.
+
+### Fixed
+
+- **NEW-81: `isIPLiteral` mis-classifies all-hex hostnames as IPs.**
+  v0.16.1's hand-rolled classifier returned `true` for any string
+  with no non-hex letters plus `.` or `:`. False-positives:
+  `face.beef`, `abc.def`, `cafe.dead`, `dead.beef.cafe.babe`.
+  Replaced with `net.ParseIP`-based check that handles bare IPv4
+  / IPv6, IPv4-with-port (`1.2.3.4:443`), and bracketed-IPv6-with-
+  port (`[::1]:443`). Regression cases added to `TestIsIPLiteral`
+  for the four all-hex hostnames + the two bracketed-IPv6 forms.
+- **NEW-83: defensive `isIPLiteral` at `dgaHostnameScore` entry.**
+  `applyDGAScoring` filters IP literals before calling
+  `dgaHostnameScore`, but the package-internal function is
+  callable directly without that filter — a future caller
+  bypassing applyDGAScoring would hit `extractSLD("2001:db8::1")`
+  → `"2001"` as a meaningless SLD. The guard is now at the
+  function entry where the consequence happens. Same NEW-66 /
+  NEW-77 pattern: enforce invariants at the point of use.
+- **NEW-85: `BeaconHistoryKey` collision via crafted `\x1f` input.**
+  A compromised sensor could craft an HTTP Host header containing
+  the literal Unit Separator byte and produce a key that collides
+  with another beacon's key (e.g. `Hostname="evil.com\x1fa", URI="/b"`
+  collides with `Hostname="evil.com", URI="a\x1f/b"`). Threat
+  model already accepts compromised-sensor data, but the cost of
+  defense is one `strings.ContainsRune` per field — the
+  `scrubSeparator` helper replaces `\x1f` with `\x1e` (Record
+  Separator) on the rare contains-path; the normal path
+  short-circuits. Regression test asserts the colliding pair
+  produces distinct keys post-scrub.
+- **NEW-82: `BeaconHistoryRetentionDays` exported, watch.go uses it.**
+  `watch.go` formatted the purge status line with a hard-coded
+  `30`; the constant of the same value lived as
+  `beaconHistoryRetentionDays`. Same doc-vs-code drift shape as
+  v0.16.1 NEW-79 but for retention. Constant exported (capital R),
+  callers reference one source of truth. Set-up for future
+  promotion to `config.Config`.
+
+### Known edge cases (documented, not fixed)
+
+- **NEW-84: UPSERT severity-update misses equal-score severity
+  bumps.** The `severity = CASE WHEN excluded.max_score > max_score
+  THEN ...` branch fires only on strict score increase. When a
+  beacon already at score 99 has its severity bumped a step by
+  the DGA augmentation in a later same-day pass (one-step severity
+  upgrade applies even at score-cap 99), the history row keeps
+  the earlier pass's severity. Realistic but rare — requires two
+  same-day passes both producing the same numeric max with
+  different severities. Documented in `saveBeaconHistory` with
+  the rationale for not restructuring yet; will revisit if
+  operators see it in practice.
+
 ## [v0.16.1] — 2026-05-11
 
 Eighteenth external review round, first post-v0.16.0. Four
