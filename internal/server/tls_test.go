@@ -144,6 +144,108 @@ func TestEnsureTLS_AcceptsValidOperatorECDSA(t *testing.T) {
 	}
 }
 
+// TestEnsureTLS_AutoGenIsECDSA covers v0.14.6 NEW-55: auto-gen
+// certs must use ECDSA P-256 (universally browser-supported), not
+// Ed25519 (rejected by Chrome / Safari / Firefox as server certs
+// — produces ERR_SSL_VERSION_OR_CIPHER_MISMATCH).
+func TestEnsureTLS_AutoGenIsECDSA(t *testing.T) {
+	dir := t.TempDir()
+	certPath, _, _, err := EnsureTLS(dir)
+	if err != nil {
+		t.Fatalf("EnsureTLS: %v", err)
+	}
+	pemBytes, _ := os.ReadFile(certPath)
+	block, _ := pem.Decode(pemBytes)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("parse generated cert: %v", err)
+	}
+	pub, ok := cert.PublicKey.(*ecdsa.PublicKey)
+	if !ok {
+		t.Fatalf("auto-gen cert public key is %T; want *ecdsa.PublicKey (NEW-55)", cert.PublicKey)
+	}
+	if pub.Curve != elliptic.P256() {
+		t.Errorf("auto-gen cert curve = %v; want P-256", pub.Curve.Params().Name)
+	}
+}
+
+// TestEnsureTLS_AutoUpgradesEd25519AutoGen covers the v0.14.6
+// transparent upgrade path: an existing Archer deployment that
+// auto-generated an Ed25519 cert pre-v0.14.6 must have it
+// regenerated as ECDSA P-256 on the next startup, with no
+// operator action required. Tests that the cert+key on disk
+// after EnsureTLS are ECDSA.
+func TestEnsureTLS_AutoUpgradesEd25519AutoGen(t *testing.T) {
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "server.crt")
+	keyPath := filepath.Join(dir, "server.key")
+
+	// Manufacture the exact pre-v0.14.6 auto-gen output: Ed25519,
+	// Subject CN="archer", self-signed.
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	tpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "archer"},
+		Issuer:       pkix.Name{CommonName: "archer"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().AddDate(10, 0, 0),
+	}
+	der, _ := x509.CreateCertificate(rand.Reader, tpl, tpl, pub, priv)
+	_ = writePEM(certPath, "CERTIFICATE", der, 0o600)
+	keyDER, _ := x509.MarshalPKCS8PrivateKey(priv)
+	_ = writePEM(keyPath, "PRIVATE KEY", keyDER, 0o600)
+
+	// EnsureTLS should detect the broken-for-browsers Ed25519
+	// auto-gen cert and replace it with an ECDSA P-256 cert.
+	_, _, _, err := EnsureTLS(dir)
+	if err != nil {
+		t.Fatalf("EnsureTLS during auto-upgrade: %v", err)
+	}
+
+	pemBytes, _ := os.ReadFile(certPath)
+	block, _ := pem.Decode(pemBytes)
+	cert, _ := x509.ParseCertificate(block.Bytes)
+	if _, ok := cert.PublicKey.(*ecdsa.PublicKey); !ok {
+		t.Errorf("after auto-upgrade, cert public key is %T; want *ecdsa.PublicKey", cert.PublicKey)
+	}
+}
+
+// TestEnsureTLS_PreservesOperatorEd25519 covers the inverse: an
+// operator who deliberately drops in an Ed25519 cert with a
+// different Subject (their own CA's naming) must NOT have it
+// auto-regenerated. Only the specific pre-v0.14.6 auto-gen
+// shape (CN="archer" + self-signed + Ed25519) gets replaced.
+func TestEnsureTLS_PreservesOperatorEd25519(t *testing.T) {
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "server.crt")
+	keyPath := filepath.Join(dir, "server.key")
+
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	tpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "operator-internal-ca-issued"},
+		Issuer:       pkix.Name{CommonName: "operator-internal-ca-issued"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().AddDate(10, 0, 0),
+	}
+	der, _ := x509.CreateCertificate(rand.Reader, tpl, tpl, pub, priv)
+	_ = writePEM(certPath, "CERTIFICATE", der, 0o600)
+	keyDER, _ := x509.MarshalPKCS8PrivateKey(priv)
+	_ = writePEM(keyPath, "PRIVATE KEY", keyDER, 0o600)
+
+	_, _, _, err := EnsureTLS(dir)
+	if err != nil {
+		t.Fatalf("EnsureTLS with operator Ed25519 cert: %v", err)
+	}
+
+	pemBytes, _ := os.ReadFile(certPath)
+	block, _ := pem.Decode(pemBytes)
+	cert, _ := x509.ParseCertificate(block.Bytes)
+	if _, ok := cert.PublicKey.(ed25519.PublicKey); !ok {
+		t.Errorf("operator Ed25519 cert was replaced (now %T) — auto-upgrade is too aggressive", cert.PublicKey)
+	}
+}
+
 // ed25519PrivFor returns a deterministic Ed25519 private key paired
 // with the given public key — used in the mismatch test to exercise
 // signature creation against the cert's public key while installing
