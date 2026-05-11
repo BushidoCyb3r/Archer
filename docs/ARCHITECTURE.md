@@ -122,16 +122,18 @@ A new finding's life:
 
 ## Analyzer phases
 
-`internal/analysis/analyzer.go` orchestrates five phases. Phase 0 runs
-in the background overlapping phase 1; phases 2-4 are sequential.
+`internal/analysis/analyzer.go` orchestrates seven phases. Phase 0
+runs in the background overlapping phase 1; phases 2–4 are sequential.
 
 | Phase | Work | Files |
 |-------|------|-------|
 | 0 | Threat-intel feed prefetch. Built-in feeds (Feodo, URLhaus) fetch over the network; configured MISP/OpenCTI feeds load their cached indicators from SQLite via `FeedProvider`. Overlaps with phase 1. | `ti.go: prefetchFeeds` |
 | 1 | All log-type analyzers in parallel — they're independent. Conn (beacon/strobe/exfil/long-conn), DNS, SSL, X.509, Files, Weird, Notice. | `conn.go`, `dns.go`, `ssl.go`, `x509.go`, `files.go`, `weird.go`, `notice.go` |
 | 2 | HTTP analysis (sequential — needs `sslUIDIndex` populated by `analyzeSSL` in phase 1). | `http_analysis.go` |
+| 2.5 | DGA hostname augmentation. Post-Phase-2 sweep over Beaconing / HTTP Beaconing findings; bumps score (+15) and severity when the destination Hostname's SLD looks algorithmically generated (high entropy + low English bigram log-likelihood). | `dga.go: applyDGAScoring` |
 | 3 | URL + TI checks in parallel (need cached feeds from phase 0, plus the per-file dst sets). Two-phase TI scan: cheap dst-only sweep, then targeted per-source for "winners" only. | `ti.go`, `http_analysis.go: analyzeURLs` |
-| 4 | Host risk scoring — composite per-host roll-up of all findings touching each host. | `risk.go` |
+| 3.5 | Cross-detector correlation. Walks emitted findings, groups by (sensor, src, dst), emits a Correlated Activity roll-up when ≥N distinct detector types fire on the same pair. Contributing findings get their sibling IDs in `Correlations`. Sees historical findings via `findingsProvider` (same NEW-67 union pattern aggregateRisk uses). | `correlate.go` |
+| 4 | Host risk scoring — composite per-host roll-up of all findings touching each host. Excludes roll-up types from the contributor set (HRS recursion + Correlated Activity double-counting). | `risk.go` |
 
 The bounded-parallelism helper `parallelEach(files, fn)` is the
 universal worker; it spawns `memoryBoundedWorkers(cpus)` goroutines,
@@ -182,7 +184,28 @@ CREATE TABLE findings (
     sensor       TEXT,         -- formerly 'dataset'; renamed in-place
     intervals    TEXT,         -- JSON, beacon-chart raw intervals
     ts_data      TEXT,         -- JSON, beacon-chart raw timestamps
-    notes        TEXT          -- JSON array of operator notes (escalation, TI cross-notes)
+    notes        TEXT,         -- JSON array of operator notes (escalation, TI cross-notes)
+    correlations TEXT          -- JSON []int of sibling finding IDs (Correlated Activity participants)
+);
+
+CREATE TABLE beacon_history (
+    fingerprint  TEXT NOT NULL,        -- BeaconHistoryKey: canonical-string identity
+                                       -- (Type|SrcIP|DstIP|DstPort|Host|URI joined by \x1f)
+    day_utc      TEXT NOT NULL,        -- YYYY-MM-DD
+    finding_type TEXT NOT NULL,        -- 'Beaconing' or 'HTTP Beaconing'
+    src_ip       TEXT NOT NULL,
+    dst_ip       TEXT NOT NULL,
+    dst_port     TEXT NOT NULL DEFAULT '',
+    host         TEXT NOT NULL DEFAULT '',
+    uri          TEXT NOT NULL DEFAULT '',
+    score        INTEGER NOT NULL,     -- composite, 0-100
+    severity     TEXT NOT NULL,
+    ts_score     REAL NOT NULL DEFAULT 0,
+    ds_score     REAL NOT NULL DEFAULT 0,
+    hist_score   REAL NOT NULL DEFAULT 0,
+    dur_score    REAL NOT NULL DEFAULT 0,
+    created_at   INTEGER NOT NULL,
+    PRIMARY KEY (fingerprint, day_utc)
 );
 
 CREATE TABLE settings (
@@ -253,6 +276,38 @@ analyst work doesn't get destroyed by a re-analysis.
 
 The flag `IsNew` is set for fingerprint-fresh findings — TI
 cross-annotation and notification-firing both gate on this.
+
+After the merge persists, `SetFindings` also writes one row per
+Beaconing / HTTP Beaconing finding to `beacon_history`, keyed by
+`(Finding.BeaconHistoryKey(), today_UTC)` with the four sub-axis
+scores. The composite PRIMARY KEY + `INSERT … ON CONFLICT DO
+NOTHING` means the first full pass of the UTC day wins — noon
+re-runs against partial logs don't overwrite the morning's
+representative snapshot. Retention is 30 days, swept on the
+watch's first-tick-of-UTC-day branch via
+`Store.PurgeBeaconHistory()`.
+
+### `BeaconHistoryKey` vs `Fingerprint`
+
+Two identity functions on `model.Finding` with deliberately
+different granularity:
+
+- `Fingerprint()` is `{Type, SrcIP, DstIP, DstPort}` — what
+  SetFindings uses to preserve analyst state. Intentionally
+  coarse: one note per src→dst beacon family is what an analyst
+  wants regardless of how many (host, uri) variants share the
+  destination.
+- `BeaconHistoryKey()` adds `Hostname` and `URI` and joins with
+  ASCII Unit Separator (`\x1f`, never appears in URLs / hostnames
+  / IPs). Used by `beacon_history` to keep separate trend lines
+  for two HTTP beacons sharing a destination but going to
+  different `(host, uri)` — without that wider key, the chart
+  would mix signal on CDN-fronted destinations.
+
+The canonical-string form (not sha256-hashed) is deliberate —
+`beacon_history` rows can outlive their source finding by the
+retention window, so the table needs to be SQLite-CLI inspectable
+on its own without joining back to `findings`.
 
 ---
 

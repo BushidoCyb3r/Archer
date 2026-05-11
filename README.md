@@ -38,6 +38,10 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 ## Features
 
 - **Multi-log analysis** — ingests conn, DNS, HTTP, SSL, X.509, files, weird, and notice logs in TSV or JSON/NDJSON format, including gzip-compressed files
+- **Spectral beacon rescue** — Lomb-Scargle periodogram over reservoir-sampled timestamps catches bounded-jitter C2 beacons (fixed cadence + random jitter around it) that defeat statistical interval-distribution scoring. Gated to only run when the statistical path scored weak, ~4 ms/pair overhead. Calibration knobs in Settings; tuning guide at [docs/SPECTRAL_TUNING.md](docs/SPECTRAL_TUNING.md).
+- **DGA hostname augmentation** — Beaconing / HTTP Beaconing scores get a +15 / one-step severity bump when the destination's registrable domain looks algorithmically generated (high Shannon entropy + low English-bigram log-likelihood). Built-in CDN allowlist + operator allowlist suppress legitimate algorithmic hostnames.
+- **Cross-detector correlation** — same `(src, dst)` pair carrying findings from ≥N distinct detector types becomes a Correlated Activity roll-up; contributing findings carry a `+N corr` chip linking back. Catches kill-chain progression (Beaconing + DNS Tunneling, Suspicious File + TI Hit, etc.).
+- **30-day beacon score evolution chart** — per-beacon trend line in the finding detail pane shows composite score + four sub-axes (timing, bytes, histogram, persistence) over the last 30 UTC days, written by `SetFindings` on the first full pass of each day. Surfaces whether a beacon is escalating, stable, or decaying.
 - **Bounded memory detection** — beacon analyzers use streaming aggregates and reservoir sampling so peak memory is a function of unique pair count, not total record count; Docker entrypoint auto-derives `GOMEMLIMIT` from the container's cgroup so the Go runtime applies back-pressure before OOM
 - **Persistent findings** — findings survive restarts, rebuilds, and re-analyses; analyst annotations (status, notes, assignee) are carried over by fingerprint match; findings are preserved even when the logs that produced them are later archived, and are only removed when an admin explicitly prunes them
 - **Delta detection** — new findings are flagged so analysts can focus on what changed since the last run
@@ -144,6 +148,7 @@ For the analyst-side workflow — how to actually hunt with these findings, what
 | Detection Type | Description | Severity |
 |---|---|---|
 | **Host Risk Score** | Weighted composite score (0–100) aggregated across all findings for a given source IP. Weights: Cobalt Strike URI +40, Malicious JA3 +40, Domain Fronting +32, TI Hit (IP/Domain/Hash) +35 each, HTTP Beaconing +28, Beaconing +30, Data Exfiltration +25, Lateral Movement +20, Strobe +15, Long Connection +10. Surfaced in the **Hosts** tab (not the Findings tab — that tab is reserved for discrete network events). Click any host row to open the underlying score breakdown. | CRITICAL / HIGH / MEDIUM / LOW |
+| **Correlated Activity** | Same-pair multi-detector roll-up: any `(src, dst)` pair carrying findings from N+ distinct detector types becomes a Correlated Activity row, and contributing findings carry a `+N corr` chip linking back. Score = max(contributor scores) + 5 per extra distinct type above N (capped 99). Excludes roll-ups (HRS recursion, self-feedback), Zeek Notice, and Long Connection from the contributor set. Surfaces kill-chain progression a single detector wouldn't catch alone. | CRITICAL / HIGH / MEDIUM |
 
 ---
 
