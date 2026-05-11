@@ -600,6 +600,7 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) bool {
 	go func() {
 		az := analysis.New(cfg, logsDir, progressCh, statusCh)
 		az.SetFeedProvider(s.store)
+		az.SetFindingsProvider(s.store)
 
 		s.analyzerMu.Lock()
 		s.activeAnalyzer = az
