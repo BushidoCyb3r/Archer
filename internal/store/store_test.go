@@ -1,9 +1,13 @@
 package store
 
 import (
+	"database/sql"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	_ "modernc.org/sqlite"
 
 	"github.com/BushidoCyb3r/Archer/internal/config"
 	"github.com/BushidoCyb3r/Archer/internal/model"
@@ -230,6 +234,194 @@ func TestSetFindings_PurgesStaleRollups(t *testing.T) {
 	if gotTypes["Correlated Activity"] != 0 {
 		t.Errorf("stale Correlated Activity not purged; got %d row(s)", gotTypes["Correlated Activity"])
 	}
+}
+
+// TestSetFindings_CorrelationsPersistAcrossReload codifies NEW-72.
+// Pre-fix Finding.Correlations was in-memory only: saveFindings didn't
+// serialize it and loadFindings didn't read it back, so the "+N corr"
+// chip in the Findings table disappeared on every server restart and
+// only reappeared after the next analysis run repopulated the field.
+// Schema migration 0010 added a correlations TEXT column; this test
+// asserts the round-trip preserves the slice through a save-and-reload.
+func TestSetFindings_CorrelationsPersistAcrossReload(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db1, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db1.SetMaxOpenConns(1)
+	if err := RunMigrations(db1); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	s1 := New(config.Default())
+	s1.InitDB(db1)
+	// Seed: three findings, two of which carry Correlations referencing
+	// the third (a Correlated Activity roll-up).
+	s1.SetFindings([]model.Finding{
+		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00",
+			Correlations: []int{2, 3}},
+		{ID: 2, Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "53",
+			Score: 60, Severity: model.SevMedium, Timestamp: "2026-05-11 09:00:00",
+			Correlations: []int{1, 3}},
+		{ID: 3, Type: model.TypeCorrelatedActivity, SrcIP: "10.0.0.1", DstIP: "1.1.1.1",
+			Score: 85, Severity: model.SevCritical, Timestamp: "2026-05-11 09:00:00",
+			Correlations: []int{1, 2}},
+	})
+
+	// Capture the post-translation persisted Correlations from s1.
+	want := make(map[string][]int, 3)
+	for _, f := range s1.findings {
+		want[f.Type] = append([]int{}, f.Correlations...)
+		if len(f.Correlations) == 0 {
+			t.Errorf("setup: %s has no Correlations after first SetFindings", f.Type)
+		}
+	}
+	_ = db1.Close()
+
+	// Reload from the same on-disk DB into a fresh Store. The
+	// correlations column read in loadFindings must restore each
+	// finding's slice byte-for-byte.
+	db2, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("reopen db: %v", err)
+	}
+	db2.SetMaxOpenConns(1)
+	defer db2.Close()
+
+	s2 := New(config.Default())
+	s2.InitDB(db2)
+
+	for _, f := range s2.findings {
+		got := f.Correlations
+		exp := want[f.Type]
+		if !sameIntSet(got, exp) {
+			t.Errorf("%s.Correlations after reload = %v; want %v", f.Type, got, exp)
+		}
+	}
+}
+
+// TestSetFindings_TranslatesCorrelationIDs codifies NEW-71. correlate.go
+// populates Finding.Correlations with the per-run fresh a.nextID++ IDs
+// at emit time; SetFindings then rewrites each finding's ID via
+// fingerprint match. Without translation, the Correlations slice
+// retains stale fresh-IDs that either don't exist or collide with
+// unrelated findings from prior runs.
+//
+// Worked example: a fresh Beaconing emitted at fresh ID 1 with
+// Correlations=[2,3] (sibling + correlation-row IDs from the same
+// run) lands on top of a preserved Beaconing fingerprint at persisted
+// ID 47. After SetFindings, the merged row must have ID 47 AND
+// Correlations translated to the corresponding persisted IDs of
+// findings 2 and 3 in the same run — not the raw [2,3] from the
+// analyzer's perspective.
+func TestSetFindings_TranslatesCorrelationIDs(t *testing.T) {
+	s := New(config.Default())
+
+	// Seed two findings whose fingerprints will be re-fired in run 2.
+	// They get high persisted IDs because they're the only seed rows.
+	s.SetFindings([]model.Finding{
+		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-10 09:00:00"},
+		{ID: 2, Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "53", Score: 60, Severity: model.SevMedium, Timestamp: "2026-05-10 09:00:00"},
+	})
+
+	// Capture the post-merge IDs (post-run-1 SetFindings may have
+	// assigned different IDs than the inputs supplied above).
+	var bcnPersisted, dnsPersisted int
+	for _, f := range s.findings {
+		switch f.Type {
+		case "Beaconing":
+			bcnPersisted = f.ID
+		case "DNS Tunneling":
+			dnsPersisted = f.ID
+		}
+	}
+	if bcnPersisted == 0 || dnsPersisted == 0 {
+		t.Fatal("setup: failed to locate seeded findings by type")
+	}
+
+	// Run 2: analyzer emits the same two findings with FRESH IDs (1, 2)
+	// plus a Correlated Activity row at fresh ID 3 that annotates each
+	// contributor's Correlations with sibling + correlation-row IDs.
+	// This is the shape correlate.go produces in-memory before
+	// SetFindings has had a chance to rewrite IDs.
+	freshBcnID, freshDnsID, freshCorrID := 1, 2, 3
+	s.SetFindings([]model.Finding{
+		{
+			ID: freshBcnID, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00",
+			Correlations: []int{freshDnsID, freshCorrID}, // sibling + roll-up
+		},
+		{
+			ID: freshDnsID, Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "53",
+			Score: 60, Severity: model.SevMedium, Timestamp: "2026-05-11 09:00:00",
+			Correlations: []int{freshBcnID, freshCorrID},
+		},
+		{
+			ID: freshCorrID, Type: model.TypeCorrelatedActivity, SrcIP: "10.0.0.1", DstIP: "1.1.1.1",
+			Score: 85, Severity: model.SevCritical, Timestamp: "2026-05-11 09:00:00",
+			Correlations: []int{freshBcnID, freshDnsID}, // contributors
+		},
+	})
+
+	// Locate the persisted findings by type/fingerprint.
+	var bcn, dns, corr *model.Finding
+	for i := range s.findings {
+		f := &s.findings[i]
+		switch f.Type {
+		case "Beaconing":
+			bcn = f
+		case "DNS Tunneling":
+			dns = f
+		case model.TypeCorrelatedActivity:
+			corr = f
+		}
+	}
+	if bcn == nil || dns == nil || corr == nil {
+		t.Fatalf("missing finding after run 2: bcn=%v dns=%v corr=%v", bcn, dns, corr)
+	}
+
+	// Beaconing/DNS Tunneling kept their preserved IDs (fingerprint match).
+	if bcn.ID != bcnPersisted {
+		t.Errorf("Beaconing.ID = %d; want preserved %d", bcn.ID, bcnPersisted)
+	}
+	if dns.ID != dnsPersisted {
+		t.Errorf("DNS Tunneling.ID = %d; want preserved %d", dns.ID, dnsPersisted)
+	}
+
+	// Correlations must reference the post-translation persisted IDs,
+	// not the analyzer's fresh per-run IDs. Specifically:
+	//   Beaconing.Correlations should be [dnsPersisted, corr.ID]
+	//   DNS Tunneling.Correlations should be [bcnPersisted, corr.ID]
+	//   Correlated Activity.Correlations should be [bcnPersisted, dnsPersisted]
+	if !sameIntSet(bcn.Correlations, []int{dnsPersisted, corr.ID}) {
+		t.Errorf("Beaconing.Correlations = %v; want [%d, %d] (translated fresh→persisted)", bcn.Correlations, dnsPersisted, corr.ID)
+	}
+	if !sameIntSet(dns.Correlations, []int{bcnPersisted, corr.ID}) {
+		t.Errorf("DNS Tunneling.Correlations = %v; want [%d, %d]", dns.Correlations, bcnPersisted, corr.ID)
+	}
+	if !sameIntSet(corr.Correlations, []int{bcnPersisted, dnsPersisted}) {
+		t.Errorf("Correlated Activity.Correlations = %v; want [%d, %d] (the two contributors)", corr.Correlations, bcnPersisted, dnsPersisted)
+	}
+}
+
+// sameIntSet compares two int slices ignoring order.
+func sameIntSet(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := make(map[int]int, len(a))
+	for _, v := range a {
+		set[v]++
+	}
+	for _, v := range b {
+		set[v]--
+		if set[v] < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // TestSetFindings_PreservesNonRollupHistorical confirms the purge is

@@ -221,6 +221,53 @@ func TestCorrelate_DisabledThresholdSkipsPhase(t *testing.T) {
 	}
 }
 
+// TestCorrelate_PartitionsBySensor codifies NEW-73. Two sensors
+// observing the same (src, dst) pair independently (overlapping
+// captures from multiple Quiver collectors watching the same
+// backbone) must produce two separate correlations — one per sensor
+// — not a single conflated row. Same shape as NEW-6's beacon-pair
+// sensor partitioning. Single-sensor deployments are unaffected
+// (Sensor field is constant across findings).
+func TestCorrelate_PartitionsBySensor(t *testing.T) {
+	a := New(config.Default(), "", nil, nil)
+	// Sensor-A observation: Beaconing + DNS Tunneling on (10.0.0.1 → 1.2.3.4).
+	a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 80, Sensor: "sensor-a"})
+	a.add(model.Finding{Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 60, Sensor: "sensor-a"})
+	// Sensor-B observation: Strobe + Data Exfiltration on the SAME pair
+	// (because both sensors capture the same flow). These should NOT
+	// merge with sensor-a's findings; the correlations are per-sensor.
+	a.add(model.Finding{Type: "Strobe", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 70, Sensor: "sensor-b"})
+	a.add(model.Finding{Type: "Data Exfiltration", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 65, Sensor: "sensor-b"})
+
+	a.correlateFindings()
+
+	corrBySensor := map[string]*model.Finding{}
+	for i := range a.findings {
+		f := &a.findings[i]
+		if f.Type != model.TypeCorrelatedActivity {
+			continue
+		}
+		if existing, ok := corrBySensor[f.Sensor]; ok {
+			t.Errorf("duplicate correlation for sensor %q: existing=%+v new=%+v", f.Sensor, existing, f)
+		}
+		corrBySensor[f.Sensor] = f
+	}
+	if len(corrBySensor) != 2 {
+		t.Errorf("expected exactly 2 correlations (one per sensor); got %d", len(corrBySensor))
+	}
+	if corrBySensor["sensor-a"] == nil {
+		t.Error("missing correlation for sensor-a")
+	}
+	if corrBySensor["sensor-b"] == nil {
+		t.Error("missing correlation for sensor-b")
+	}
+	// Pre-fix the test would have surfaced ONE correlation conflating
+	// Beaconing+DNS Tunneling+Strobe+Data Exfil into a single 4-type
+	// roll-up keyed only on (src, dst). The sensor field would have
+	// reflected whichever finding's Sensor happened to win the
+	// (non-existent) merge — silently wrong.
+}
+
 // TestCorrelate_ClearsStaleCorrelations verifies the staleness fix:
 // a finding from a prior run that carried Correlations from then but
 // doesn't participate this run gets its slice cleared, so the table

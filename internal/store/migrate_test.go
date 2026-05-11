@@ -137,18 +137,39 @@ func TestRunMigrations_ExistingPreFrameworkDB_StampsVersion1(t *testing.T) {
 		t.Errorf("version 1 should be stamped on pre-framework DB; applied=%v", applied)
 	}
 
-	// Crucially: the findings table we seeded must still be there with
-	// only its single column. If RunMigrations had re-run 0001, the
-	// CREATE TABLE IF NOT EXISTS would have been a no-op (preserving the
-	// stub), but if a future migration wasn't IF NOT EXISTS the seed
-	// could have been clobbered. Verify the stub survived.
-	var count int
-	if err := db.QueryRow(
-		`SELECT COUNT(*) FROM pragma_table_info('findings')`).Scan(&count); err != nil {
+	// Crucially: the seeded findings table must survive — RunMigrations
+	// must NOT have re-run 0001 and re-created the table. Later
+	// migrations (e.g. 0010 adding the correlations column) legitimately
+	// add columns to findings, so we can't just check the column count.
+	// Verify the original `id` column from the stub is still present
+	// (and the only non-migration column); a CREATE TABLE re-run would
+	// have produced 0001's full column set instead.
+	cols := map[string]bool{}
+	rows2, err := db.Query(`SELECT name FROM pragma_table_info('findings')`)
+	if err != nil {
 		t.Fatalf("inspect findings columns: %v", err)
 	}
-	if count != 1 {
-		t.Errorf("seeded findings table appears to have been re-created; expected 1 column, got %d", count)
+	defer rows2.Close()
+	for rows2.Next() {
+		var name string
+		if err := rows2.Scan(&name); err != nil {
+			t.Fatalf("scan column name: %v", err)
+		}
+		cols[name] = true
+	}
+	if !cols["id"] {
+		t.Errorf("seeded findings table missing the `id` column; expected stub to survive")
+	}
+	// If 0001 had been re-run, the table would have ~20+ columns from
+	// the full v0.1.0 schema. The stub had 1; migrations 0002-0009 don't
+	// touch findings; 0010 adds correlations. So only id + columns from
+	// post-0001 migrations should be present. If anything from 0001's
+	// schema (like `type`, `severity`, `src_ip`) shows up, 0001 was
+	// re-run against the seeded table.
+	for _, postStub := range []string{"type", "severity", "src_ip", "dst_ip", "score"} {
+		if cols[postStub] {
+			t.Errorf("seeded findings table has %q column — 0001 was re-run against the existing stub", postStub)
+		}
 	}
 }
 

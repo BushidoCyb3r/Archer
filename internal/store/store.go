@@ -250,7 +250,7 @@ func (s *Store) loadFindings() {
 	if s.db == nil {
 		return
 	}
-	rows, err := s.db.Query(`SELECT id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes FROM findings ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes, correlations FROM findings ORDER BY id`)
 	if err != nil {
 		log.Printf("store: load findings: %v", err)
 		return
@@ -259,8 +259,8 @@ func (s *Store) loadFindings() {
 	for rows.Next() {
 		var f model.Finding
 		var iocMatch, isNew int
-		var intervals, tsData, notes string
-		if err := rows.Scan(&f.ID, &f.Type, &f.Severity, &f.Score, &f.SrcIP, &f.DstIP, &f.DstPort, &f.Detail, &f.Timestamp, &f.SourceFile, &f.Status, &f.Analyst, &f.AnalystNote, &f.StatusTS, &iocMatch, &isNew, &f.Sensor, &intervals, &tsData, &notes); err != nil {
+		var intervals, tsData, notes, correlations string
+		if err := rows.Scan(&f.ID, &f.Type, &f.Severity, &f.Score, &f.SrcIP, &f.DstIP, &f.DstPort, &f.Detail, &f.Timestamp, &f.SourceFile, &f.Status, &f.Analyst, &f.AnalystNote, &f.StatusTS, &iocMatch, &isNew, &f.Sensor, &intervals, &tsData, &notes, &correlations); err != nil {
 			log.Printf("store: scan finding: %v", err)
 			continue
 		}
@@ -279,6 +279,15 @@ func (s *Store) loadFindings() {
 		if notes != "" {
 			if err := json.Unmarshal([]byte(notes), &f.Notes); err != nil {
 				log.Printf("store: finding %d: corrupt notes: %v", f.ID, err)
+			}
+		}
+		// NEW-72: Correlations persists across restarts so the "+N corr"
+		// chip stays visible without requiring a fresh analysis run to
+		// repopulate. Empty string (the schema default for pre-0010
+		// rows) decodes to a nil slice — matches the pre-feature shape.
+		if correlations != "" {
+			if err := json.Unmarshal([]byte(correlations), &f.Correlations); err != nil {
+				log.Printf("store: finding %d: corrupt correlations: %v", f.ID, err)
 			}
 		}
 		s.findings = append(s.findings, f)
@@ -306,6 +315,14 @@ func (s *Store) saveFindings() {
 		intervals, _ := json.Marshal(f.Intervals)
 		tsData, _ := json.Marshal(f.TSData)
 		notes, _ := json.Marshal(f.Notes)
+		// NEW-72: persist Correlations alongside the other in-memory
+		// per-finding slices. A nil slice marshals to "null" which the
+		// load path handles correctly (json.Unmarshal of "null" into
+		// *[]int sets the slice to nil); an empty slice marshals to
+		// "[]" which decodes back to an empty (non-nil) slice. Both
+		// shapes are semantically equivalent for the chip-rendering
+		// logic.
+		correlations, _ := json.Marshal(f.Correlations)
 		iocMatch, isNew := 0, 0
 		if f.IOCMatch {
 			iocMatch = 1
@@ -314,10 +331,10 @@ func (s *Store) saveFindings() {
 			isNew = 1
 		}
 		_, err := tx.Exec(
-			`INSERT INTO findings (id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT INTO findings (id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes, correlations) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			f.ID, f.Type, string(f.Severity), f.Score, f.SrcIP, f.DstIP, f.DstPort, f.Detail, f.Timestamp, f.SourceFile,
 			string(f.Status), f.Analyst, f.AnalystNote, f.StatusTS, iocMatch, isNew, f.Sensor,
-			string(intervals), string(tsData), string(notes),
+			string(intervals), string(tsData), string(notes), string(correlations),
 		)
 		if err != nil {
 			tx.Rollback()
@@ -363,11 +380,26 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 		}
 	}
 
+	// freshToPersisted maps the analyzer's per-run a.nextID++ IDs to
+	// the IDs that survive this SetFindings call. correlate.go
+	// populates Finding.Correlations with the per-run fresh IDs at
+	// emit time — those references go stale the moment SetFindings
+	// rewrites a finding's ID via fingerprint match. NEW-71: walk
+	// once to assign IDs and build the map, then walk again to
+	// translate every Correlations slice through it. Without this,
+	// an analyst seeing a finding with correlations=[5,8] via /api/
+	// findings has no way to follow those references — fresh IDs 5
+	// and 8 either don't exist post-translation or, worse, collide
+	// with unrelated findings from prior runs that happened to land
+	// on the same low IDs.
+	freshToPersisted := make(map[int]int, len(findings))
+
 	newFPSet := make(map[model.Fingerprint]bool, len(findings))
 	nextNewID := maxExistingID
 	for i := range findings {
 		fp := findings[i].Fingerprint()
 		newFPSet[fp] = true
+		freshID := findings[i].ID
 		if old, ok := existing[fp]; ok {
 			// Carry the stable ID forward along with analyst state — external
 			// references (open browser tabs, copied PCAP-filter URLs, etc.)
@@ -387,6 +419,30 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 			findings[i].ID = nextNewID
 			findings[i].IsNew = true
 		}
+		freshToPersisted[freshID] = findings[i].ID
+	}
+
+	// Translate Correlations references on this-run findings from the
+	// fresh per-run IDs to the post-rewrite persisted IDs. NEW-71.
+	// Defensive: a fresh ID that doesn't appear in the map (which
+	// shouldn't happen — correlate.go only annotates a.findings
+	// entries with IDs from a.findings, all of which pass through
+	// this loop) gets dropped rather than carried as a dangling
+	// reference. Preserved historical findings are NOT touched here:
+	// their Correlations slices were translated by the SetFindings
+	// run that originally persisted them and remain in terms of
+	// persisted IDs already.
+	for i := range findings {
+		if len(findings[i].Correlations) == 0 {
+			continue
+		}
+		translated := make([]int, 0, len(findings[i].Correlations))
+		for _, freshID := range findings[i].Correlations {
+			if persistedID, ok := freshToPersisted[freshID]; ok {
+				translated = append(translated, persistedID)
+			}
+		}
+		findings[i].Correlations = translated
 	}
 
 	// Preserve all historical findings that weren't regenerated in this run.
