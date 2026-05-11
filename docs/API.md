@@ -407,7 +407,7 @@ Manual control over the analyzer (separate from watch-mode auto-runs).
 
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
-| `POST` | `/api/analyze` | analyst+ | Kick off a full analysis pass over `/logs`. Body is optional `{config}`; the pre-v0.7.0 `files` field is ignored. Returns `{"error":"no logs found in /logs"}` when the tree is empty. |
+| `POST` | `/api/analyze` | analyst+ | Kick off a full analysis pass over `/logs`. **No body** — pre-v0.14.8 the handler accepted a `{config}` body that silently mutated the analyzer config without going through the admin gate or the audit log; that path was removed in v0.14.8 NEW-60. Config changes go through `PUT /api/config` (admin-only, audited). The pre-v0.7.0 `files` field is also ignored. Returns `{"error":"no logs found in /logs"}` when the tree is empty. |
 | `GET` | `/api/analyze/status` | any | Current pipeline state: `idle` / `running` / `paused` + progress %. |
 | `POST` | `/api/analyze/cancel` | analyst+ | Stop the running pipeline. |
 | `POST` | `/api/analyze/pause` | analyst+ | Pause; resume with the next call. |
