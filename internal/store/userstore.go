@@ -176,9 +176,22 @@ func (us *UserStore) EmailExists(email string) bool {
 }
 
 // Authenticate checks credentials and returns the user on success.
+//
+// Both failure paths (unknown email, wrong password) run a bcrypt
+// comparison so wall-clock latency is roughly equal across the two
+// outcomes. Pre-v0.14.4 the unknown-email path returned early
+// without invoking bcrypt while the wrong-password path ran the
+// full bcrypt cost (~200ms at DefaultCost) — an attacker measuring
+// response time could enumerate registered emails by their latency
+// difference. NEW-39's rate limit slows enumeration but the leak
+// was still present within each per-IP window (10 attempts/min ×
+// over hours = a real signal). Same timing-pad pattern the
+// registration path already uses for the same reason. v0.14.4
+// NEW-46.
 func (us *UserStore) Authenticate(email, password string) (model.User, bool) {
 	u, ok := us.GetUserByEmail(email)
 	if !ok {
+		us.EnumerationTimingPad(password)
 		return model.User{}, false
 	}
 	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) != nil {

@@ -288,20 +288,15 @@ func (s *Server) handleQuiverCheckin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	srcIP := sourceIP(r)
-	if !s.rateLimit.allow(srcIP) {
-		// Rate-limit the checkin endpoint so a flood of bad-HMAC or
-		// unknown-name attempts can't grow audit_log without bound.
-		// A legitimate sensor's hourly cadence is nowhere near the
-		// 10-per-minute bucket; only attack traffic trips this.
-		// v0.14.3 NEW-39.
-		s.recordAudit(r, "request_rate_limited", auditEvent{
-			TargetType: "sensor",
-			Details:    map[string]any{"path": "/api/quiver/checkin", "reason": "unauth_rate_limit"},
-		})
-		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
-		return
-	}
+	// Rate limit is applied INSIDE recordUnauthorizedCheckin (only on
+	// auth-failure outcomes) rather than at the handler entrypoint —
+	// see NEW-45. Pre-v0.14.4 the limit gated every request including
+	// authenticated successful checkins, which broke fleets sharing a
+	// NAT egress IP: 20 sensors behind one NAT all consuming from one
+	// per-IP bucket would 429 the 11th-onward sensor during a fleet
+	// burst (Archer restart, mass-reboot, mass-re-enrollment). The
+	// asymmetric placement means legitimate sensor traffic never
+	// touches the limiter; only unknown-name or bad-HMAC failures do.
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, checkinMaxBytes))
 	if err != nil {
 		jsonError(w, "could not read body", http.StatusBadRequest)
@@ -403,7 +398,26 @@ func (s *Server) handleQuiverCheckin(w http.ResponseWriter, r *http.Request) {
 // users) for centralised incident-response queries; the existing
 // unauthorized_attempts table remains the live UI surface and is
 // not displaced. v0.14.1 NEW-33.
+//
+// Rate limit is applied here rather than at the handler entrypoint
+// (v0.14.4 NEW-45) so legitimate authenticated checkins never
+// consume from the per-IP bucket — only auth-failure attempts do.
+// This is what makes the rate limit safe for deployments where
+// multiple sensors share a NAT egress IP (a fleet behind one
+// gateway can't accidentally 429 itself during a mass-reboot).
+// Under sustained attack the request_rate_limited audit row lands
+// once per bucket-trip; see rate_limit.go's NEW-47 notes.
 func (s *Server) recordUnauthorizedCheckin(r *http.Request, w http.ResponseWriter, name, srcIP, reason string) {
+	if allowed, shouldAudit := s.rateLimit.allow(srcIP); !allowed {
+		if shouldAudit {
+			s.recordAudit(r, "request_rate_limited", auditEvent{
+				TargetType: "sensor",
+				Details:    map[string]any{"path": "/api/quiver/checkin", "reason": "unauth_rate_limit"},
+			})
+		}
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
 	attempt := s.store.RecordUnauthorizedAttempt(name, srcIP, time.Now().Unix())
 	if data, err := json.Marshal(attempt); err == nil {
 		s.broker.Publish(SSEEvent{Type: "unauthorized_attempt", Data: string(data)})
