@@ -370,6 +370,76 @@ values before tuning — operators have seen one or two specific
 hostnames trigger and bumped a global threshold when the right
 fix was an allowlist entry.
 
+### 2.6 Score evolution history
+
+A score on its own is a snapshot. A score moving across days is
+a triage signal: a beacon whose composite is steadily climbing
+is escalating; one that's decaying is probably a misconfigured
+client that fixed itself. The score-evolution chart in the
+finding detail pane surfaces this trajectory.
+
+**Where the data comes from.** `internal/store/beacon_history.go`
+hooks `Store.SetFindings`: every time a Beaconing or HTTP
+Beaconing finding lands, one row is written to `beacon_history`
+keyed by `(Finding.BeaconHistoryKey(), today_UTC)` with the
+composite score plus the four sub-axis components (ts, ds, hist,
+dur). The PRIMARY KEY on `(fingerprint, day_utc)` plus
+`INSERT … ON CONFLICT DO NOTHING` means **the first full pass
+of the UTC day wins** — a noon re-run against partial logs
+won't overwrite the morning's representative snapshot.
+
+**Fingerprint vs Finding.Fingerprint().** The history table uses
+a wider identity that includes Hostname and URI (canonical
+string joined by ASCII Unit Separator, not hashed — see
+`Finding.BeaconHistoryKey`). The existing `Finding.Fingerprint()`
+is intentionally coarser (just `{Type, SrcIP, DstIP, DstPort}`)
+because it keys analyst-state preservation across re-analyses;
+collapsing host/uri into one identity is what an analyst wants
+for "one note per beacon family." But for history rows, two
+HTTP beacons sharing a destination IP but going to different
+`(host, uri)` need separate trend lines or the chart shows
+mixed signal — hence the wider history key.
+
+**Retention.** 30 days, hard-coded. The chart range is also 30
+days so longer retention is invisible without UI changes.
+`Store.PurgeBeaconHistory()` runs on the watch's
+first-tick-of-operator-day gate — the same condition that
+triggers the full-pass analyze — so the sweep fires exactly
+once per day regardless of how many incremental ticks happen.
+
+**The API.** `GET /api/findings/{id}/history` returns
+`[{day_utc, score, severity, ts_score, ds_score, hist_score,
+dur_score}, ...]` sorted ascending. Returns `[]` (not 404) for
+non-Beaconing types so the SPA can call unconditionally on any
+finding-detail open.
+
+**The chart.** SVG-rendered in the detail pane immediately below
+the action buttons. Five lines:
+- Composite **Score** (bold, severity color) on the 0–100 axis
+- **ts / ds / hist / dur** (thinner, distinct colors) on the
+  0–1 axis sharing the same plot
+
+Reading the chart:
+- A flat high score is a stable, persistent C2 channel.
+- Climbing ts with stable ds = the beacon is becoming more
+  regular over time (initial-jitter implant settling into a
+  rhythm, or an operator-side scheduling cleanup).
+- Climbing dur with flat ts/ds = the channel is staying alive
+  longer each day; the implant's session-keepalive is
+  succeeding.
+- Sudden drop with no corresponding `IsNew` re-emergence = the
+  beacon went silent. Either remediation or the implant
+  switched destinations (cross-reference with the Correlated
+  Activity row for the same src).
+
+**What this is not.** This is not a real-time stream — the
+chart updates once per UTC day. For intra-day timing detail
+the Beacon Chart dialog (interval reservoir) is the right
+view. The two charts answer different questions:
+beacon_history = "how is this beacon changing over weeks";
+TSData reservoir = "what does its timing distribution look
+like in this analysis window."
+
 ---
 
 ## 3. HTTP Beaconing

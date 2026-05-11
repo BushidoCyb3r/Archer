@@ -278,6 +278,12 @@
           <button class="action-btn supp" id="supp-btn" disabled>Suppress</button>
           <span id="analyst-rec"></span>
         </div>
+        <!-- 30-day score evolution chart for Beaconing / HTTP Beaconing findings. -->
+        <div id="beacon-evolution" style="display:none">
+          <div id="beacon-evolution-header">Score evolution (last 30 days)</div>
+          <svg id="beacon-evolution-svg" width="100%" height="120" preserveAspectRatio="none"></svg>
+          <div id="beacon-evolution-legend"></div>
+        </div>
         <div id="notes-section" style="display:none">
           <div id="notes-header" style="display:flex;align-items:center;justify-content:space-between">
             <span>Analyst Notes</span>
@@ -1033,6 +1039,7 @@
 <script src="/static/js/sse.js"></script>
 <script src="/static/js/notifications.js"></script>
 <script src="/static/js/chart.js"></script>
+<script src="/static/js/beacon_evolution.js"></script>
 <script src="/static/js/detail.js"></script>
 <script src="/static/js/table.js"></script>
 <script src="/static/js/campaigns.js"></script>

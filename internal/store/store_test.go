@@ -427,6 +427,161 @@ func sameIntSet(a, b []int) bool {
 // TestSetFindings_PreservesNonRollupHistorical confirms the purge is
 // scoped to roll-up types only. A Beaconing finding from a prior run
 // that doesn't re-fire must still be preserved — its absence from the
+// TestSetFindings_WritesBeaconHistory codifies the slice-3 contract:
+// a SetFindings call carrying a Beaconing or HTTP Beaconing finding
+// also writes a row to beacon_history keyed by (BeaconHistoryKey,
+// today_UTC). Non-beacon types must NOT write history rows — the
+// table is per-beacon-evolution, not a general finding log.
+func TestSetFindings_WritesBeaconHistory(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s := New(config.Default())
+	s.InitDB(db)
+
+	beacon := model.Finding{
+		Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00",
+		Hostname:  "kx9j3qm2pflw.com",
+		TSScore:   0.92,
+		DSScore:   0.88,
+		HistScore: 0.10,
+		DurScore:  0.95,
+	}
+	httpBeacon := model.Finding{
+		Type: "HTTP Beaconing", SrcIP: "10.0.0.2", DstIP: "1.1.1.2", DstPort: "443",
+		Score: 65, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00",
+		Hostname:  "tracker.evil.com",
+		URI:       "/heartbeat",
+		TSScore:   1.0,
+		DSScore:   1.0,
+		HistScore: 0.0,
+		DurScore:  0.0,
+	}
+	dns := model.Finding{
+		Type: "DNS Tunneling", SrcIP: "10.0.0.3", DstIP: "8.8.8.8", DstPort: "53",
+		Score: 60, Severity: model.SevMedium, Timestamp: "2026-05-11 09:00:00",
+	}
+	s.SetFindings([]model.Finding{beacon, httpBeacon, dns})
+
+	today := time.Now().UTC().Format("2006-01-02")
+
+	if score, ok := s.hasBeaconHistoryRow(beacon.BeaconHistoryKey(), today); !ok {
+		t.Errorf("Beaconing history row missing for %s on %s", beacon.BeaconHistoryKey(), today)
+	} else if score != 80 {
+		t.Errorf("Beaconing history score = %d, want 80", score)
+	}
+	if score, ok := s.hasBeaconHistoryRow(httpBeacon.BeaconHistoryKey(), today); !ok {
+		t.Errorf("HTTP Beaconing history row missing")
+	} else if score != 65 {
+		t.Errorf("HTTP Beaconing history score = %d, want 65", score)
+	}
+	if _, ok := s.hasBeaconHistoryRow(dns.BeaconHistoryKey(), today); ok {
+		t.Errorf("DNS Tunneling wrote a beacon_history row; only beacon types should")
+	}
+}
+
+// TestSetFindings_BeaconHistorySameDayKeepsFirstWrite codifies the
+// "morning's snapshot wins" semantics of the (fingerprint, day_utc)
+// PRIMARY KEY + INSERT … ON CONFLICT DO NOTHING. A noon re-analysis
+// against partial logs would otherwise overwrite the morning's more
+// representative score with a lower one.
+func TestSetFindings_BeaconHistorySameDayKeepsFirstWrite(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s := New(config.Default())
+	s.InitDB(db)
+
+	first := model.Finding{
+		Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00",
+	}
+	s.SetFindings([]model.Finding{first})
+
+	// Same fingerprint, same UTC day, different score — simulates the
+	// noon re-run with partial logs.
+	second := first
+	second.Score = 35
+	second.Severity = model.SevLow
+	s.SetFindings([]model.Finding{second})
+
+	today := time.Now().UTC().Format("2006-01-02")
+	score, ok := s.hasBeaconHistoryRow(first.BeaconHistoryKey(), today)
+	if !ok {
+		t.Fatalf("beacon_history row missing after two SetFindings calls")
+	}
+	if score != 80 {
+		t.Errorf("beacon_history score = %d after re-write; want 80 (morning snapshot preserved)", score)
+	}
+}
+
+// TestPurgeBeaconHistory deletes rows older than the retention window
+// while leaving in-window rows alone. Uses direct SQL inserts with
+// crafted day_utc values to avoid time-of-day dependence — the real
+// retention window is 30 days but the test asserts the cutoff
+// behavior at day 30 / day 31 explicitly.
+func TestPurgeBeaconHistory(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s := New(config.Default())
+	s.InitDB(db)
+
+	now := time.Now().UTC()
+	insideWindow := now.AddDate(0, 0, -(beaconHistoryRetentionDays - 1)).Format("2006-01-02")
+	atBoundary := now.AddDate(0, 0, -beaconHistoryRetentionDays).Format("2006-01-02")
+	outsideWindow := now.AddDate(0, 0, -(beaconHistoryRetentionDays + 1)).Format("2006-01-02")
+
+	for _, day := range []string{insideWindow, atBoundary, outsideWindow} {
+		_, err := db.Exec(`INSERT INTO beacon_history
+            (fingerprint, day_utc, finding_type, src_ip, dst_ip, dst_port, host, uri,
+             score, severity, ts_score, ds_score, hist_score, dur_score, created_at)
+            VALUES (?, ?, 'Beaconing', '10.0.0.1', '1.1.1.1', '443', '', '', 80, 'HIGH', 1, 1, 0, 1, ?)`,
+			"fp-"+day, day, now.Unix())
+		if err != nil {
+			t.Fatalf("seed beacon_history row for %s: %v", day, err)
+		}
+	}
+
+	deleted := s.PurgeBeaconHistory()
+	if deleted != 1 {
+		t.Errorf("purged rows = %d, want 1 (only outsideWindow)", deleted)
+	}
+
+	// insideWindow + atBoundary still present, outsideWindow gone.
+	if _, ok := s.hasBeaconHistoryRow("fp-"+insideWindow, insideWindow); !ok {
+		t.Errorf("in-window row removed by purge")
+	}
+	if _, ok := s.hasBeaconHistoryRow("fp-"+atBoundary, atBoundary); !ok {
+		t.Errorf("at-boundary row (day == retention) removed by purge")
+	}
+	if _, ok := s.hasBeaconHistoryRow("fp-"+outsideWindow, outsideWindow); ok {
+		t.Errorf("out-of-window row survived purge")
+	}
+}
+
 // current run isn't authoritative (the source logs may have been
 // archived but the historical observation is still valid). Same
 // guarantee as before the rollup-purge change.

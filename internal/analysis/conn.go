@@ -523,6 +523,10 @@ func (a *Analyzer) analyzeConn(files []string) {
 			Timestamp: fmtTS(st.firstTs),
 			TSData:    tsData,
 			Hostname:  hostname,
+			TSScore:   tsScore,
+			DSScore:   dsScore,
+			HistScore: hScore,
+			DurScore:  durScore,
 		})
 	}
 

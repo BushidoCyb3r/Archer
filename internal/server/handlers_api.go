@@ -481,13 +481,16 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sub-resource dispatch: /api/findings/{id}/raw → raw-log pivot;
-	// /api/findings/{id}/position → page-offset lookup for bell jumps.
+	// /api/findings/{id}/position → page-offset lookup for bell jumps;
+	// /api/findings/{id}/history → 30-day beacon evolution chart data.
 	if len(parts) > 1 {
 		switch parts[1] {
 		case "raw":
 			s.handleFindingRaw(w, r, id)
 		case "position":
 			s.handleFindingPosition(w, r, id)
+		case "history":
+			s.handleFindingHistory(w, r, id)
 		default:
 			http.NotFound(w, r)
 		}
