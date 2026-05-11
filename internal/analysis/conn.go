@@ -69,6 +69,13 @@ type beaconState struct {
 	firstTs    float64
 	firstPort  int
 	firstProto string
+	// firstUID captures the Zeek connection UID of the first
+	// contribution to this beacon. Used at emit time to look up
+	// SNI from sslUIDIndex (when the connection had TLS), which
+	// becomes finding.Hostname for the DGA augmentation pass.
+	// Empty for non-TLS beacons; the DGA pass handles missing
+	// hostnames by skipping that finding.
+	firstUID string
 }
 
 func (a *Analyzer) analyzeConn(files []string) {
@@ -163,6 +170,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 			}
 			dstPort := parser.GetInt(rec, "id.resp_p")
 			proto := parser.GetStr(rec, "proto")
+			uid := parser.GetStr(rec, "uid")
 
 			if ts > 0 {
 				w := localWindows[sensor]
@@ -282,6 +290,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 					firstProto: proto,
 					minTs:      ts,
 					maxTs:      ts,
+					firstUID:   uid,
 				}
 				// Replay every dimension that conns 1 and 2 contributed
 				// to: timing intervals, byte-size samples, chart triples,
@@ -486,6 +495,23 @@ func (a *Analyzer) analyzeConn(files []string) {
 			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (dominant period %.1fs, power %.1f, FAP threshold %.1f)",
 				spectralResult.Score, spectralResult.Period, spectralResult.RawPower, a.cfg.SpectralFAPThreshold)
 		}
+		// Stash the destination SNI (if known) on the finding for the
+		// DGA augmentation pass that runs after Phase 2. RLock the
+		// shared sslUIDIndex because analyzeSSL may still be writing
+		// to it from a sibling Phase 1 goroutine — race-tolerant: if
+		// the UID hasn't been indexed yet the lookup fails and
+		// Hostname stays empty, which the DGA pass treats as "no
+		// hostname signal, skip this finding." In practice
+		// analyzeSSL finishes well before analyzeConn (ssl.log is
+		// much smaller than conn.log), so the race window is narrow.
+		var hostname string
+		if st.firstUID != "" {
+			a.mu.RLock()
+			if entry, ok := a.sslUIDIndex[st.firstUID]; ok {
+				hostname = entry.serverName
+			}
+			a.mu.RUnlock()
+		}
 		a.add(model.Finding{
 			Type:      "Beaconing",
 			Severity:  sev,
@@ -496,6 +522,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 			Detail:    detail,
 			Timestamp: fmtTS(st.firstTs),
 			TSData:    tsData,
+			Hostname:  hostname,
 		})
 	}
 

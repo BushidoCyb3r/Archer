@@ -2473,6 +2473,12 @@
     if (specFAP)     specFAP.value     = cfg.spectral_fap_threshold     != null ? cfg.spectral_fap_threshold     : 12;
     const specRescue = document.getElementById('cfg-spectral-rescue');
     if (specRescue)  specRescue.value  = cfg.spectral_rescue_threshold  != null ? cfg.spectral_rescue_threshold  : 0.5;
+    const dgaEn = document.getElementById('cfg-dga-enabled');
+    if (dgaEn) dgaEn.checked = cfg.dga_enabled !== false;
+    const dgaEntropy = document.getElementById('cfg-dga-entropy');
+    if (dgaEntropy) dgaEntropy.value = cfg.dga_entropy_threshold != null ? cfg.dga_entropy_threshold : 3.5;
+    const dgaBigram = document.getElementById('cfg-dga-bigram');
+    if (dgaBigram) dgaBigram.value = cfg.dga_bigram_threshold != null ? cfg.dga_bigram_threshold : -4.5;
   }
 
   function _populateArchive(a) {
@@ -2533,6 +2539,9 @@
       spectral_min_observations: parseInt(g('cfg-spectral-min-obs'))  || 16,
       spectral_fap_threshold:    parseFloat(g('cfg-spectral-fap'))    || 12,
       spectral_rescue_threshold: parseFloat(g('cfg-spectral-rescue')) || 0.5,
+      dga_enabled:              !!(document.getElementById('cfg-dga-enabled') || {}).checked,
+      dga_entropy_threshold:    parseFloat(g('cfg-dga-entropy')) || 3.5,
+      dga_bigram_threshold:     parseFloat(g('cfg-dga-bigram'))  || -4.5,
     };
   }
 

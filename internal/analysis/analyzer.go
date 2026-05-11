@@ -91,6 +91,13 @@ type Analyzer struct {
 	// findings doesn't make sense. v0.14.10 NEW-67.
 	findingsProvider FindingsProvider
 
+	// Optional callback consulted by applyDGAScoring to honour the
+	// operator's allowlist when bumping Beaconing scores. Returns
+	// true when the candidate (typically a hostname) should be
+	// exempt from the DGA bump. Nil = no extra suppression beyond
+	// the built-in CDN suffix list inside dgaHostnameScore.
+	allowlistMatches func(string) bool
+
 	// Cancellation and pause
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -163,6 +170,12 @@ func (a *Analyzer) SetFeedProvider(p FeedProvider) { a.feedProvider = p }
 // scans where the run is intentionally scoped to one log set.
 // v0.14.10 NEW-67.
 func (a *Analyzer) SetFindingsProvider(p FindingsProvider) { a.findingsProvider = p }
+
+// SetAllowlistMatcher wires the operator's allowlist into the DGA
+// scoring pass so a deployment-specific "we know this destination is
+// legitimate" exemption suppresses the score bump without disabling
+// the feature globally. Pass nil to detach.
+func (a *Analyzer) SetAllowlistMatcher(fn func(string) bool) { a.allowlistMatches = fn }
 
 // Cancel stops the analysis as soon as possible.
 func (a *Analyzer) Cancel() { a.cancel() }
@@ -291,6 +304,19 @@ func (a *Analyzer) Analyze(files []string) []model.Finding {
 	a.sendStatus("Analyzing: HTTP…")
 	a.analyzeHTTP(files)
 	a.sendProgress(68, "HTTP")
+
+	if !a.waitIfPaused() {
+		return collect()
+	}
+
+	// ── Phase 2.5: DGA hostname augmentation on Beaconing findings ───────────
+	// Walks emitted Beaconing + HTTP Beaconing findings and bumps the
+	// score / severity when the destination Hostname looks DGA-shaped.
+	// Runs after Phase 2 so sslUIDIndex is stable (conn beacons get
+	// SNI populated) and the HTTP Beaconing finding set is complete.
+	a.sendStatus("Scoring beacon destinations for DGA shape…")
+	a.applyDGAScoring(a.allowlistMatches)
+	a.sendProgress(72, "DGA scoring")
 
 	if !a.waitIfPaused() {
 		return collect()

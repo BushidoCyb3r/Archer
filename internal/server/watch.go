@@ -601,6 +601,9 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) bool {
 		az := analysis.New(cfg, logsDir, progressCh, statusCh)
 		az.SetFeedProvider(s.store)
 		az.SetFindingsProvider(s.store)
+		az.SetAllowlistMatcher(func(c string) bool {
+			return s.store.AllowlistMatcher().Matches(c)
+		})
 
 		s.analyzerMu.Lock()
 		s.activeAnalyzer = az

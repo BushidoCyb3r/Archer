@@ -422,6 +422,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 			Detail:    detail,
 			Timestamp: fmtTS(st.firstTs),
 			TSData:    tsData,
+			Hostname:  bk.host,
 		})
 	}
 }

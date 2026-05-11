@@ -30,6 +30,41 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Added
+
+- **DGA hostname augmentation on Beaconing / HTTP Beaconing.** New
+  `internal/analysis/dga.go` runs a post-Phase-2 sweep over emitted
+  Beaconing and HTTP Beaconing findings and bumps the score
+  (+15, capped at 99) and severity (one step up) when the
+  destination Hostname's SLD has high Shannon entropy AND low
+  English-bigram log-likelihood — the two-metric agreement keeps
+  false positives manageable on legitimate algorithmic-looking
+  hostnames (cache keys, blob storage IDs, ad endpoints).
+  Hostname is populated at emit time from TLS SNI (conn beacons,
+  via `sslUIDIndex`) and from the HTTP Host header (HTTP
+  beacons). Diagnostic tag in the Detail line shows SLD, entropy,
+  and bigram values so analysts can calibrate without re-running.
+  Built-in CDN suffix allowlist short-circuits the obvious false
+  positives (cloudfront, azure, akamai, fastly, github.io,
+  etc.); operator allowlist (`Store.AllowlistMatcher`) layers on
+  top.
+- **DGA Settings UI.** `Settings → Beaconing` gains a "DGA scoring
+  on beacon destinations" toggle plus two calibration knobs
+  (entropy threshold, bigram threshold). Defaults `dga_enabled=true`,
+  `dga_entropy_threshold=3.5`, `dga_bigram_threshold=-4.5`.
+- **`dga_beacon` golden scenario.** Mirrors `http_beacon` with
+  a DGA-shaped Host header; demonstrates the +15 score / severity
+  bump and the appended Detail-line diagnostic tag.
+
+### Detection changes
+
+- Beaconing and HTTP Beaconing scores against DGA-shaped
+  destination hostnames now exceed their pre-DGA values by up
+  to 15 points, and severity may step up one level. The Host
+  Risk Score roll-up is unchanged (it uses fixed per-detector-
+  type weights, not per-finding scores). To preserve pre-v0.16
+  scoring, set `dga_enabled=false` in Settings.
+
 ## [v0.15.1] — 2026-05-11
 
 Seventeenth external review round, first post-v0.15.0. Five

@@ -1128,6 +1128,22 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "spectral_rescue_threshold must be in [0, 1]", http.StatusBadRequest)
 			return
 		}
+		// DGA augmentation bounds. Entropy is bit-per-char so log2(26)
+		// ≈ 4.7 is the theoretical max for uniform letter distribution;
+		// allow up to 8 (log2(256)) for non-letter content. Bigram
+		// threshold sits in negative log-probability space; -10 is
+		// well past the bigramFloor (-5.5) so values below that are
+		// nonsensical, and any value > 0 inverts the sign of the
+		// suspect check (would flag every host as DGA). NEW-66
+		// boundary-validation pattern.
+		if cfg.DGAEntropyThreshold < 0 || cfg.DGAEntropyThreshold > 8 {
+			jsonError(w, "dga_entropy_threshold must be in [0, 8] (bits per character)", http.StatusBadRequest)
+			return
+		}
+		if cfg.DGABigramThreshold < -10 || cfg.DGABigramThreshold >= 0 {
+			jsonError(w, "dga_bigram_threshold must be in [-10, 0) (negative log-probability)", http.StatusBadRequest)
+			return
+		}
 		before := s.store.GetConfig()
 		s.store.SetConfig(cfg)
 		s.recordAudit(r, "config_change", auditEvent{

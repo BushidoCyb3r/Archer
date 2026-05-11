@@ -304,6 +304,72 @@ is effectively destroyed and rescuing it would risk flagging
 legitimate sporadic traffic. The histogram and bytes axes still
 contribute if those signals survive.
 
+### 2.5 DGA hostname augmentation
+
+A beacon to `pool.ntp.org` is operational noise; the same timing
+shape to `kx9j3qm2pflw.com` is high-confidence C2. After the
+Beaconing and HTTP Beaconing detectors emit, a post-Phase-2 sweep
+in `internal/analysis/dga.go` looks at each finding's destination
+Hostname and decides whether the registrable domain looks
+algorithmically generated.
+
+**Where the Hostname comes from.** conn-level Beaconing gets it
+from `sslUIDIndex` (TLS SNI). HTTP Beaconing gets it from the
+`Host` header in `http.log`. Pure-TCP beacons to bare IPs without
+observable DNS get no DGA scoring in v1 — the future dns.log
+correlation path is deferred.
+
+**Two metrics, both must agree.** The scorer operates on the
+SLD (the second-level component of the registrable domain):
+
+| Metric | English range | DGA range | Default threshold |
+|---|---|---|---|
+| Shannon entropy (bits/char) | 2.5 – 3.5 | 3.8 – 4.5 | `dga_entropy_threshold` 3.5 |
+| Mean bigram log-probability | -2.5 to -3.5 | -5.0 to -7.5 | `dga_bigram_threshold` -4.5 |
+
+Both must cross before the augmentation fires. Either alone
+produces too many false positives on legitimate algorithmic-
+looking hostnames.
+
+**The bump.** +15 to score (capped at 99), one-step severity
+upgrade (Low→Medium, Medium→High, High→Critical). Detail line
+is appended with the diagnostic tag:
+
+```
+DGA-suspect destination: kx9j3qm2pflw.com (SLD=kx9j3qm2pflw, entropy=3.58, bigram=-5.55)
+```
+
+so analysts can verify which numbers tripped the bump and
+calibrate the thresholds against their own traffic.
+
+**Allowlists, in order of precedence:**
+
+1. Built-in CDN suffix list in `cdnAllowlistSuffixes` (cloudfront,
+   azure, akamai, fastly, github.io, etc.) — short-circuits
+   inside `dgaHostnameScore` before any scoring runs.
+2. SLD floor: SLDs shorter than 7 chars get no score (entropy
+   estimates on tiny strings are unreliable, and DGAs typically
+   produce 8-25 char names).
+3. Operator allowlist (`Store.AllowlistMatcher`) — checked
+   against the full Hostname inside `applyDGAScoring` for
+   per-deployment "we know this is legitimate" suppressions.
+
+**Limitations:**
+- No Public Suffix List in v1. `kx9j3qm2pflw.co.uk` extracts SLD
+  as `co` (not `kx9j3qm2pflw`) and gets missed. Most real-world
+  DGAs register `.com / .net / .org / .top / .xyz / .info`.
+- No DNS-log correlation: TCP beacons to raw IPs that resolved
+  via dns.log before the analysis window don't get scored.
+
+**Calibration.** The Settings → Beaconing pane has both
+threshold inputs alongside an enable toggle. Bump the entropy
+threshold up (3.8) if English-shaped names are tripping; drop
+the bigram threshold (more negative, e.g. -5.0) if DGA names
+are escaping. Always check the Detail-line entropy/bigram
+values before tuning — operators have seen one or two specific
+hostnames trigger and bumped a global threshold when the right
+fix was an allowlist entry.
+
 ---
 
 ## 3. HTTP Beaconing
@@ -315,6 +381,11 @@ Same four-axis scoring as TCP beaconing, but the grouping key is
 count is `HTTPBeaconMinRequests` (default 8). Otherwise the math is identical:
 Bowley + MAD on intervals, Bowley + MAD on `orig_ip_bytes`, the same 24-bucket
 histogram, and the same persistence test.
+
+The DGA hostname augmentation (see §2.5) applies on the `host`
+component of the (src, host, uri) key — HTTP Beaconing
+findings with DGA-shaped Host headers get the same +15 score
+and severity bump.
 
 This catches implants that beacon over HTTP/HTTPS to a fixed URL — common in
 Cobalt Strike, Sliver, Mythic, and most red-team frameworks.
