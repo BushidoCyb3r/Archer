@@ -30,6 +30,104 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.15.1] — 2026-05-11
+
+Seventeenth external review round, first post-v0.15.0. Five
+findings: three real bugs in the correlation feature shipped in
+v0.15.0 (one Critical, two Medium), one consistency test for the
+spectral marker contract, one documentation note. The Critical
+item (NEW-71) was an asymmetric-contract bug at the boundary
+between the analyzer's emission IDs and the store's persistence
+IDs — the same shape NEW-49 (listener-config / threat-model
+boundary) and NEW-60 (role-gate / operation-scope boundary) hit
+earlier in the arc. Caught by the receiving auditor; would have
+hit the team-handoff readiness claim the first time anyone wrote
+a script against `/api/findings`.
+
+### Fixed
+
+- **NEW-71 (Critical): Finding.Correlations carried pre-translation
+  fresh IDs that didn't match post-SetFindings persisted IDs.**
+  `correlate.go` populates each contributor's `Correlations` slice
+  with the per-run `a.nextID++` IDs at emit time; `SetFindings`
+  then rewrites each finding's `ID` via fingerprint match against
+  the existing store but did NOT translate the `Correlations`
+  slice contents through the same rewrite. Net result: a finding
+  with persisted ID 47 carried `Correlations=[5, 8]` referencing
+  fresh IDs that either didn't exist post-translation or collided
+  with unrelated findings from prior runs that happened to land on
+  the same low IDs. The SPA's click handler resolves the
+  Correlated Activity row by `(type, src_ip, dst_ip)` triple
+  rather than by ID, so the chip-pivot UX worked in spite of the
+  bug — but API consumers, JSON exports, and forensic inspection
+  saw integer references that pointed at nothing. Audit-trail
+  integrity ("when an analyst sees a Correlated Activity finding
+  they can find its contributors") was undercut. Fix:
+  `SetFindings` now builds a fresh-ID → persisted-ID map during
+  its existing rewrite loop and translates every new finding's
+  `Correlations` slice through it. Preserved historical findings
+  are NOT touched (their slices were translated by the SetFindings
+  run that originally persisted them and remain in persisted-ID
+  space). Defensive: fresh IDs that don't translate get dropped
+  rather than carried as dangling references — shouldn't happen
+  given correlate.go only annotates `a.findings` entries with
+  IDs from `a.findings`, but the guard prevents a future
+  refactor from silently introducing dangling references.
+  Regression test `TestSetFindings_TranslatesCorrelationIDs`
+  asserts the post-merge state has all references in
+  persisted-ID space across a re-fingerprint cycle.
+- **NEW-72: `Finding.Correlations` was in-memory only — chip
+  disappeared on server restart.** Pre-v0.15.0 schema didn't
+  include a `correlations` column; `saveFindings` didn't
+  serialize the field; `loadFindings` didn't read it back. After
+  every server restart every finding's `Correlations` was empty
+  until the next analysis run repopulated it. Mildly confusing
+  for analysts ("yesterday's findings had correlation chips,
+  today after a restart they don't, then after the next watch
+  tick they do again"). Schema migration 0010 adds the column;
+  save/load now round-trip the slice as JSON, matching the
+  existing pattern for `intervals` / `ts_data` / `notes`.
+  Regression test `TestSetFindings_CorrelationsPersistAcrossReload`
+  asserts a saved finding survives a Store reload with its
+  Correlations intact.
+- **NEW-73: Correlation phase keyed on `(SrcIP, DstIP)` only,
+  ignoring `Sensor`.** For multi-sensor deployments with
+  overlapping captures (two Quiver collectors watching the same
+  backbone), findings from different sensors on the same
+  `(src, dst)` pair got conflated into a single Correlated
+  Activity row. Same shape NEW-6 closed for beacon pair keys.
+  Single-sensor deployments unaffected (Sensor is constant);
+  multi-sensor overlapping deployments now correctly track
+  per-sensor observations. `correlate.go`'s pair key becomes
+  `struct{ sensor, src, dst string }`; the emitted Correlated
+  Activity row also gets the `Sensor` field populated.
+  Regression test `TestCorrelate_PartitionsBySensor` asserts
+  two sensors observing the same (src, dst) pair produce two
+  distinct correlations.
+- **NEW-74: No regression test guarded the "Spectral rescued:"
+  marker contract.** Three sites depend on the literal string —
+  `conn.go` + `http_analysis.go` (emitters) and
+  `findings_filter.go` (consumer for the
+  `spectral_only=true` query param). A future refactor renaming
+  the marker on one side would silently break the calibration
+  filter chip ("Spectral rescued only" stops returning rows).
+  Same shape as NEW-30 `_esc` consistency, NEW-41 audit-vocabulary,
+  NEW-61 raw-decoder discipline — locks the convention as a
+  compile-time-enforced test. New `TestSpectralRescueMarker_Contract`
+  fails loudly if any of the three sites stops using the literal.
+
+### Documentation
+
+- **NEW-75: Historical-correlation semantics documented.**
+  `DETECTION_METHODS.md` §13a now spells out that a preserved-
+  historical finding's `Correlations` slice reflects past
+  co-firing rather than current — `correlate.go`'s annotation
+  pass walks `a.findings` only, so a contributor preserved
+  across re-analyses keeps the slice it had when it last
+  co-fired. Analysts inspecting an old finding with a chip
+  should treat the slice as "correlated at some point in this
+  finding's history," not "currently correlated."
+
 ## [v0.15.0] — 2026-05-11
 
 Two feature waves after the v0.14 audit arc, both from
