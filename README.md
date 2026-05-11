@@ -528,18 +528,19 @@ sudo ./start.sh up
 Host resources:   16 CPUs  |  32768 MB RAM
 Archer limits:    12.8 CPUs  |  22937m RAM  (CPU 80% / RAM 70%)
 
-Archer is running at http://192.0.2.10:8080
+Archer is running at https://192.0.2.10:8443
 ```
 
-Three ports are exposed:
+Two ports are exposed:
 
 | Host port | Container port | Purpose |
 |---|---|---|
-| 8080 | 8080 | Analyst UI (HTTP, LAN-side) |
-| 8443 | 8443 | Quiver sensor checkin + install.sh (HTTPS, pinned-pubkey at enrollment) |
+| 8443 | 8443 | UI + API + Quiver sensor checkin / install.sh — every role (admin, analyst, viewer, sensor) over TLS |
 | 2222 | 22 | Quiver sensor rsync-over-ssh (mapped off port 22 so a host-side sshd isn't disturbed) |
 
-Ports 8443 and 2222 only matter if you're using Quiver to ship logs from sensors. If you're hand-importing logs into `./logs`, ignore them.
+Port 2222 only matters if you're using Quiver to ship logs from sensors. If you're hand-importing logs into `./logs`, ignore it.
+
+**On the cert warning:** the default cert is self-signed (auto-generated on first start, valid 10 years). The first time you load `https://<host>:8443/` your browser shows a "Not Secure" warning. Click through it once and your browser remembers the trust. For a production hunt-team deployment, drop a CA-signed cert from your internal PKI into `/data/tls/server.{crt,key}` and restart — sensors re-pin on next enrollment, browsers validate cleanly. See [OPERATIONS.md → TLS certificate rotation](docs/OPERATIONS.md#tls-certificate-rotation) for the swap-in procedure.
 
 **Everyday operations** — same script:
 
@@ -570,7 +571,7 @@ Note: bare `docker compose up -d` gives the container only 4 GB of RAM regardles
 
 ### 4. Register your admin account
 
-Navigate to `http://localhost:8080`. The first user to register automatically receives the **admin** role.
+Navigate to `https://localhost:8443/`. Accept the self-signed cert warning the first time (or swap in your CA-signed cert before this step — see [OPERATIONS.md → TLS certificate rotation](docs/OPERATIONS.md#tls-certificate-rotation)). The first user to register automatically receives the **admin** role.
 
 ### 5. Analyze
 
@@ -616,7 +617,7 @@ cd Archer
 ./start.sh up                      # uses the loaded image, no build, no pulls
 ```
 
-`start.sh` handles the resource sizing as described in [Quick Start](#quick-start) and brings up the stack against the loaded image. No outbound HTTP fires. The container starts, sshd binds 2222, the analyst UI binds 8080, and you're operational.
+`start.sh` handles the resource sizing as described in [Quick Start](#quick-start) and brings up the stack against the loaded image. No outbound HTTP fires. The container starts, sshd binds 2222, the HTTPS listener binds 8443, and you're operational.
 
 ### What still works offline
 
@@ -1157,7 +1158,7 @@ Two paths, depending on scope.
 sudo ./reset.sh
 ```
 
-The script prompts for confirmation before taking any action. After reset, navigate to `http://localhost:8080` and register a new admin account.
+The script prompts for confirmation before taking any action. After reset, navigate to `https://localhost:8443/` and register a new admin account.
 
 ---
 
@@ -1169,7 +1170,7 @@ go build -o archer ./cmd/archer
 
 # Run (requires a writable data directory and a logs directory)
 ./archer \
-  --addr=:8080 \
+  --tls-addr=:8443 \
   --web-dir=./web \
   --logs-dir=/path/to/zeek/logs \
   --data-dir=/path/to/data

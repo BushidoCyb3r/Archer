@@ -11,7 +11,7 @@ Quiver is fully optional — if you're feeding Archer logs by hand or via your o
 ```
        ┌───────────────────── Archer host ──────────────────────┐
        │                                                         │
- [analyst browser] ──HTTP─────►  :8080  ── Archer (UI + API) ──► /data/archer.db
+ [analyst browser] ──HTTPS────►  :8443  ── Archer (UI + API) ──► /data/archer.db
                                                   │
                                                   ▼
                                        ┌──────────────────────┐
@@ -24,6 +24,9 @@ Quiver is fully optional — if you're feeding Archer logs by hand or via your o
                               │                                 │
         :8443 (HTTPS, pinned-pubkey)               :22 / mapped to host :2222
         sensor checkin + install.sh                rrsync push, pubkey-only
+        (same listener as the UI;                   (separate sshd, not
+         pinned by sensors, chain-validated         the HTTP server)
+         by browsers)
                               │                                 │
        ┌──────── Sensor host ─┴─────────────────────────────────┴─────────┐
        │  /etc/cron.d/quiver  ──►  /usr/local/bin/quiver.sh               │

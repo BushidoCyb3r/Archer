@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/BushidoCyb3r/Archer/internal/model"
+	"github.com/BushidoCyb3r/Archer/internal/store"
 )
 
 const sessionCookie = "archer_session"
@@ -42,7 +43,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "rate limit exceeded — try again shortly", http.StatusTooManyRequests)
 			return
 		}
-		email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
+		email := store.NormalizeEmail(r.FormValue("email"))
 		password := r.FormValue("password")
 
 		if !validEmail(email) {
@@ -70,6 +71,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			Value:    token,
 			Path:     "/",
 			HttpOnly: true,
+			Secure:   true,
 			SameSite: http.SameSiteStrictMode,
 			MaxAge:   86400,
 		})
@@ -98,7 +100,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		}
 		firstName := strings.TrimSpace(r.FormValue("first_name"))
 		lastName := strings.TrimSpace(r.FormValue("last_name"))
-		email := strings.TrimSpace(strings.ToLower(r.FormValue("email")))
+		email := store.NormalizeEmail(r.FormValue("email"))
 		password := r.FormValue("password")
 		confirm := r.FormValue("confirm")
 
@@ -190,6 +192,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 			Value:    token,
 			Path:     "/",
 			HttpOnly: true,
+			Secure:   true,
 			SameSite: http.SameSiteStrictMode,
 			MaxAge:   86400,
 		})
@@ -268,11 +271,10 @@ func (s *Server) handleUsersCollection(w http.ResponseWriter, r *http.Request) {
 			FirstName string `json:"first_name"`
 			LastName  string `json:"last_name"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(w, "invalid request", http.StatusBadRequest)
+		if err := decodeJSONBody(w, r, &req, 4<<10); err != nil {
 			return
 		}
-		req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+		req.Email = store.NormalizeEmail(req.Email)
 		req.FirstName = strings.TrimSpace(req.FirstName)
 		req.LastName = strings.TrimSpace(req.LastName)
 		if req.FirstName == "" || req.LastName == "" {
@@ -333,8 +335,7 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 			Role   string `json:"role,omitempty"`
 			Status string `json:"status,omitempty"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(w, "invalid request", http.StatusBadRequest)
+		if err := decodeJSONBody(w, r, &req, 1<<10); err != nil {
 			return
 		}
 		if req.Status != "" {

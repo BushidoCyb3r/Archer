@@ -19,21 +19,24 @@ see *Breaking-change surfaces* and *Deprecation policy* below.
 
 ### Listeners and ports
 
-Archer runs two listeners:
+Archer runs a single TLS listener:
 
-- **HTTPS on `:8443`** — primary surface. TLS cert auto-generated at
+- **HTTPS on `:8443`** — the only listener. UI, analyst API, and
+  Quiver sensor surface (`/api/quiver/*`, `/quiver/install.sh`) all
+  served here. TLS cert auto-generated at
   `/data/tls/server.{crt,key}`. Sensors pin the cert by SHA-256
-  fingerprint (`/api/sensors/info` exposes the fingerprint).
-- **HTTP on `:8080`** — diagnostic only. Same routes, no TLS. Useful
-  inside the container for `curl localhost:8080/api/version`. Don't
-  expose externally.
+  fingerprint (`/api/sensors/info` exposes the fingerprint); browsers
+  validate the chain (operator drops in a CA-signed cert per
+  OPERATIONS.md for production). v0.14.5 NEW-49 removed the
+  pre-existing plaintext `:8080` listener that had been carrying admin
+  credentials in cleartext.
 
 ### Authentication
 
 Every route except the explicitly-public ones below requires a session
-cookie set by `POST /login`. The cookie is `HttpOnly`, `SameSite=Lax`,
-and (over HTTPS) `Secure`. Sessions are persisted in
-`/data/users.db`'s `sessions` table.
+cookie set by `POST /login`. The cookie is `HttpOnly`,
+`SameSite=Strict`, and `Secure` (always — v0.14.5). Sessions are
+persisted in `/data/users.db`'s `sessions` table.
 
 **Public (no session)**:
 - `GET /api/version`

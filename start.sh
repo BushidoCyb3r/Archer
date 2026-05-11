@@ -90,7 +90,8 @@ case "$ACTION" in
   up)
     $COMPOSE up -d --build
     echo ""
-    echo "Archer is running at http://${HOST_IP}:8080"
+    echo "Archer is running at https://${HOST_IP}:8443"
+    echo "(self-signed cert — see OPERATIONS.md for the CA-cert swap-in path)"
     ;;
   down)
     $COMPOSE down
@@ -99,7 +100,8 @@ case "$ACTION" in
     $COMPOSE down
     $COMPOSE up -d
     echo ""
-    echo "Archer is running at http://${HOST_IP}:8080"
+    echo "Archer is running at https://${HOST_IP}:8443"
+    echo "(self-signed cert — see OPERATIONS.md for the CA-cert swap-in path)"
     ;;
   logs)
     $COMPOSE logs -f

@@ -7,11 +7,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/model"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/text/unicode/norm"
 	_ "modernc.org/sqlite"
 )
 
@@ -36,6 +38,19 @@ func init() {
 // a real registration. Result is intentionally discarded.
 func (us *UserStore) EnumerationTimingPad(password string) {
 	_ = bcrypt.CompareHashAndPassword(timingPadHash, []byte(password))
+}
+
+// NormalizeEmail trims whitespace, applies Unicode NFC normalization,
+// and lowercases. SQLite's COLLATE NOCASE only folds ASCII, and Go's
+// strings.ToLower handles Unicode case folding but does NOT normalize
+// composed-vs-decomposed forms — so `café@example.com` written as
+// NFC (U+00E9) and NFD (U+0065 U+0301) would hash to different keys
+// in both the Go-side EmailExists map and the SQLite uniqueness
+// check. NFC-then-fold gives a single canonical form for both store
+// and lookup paths. Apply at every email-entry boundary (registration,
+// admin user-create, login). v0.14.5 NEW-51.
+func NormalizeEmail(s string) string {
+	return strings.ToLower(norm.NFC.String(strings.TrimSpace(s)))
 }
 
 // UserStore persists user accounts in a SQLite database at /data/archer.db.

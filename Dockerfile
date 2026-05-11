@@ -83,10 +83,15 @@ LABEL org.opencontainers.image.version="${ARCHER_VERSION}"
 LABEL org.opencontainers.image.revision="${ARCHER_COMMIT}"
 LABEL org.opencontainers.image.source="https://github.com/BushidoCyb3r/Archer"
 
-# 8080 — analyst UI (plain HTTP, LAN-side)
-# 8443 — Quiver sensor checkin / install endpoint (TLS, pinned at enrollment)
-# 22   — Quiver sensor rsync push (ssh-key auth)
-EXPOSE 8080 8443 22
+# 8443 — analyst/admin/viewer UI + API + Quiver sensor checkin / install
+#        endpoint, all over TLS. Sensors pin the cert at enrollment;
+#        browsers validate against the CA chain (operator drops in
+#        their own CA-signed cert per OPERATIONS.md). The pre-v0.14.5
+#        plaintext :8080 listener was removed in NEW-49 — admin auth
+#        had been transmitted in cleartext, which is unacceptable for
+#        a tool whose threat model is "the LAN may be hostile."
+# 22   — Quiver sensor rsync push (ssh-key auth, separate sshd)
+EXPOSE 8443 22
 
 ENTRYPOINT ["/sbin/tini", "--", "/app/entrypoint.sh"]
-CMD ["--addr=:8080", "--tls-addr=:8443", "--logs-dir=/logs"]
+CMD ["--tls-addr=:8443", "--logs-dir=/logs"]

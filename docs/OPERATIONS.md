@@ -15,7 +15,7 @@ read this whole document, start with **`docs/QUICKSTART_OPS.md`**
 — it's the 5-minute "deploy + restore + three things to know"
 companion. Come back here when the questions get deeper.
 
-Everything below is current as of **v0.14.4**.
+Everything below is current as of **v0.14.5**.
 
 ---
 
@@ -100,15 +100,30 @@ Run through this before exposing Archer to a multi-user team.
 
 ### TLS
 
-- [ ] **Default auto-generated cert is fine for sensor-side pinned-
-      pubkey verification.** Sensors curl with `--pinnedpubkey
-      sha256//<fp>`, so chain validation is bypassed by design.
-- [ ] **For admin browser access, swap in a CA-signed cert.** Drop
-      the cert + key into `/data/tls/server.crt` and
-      `/data/tls/server.key` (both mode 0600). Restart the
-      container; the operator path validates expiry, parseability,
-      and key/cert match at startup. A startup error names the
-      file so a wrong cert is loudly visible.
+- [ ] **Single TLS listener for every role.** As of v0.14.5 the
+      pre-existing plaintext `:8080` listener is gone (NEW-49); the
+      `:8443` HTTPS listener serves the UI, the analyst API, AND
+      the Quiver sensor surface. Admin credentials, analyst session
+      cookies, and viewer access are all on TLS by design.
+- [ ] **Generate a CA-signed cert from your internal PKI before
+      go-live.** REQUIRED for any deployment with more than one
+      user. The auto-generated self-signed cert works (sensors pin
+      the public key, browsers throw a one-time "Not Secure"
+      warning the operator can click through) but a CA-signed cert
+      eliminates the warning and matches the discipline every
+      compliance framework expects. Drop the cert + key into
+      `/data/tls/server.crt` and `/data/tls/server.key` (both mode
+      0600). Restart the container; the operator path validates
+      expiry, parseability, and key/cert match at startup. A
+      startup error names the file so a wrong cert is loudly
+      visible.
+- [ ] **Sensor pinning still works after a CA cert swap.**
+      Pinning checks the public key (SubjectPublicKeyInfo), not
+      the chain — so the same cert satisfies both browser chain
+      validation and `curl --pinnedpubkey` simultaneously. Just
+      make sure to back up `/data/tls/` before rotating, since the
+      pinned fingerprint changes with any key regeneration (see
+      Backup and restore → cert continuity).
 - [ ] **Don't share the auto-gen cert across hosts.** The
       `--pinnedpubkey` fingerprint is host-specific; deploying
       Archer to two hosts means two independent CAs (or two
@@ -116,15 +131,21 @@ Run through this before exposing Archer to a multi-user team.
 
 ### Network
 
-- [ ] Expose port 8443 (HTTPS) only to admin networks. Sensors need
-      it for enrollment and checkin, but `/api/quiver/*` is the
-      only path they touch — consider a reverse proxy that limits
-      sensor sources to `/api/quiver/*` and admin sources to
-      everything else.
+- [ ] Expose port 8443 (HTTPS) to the admin AND sensor networks.
+      Same port carries both. A reverse proxy in front (if you
+      use one) can still split by path — `/api/quiver/*` to the
+      sensor allowlist, everything else to the admin allowlist —
+      but the underlying listener is unified.
 - [ ] Expose port 2222 (sshd for log rsync) only to sensor
       networks. The chrooted rrsync limits damage from a
       compromised sensor, but the SSH attack surface itself is
       best minimised at the network layer.
+- [ ] **There is no plaintext HTTP listener.** Pre-v0.14.5 Archer
+      ran a `:8080` plaintext listener for the analyst UI; that
+      listener carried passwords and session cookies in cleartext
+      and was removed in NEW-49. The flag does not exist any
+      more — `--addr` is gone, `--tls-addr` is the only listener
+      configuration knob.
 - [ ] Egress from the Archer host to feed URLs (MISP, OpenCTI)
       should pass through your standard outbound proxy /
       monitoring. Feed URLs are admin-configurable; the SSRF
@@ -533,6 +554,24 @@ flood path is closed; the open compute-DoS path against bcrypt
 is mitigated separately by the timing-pad on the unknown-email
 login path (NEW-46) which equalises wall-clock cost across all
 failure outcomes.
+
+**Sensors-modal "Unauthorized attempts" surface vs. audit log
+under flood.** Two surfaces watch the same event. The
+`unauthorized_attempts` table feeds the Sensors-modal UI count;
+the audit_log records `sensor_unauthorized_attempt` rows for
+incident-response queries. As of v0.14.4 NEW-45 the rate
+limiter fires *inside* `recordUnauthorizedCheckin`, so once a
+source bucket trips, both the table-row insert and the audit-
+log emit are short-circuited until the bucket admits again.
+Under a sustained flood the Sensors-modal UI count is bounded
+by the first ~10 attempts per bucket cycle while the audit log
+shows one `request_rate_limited` row per trip. The audit log
+is the authoritative attempt count; the modal UI is for
+low-rate "occasional unauthorized attempt" signal. An analyst
+reading the UI's count should reconcile against
+`audit_log WHERE action IN ('sensor_unauthorized_attempt',
+'request_rate_limited') AND source_ip = ?` to see the true
+attempt volume. v0.14.5 NEW-54.
 
 **Schema columns** (see migration 0009 for rationale):
 
