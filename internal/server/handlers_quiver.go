@@ -93,6 +93,22 @@ func (s *Server) handleQuiverEnroll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	// Rate-limit enrollment by source IP. Tokens are 24 random bytes
+	// so brute-forcing them is impractical, but each enroll request
+	// still consumes work (token lookup, body decode, validation,
+	// authorized_keys write on success). A hostile client hammering
+	// /api/quiver/enroll without rate limiting is a modest DoS
+	// surface. v0.14.5 NEW-52.
+	if allowed, shouldAudit := s.rateLimit.allow(sourceIP(r)); !allowed {
+		if shouldAudit {
+			s.recordAudit(r, "request_rate_limited", auditEvent{
+				TargetType: "sensor",
+				Details:    map[string]any{"path": "/api/quiver/enroll", "reason": "unauth_rate_limit"},
+			})
+		}
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
 	var req struct {
 		Token           string `json:"token"`
 		Name            string `json:"name"`

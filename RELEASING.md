@@ -70,7 +70,7 @@ the tag name and `git show v0.x.y` shows the release notes.
 
 ```bash
 ./start.sh up
-curl -s http://localhost:8080/api/version | jq
+curl -sk https://localhost:8443/api/version | jq
 ```
 
 Expected output:

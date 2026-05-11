@@ -27,9 +27,13 @@ process model looks like, and what each file is responsible for.
 Archer is a single Go binary, baked into a single Docker container.
 Inside the container:
 
-- **HTTP server on `:8080`** serves the analyst UI (plain HTTP, LAN-side).
-- **HTTPS server on `:8443`** serves the Quiver sensor surface, with a
-  pinned cert.
+- **HTTPS server on `:8443`** serves the UI, the analyst API, AND the
+  Quiver sensor surface — every role uses TLS. v0.14.5 NEW-49 removed
+  the pre-existing plaintext `:8080` listener; admin auth had been
+  transmitted in cleartext, which is unacceptable for a tool whose
+  threat model is "the LAN may be hostile." Sensor pinning still
+  works because pinning checks the public key, not the chain; one
+  cert satisfies both browser chain validation and sensor pinning.
 - **OpenSSH on `:22`** (mapped to host `:2222`) accepts sensor rsync
   pushes via `rrsync` jail.
 - **SQLite at `/data/archer.db`** holds findings, config, allowlist/IOC,

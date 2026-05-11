@@ -5,7 +5,8 @@
 #   - archer-data   → /data: SQLite DB (findings, users, settings, allowlist,
 #                     IOC list, suppressions, notifications, watch schedule,
 #                     archive config, sensor records) + /data/tls (auto-issued
-#                     TLS material for the 8443 Quiver pull endpoint)
+#                     TLS material for the 8443 listener — UI, API, and
+#                     Quiver pull endpoint all served here)
 #   - archer-sshd   → /etc/ssh/keys: sshd host keys for the 2222 Quiver SSH
 #                     port — wiping these means enrolled sensors will see a
 #                     host-key mismatch on their next push and must clear
@@ -46,7 +47,7 @@ This will permanently delete ALL Archer state:
     - sshd host keys (sensors will see a key mismatch until they clear
       /etc/quiver/known_hosts; install.sh does this automatically)
     - per-sensor authorized_keys
-    - auto-issued TLS material for the 8443 pull endpoint
+    - auto-issued TLS material for the 8443 listener
 
 Pushed log files under ./logs are NOT touched.
 
@@ -91,9 +92,8 @@ HOST_IP="${HOST_IP:-localhost}"
 cat <<DONE
 
 Done. Archer is running:
-  - Analyst UI       http://${HOST_IP}:8080
-  - Quiver pull TLS  https://${HOST_IP}:8443  (sensor → control channel)
-  - Quiver SSH/rsync ssh://quiver@${HOST_IP}:2222  (sensor → log push)
+  - UI + API + Quiver  https://${HOST_IP}:8443  (TLS — analysts, admins, sensors)
+  - Quiver SSH/rsync   ssh://quiver@${HOST_IP}:2222  (sensor → log push)
 
 Next steps:
   1. Open the UI and register a new admin account.

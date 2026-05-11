@@ -263,9 +263,12 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/feeds", any(s.handleFeeds))
 	s.mux.Handle("/api/feeds/", any(s.handleFeedItem))
 
-	// Quiver sensor-facing — no session auth, served over the TLS listener.
-	// install.sh is the curl-able installer body; enroll/checkin are the
-	// only two endpoints a sensor ever calls.
+	// Quiver sensor-facing — no session auth required (sensors aren't
+	// users; auth is the enrollment token + per-sensor HMAC).
+	// Served on the same TLS listener as the rest of the API (v0.14.5
+	// NEW-49 unified the listeners). install.sh is the curl-able
+	// installer body; enroll/checkin are the only two endpoints a
+	// sensor ever calls.
 	s.mux.HandleFunc("/quiver/install.sh", s.handleQuiverInstallScript)
 	s.mux.HandleFunc("/api/quiver/enroll", s.handleQuiverEnroll)
 	s.mux.HandleFunc("/api/quiver/checkin", s.handleQuiverCheckin)

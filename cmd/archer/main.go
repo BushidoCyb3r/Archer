@@ -16,8 +16,21 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", ":8080", "plain HTTP listen address (analyst UI)")
-	tlsAddr := flag.String("tls-addr", ":8443", "HTTPS listen address (Quiver sensor traffic); empty disables")
+	// Single TLS listener for everyone — admins, analysts, viewers,
+	// AND sensors. Pre-v0.14.5 Archer ran a plain HTTP listener on
+	// :8080 for the UI and a TLS listener on :8443 for sensors;
+	// every user role logged in over cleartext on :8080,
+	// transmitting passwords and session cookies in the clear over
+	// the LAN Archer was deployed to monitor. The plaintext path
+	// was removed entirely in v0.14.5 (NEW-49). The unified TLS
+	// listener has no concurrency concerns — sensor heartbeat
+	// traffic is ~0.014 req/sec per 50-sensor fleet, dwarfed by
+	// analyst SPA load. Cert pinning on the sensor side still
+	// works because pinning checks the public key, not the chain;
+	// the operator's CA-signed cert (the documented deployment
+	// path in OPERATIONS.md) satisfies both browser chain
+	// validation and sensor pinning simultaneously.
+	tlsAddr := flag.String("tls-addr", ":8443", "HTTPS listen address (the only listener — every role, including sensors, uses TLS)")
 	tlsDir := flag.String("tls-dir", "", "directory holding server.crt/server.key (default: <data-dir>/tls)")
 	webDir := flag.String("web-dir", "", "path to web directory (default: ./web next to binary)")
 	logsDir := flag.String("logs-dir", "/logs", "Zeek logs directory (bind-mounted in Docker)")
@@ -54,29 +67,25 @@ func main() {
 	broker := server.NewBroker()
 	srv := server.New(st, us, broker, *webDir, *logsDir, *authKeys)
 
-	// Bootstrap TLS for sensor-facing traffic. A single bad cert shouldn't
-	// take Archer down — the analyst UI on plain HTTP keeps working even
-	// when TLS init fails, so we log and continue rather than os.Exit.
-	if *tlsAddr != "" {
-		if *tlsDir == "" {
-			*tlsDir = filepath.Join(*dataDir, "tls")
-		}
-		certPath, keyPath, fp, err := server.EnsureTLS(*tlsDir)
-		if err != nil {
-			log.Printf("TLS bootstrap failed (HTTPS disabled): %v", err)
-		} else {
-			srv.SetTLSFingerprint(fp)
-			go func() {
-				log.Printf("Archer HTTPS listening on %s  (cert fingerprint sha256//%s)", *tlsAddr, fp)
-				if err := http.ListenAndServeTLS(*tlsAddr, certPath, keyPath, srv); err != nil {
-					log.Printf("HTTPS listener exited: %v", err)
-				}
-			}()
-		}
+	if *tlsAddr == "" {
+		log.Fatal("--tls-addr is required (Archer is HTTPS-only as of v0.14.5; the plaintext :8080 listener was removed in NEW-49)")
 	}
-
-	log.Printf("Archer HTTP listening on %s  (web: %s  logs: %s)", *addr, *webDir, *logsDir)
-	if err := http.ListenAndServe(*addr, srv); err != nil {
+	if *tlsDir == "" {
+		*tlsDir = filepath.Join(*dataDir, "tls")
+	}
+	certPath, keyPath, fp, err := server.EnsureTLS(*tlsDir)
+	if err != nil {
+		// Pre-v0.14.5 a TLS bootstrap failure logged and continued
+		// — the plaintext listener was the fallback. There IS no
+		// fallback now; admin auth requires TLS, so the only
+		// correct response to "we can't bootstrap TLS" is to
+		// surface the error and refuse to start.
+		log.Fatalf("TLS bootstrap failed: %v", err)
+	}
+	srv.SetTLSFingerprint(fp)
+	log.Printf("Archer HTTPS listening on %s  (cert fingerprint sha256//%s)", *tlsAddr, fp)
+	log.Printf("  web: %s  logs: %s", *webDir, *logsDir)
+	if err := http.ListenAndServeTLS(*tlsAddr, certPath, keyPath, srv); err != nil {
 		log.Fatal(err)
 	}
 }
