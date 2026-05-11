@@ -62,31 +62,28 @@ func sensorFromPath(logsDir, filePath string) string {
 // directory. Findings are merged via fingerprint, so analyst notes/status
 // survive. The single source of input is /logs — operators wanting to
 // analyze ad-hoc bundles drop them into /logs/<name>/<date>/ first.
+//
+// Pre-v0.14.8 this handler ALSO accepted a {"config": {...}} body and
+// silently rewrote the analyzer config before running, bypassing the
+// admin gate, range validation (off-hours equality, port bounds), and
+// audit_log row that PUT /api/config enforces. The handler's route
+// gate is `write` (analyst+), so any compromised analyst session
+// could disable beacon detection, rotate operator API keys, or shift
+// the off-hours window — with no audit trail. Asymmetric-validation
+// of the same shape as NEW-15 (sensor name validated at enroll but
+// not checkin) and NEW-37 (status validated at import but not
+// PATCH). The config-rewrite path is removed entirely. Config
+// changes go through PUT /api/config (admin-only, validated,
+// audited as config_change). v0.14.8 NEW-60.
 func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var req struct {
-		Config json.RawMessage `json:"config"`
-	}
-	if r.ContentLength > 0 {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-	}
-
 	files := s.scanLogsDir()
 	if len(files) == 0 {
 		jsonError(w, "no logs found in /logs", http.StatusBadRequest)
 		return
-	}
-
-	if req.Config != nil {
-		cfg := s.store.GetConfig()
-		_ = json.Unmarshal(req.Config, &cfg)
-		s.store.SetConfig(cfg)
 	}
 
 	// launchAnalysis does the atomic TryStartAnalysis claim — see
@@ -1272,14 +1269,27 @@ func (s *Server) handleNotifications(w http.ResponseWriter, r *http.Request) {
 			Action string `json:"action"` // "dismiss", "dismiss_all"
 			ID     int    `json:"id"`
 		}
-		json.NewDecoder(r.Body).Decode(&req)
+		if err := decodeJSONBody(w, r, &req, 1<<10); err != nil {
+			return
+		}
 		switch req.Action {
 		case "dismiss":
 			s.store.DismissNotification(req.ID)
 		case "dismiss_all":
 			s.store.DismissAllNotifications()
+		default:
+			// NEW-63: unrecognized action silently returned 200 OK with
+			// no observable effect. Clients couldn't tell their request
+			// did nothing. Now it's a clear 400.
+			jsonError(w, "unknown action — expected dismiss or dismiss_all", http.StatusBadRequest)
+			return
 		}
 		jsonOK(w)
+	default:
+		// NEW-63: pre-fix any verb other than GET / POST got an empty
+		// response that net/http defaulted to 200 OK — confusing API
+		// surface. Reject explicitly.
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -1371,8 +1381,7 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 			Timezone      string `json:"timezone"`
 			IntervalHours int    `json:"interval_hours"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(w, "invalid JSON", http.StatusBadRequest)
+		if err := decodeJSONBody(w, r, &req, 4<<10); err != nil {
 			return
 		}
 		// Validate HH:MM format when enabling
@@ -1438,8 +1447,7 @@ func (s *Server) handleArchive(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req store.ArchiveSettings
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(w, "invalid JSON", http.StatusBadRequest)
+		if err := decodeJSONBody(w, r, &req, 4<<10); err != nil {
 			return
 		}
 		if req.Enabled && req.AfterDays <= 0 {
@@ -1477,7 +1485,16 @@ func (s *Server) handleArchiveRun(w http.ResponseWriter, r *http.Request) {
 		DryRun bool `json:"dry_run"`
 	}
 	if r.ContentLength > 0 {
-		_ = json.NewDecoder(r.Body).Decode(&req)
+		// Tiny body; decode errors are tolerated (req stays at zero
+		// values, which is the "real run, not dry" default — matches
+		// the pre-fix shape so existing clients posting empty / bad
+		// bodies keep working). Body is still bounded so a hostile
+		// caller can't push a multi-MB payload at this endpoint just
+		// to have us discard it. We don't use decodeJSONBody here
+		// because it writes a response on error, which would conflict
+		// with the 202/200 we want to write below; the cap+silent-
+		// ignore shape needs MaxBytesReader directly.
+		_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req)
 	}
 
 	triggeredBy := me.DisplayName()
@@ -1721,14 +1738,18 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, importMaxBytes)
 	var payload struct {
 		Findings  []model.Finding `json:"findings"`
 		Allowlist []string        `json:"allowlist"`
 		IOCList   []string        `json:"ioc_list"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		jsonError(w, err.Error(), http.StatusBadRequest)
+	// decodeJSONBody centralises the size-cap + 413-on-overflow +
+	// no-decoder-internals-in-error-response discipline that NEW-40
+	// established. Pre-fix this site reflected raw err.Error() text
+	// back to the caller (decoder offsets, character positions) —
+	// the exact echo-decoder-internals shape NEW-40 was meant to
+	// eliminate for the admin endpoints. NEW-61 closes the gap.
+	if err := decodeJSONBody(w, r, &payload, importMaxBytes); err != nil {
 		return
 	}
 	for i, f := range payload.Findings {
