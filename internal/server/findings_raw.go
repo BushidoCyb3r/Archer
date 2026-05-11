@@ -65,6 +65,7 @@ var logTypesForFinding = map[string][]string{
 	"TI Hit (Hash)":            {"files", "http"},
 	"Threat Intel Hit":         {"conn", "http", "dns", "ssl"}, // legacy pre-v0.7.0
 	"Host Risk Score":          {"conn", "http", "dns", "ssl"}, // cross-detector roll-up
+	"Correlated Activity":      {"conn", "http", "dns", "ssl"}, // cross-detector roll-up
 }
 
 // handleFindingRaw serves GET /api/findings/{id}/raw. It walks the scan root

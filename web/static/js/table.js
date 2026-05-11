@@ -76,11 +76,21 @@ const Table = (() => {
     const detail = detailRaw.slice(0, 60) + (detailRaw.length > 60 ? '…' : '');
     const sev = f.severity || '';
     const cls = sev + (isSel ? ' selected' : '');
+    // Correlation chip — visible when the analyzer's correlation
+    // phase annotated this finding with sibling IDs. Click pivots
+    // to the Correlated Activity roll-up for this row's (src, dst),
+    // handled in _onTbodyClick.
+    const corrCount = (Array.isArray(f.correlations) ? f.correlations.length : 0) | 0;
+    const corrChip = corrCount > 0
+      ? ' <span class="corr-chip" title="' +
+          _esc('Part of a correlation with ' + corrCount + ' other finding(s) on the same (src, dst). Click to view the Correlated Activity row.') +
+          '">+' + corrCount + ' corr</span>'
+      : '';
     return '<tr class="' + cls + '" data-id="' + f.id + '">' +
       '<td class="status-icon">' + _statusIcon(f) + '</td>' +
       '<td class="score">' + _esc(f.score) + '</td>' +
       '<td class="severity">' + _esc(sev) + '</td>' +
-      '<td title="' + _esc(f.type) + '">' + _esc(f.type) + '</td>' +
+      '<td title="' + _esc(f.type) + '">' + _esc(f.type) + corrChip + '</td>' +
       '<td class="src-ip" title="' + _esc(f.src_ip) + '" style="font-family:monospace">' + _esc(f.src_ip) + '</td>' +
       '<td class="dst-ip" title="' + _esc(f.dst_ip) + '" style="font-family:monospace">' + _esc(f.dst_ip) + '</td>' +
       '<td class="port">' + _esc(f.dst_port) + '</td>' +
@@ -168,7 +178,23 @@ const Table = (() => {
     if (!tr) return;
     const id = parseInt(tr.dataset.id, 10);
     const f = _findById(id);
-    if (f) _select(f);
+    if (!f) return;
+    // Click on the correlation chip pivots to the Correlated Activity
+    // row for this (src, dst). If the Correlated Activity row isn't
+    // in the current loaded findings (filtered or paginated out), we
+    // fall back to selecting the originating finding so the analyst
+    // can read its Detail field — which lists every contributing ID.
+    if (e.target.closest('.corr-chip')) {
+      const corr = _findings.find(x =>
+        x.type === 'Correlated Activity' &&
+        x.src_ip === f.src_ip &&
+        x.dst_ip === f.dst_ip);
+      if (corr) {
+        jumpTo(corr.id);
+        return;
+      }
+    }
+    _select(f);
   }
 
   function _onTbodyCtx(e) {

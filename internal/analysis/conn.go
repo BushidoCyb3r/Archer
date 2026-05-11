@@ -402,6 +402,35 @@ func (a *Analyzer) analyzeConn(files []string) {
 		if eh := intervalEntropyScore(ivs); eh > tsScore {
 			tsScore = eh
 		}
+		// Spectral augmentation: frequency-domain rescue for the
+		// class of beacons the Bowley/MAD/multimodal/entropy paths
+		// all explicitly miss — a single fixed period with enough
+		// bounded jitter to wreck statistical regularity scores but
+		// not enough to wash out a Lomb-Scargle peak. Adversaries
+		// who deliberately jitter their C2 to evade timing-
+		// regularity detection produce exactly this shape. Gated on
+		// (a) the operator's feature flag (default on) and (b)
+		// statistical scoring having already failed — pairs that
+		// scored above SpectralRescueThreshold don't benefit from
+		// rescue. The reservoir sample (st.tsData, capped at
+		// beaconTsCap=200) carries the timestamps; sort and pass
+		// the first column. Lomb-Scargle is robust to reservoir
+		// thinning (designed for sparse data) so the cap doesn't
+		// hurt detection power.
+		var spectralRescued bool
+		var spectralResult SpectralResult
+		if a.cfg.SpectralEnabled && tsScore < a.cfg.SpectralRescueThreshold && len(st.tsData) >= a.cfg.SpectralMinObservations {
+			tsOnly := make([]float64, len(st.tsData))
+			for i, row := range st.tsData {
+				tsOnly[i] = row[0]
+			}
+			spec := spectralScore(tsOnly, a.cfg.SpectralMinObservations, a.cfg.SpectralFAPThreshold)
+			if spec.Score > tsScore {
+				tsScore = spec.Score
+				spectralRescued = true
+				spectralResult = spec
+			}
+		}
 		dsScore := 0.0
 		if len(byteVals) >= 3 {
 			dsScore = statisticalScore(byteVals, 0.0)
@@ -440,6 +469,23 @@ func (a *Analyzer) analyzeConn(files []string) {
 		copy(tsData, st.tsData)
 		sort.Slice(tsData, func(i, j int) bool { return tsData[i][0] < tsData[j][0] })
 
+		detail := fmt.Sprintf("Connections: %d | Mean interval: %.1fs | CV: %.2f | Score components: ts=%.2f ds=%.2f hist=%.2f dur=%.2f", totalObserved, ivMean, ivCV, tsScore, dsScore, hScore, durScore)
+		if spectralRescued {
+			// Surface the full spectral diagnostics so the calibration
+			// loop is tight: an operator triaging spectral-rescued
+			// findings needs the score (how confident), the dominant
+			// period (does it look like a real beacon cadence?), the
+			// raw Lomb-Scargle power (how far above noise?), and the
+			// FAP threshold (so they know what cutoff produced this
+			// rescue). Score and period alone weren't enough — a
+			// rescue at power=12.1 against FAP=12.0 is borderline; a
+			// rescue at power=37.2 against FAP=12.0 is unambiguous.
+			// Without these numbers in the Detail line, the
+			// calibration loop forces the analyst to re-run analysis
+			// with tighter thresholds to see which rescues hold.
+			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (dominant period %.1fs, power %.1f, FAP threshold %.1f)",
+				spectralResult.Score, spectralResult.Period, spectralResult.RawPower, a.cfg.SpectralFAPThreshold)
+		}
 		a.add(model.Finding{
 			Type:      "Beaconing",
 			Severity:  sev,
@@ -447,7 +493,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 			SrcIP:     pk.src,
 			DstIP:     pk.dst,
 			DstPort:   fmt.Sprint(st.firstPort),
-			Detail:    fmt.Sprintf("Connections: %d | Mean interval: %.1fs | CV: %.2f | Score components: ts=%.2f ds=%.2f hist=%.2f dur=%.2f", totalObserved, ivMean, ivCV, tsScore, dsScore, hScore, durScore),
+			Detail:    detail,
 			Timestamp: fmtTS(st.firstTs),
 			TSData:    tsData,
 		})

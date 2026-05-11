@@ -16,11 +16,38 @@ type Config struct {
 	DNSTunnelMinDepth     int     `json:"dns_tunnel_min_depth"`
 	DNSNXDomainThreshold  int     `json:"dns_nxdomain_threshold"`
 	DNSUniqueSubdomainMin int     `json:"dns_unique_subdomain_min"`
-	TITimeoutSec          int     `json:"ti_timeout_sec"`
-	OTXAPIKey             string  `json:"otx_api_key"`
-	AbuseIPDBAPIKey       string  `json:"abuseipdb_api_key"`
-	VirusTotalAPIKey      string  `json:"virustotal_api_key"`
-	CrowdSecAPIKey        string  `json:"crowdsec_api_key"`
+	// CorrelationMinTypes is the minimum number of distinct detector
+	// types on the same (SrcIP, DstIP) pair required to emit a
+	// Correlated Activity roll-up. Default 2 catches the high-value
+	// kill-chain shape (e.g. DNS Tunneling + Beaconing to the same
+	// destination); raising to 3 trades coverage for false-positive
+	// resistance on multi-protocol SaaS traffic. Pairs below the
+	// threshold rely on their individual detector findings.
+	CorrelationMinTypes int `json:"correlation_min_types"`
+
+	// Spectral beacon detection — frequency-domain rescue for beacons
+	// whose timing jitter defeats the Bowley/MAD statistical math but
+	// who still have a clear periodic structure (the C2 use case where
+	// adversaries deliberately jitter to evade timing-regularity
+	// detection). The rescue runs Lomb-Scargle on the reservoir of
+	// connection timestamps and combines its score into the timing
+	// axis via max() — same shape as the multimodal and entropy
+	// augmentations already in place.
+	//
+	// CPU cost: ~4 ms per pair on a 200-timestamp reservoir × 2000
+	// frequency-grid points. Only fires when the statistical timing
+	// score is already below SpectralRescueThreshold, so well-scoring
+	// beacons skip this entirely.
+	SpectralEnabled         bool    `json:"spectral_enabled"`
+	SpectralMinObservations int     `json:"spectral_min_observations"`
+	SpectralFAPThreshold    float64 `json:"spectral_fap_threshold"`
+	SpectralRescueThreshold float64 `json:"spectral_rescue_threshold"`
+
+	TITimeoutSec     int    `json:"ti_timeout_sec"`
+	OTXAPIKey        string `json:"otx_api_key"`
+	AbuseIPDBAPIKey  string `json:"abuseipdb_api_key"`
+	VirusTotalAPIKey string `json:"virustotal_api_key"`
+	CrowdSecAPIKey   string `json:"crowdsec_api_key"`
 	// GreyNoise Community API works unauthenticated (rate-limited to ~50/h).
 	// A free Community-tier key bumps the limit; the field is optional and
 	// the GreyNoise lookup runs regardless.
@@ -116,7 +143,25 @@ func Default() Config {
 		DNSTunnelMinDepth:     5,
 		DNSNXDomainThreshold:  200,
 		DNSUniqueSubdomainMin: 50,
-		TITimeoutSec:          12,
+		CorrelationMinTypes:   2,
+
+		// Spectral defaults — conservative enough for first-run
+		// safety, tunable per deployment if FP rate dictates.
+		// Min observations: 16 gives Lomb-Scargle enough samples to
+		// distinguish signal from noise without falling into the
+		// few-sample-aliasing regime below 8.
+		// FAP threshold 12.0: ~exp(-12) per-frequency false alarm
+		// over 2000 grid points means ≈ 2e-2 false alarms per run
+		// across all pairs — acceptable noise floor.
+		// Rescue threshold 0.5: only run spectral when the
+		// statistical timing axis (Bowley/MAD/multimodal/entropy)
+		// already failed; pairs that scored above 0.5 don't need
+		// rescue.
+		SpectralEnabled:         true,
+		SpectralMinObservations: 16,
+		SpectralFAPThreshold:    12.0,
+		SpectralRescueThreshold: 0.5,
+		TITimeoutSec:            12,
 
 		ArchiveAfterDays: 30,
 	}

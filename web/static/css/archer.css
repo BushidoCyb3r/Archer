@@ -1777,6 +1777,28 @@ dialog::backdrop {
 .status-badge.active  { background: rgba(34, 197, 94, 0.10);  color: var(--sev-low);  border-color: rgba(34, 197, 94, 0.30); }
 .status-badge.pending { background: rgba(234, 179, 8, 0.12);  color: var(--sev-medium); border-color: rgba(234, 179, 8, 0.32); }
 
+/* Correlation chip — appears in the Type cell of the findings table
+   when the analyzer's correlation phase annotated the row with sibling
+   finding IDs. Click pivots to the Correlated Activity roll-up.
+   Compact accent styling to read as "supplementary info" rather than
+   competing with the row's severity colour. */
+.corr-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 99px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--accent-hover);
+  background: var(--accent-soft);
+  border: 1px solid rgba(79, 140, 255, 0.32);
+  cursor: pointer;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.corr-chip:hover { background: var(--accent-glow); color: #fff; }
+
 /* ============================================================================
    PCAP / status toast (inline-styled in HTML — keep selector compatible)
 ============================================================================ */

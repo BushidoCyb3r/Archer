@@ -30,6 +30,108 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+Two feature waves after the v0.14 audit arc, both from
+MATURATION_PLAN section 13b on the operator's stated mission of
+best-in-class beacon hunting. **Same-pair multi-detector correlation**
+catches kill-chain progression — multiple detector types lighting up
+on the same `(SrcIP, DstIP)` pair — that no single detector surfaces.
+**Spectral beacon detection** adds a Lomb-Scargle frequency-domain
+rescue to the Beaconing timing axis, catching bounded-jitter C2 that
+the distribution-based statistical paths (Bowley/MAD/multimodal/
+entropy) explicitly miss. Both ship with their boundary validation,
+defensive guards, and config tunables.
+
+### Added
+
+- **Correlated Activity finding type** — emitted by a new Phase 3.5
+  step (`internal/analysis/correlate.go`) when two or more distinct
+  detector types fire on the same `(SrcIP, DstIP)` pair. Catches the
+  kill-chain progression shape that any single detector misses:
+  Beaconing + DNS Tunneling to the same destination, Suspicious File
+  Download + TI Hit (Hash) on the same host pair, etc. Contributors
+  get annotated with sibling finding IDs via a new
+  `Finding.Correlations []int` field; the Findings table surfaces a
+  `+N corr` chip on each contributor that pivots to the roll-up on
+  click.
+- **`correlation_min_types` config field** — minimum distinct
+  detector types required to emit a correlation, default 2. Tunable
+  via `PUT /api/config`; rejected at the API boundary when < 2
+  (degenerate — would correlate every single-detector pair) and
+  short-circuited defensively in `correlateFindings` (NEW-66
+  defense-in-depth pattern).
+- **`model.IsRollupType` helper** — distinguishes analyzer-derived
+  roll-ups (Host Risk Score, Correlated Activity) from per-record
+  detections. Used by `Store.SetFindings`'s preserve-historical loop
+  to purge stale roll-up rows.
+- **Spectral beacon detection** — Lomb-Scargle periodogram over the
+  pair's reservoir-sampled timestamps, augmenting the Beaconing and
+  HTTP Beaconing timing axes. Catches bounded-jitter C2 (fixed
+  schedule with random offset per request) that statistical scoring
+  explicitly misses — exactly the shape adversaries who care about
+  evading timing-regularity detection produce. Implementation in
+  `internal/analysis/spectral.go`. Rayleigh power form (no tau
+  degeneracy, clean null-hypothesis interpretation), 2000-point
+  log-spaced period grid from 5s to window/2. CPU cost ~4 ms per
+  pair on the 200-timestamp reservoir; combined with the rescue
+  gate (only fires when statistical scoring already failed) the
+  per-run overhead is bounded.
+- **Spectral config knobs** — `SpectralEnabled` (default true),
+  `SpectralMinObservations` (default 16), `SpectralFAPThreshold`
+  (default 12.0, ~exp(-12) per-frequency false alarm),
+  `SpectralRescueThreshold` (default 0.5, gate above which spectral
+  doesn't fire). All four tunable via `PUT /api/config` with
+  boundary rejection of degenerate values; the analyzer also
+  defends itself defensively (NEW-66 pattern).
+
+### Fixed
+
+- **Stale Host Risk Score rows when every contributor is purged.**
+  TODO #3 from v0.14.10 — the narrow case the NEW-67 union didn't
+  cover. When an operator archives or deletes every contributing
+  finding for a host, the HRS row was preserved as historical
+  indefinitely with no defensible source. `SetFindings` now drops
+  preserved historical findings of any roll-up type whose
+  fingerprint isn't regenerated this run; the roll-up phase is
+  authoritative, and absence-from-regeneration is authoritative
+  too. Same fix applies to Correlated Activity from day one — built
+  the fix for both together rather than introducing a known orphan
+  shape alongside the new feature.
+
+### Detection changes
+
+- **New finding type: `Correlated Activity`.** Score = max(contributor
+  scores) + 5 per distinct detector type above the minimum, capped
+  at 99. Severity from standard score bands. Ineligible contributor
+  types: `Host Risk Score`, `Correlated Activity` (recursion
+  guards), `Zeek Notice` (too noisy), `Long Connection` (too weak in
+  isolation). Three offline golden scenarios re-baselined where
+  underlying logs genuinely had multiple detector types on the same
+  (src, dst): `strobe` (Beaconing + Strobe), `ti_misp_feed`
+  (Suspicious File Download + Suspicious URL), `ti_misp_hash`
+  (Suspicious File Download + TI Hit (Hash)). No detection scores
+  on existing types changed; the roll-up is purely additive
+  alongside the underlying findings.
+- **Host Risk Score detection list no longer includes roll-up
+  types.** `aggregateRisk`'s contributor filter now skips both
+  `Host Risk Score` (recursion guard, already excluded pre-fix) and
+  `Correlated Activity` (new). The HRS Detail string previously
+  listed Correlated Activity alongside the underlying detector
+  types, which conflated the roll-up with its inputs; the per-host
+  detection breakdown now reflects only the per-record detections
+  that actually drove the score.
+- **Beaconing timing axis adds a fourth augmentation (spectral).**
+  `ts_score = max(raw_ts, multimodal, entropy, spectral)`. The
+  rescue runs only when the existing three score below
+  `SpectralRescueThreshold` (default 0.5) AND the pair has at
+  least `SpectralMinObservations` (default 16) reservoir samples.
+  Existing Beaconing findings on data the statistical chain
+  already handled aren't affected (their timing score stays
+  unchanged because spectral doesn't fire). New findings — beacons
+  with bounded jitter that the statistical chain scored low — get
+  a `Spectral rescue: period≈Xs` tag in the Detail string so
+  analysts know which signal drove the score. Same wiring for
+  HTTP Beaconing.
+
 ## [v0.14.10] — 2026-05-11
 
 Sixteenth-round rotation audit, residual hygiene phase. Two

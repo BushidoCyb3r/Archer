@@ -224,13 +224,14 @@ func (a *Analyzer) waitIfPaused() bool {
 // Analyze runs all detection steps and returns findings.
 // It can be stopped via Cancel() or paused/resumed via Pause()/Resume().
 //
-// Execution is pipelined into four phases:
+// Execution is pipelined into five phases:
 //
-//	Phase 0: threat-intel feed prefetch (network I/O, overlaps with phase 1)
-//	Phase 1: all log-type analyzers in parallel (independent of each other)
-//	Phase 2: HTTP analysis (sequential — needs sslUIDIndex from phase 1)
-//	Phase 3: URL + TI checks in parallel (need cached feeds from phase 0)
-//	Phase 4: host risk scoring (needs all findings)
+//	Phase 0:   threat-intel feed prefetch (network I/O, overlaps with phase 1)
+//	Phase 1:   all log-type analyzers in parallel (independent of each other)
+//	Phase 2:   HTTP analysis (sequential — needs sslUIDIndex from phase 1)
+//	Phase 3:   URL + TI checks in parallel (need cached feeds from phase 0)
+//	Phase 3.5: cross-detector correlation (sees all per-record findings)
+//	Phase 4:   host risk scoring (needs all findings)
 func (a *Analyzer) Analyze(files []string) []model.Finding {
 	collect := func() []model.Finding {
 		a.mu.RLock()
@@ -305,6 +306,24 @@ func (a *Analyzer) Analyze(files []string) []model.Finding {
 	go func() { defer wg3.Done(); a.checkFileHashes(files) }()
 	wg3.Wait()
 	a.sendProgress(88, "Threat Intel")
+
+	if !a.waitIfPaused() {
+		return collect()
+	}
+
+	// ── Phase 3.5: cross-detector correlation ────────────────────────────────
+	// Same-pair multi-detector roll-up: any (SrcIP, DstIP) carrying
+	// findings from N+ distinct detector types becomes a Correlated
+	// Activity row, and contributing findings get annotated with
+	// their siblings via Finding.Correlations. Sees historical
+	// findings via findingsProvider when wired, same NEW-67 union
+	// pattern aggregateRisk uses. Runs before aggregateRisk so the
+	// emitted correlation row appears in the finding set, though the
+	// risk-weight table deliberately omits it (it's a roll-up, not a
+	// contributor).
+	a.sendStatus("Correlating multi-detector activity…")
+	a.correlateFindings()
+	a.sendProgress(94, "Correlate")
 
 	if !a.waitIfPaused() {
 		return collect()

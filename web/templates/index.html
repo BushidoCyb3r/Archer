@@ -200,6 +200,7 @@
           <option value="">All</option>
         </select>
       </label>
+      <label title="Restrict to Beaconing findings whose timing score was rescued by the spectral path. Use this during spectral calibration to triage which rescues are true positives vs false positives."><input id="filter-spectral-only" type="checkbox"> Spectral rescued only</label>
     </div>
 
     <!-- Delta bar -->
@@ -888,6 +889,18 @@
         <label>Strobe Min Conns<input class="dlg-input" id="cfg-strobe-thresh" type="number" min="1"></label>
         <label>Long Conn (hours)<input class="dlg-input" id="cfg-longconn" type="number" min="0.1" step="0.5"></label>
         <label>Exfil Min (MB)<input class="dlg-input" id="cfg-exfil" type="number" min="1"></label>
+      </div>
+      <div style="color:var(--fg-dim);font-size:0.9em;margin-top:10px;margin-bottom:8px">
+        Spectral rescue runs a frequency-domain analysis (Lomb-Scargle periodogram) on pairs whose statistical timing score was weak. Catches bounded-jitter beacons where adversaries randomize timing around a fixed schedule. Disable if real-world false-positive rate on periodic legitimate traffic (cron jobs, health probes, RSS pollers) outweighs the detection gain.
+      </div>
+      <label><input id="cfg-spectral-enabled" type="checkbox"> Enable spectral rescue for jittered beacons <span style="color:var(--fg-dim)">(adds ~4ms per rescue-eligible pair)</span></label>
+      <div style="color:var(--fg-dim);font-size:0.85em;margin-top:10px;margin-bottom:6px">
+        Calibration knobs — leave at defaults unless you've measured FP/TP rates on your traffic. See docs/DETECTION_METHODS.md §2 for what each one controls.
+      </div>
+      <div class="settings-grid">
+        <label>Min observations<input class="dlg-input" id="cfg-spectral-min-obs" type="number" min="8" title="Minimum reservoir-sampled timestamps required before spectral fires. Lower = more rescues on small datasets, higher = fewer false alarms from low-sample pairs. Default 16. Hard floor 8 below which Lomb-Scargle output is unreliable regardless of config."></label>
+        <label>FAP threshold<input class="dlg-input" id="cfg-spectral-fap" type="number" min="0.1" step="0.5" title="False-alarm-probability cutoff on the Lomb-Scargle peak power. Per-frequency FAP ≈ exp(-threshold), so 12 → ~6e-6 per frequency. Raise to reduce FPs (16 → 10x stricter), lower to catch weaker peaks (9 → 20x looser). Default 12."></label>
+        <label>Rescue gate<input class="dlg-input" id="cfg-spectral-rescue" type="number" min="0" max="1" step="0.05" title="Statistical timing-score threshold below which spectral is allowed to run. Pairs scoring above this skip spectral entirely (the statistical path was confident enough). Lower (0.3) = only rescue clear failures, higher (0.7) = attempt rescue on more pairs. Default 0.5."></label>
       </div>
     </div>
     <div class="settings-group">
