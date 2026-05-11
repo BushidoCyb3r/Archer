@@ -30,6 +30,98 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.14.7] — 2026-05-11
+
+Hygiene and operational-discoverability release closing the
+remaining items from the thirteenth audit pass. Four items;
+none gate team handoff, but two (NEW-56 cookie symmetry +
+NEW-58 Quiver decoder migration) were called out as "fix these
+and the codebase is at v1.0 quality" — closing them puts the
+project there even with the 0.x prefix.
+
+### Changed
+
+- **Logout `Set-Cookie` carries the same security flags as
+  login (NEW-56).** Pre-fix the clearing cookie was emitted as
+  `{Name, Value:"", Path:"/", MaxAge:-1}` — deletion worked
+  because RFC 6265 §5.3 matches the existing cookie on
+  `(name, path, domain)` only, but the drift between the
+  set-cookie sites (Secure + HttpOnly + SameSite=Strict) and
+  the clear-cookie site (none of those) was exactly the
+  "aspirational convention" failure mode NEW-30 was about.
+  Now every `Set-Cookie` for `sessionCookie` carries the same
+  security attributes. Defense-in-depth + symmetry: a future
+  edit that re-introduces an HTTP listener can't accidentally
+  expose the clear-cookie path. Audit 2026-05-11 NEW-56.
+
+- **Sensor `quiver.sh` validates `/etc/quiver/secret` shape
+  before signing (NEW-57).** Pre-fix `-s` checked only that
+  the file was non-empty; if the file got corrupted (partial
+  disk write during reboot, FS error, accidental operator
+  edit), `CHECKIN_SECRET` got whatever bytes were there,
+  openssl HMACed with the wrong key, and the server recorded
+  `sensor_unauthorized_attempt` with `reason=bad_hmac` every
+  hour while the sensor appeared healthy locally. Sensor-side
+  diagnosis required reading the server audit log first; the
+  operator couldn't tell from the sensor alone. Added
+  charset + length sanity check at script start: expected 43
+  characters, charset `[A-Za-z0-9_-]` (URL-safe base64
+  RawURLEncoding of 32 random bytes). Mismatch produces a
+  loud `quiver: ${SECRET_FILE} ... corrupted ... re-run the
+  install one-liner` message to stderr (which lands in
+  cron's mail / syslog depending on distro). The `unknown`
+  status branch in the response handler now also routes the
+  operator to the audit log's `details.reason` field so they
+  can distinguish unknown-name from bad-HMAC. OPERATIONS.md
+  Disaster-recovery symptom→first-step table extended with
+  both failure modes. Audit 2026-05-11 NEW-57.
+
+- **Quiver enroll + checkin endpoints decode with the
+  v0.14.3 helper / pattern (NEW-58).** `/api/quiver/enroll`
+  migrated to `decodeJSONBody` for the same 413-on-cap-trip
+  semantics the admin endpoints already have. The checkin
+  endpoint can't use the helper directly (the raw body
+  bytes are needed for HMAC verification before decode, so
+  read+cap+decode is a two-step) but the read step now
+  returns 413 on cap-trip via the same `errors.As(err,
+  *MaxBytesError)` pattern instead of 400+`"could not read
+  body"`. Operationally indistinguishable from a
+  JSON-shape problem otherwise — fixed for the admin paths
+  in NEW-40, fixed for the sensor paths here. Audit
+  2026-05-11 NEW-58.
+
+### Documentation
+
+- **OPERATIONS.md → Sensor lifecycle now explicitly
+  documents the `-k --pinnedpubkey` Curl idiom (NEW-59).**
+  Security reviewers scanning the install script and
+  `quiver.sh` flag `-k` as alarming; the combination is
+  the documented Curl idiom for pin-only verification and
+  is correct. Doc note explains the layering (`-k`
+  removes the chain check, `--pinnedpubkey` provides the
+  integrity check; Curl applies both, not OR), and the
+  intentional invariant: don't remove `-k` "because we
+  have a CA cert now" — that couples sensor behaviour to
+  deployment posture in a way that breaks the
+  swap-your-cert-in-place promise. Audit 2026-05-11
+  NEW-59.
+
+### Maturation lessons
+
+- **Long-standing-code rotation audit.** Per the auditor's
+  trajectory note: once per quarter, deliberately read one
+  module that wasn't touched in the latest release. Not
+  "is there a new bug" but "if I had never seen this
+  before, would the code make me trust it?" NEW-46 (login
+  timing oracle) and NEW-49 (plaintext listener) were both
+  pre-existing bugs that survived because audit attention
+  was on what changed. Rotating attention through
+  unchanged code on a schedule prevents that pattern from
+  repeating. Recorded in MATURATION_PLAN. Candidate
+  modules for the rotation: the analyzer math, the parser,
+  the SSE broker, the watch loop, `cmd/archer/main.go` +
+  deployment artifacts, the auth layer.
+
 ## [v0.14.6] — 2026-05-11
 
 Hotfix on top of v0.14.5. The HTTPS-only deployment from v0.14.5
