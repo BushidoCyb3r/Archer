@@ -112,8 +112,7 @@ func (s *Server) handleFeeds(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req feedRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(w, "invalid JSON", http.StatusBadRequest)
+		if err := decodeJSONBody(w, r, &req, 16<<10); err != nil {
 			return
 		}
 		if err := validateFeedRequest(req, true); err != nil {
@@ -183,8 +182,7 @@ func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req feedRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(w, "invalid JSON", http.StatusBadRequest)
+		if err := decodeJSONBody(w, r, &req, 16<<10); err != nil {
 			return
 		}
 		if err := validateFeedRequest(req, false); err != nil {

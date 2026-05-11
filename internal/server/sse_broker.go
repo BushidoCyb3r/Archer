@@ -130,7 +130,15 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	// Pre-v0.14.8 this site set Access-Control-Allow-Origin: * —
+	// vestigial from an early experiment. The SPA is same-origin
+	// (served by the same Archer process) so CORS isn't needed,
+	// and the header on review raised the "is this endpoint
+	// meant to be public?" question. Archer doesn't set
+	// Access-Control-Allow-Credentials, so cross-origin
+	// EventSource attempts from a malicious page couldn't carry
+	// the session cookie regardless — the header was just
+	// confusing review noise. Removed entirely. v0.14.8 NEW-62.
 
 	ch := b.Subscribe()
 	defer b.Unsubscribe(ch)
