@@ -18,14 +18,31 @@ const beaconHistoryRetentionDays = 30
 // BeaconHistoryRow is the SPA-facing projection of one row in the
 // beacon_history table. Matches the JSON shape /api/findings/{id}/history
 // returns; consumed by the detail-pane evolution chart.
+//
+// MaxScore is the highest composite score observed for this beacon
+// on this UTC day across every analyze pass that ran. The chart
+// renders MaxScore because the spike is the trajectory-meaningful
+// number an analyst cares about — a beacon that hit 88 at noon and
+// fell back to 60 by evening is a different story from one that
+// held steady at 60 all day, and the chart should distinguish them.
+//
+// LastScore is the most recent score written for this beacon on
+// this UTC day. Exposed for forensic / per-pass detail but not
+// currently rendered on the chart. The TSScore / DSScore /
+// HistScore / DurScore fields track the *max-score* write
+// (sub-axis explanation for the high day), not the last-score
+// write.
 type BeaconHistoryRow struct {
-	DayUTC    string  `json:"day_utc"`
-	Score     int     `json:"score"`
-	Severity  string  `json:"severity"`
-	TSScore   float64 `json:"ts_score"`
-	DSScore   float64 `json:"ds_score"`
-	HistScore float64 `json:"hist_score"`
-	DurScore  float64 `json:"dur_score"`
+	DayUTC      string  `json:"day_utc"`
+	MaxScore    int     `json:"max_score"`
+	MaxScoreAt  int64   `json:"max_score_at"`
+	LastScore   int     `json:"last_score"`
+	LastScoreAt int64   `json:"last_score_at"`
+	Severity    string  `json:"severity"`
+	TSScore     float64 `json:"ts_score"`
+	DSScore     float64 `json:"ds_score"`
+	HistScore   float64 `json:"hist_score"`
+	DurScore    float64 `json:"dur_score"`
 }
 
 // saveBeaconHistory writes one beacon_history row per this-run
@@ -35,12 +52,24 @@ type BeaconHistoryRow struct {
 // so the order doesn't matter for crash consistency, but doing it
 // after saveFindings keeps the failure modes simple to reason about.
 //
-// "First pass of the UTC day wins" semantics: the PRIMARY KEY
-// (fingerprint, day_utc) + INSERT … ON CONFLICT DO NOTHING means a
-// re-analysis later the same day leaves the morning's snapshot in
-// place. That's deliberate — the morning pass sees the day's earlier
-// logs and is the more representative score; a noon re-run with
-// only partial logs would otherwise overwrite it.
+// UPSERT semantics: when a beacon's row already exists for today's
+// UTC day, the conflict-resolution branch runs in two parts. (a)
+// last_score / last_score_at always update to reflect the most
+// recent pass's reading. (b) max_score / max_score_at / severity /
+// sub-axis scores only update when the new score exceeds the
+// existing max. The net effect: a single row per beacon per day
+// carries both "the spike" and "the most recent reading."
+//
+// Why both numbers matter: under sub-daily watch cadence (or
+// admin-triggered re-analysis), a noon spike followed by an evening
+// fallback can be the signal an analyst needs to see. Pre-v0.16.1
+// shipped INSERT … ON CONFLICT DO NOTHING with a comment claiming
+// "morning's snapshot is the more representative score" — that was
+// factually wrong (the analyzer scores against the accumulated
+// reservoir window, not "today's logs") and the resulting
+// silent-drop hid the exact adversarial-tuning pattern the chart
+// is supposed to surface. NEW-76 from the eighteenth audit round
+// drove the redesign.
 //
 // newFPSet filters the input to only this-run's emits: preserved
 // historical findings (the SetFindings preserve-loop appends them
@@ -51,7 +80,7 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
 		return
 	}
 	dayUTC := time.Now().UTC().Format("2006-01-02")
-	createdAt := time.Now().Unix()
+	now := time.Now().Unix()
 
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -61,10 +90,20 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
 	stmt, err := tx.Prepare(`
         INSERT INTO beacon_history
             (fingerprint, day_utc, finding_type, src_ip, dst_ip, dst_port,
-             host, uri, score, severity,
-             ts_score, ds_score, hist_score, dur_score, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(fingerprint, day_utc) DO NOTHING
+             host, uri,
+             max_score, max_score_at, last_score, last_score_at,
+             severity, ts_score, ds_score, hist_score, dur_score, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(fingerprint, day_utc) DO UPDATE SET
+            last_score    = excluded.last_score,
+            last_score_at = excluded.last_score_at,
+            max_score     = CASE WHEN excluded.max_score > max_score THEN excluded.max_score    ELSE max_score    END,
+            max_score_at  = CASE WHEN excluded.max_score > max_score THEN excluded.max_score_at ELSE max_score_at END,
+            severity      = CASE WHEN excluded.max_score > max_score THEN excluded.severity     ELSE severity     END,
+            ts_score      = CASE WHEN excluded.max_score > max_score THEN excluded.ts_score     ELSE ts_score     END,
+            ds_score      = CASE WHEN excluded.max_score > max_score THEN excluded.ds_score     ELSE ds_score     END,
+            hist_score    = CASE WHEN excluded.max_score > max_score THEN excluded.hist_score   ELSE hist_score   END,
+            dur_score     = CASE WHEN excluded.max_score > max_score THEN excluded.dur_score    ELSE dur_score    END
     `)
 	if err != nil {
 		_ = tx.Rollback()
@@ -73,7 +112,6 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
 	}
 	defer stmt.Close()
 
-	var wrote int
 	for _, f := range findings {
 		if f.Type != "Beaconing" && f.Type != "HTTP Beaconing" {
 			continue
@@ -90,19 +128,21 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
 			f.DstPort,
 			f.Hostname,
 			f.URI,
-			f.Score,
+			f.Score, // max_score (first-write value; UPSERT decides whether to keep)
+			now,     // max_score_at
+			f.Score, // last_score (always replaced on conflict)
+			now,     // last_score_at
 			string(f.Severity),
 			f.TSScore,
 			f.DSScore,
 			f.HistScore,
 			f.DurScore,
-			createdAt,
+			now,
 		)
 		if err != nil {
 			log.Printf("store: beacon_history insert: %v", err)
 			continue
 		}
-		wrote++
 	}
 	if err := tx.Commit(); err != nil {
 		log.Printf("store: beacon_history commit: %v", err)
@@ -118,7 +158,8 @@ func (s *Store) BeaconHistory(key string) []BeaconHistoryRow {
 		return nil
 	}
 	rows, err := s.db.Query(`
-        SELECT day_utc, score, severity, ts_score, ds_score, hist_score, dur_score
+        SELECT day_utc, max_score, max_score_at, last_score, last_score_at,
+               severity, ts_score, ds_score, hist_score, dur_score
         FROM beacon_history
         WHERE fingerprint = ?
         ORDER BY day_utc ASC
@@ -131,7 +172,13 @@ func (s *Store) BeaconHistory(key string) []BeaconHistoryRow {
 	var out []BeaconHistoryRow
 	for rows.Next() {
 		var r BeaconHistoryRow
-		if err := rows.Scan(&r.DayUTC, &r.Score, &r.Severity, &r.TSScore, &r.DSScore, &r.HistScore, &r.DurScore); err != nil {
+		if err := rows.Scan(
+			&r.DayUTC,
+			&r.MaxScore, &r.MaxScoreAt,
+			&r.LastScore, &r.LastScoreAt,
+			&r.Severity,
+			&r.TSScore, &r.DSScore, &r.HistScore, &r.DurScore,
+		); err != nil {
 			log.Printf("store: beacon_history scan: %v", err)
 			continue
 		}
@@ -159,23 +206,26 @@ func (s *Store) PurgeBeaconHistory() int64 {
 	return n
 }
 
-// hasBeaconHistoryRow is a test helper exposed via the unexported
-// type for store_test.go assertions. Returns the persisted score for
-// the (key, day) tuple, or -1 if no row exists. Lives here (not in
-// _test.go) because store_test.go is in package store and can reach
-// it directly; an exported helper would litter the public API.
-func (s *Store) hasBeaconHistoryRow(key, day string) (int, bool) {
+// beaconHistoryRowSnapshot is a test helper exposed via the unexported
+// type for store_test.go assertions. Returns the persisted max_score
+// + last_score for the (key, day) tuple, or `ok=false` if no row
+// exists. Lives here (not in _test.go) because store_test.go is in
+// package store and can reach it directly; an exported helper would
+// litter the public API.
+func (s *Store) beaconHistoryRowSnapshot(key, day string) (maxScore int, lastScore int, ok bool) {
 	if s.db == nil {
-		return 0, false
+		return 0, 0, false
 	}
-	var score int
-	err := s.db.QueryRow(`SELECT score FROM beacon_history WHERE fingerprint=? AND day_utc=?`, key, day).Scan(&score)
+	err := s.db.QueryRow(
+		`SELECT max_score, last_score FROM beacon_history WHERE fingerprint=? AND day_utc=?`,
+		key, day,
+	).Scan(&maxScore, &lastScore)
 	if err == sql.ErrNoRows {
-		return 0, false
+		return 0, 0, false
 	}
 	if err != nil {
 		log.Printf("store: beacon_history lookup: %v", err)
-		return 0, false
+		return 0, 0, false
 	}
-	return score, true
+	return maxScore, lastScore, true
 }

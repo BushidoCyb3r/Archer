@@ -85,11 +85,16 @@ func TestEscConsistency_AcrossSPAModules(t *testing.T) {
 		}
 	}
 
-	// Belt-and-suspenders: we expect to find _esc in at least 6
-	// modules (app, detail, table, notifications, campaigns, feeds,
-	// sensors). If a regex change or a file rename drops the count,
-	// fail loudly so the next audit pass isn't silently weakened.
-	const minExpected = 6
+	// Belt-and-suspenders: we currently ship _esc across 8 SPA
+	// modules — app, detail, table, notifications, campaigns, feeds,
+	// sensors, beacon_evolution. The floor is tightened each time a
+	// new module joins so a regression that drops _esc from a single
+	// module trips immediately rather than waiting for two more
+	// modules to also lose theirs (the "at least 6" floor pre-v0.16.1
+	// would have let the first 2 modules silently inline unescaped
+	// strings without breaking the test). NEW-80 from the
+	// eighteenth audit round.
+	const minExpected = 8
 	if found < minExpected {
 		t.Errorf("found %d _esc definitions across SPA modules; expected at least %d (regex broken or modules removed?)", found, minExpected)
 	}
