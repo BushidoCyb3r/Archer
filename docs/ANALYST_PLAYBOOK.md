@@ -309,6 +309,48 @@ it survived across analysis runs via fingerprint merge). Read
 them. If someone's already acknowledged this exact pattern
 last quarter and the note explains why, your job is over.
 
+**Score evolution chart.** Beaconing / HTTP Beaconing findings
+carry an SVG sparkline below the action buttons showing up to
+30 daily snapshots of the composite score plus the four
+sub-axes (ts, ds, hist, dur). The chart updates once per UTC
+day, on the first full pass — so it's a *trend* view, not a
+real-time stream.
+
+Read it for trajectory rather than absolute value:
+
+- **Flat high score** — stable, persistent channel. A
+  long-running C2 implant looks like this; so does a
+  long-running legitimate health probe. Use the other
+  indicators to separate.
+- **Climbing ts with stable ds** — the beacon is becoming
+  more regular. An initial-jitter implant settling into its
+  rhythm, or an operator-side cleanup of legitimate scheduled
+  job timing.
+- **Climbing dur with flat ts/ds** — the channel is staying
+  alive longer each day; the implant's session keepalive is
+  succeeding.
+- **Sudden drop after weeks of activity** — the beacon went
+  silent. Either remediation (good) or the implant rotated
+  destinations (bad — cross-reference the Correlated Activity
+  row for the same source).
+- **Score moving up across days, no underlying detector
+  change** — the DGA augmentation may have fired today on a
+  destination that previously didn't trigger. Check the
+  Detail line for the diagnostic tag.
+
+The chart is the right view for "how is this beacon changing
+over weeks." For intra-day timing detail (interval distribution,
+byte distribution), use the Beacon Chart dialog instead.
+
+**Correlation chip.** If this finding's `(src, dst)` pair is
+also carrying findings from N+ other detector types, the row
+shows a `+N corr` chip. Click it to pivot to the Correlated
+Activity row, which lists every sibling finding. This is the
+fastest way to spot kill-chain progression — a Beaconing
+finding plus a DNS Tunneling finding plus a Suspicious File
+Download on the same pair is a much higher-signal story than
+any one of them alone.
+
 ---
 
 ## Indicators that lean malicious
@@ -437,6 +479,38 @@ Enrichment note. You should still verify (feeds have false
 positives — the lowest-quality feeds list every cloud
 provider's IP space). But the bar for escalate drops
 considerably.
+
+### 9. The destination hostname looks DGA-shaped
+
+Archer's DGA augmentation already flagged this — the finding's
+score is bumped +15 and severity is one step higher than the
+baseline beacon math would have produced. The Detail line
+carries the diagnostic tag:
+
+```
+DGA-suspect destination: kx9j3qm2pflw.com (SLD=kx9j3qm2pflw, entropy=3.58, bigram=-5.55)
+```
+
+When you see this tag, the destination's registrable domain has
+both high character entropy (close to uniform — typical of
+algorithmic generation) and bigram statistics that don't match
+English. Built-in CDN allowlist already exempts cloudfront /
+azure / akamai / fastly / etc., so the tag is *only* present on
+destinations that survived that filter. Treat it as confirming
+evidence on top of the timing-regularity case the beacon
+detector already made — DGA on its own would be too noisy, but
+DGA + timing = high-confidence C2 infrastructure.
+
+False positives that survive the CDN allowlist:
+- Hash-derived storage URLs from less-common providers (some
+  S3-compatible hosts; smaller CDN networks).
+- Email-tracking pixel hosts (one-off-domain-per-campaign style).
+- Internal corporate test domains using generated names.
+
+For these, add the specific hostname to the operator allowlist
+(Settings → Allowlist). Don't bump the DGA thresholds globally —
+the SLD-level entropy/bigram defaults are tuned to put English
+words clearly above the floor.
 
 ---
 

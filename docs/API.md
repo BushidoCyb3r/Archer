@@ -226,6 +226,7 @@ The most-used surface. Findings are detector outputs, persisted in
 | `POST` | `/api/findings/{id}/notes` | analyst+ | Append a note to the finding. |
 | `GET` | `/api/findings/{id}/raw` | any | Raw-log pivot — the Zeek lines that produced this finding. |
 | `GET` | `/api/findings/{id}/position` | any | Absolute zero-indexed position of finding `{id}` within `/api/findings` under the same filter + sort query parameters. Returns `{found: bool, offset: N, total: M}` (200) or `{found: false, total: M}` (404) when the finding does not match. The bell-notification **Jump** action uses this to navigate to the page containing the target finding regardless of the analyst's current pagination offset. |
+| `GET` | `/api/findings/{id}/history` | any | 30-day beacon score evolution rows for Beaconing / HTTP Beaconing findings. Returns `[]` (not 404) for other finding types so the SPA can call unconditionally. See `BeaconHistoryRow` shape below. |
 
 **Finding shape** (`model.Finding`, `internal/model/finding.go:23`):
 
@@ -248,6 +249,9 @@ The most-used surface. Findings are detector outputs, persisted in
   "ioc_match":    false,
   "is_new":       true,
   "sensor":       "sensor1",
+  "hostname":     "kx9j3qm2pflw.com",
+  "uri":          "/heartbeat",
+  "correlations": [57, 91],
   "intervals":    [60.0, 60.0, 60.0],
   "ts_data":      [[1705320000, 500, 2000], …],
   "notes":        []
@@ -256,8 +260,17 @@ The most-used surface. Findings are detector outputs, persisted in
 
 - `severity` is one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`.
 - `status` is `""` (open), `acknowledged`, or `escalated`.
-- `intervals`, `ts_data`, `notes`, `sensor` are `omitempty` —
-  expect their absence on findings that don't carry that data.
+- `intervals`, `ts_data`, `notes`, `sensor`, `hostname`, `uri`,
+  `correlations` are `omitempty` — expect their absence on findings
+  that don't carry that data.
+- `hostname` is populated for Beaconing (from TLS SNI) and HTTP
+  Beaconing (from the `Host` header). Consumed by the DGA scoring
+  pass and surfaced in the finding-detail pane.
+- `uri` is populated for HTTP Beaconing (the request path that
+  participated in the grouping key).
+- `correlations` is the list of sibling finding IDs that share this
+  finding's `(src_ip, dst_ip)` pair and contributed to a Correlated
+  Activity roll-up. The SPA renders a `+N corr` chip when non-empty.
 - `ts_data` rows are `[ts_unix, orig_bytes, resp_bytes]` triples used
   for the beacon chart on the analyst UI.
 - **`GET /api/findings` returns a projected list** that drops
@@ -284,6 +297,7 @@ The most-used surface. Findings are detector outputs, persisted in
 | `from`, `to` | timestamp | Time range. Both `YYYY-MM-DD HH:MM:SS` (UTC) and RFC 3339 accepted. |
 | `status` | `open`/`acknowledged`/`escalated` | Status filter. |
 | `ioc_only` | `true` | Only findings whose `src_ip` or `dst_ip` is in the IOC list. |
+| `spectral_only` | `true` | Only Beaconing findings whose timing score was rescued by the spectral path. Matches on the `Spectral rescued:` substring in the Detail field. Useful during spectral-tuning calibration — see `docs/SPECTRAL_TUNING.md`. |
 | `sort` | `score`/`severity`/`type`/`src_ip`/`dst_ip`/`timestamp` | Sort key (default `score`). |
 | `dir` | `asc`/`desc` | Sort direction (default `desc`). |
 | `limit` | int 1–50000 | Max rows in the response. Default `1000`. |
@@ -328,6 +342,41 @@ from the session.
 Returns `202 Accepted` and streams results over SSE as `ti_result`
 events terminated by a `ti_done`. Service availability depends on
 configured API keys (see `/api/ti/services`).
+
+**`GET /api/findings/{id}/history` response** — array of
+`BeaconHistoryRow`:
+
+```json
+[
+  {
+    "day_utc":    "2026-04-12",
+    "score":      62,
+    "severity":   "HIGH",
+    "ts_score":   0.81,
+    "ds_score":   0.92,
+    "hist_score": 0.10,
+    "dur_score":  0.65
+  },
+  {
+    "day_utc":    "2026-04-13",
+    "score":      78,
+    "severity":   "HIGH",
+    "ts_score":   0.94,
+    "ds_score":   0.92,
+    "hist_score": 0.20,
+    "dur_score":  0.78
+  }
+]
+```
+
+Sorted ascending by `day_utc`. Up to 30 rows per beacon (retention
+window). `ts_score / ds_score / hist_score / dur_score` are the four
+per-axis sub-scores that compose the Beaconing total (each in
+`[0, 1]`); `score` is the composite (0-100, the same value as
+`Finding.score` on the day the row was captured). Rows are written
+at most once per UTC day by `Store.SetFindings` (first full pass of
+the day wins via `INSERT … ON CONFLICT DO NOTHING`). The endpoint
+returns `[]` for finding types other than Beaconing / HTTP Beaconing.
 
 ### Configuration
 
