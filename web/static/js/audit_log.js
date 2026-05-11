@@ -86,14 +86,20 @@ const AuditLog = (() => {
     if (visible.length === 0) {
       tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--fg-dim);padding:12px">No matching audit entries</td></tr>';
     } else {
+      // white-space:nowrap on the identity columns lets long values
+      // (IPv6 source addresses, "Type src → dst:port" targets,
+      // long action names, long emails) force the column wider
+      // rather than wrapping inside a fixed width. Pre-fix the
+      // "From" column was capped at 110px which truncated IPv6
+      // addresses. v0.14.3.
       tbody.innerHTML = visible.map(e => `
         <tr>
-          <td style="padding:5px;font-family:monospace">${_esc(_fmtTS(e.ts))}</td>
-          <td>${_esc(e.actor_email || 'system')}</td>
-          <td><code>${_esc(e.action)}</code></td>
-          <td>${_fmtTarget(e)}</td>
+          <td style="padding:5px;font-family:monospace;white-space:nowrap">${_esc(_fmtTS(e.ts))}</td>
+          <td style="white-space:nowrap">${_esc(e.actor_email || 'system')}</td>
+          <td style="white-space:nowrap"><code>${_esc(e.action)}</code></td>
+          <td style="white-space:nowrap">${_fmtTarget(e)}</td>
           <td style="font-family:monospace;font-size:11px;color:var(--fg-dim);word-break:break-all">${_fmtChange(e)}</td>
-          <td style="font-family:monospace">${_esc(e.source_ip || '')}</td>
+          <td style="font-family:monospace;white-space:nowrap">${_esc(e.source_ip || '')}</td>
         </tr>`).join('');
     }
     document.getElementById('audit-total').textContent =

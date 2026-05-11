@@ -59,6 +59,13 @@ type Store struct {
 	feedBucketsMu sync.Mutex
 	feedBuckets   []feeds.SourcedIndicators
 	feedBucketsOK bool
+
+	// Audit-log total-count cache. CountAuditLog runs a COUNT(*) on
+	// every UI page-load; for a multi-million-row audit_log that's
+	// seconds per load. TTL-cache makes the worst case one scan per
+	// minute regardless of UI activity. v0.14.3 NEW-43.
+	auditCountValue int64
+	auditCountAt    time.Time
 }
 
 type suppressionEntry struct {

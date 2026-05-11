@@ -51,6 +51,11 @@ type Server struct {
 	// Invalidated implicitly by the per-entry TTL.
 	sensorMtimeMu    sync.Mutex
 	sensorMtimeCache map[string]sensorMtimeEntry
+
+	// Rate limiter for unauthenticated endpoints (login, register,
+	// quiver checkin). Prevents audit-log flood attacks from a
+	// single source IP. v0.14.3 NEW-39.
+	rateLimit *rateLimiter
 }
 
 type sensorMtimeEntry struct {
@@ -63,12 +68,18 @@ func New(st *store.Store, us *store.UserStore, broker *Broker, webDir, logsDir, 
 	s := &Server{
 		store: st, users: us, broker: broker,
 		webDir: webDir, logsDir: logsDir, authKeysPath: authKeysPath,
-		mux: http.NewServeMux(),
+		mux:       http.NewServeMux(),
+		rateLimit: newRateLimiter(),
 	}
 	s.routes()
 	s.startWatch() // no-op if watch is disabled or unconfigured
 	s.startUnauthorizedPruneLoop()
 	s.startSuppressionsPruneLoop()
+	// Idle-bucket eviction so a long-running flood from many source
+	// IPs doesn't grow the rate-limit map without bound. v0.14.3
+	// NEW-39. The done channel is never closed — eviction runs for
+	// the process lifetime, same shape as the other prune loops.
+	s.rateLimit.startEvictionLoop(make(chan struct{}))
 	// Auto-cadence feed refresh is intentionally off. With large feeds
 	// (100k+ MISP indicators) the periodic CPU cost of an unattended
 	// fetch was visible in the dashboard. Feeds are now refreshed

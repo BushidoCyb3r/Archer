@@ -499,8 +499,21 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 			Status string `json:"status"`
 			Note   string `json:"note"`
 		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, noteBodyMaxBytes)).Decode(&req); err != nil {
-			jsonError(w, err.Error(), http.StatusBadRequest)
+		if err := decodeJSONBody(w, r, &req, noteBodyMaxBytes); err != nil {
+			return
+		}
+		// Validate the status string against the known enum so a buggy
+		// automation client or a compromised analyst session can't
+		// silently write "archived" or any other free-form value into
+		// the findings table — which would persist faithfully and
+		// disappear from the UI's tab filters. Mirrors the validation
+		// validateImportedFinding already applies on /api/import.
+		// v0.14.3 NEW-37.
+		switch model.Status(req.Status) {
+		case model.StatusOpen, model.StatusAcknowledged, model.StatusEscalated:
+			// ok
+		default:
+			jsonError(w, "invalid status — must be \"\" (open), \"acknowledged\", or \"escalated\"", http.StatusBadRequest)
 			return
 		}
 		user := userFromCtx(r)
@@ -623,8 +636,7 @@ func (s *Server) handleEscalate(w http.ResponseWriter, r *http.Request) {
 		IPs      []string `json:"ips"`
 		Services []string `json:"services"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, escalateBodyMaxBytes)).Decode(&req); err != nil {
-		jsonError(w, "invalid JSON", http.StatusBadRequest)
+	if err := decodeJSONBody(w, r, &req, escalateBodyMaxBytes); err != nil {
 		return
 	}
 	user := userFromCtx(r)
@@ -1061,8 +1073,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cfg := s.store.GetConfig()
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, configBodyMaxBytes)).Decode(&cfg); err != nil {
-			jsonError(w, err.Error(), http.StatusBadRequest)
+		if err := decodeJSONBody(w, r, &cfg, configBodyMaxBytes); err != nil {
 			return
 		}
 		// Off-hours window with start == end silently disabled
@@ -1103,8 +1114,7 @@ func (s *Server) handleAllowlist(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var entries []string
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, listBodyMaxBytes)).Decode(&entries); err != nil {
-			jsonError(w, "invalid JSON", http.StatusBadRequest)
+		if err := decodeJSONBody(w, r, &entries, listBodyMaxBytes); err != nil {
 			return
 		}
 		beforeAllow := s.store.GetAllowlist()
@@ -1137,8 +1147,7 @@ func (s *Server) handleIOC(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var entries []string
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, listBodyMaxBytes)).Decode(&entries); err != nil {
-			jsonError(w, "invalid JSON", http.StatusBadRequest)
+		if err := decodeJSONBody(w, r, &entries, listBodyMaxBytes); err != nil {
 			return
 		}
 		beforeIOC := s.store.GetIOCList()
@@ -1181,8 +1190,7 @@ func (s *Server) handleSuppressions(w http.ResponseWriter, r *http.Request) {
 			Days   float64 `json:"days"`
 			Detail string  `json:"detail"`
 		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, suppressBodyMaxBytes)).Decode(&req); err != nil {
-			jsonError(w, "invalid JSON", http.StatusBadRequest)
+		if err := decodeJSONBody(w, r, &req, suppressBodyMaxBytes); err != nil {
 			return
 		}
 		if strings.TrimSpace(req.Target) == "" {
@@ -1914,7 +1922,10 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Text string `json:"text"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, noteBodyMaxBytes)).Decode(&req); err != nil || strings.TrimSpace(req.Text) == "" {
+	if err := decodeJSONBody(w, r, &req, noteBodyMaxBytes); err != nil {
+		return
+	}
+	if strings.TrimSpace(req.Text) == "" {
 		jsonError(w, "note text required", http.StatusBadRequest)
 		return
 	}
