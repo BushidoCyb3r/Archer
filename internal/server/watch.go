@@ -258,6 +258,18 @@ func (s *Server) triggerWatchAnalysis() {
 		lastFull.YearDay() != now.YearDay()
 
 	if needFull {
+		// First full pass of the operator's day is also when we
+		// sweep beacon_history rows that have aged out of the
+		// retention window. Same gate (needFull) means the sweep
+		// runs at most once per day regardless of how many watch
+		// ticks fire — incremental ticks don't accumulate history
+		// rows of their own, so they have nothing to sweep.
+		if removed := s.store.PurgeBeaconHistory(); removed > 0 {
+			msg, _ := json.Marshal(map[string]any{
+				"msg": fmt.Sprintf("Purged %d beacon_history row(s) older than %d days.", removed, 30),
+			})
+			s.broker.Publish(SSEEvent{Type: "status", Data: string(msg)})
+		}
 		s.refreshFeedsBeforeFullPass()
 		s.launchAnalysisWithOptions(files, false)
 		return

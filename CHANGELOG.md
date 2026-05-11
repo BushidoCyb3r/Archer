@@ -55,6 +55,25 @@ relevant, `### Detection changes` in each release entry.
 - **`dga_beacon` golden scenario.** Mirrors `http_beacon` with
   a DGA-shaped Host header; demonstrates the +15 score / severity
   bump and the appended Detail-line diagnostic tag.
+- **Beacon score evolution history.** `Store.SetFindings` now
+  writes one row to a new `beacon_history` table per Beaconing /
+  HTTP Beaconing finding per UTC day, keyed by a canonical-string
+  `BeaconHistoryKey` over `(Type, SrcIP, DstIP, DstPort, Hostname,
+  URI)` joined by ASCII Unit Separator (deliberately not hashed
+  so the table remains SQLite-CLI inspectable when history rows
+  outlive their source finding). PRIMARY KEY enforces "first
+  full pass of the UTC day wins" so a noon re-run against
+  partial logs doesn't overwrite the morning's snapshot.
+  Migration 0011 adds the table; retention is 30 days (const,
+  not config) swept on the watch's first-tick-of-day branch.
+- **`GET /api/findings/{id}/history`** returns the 30-day
+  evolution rows for a Beaconing / HTTP Beaconing finding
+  (composite score + four sub-axis scores per row). Returns
+  `[]` for non-beacon types so SPA can call unconditionally.
+- **Score evolution chart in the finding detail pane.** SVG
+  sparkline showing composite Score plus the four sub-axes (ts,
+  ds, hist, dur) over up to 30 days. Hidden for non-beacon
+  finding types. Documented under DETECTION_METHODS §2.6.
 
 ### Detection changes
 

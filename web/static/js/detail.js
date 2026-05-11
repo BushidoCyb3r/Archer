@@ -88,6 +88,12 @@ const Detail = (() => {
 
     // Notes
     _renderNotes(f);
+
+    // Score evolution chart — Beaconing / HTTP Beaconing only.
+    // BeaconEvolution.load is a no-op for other types (hides container).
+    if (typeof BeaconEvolution !== 'undefined') {
+      BeaconEvolution.load(f.id, f.type);
+    }
   }
 
   function _renderNotes(f) {
@@ -127,6 +133,7 @@ const Detail = (() => {
     ['ack-btn','esc-btn','chart-btn','pcap-btn','supp-btn'].forEach(id => {
       document.getElementById(id).disabled = true;
     });
+    if (typeof BeaconEvolution !== 'undefined') BeaconEvolution.clear();
   }
 
   return { render, clear };

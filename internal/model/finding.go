@@ -2,6 +2,7 @@ package model
 
 import (
 	"regexp"
+	"strings"
 )
 
 type Severity string
@@ -67,6 +68,45 @@ type Finding struct {
 	// non-empty so analysts can pivot from one detector's hit to the
 	// other detectors firing on the same host pair.
 	Correlations []int `json:"correlations,omitempty"`
+	// URI is the request path the analyzer associated with this
+	// finding at emit time. Populated for HTTP Beaconing (from the
+	// http.log uri field). Empty for non-HTTP findings.
+	URI string `json:"uri,omitempty"`
+	// TSScore / DSScore / HistScore / DurScore are the four
+	// per-axis sub-scores that compose the Beaconing and HTTP
+	// Beaconing total score (each is in [0, 1]; total = sum × 25).
+	// Populated by the conn and http_analysis emit sites; consumed
+	// by SetFindings to write the beacon_history row. Not serialized
+	// to the findings JSON API — analysts see them via the per-finding
+	// history endpoint instead.
+	TSScore   float64 `json:"-"`
+	DSScore   float64 `json:"-"`
+	HistScore float64 `json:"-"`
+	DurScore  float64 `json:"-"`
+}
+
+// BeaconHistoryKey is the per-beacon identity used by the
+// beacon_history table. Distinct from Fingerprint() because the
+// existing fingerprint omits Hostname and URI — fine for analyst-state
+// preservation (one note per src→dst beacon family is what an analyst
+// wants), but catastrophic for history: two HTTP Beacons to different
+// URIs on the same (src, dst, port) would otherwise overwrite each
+// other's history rows every UTC day.
+//
+// Canonical string form (NOT hashed): human-readable in SQLite-CLI for
+// forensic inspection, self-describing without a join back to findings
+// (which matters because beacon_history rows can outlive the finding
+// row by the retention window), and trivially extensible if Finding
+// grows new identity-bearing fields later.
+//
+// ASCII Unit Separator (\x1f) is the delimiter — never appears in
+// valid URLs, hostnames, IPs, ports, or finding types, so no escaping
+// is needed.
+func (f Finding) BeaconHistoryKey() string {
+	const sep = "\x1f"
+	return strings.Join([]string{
+		f.Type, f.SrcIP, f.DstIP, f.DstPort, f.Hostname, f.URI,
+	}, sep)
 }
 
 // Threat-intel finding types. Split into IP / Domain / Hash flavors in

@@ -478,6 +478,7 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 	s.rebuildFindingsIdx()
 	s.analyzing = false
 	s.saveFindings()
+	s.saveBeaconHistory(findings, newFPSet)
 
 	var newNotifs []model.Notification
 	for _, f := range findings {
