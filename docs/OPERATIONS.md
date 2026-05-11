@@ -15,7 +15,7 @@ read this whole document, start with **`docs/QUICKSTART_OPS.md`**
 — it's the 5-minute "deploy + restore + three things to know"
 companion. Come back here when the questions get deeper.
 
-Everything below is current as of **v0.14.5**.
+Everything below is current as of **v0.14.7**.
 
 ---
 
@@ -354,6 +354,34 @@ makes the sensor channel resistant to MITM in the first place).
    minute-of-hour and posts a signed checkin. Logs follow via
    rsync.
 
+**On the `-k --pinnedpubkey` combination in the install script
+and `quiver.sh`.** A security reviewer scanning the sensor-side
+shell will see `curl -k --pinnedpubkey sha256//<fp> ...` and
+flag the `-k`. The combination is correct and intentional:
+
+- `-k` (a.k.a. `--insecure`) turns off CA chain validation.
+  Necessary because the default Archer cert is self-signed and
+  has no CA chain to validate against — the operator workflow
+  doesn't require deploying a system trust anchor on every
+  sensor host.
+- `--pinnedpubkey sha256//<fp>` enforces public-key pinning
+  against the SubjectPublicKeyInfo of the cert the server
+  presents. Curl applies BOTH checks (it doesn't OR them);
+  `-k` removes the chain layer, `--pinnedpubkey` provides the
+  integrity layer. Tampering with the cert changes the SPKI,
+  changes the hash, fails the pin, the connection drops.
+
+The construct is the documented Curl idiom for pin-only
+verification. It works the same way regardless of whether the
+operator has swapped in a CA-signed cert: the chain becomes
+valid but pinning still enforces the public key, so a future
+CA-bundle-trust-store-poisoning attack against the sensor's
+host doesn't help an attacker substitute a different
+Archer-public-key cert. Don't remove `-k` "because we have a
+CA cert now" — that couples sensor behaviour to deployment
+posture in a way that breaks the "swap in your cert, sensors
+keep pinning" promise. v0.14.7 NEW-59.
+
 ### Disenrollment (clean removal)
 
 1. Admin clicks Sensors → Disenroll on the row.
@@ -687,6 +715,8 @@ sensor (the pinned fingerprint changes).
 | Web UI won't load | `docker compose logs archer` — TLS validation failure on path 1 names the file |
 | Sensors all show "stale" simultaneously | Container restart (sessions also dropped) or TLS rotation; check sensor logs for pinning failure |
 | One sensor shows "stale" | Check that sensor's `quiver.sh` cron, `/etc/quiver/secret` presence, network reachability |
+| Sustained `sensor_unauthorized_attempt` rows with `reason=bad_hmac` for an enrolled sensor name | That sensor's `/etc/quiver/secret` is corrupted or stale. The sensor appears healthy locally (script runs, cron fires) but the HMAC it sends doesn't match what the server stored at enrollment. Fix: re-run the install one-liner from the Sensors modal on the sensor host. v0.14.7 NEW-57. |
+| Sustained `sensor_unauthorized_attempt` rows with `reason=unknown_name` from a known-good IP | A sensor whose row was admin-purged is still pushing. Confirm via the Sensors modal that the name isn't in the enrolled list; the sensor host needs `quiver-uninstall.sh` and a fresh install. |
 | Findings count dropping | Check archive policy; check if "Discard findings & re-analyze" was triggered |
 | Migration error on upgrade | Check `schema_migrations` table state; restore from backup if a partial migration left bad state |
 | Audit log empty after upgrade | Migration 0009 didn't run; check `schema_migrations` table |
