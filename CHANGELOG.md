@@ -30,6 +30,71 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.16.1] — 2026-05-11
+
+Eighteenth external review round, first post-v0.16.0. Four
+findings (the auditor retracted a fifth after rechecking
+existing test coverage). One is a design correction on the
+beacon_history table I should have made before v0.16.0 merge
+— the auditor flagged it on a prior round and I shipped through
+the pushback with a comment that wasn't true. The other three
+are small (one dead-code wire-up, two hygiene fixes).
+
+The institutional pattern worth naming: when a comment claims a
+design is "deliberate," the supporting reasoning has to be
+technically correct. The v0.16.0 beacon_history comment
+justified `INSERT … ON CONFLICT DO NOTHING` by saying "the
+morning pass is the more representative score because it sees
+the day's earlier logs" — both halves of that reasoning were
+factually wrong about how the beacon detector works. The
+audit-trail discipline isn't "ship the version the reviewer
+wanted" — it's "the codebase shouldn't claim a thing that isn't
+true."
+
+### Fixed
+
+- **NEW-76 (Major): beacon_history `DO NOTHING` silently dropped
+  mid-day score shifts.** v0.16.0 shipped with
+  `INSERT … ON CONFLICT DO NOTHING` plus a comment claiming the
+  morning's snapshot was "the more representative score." The
+  reasoning was wrong (the analyzer scores against an
+  accumulated reservoir window, not "today's logs"), and the
+  resulting silent-drop hid the adversarial pattern the
+  evolution chart is supposed to surface: a C2 operator tunes
+  dwell mid-day, score climbs 75 → 88, falls back to 60 by
+  evening — pre-NEW-76 the 88 spike disappeared from history
+  forever, with only the morning 75 surviving. Manifests under
+  any sub-daily watch cadence (`WatchIntervalHours = 1/4/6/12`)
+  or admin-triggered re-analysis. Migration 0012 renames `score`
+  → `max_score` and adds `max_score_at` / `last_score` /
+  `last_score_at`; INSERT becomes UPSERT with max_* updated
+  conditionally and last_* updated always. The SPA chart now
+  renders `max_score` (the trajectory-meaningful number).
+  Regression test asserts the three-write scenario (morning 60
+  → noon spike 88 → evening fallback 50) leaves
+  `max_score=88, last_score=50`.
+- **NEW-77: `isIPLiteral` was dead code with a load-bearing
+  docstring.** The function existed in `dga.go` with a comment
+  saying "DGA scorer should never run against IP literals," but
+  no caller invoked it. The applyDGAScoring loop now consults
+  it right after the empty-Hostname guard so SNI / Host-header
+  IP literals (some malware deliberately sets SNI to an IP to
+  bypass naive DPI) short-circuit before extractSLD turns a
+  meaningless octet into a score input. Regression test
+  `TestIsIPLiteral` covers the classifier; `TestApplyDGAScoring_
+  SkipsIPLiteralHostnames` covers the wire-up.
+- **NEW-79: `bigramFloor` comment claimed the default threshold
+  was -4.0; shipped default is -4.5.** Doc-vs-code drift bug.
+  Updated comment to match the shipped default and explain the
+  1-unit gap between English-typical bigram averages and the
+  threshold.
+- **NEW-80: web_esc test floor tightened from 6 to 8.** The
+  `_esc` cross-module consistency test asserted "at least 6"
+  SPA modules contained `_esc`; we ship 8. Tightened so a
+  regression that drops `_esc` from a single module fails
+  immediately rather than waiting for two more modules to also
+  lose theirs.
+
 ## [v0.16.0] — 2026-05-11
 
 Detection-depth release. Two new layers on the Beaconing and HTTP
