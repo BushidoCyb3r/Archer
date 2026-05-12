@@ -213,17 +213,6 @@
 
     <div id="info-line"></div>
 
-    <!-- Dismissed sub-tabs — visible only when the Dismissed top-level
-         tab is active. Two sub-views: Findings (flat list of all
-         dismissed findings) and Campaigns (campaigns roll-up over only
-         dismissed findings). Hosts is intentionally absent — bulk
-         operations over a host's findings would erase the host's risk
-         story. -->
-    <div id="dismissed-subtabs" style="display:none">
-      <button class="sub-tab-btn active" data-dismissed-sub="findings">Findings</button>
-      <button class="sub-tab-btn"        data-dismissed-sub="campaigns">Campaigns</button>
-    </div>
-
     <!-- Tabs + inline pagination controls (Findings tab only) -->
     <div id="tabs">
       <button class="tab-btn active" data-tab="findings">Findings</button>
@@ -257,6 +246,20 @@
           <button id="page-last"  class="page-btn" title="Last page" aria-label="Last page">»</button>
         </span>
       </div>
+    </div>
+
+    <!-- Dismissed sub-tabs — visible only when the Dismissed top-level
+         tab is active. Sits directly under the main tab strip so the
+         hierarchy reads top-down: the analyst picks "Dismissed" up top,
+         the sub-tabs reveal below to pick Findings or Campaigns within
+         that bucket. Two sub-views: Findings (flat list of all
+         dismissed findings) and Campaigns (campaigns roll-up over only
+         dismissed findings). Hosts is intentionally absent — bulk
+         operations over a host's findings would erase the host's risk
+         story. -->
+    <div id="dismissed-subtabs" style="display:none">
+      <button class="sub-tab-btn active" data-dismissed-sub="findings">Findings</button>
+      <button class="sub-tab-btn"        data-dismissed-sub="campaigns">Campaigns</button>
     </div>
 
     <!-- ── Findings / Acknowledged / Escalated share this panel ── -->
