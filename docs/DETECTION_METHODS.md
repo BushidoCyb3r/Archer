@@ -37,11 +37,18 @@ Two design choices matter for understanding what follows:
   **What this precludes.** Reservoir sampling shuffles the intervals into a
   random order to fit the cap, so by scoring time the slice has lost its
   temporal sequence. Order-independent statistics (Bowley, MAD, histogram
-  counts, Shannon entropy on bucket counts) work fine on a reservoir; any
-  detector that needs *temporal order* (autocorrelation, FFT/spectral
-  analysis, time-lag clustering) does not. If a future detector needs those,
-  it has to maintain a parallel bounded-window sample that preserves order
-  alongside the existing reservoir — they're not derivable from each other.
+  counts, Shannon entropy on bucket counts) work fine on a reservoir;
+  anything that needs the consecutive-interval relationship
+  (autocorrelation, time-lag clustering) does not.
+  **Frequency-domain analysis is the exception:** the spectral rescue path
+  (v0.15.0) uses Lomb-Scargle rather than a binned FFT precisely because
+  Lomb-Scargle is designed for unevenly-spaced (t_i, x_i) data with
+  arbitrary ordering — the reservoir's preserved timestamp + value pairs
+  are exactly the right input shape. See §2 for the math.
+  If a future detector needs *consecutive-interval* information, it has
+  to maintain a parallel bounded-window sample that preserves order
+  alongside the existing reservoir — they're not derivable from each
+  other.
 - **Lazy state allocation.** Per-pair statistics are not allocated until a pair
   has been seen at least 3 times. High-cardinality, low-count pairs (one-off
   scans, NAT noise) never consume memory.

@@ -101,7 +101,7 @@ A new finding's life:
    (manual) or the next watch tick (automatic). Both call into
    `internal/server.handleAnalyze` → spawns an analyzer goroutine.
 3. **Analyzer runs.** `internal/analysis.Analyzer.Analyze(files)` walks
-   the file list through the five phases (see below). Findings are
+   the file list through the seven phases (see below). Findings are
    collected via `a.add(finding)` into a slice, with a mutex guard.
 4. **Findings get persisted.** When `Analyze` returns, the server calls
    `store.SetFindings(findings)`. This is a fingerprint-merge — see
