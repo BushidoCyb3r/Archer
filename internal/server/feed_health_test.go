@@ -4,6 +4,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/BushidoCyb3r/Archer/internal/feeds"
 )
@@ -158,6 +159,60 @@ func TestUpdateFeedRefreshState_StreakSemantics(t *testing.T) {
 		if feed.ConsecutiveFailures != step.want {
 			t.Errorf("after %q: ConsecutiveFailures = %d, want %d", step.label, feed.ConsecutiveFailures, step.want)
 		}
+	}
+}
+
+// TestTruncate_RespectsUTF8RuneBoundary codifies NEW-101. The
+// invariant: truncate's output is always valid UTF-8, regardless
+// of where the byte cap falls relative to multi-byte UTF-8
+// sequences in the input. Pre-fix a cap that landed mid-multi-byte
+// sequence emitted invalid UTF-8 bytes; json.Marshal escaped them
+// as � on the wire and the SPA rendered the replacement
+// character.
+//
+// We articulate the invariant ("output is always valid UTF-8")
+// rather than the failure case ("em-dash at byte 2"). The test
+// sweeps cap values across a multi-byte string so every interior
+// rune-mid byte is exercised.
+func TestTruncate_RespectsUTF8RuneBoundary(t *testing.T) {
+	// "—" is U+2014 (em-dash), 3 bytes in UTF-8 (E2 80 94). "→" is
+	// U+2192, also 3 bytes. The string has ASCII prefixes/suffixes
+	// around each so a sweep across cap values lands inside and
+	// outside multi-byte sequences.
+	s := "unauthorized: token expired — refresh → retry"
+
+	for cap := 1; cap < len(s); cap++ {
+		got := truncate(s, cap)
+		if !utf8.ValidString(got) {
+			t.Errorf("truncate(s, %d) = %q is not valid UTF-8 (pre-fix would emit a partial multi-byte sequence here)", cap, got)
+		}
+	}
+
+	// Belt-and-suspenders: cap >= len(s) returns the input unchanged.
+	if got := truncate(s, len(s)); got != s {
+		t.Errorf("cap >= len: got %q, want %q", got, s)
+	}
+	if got := truncate(s, len(s)+50); got != s {
+		t.Errorf("cap > len: got %q, want %q", got, s)
+	}
+
+	// The original failure shape from the audit narrative: a 3-byte
+	// em-dash starting at a known offset, cap landing on byte 2 of
+	// that sequence. Result must contain only the ASCII prefix +
+	// the trailing ellipsis, with no garbage codepoint.
+	prefix := "abc"
+	em := "—" // 3 bytes
+	suffix := "xyz"
+	test := prefix + em + suffix
+	emByte0 := len(prefix)
+	got := truncate(test, emByte0+2) // land on byte 2 of em-dash
+	if !utf8.ValidString(got) {
+		t.Fatalf("mid-em-dash truncate produced invalid UTF-8: %q", got)
+	}
+	// The output should end with the ellipsis and not contain any
+	// fragment of the em-dash bytes.
+	if got[len(got)-len("…"):] != "…" {
+		t.Errorf("expected trailing ellipsis; got %q", got)
 	}
 }
 

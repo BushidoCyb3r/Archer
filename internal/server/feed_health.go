@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/BushidoCyb3r/Archer/internal/feeds"
 	"github.com/BushidoCyb3r/Archer/internal/model"
@@ -114,15 +115,33 @@ func evaluateFeedHealth(f feeds.Feed, now, staleSec int64) (string, bool) {
 	return "", false
 }
 
-// truncate clips a string at n runes with a trailing "…" so the
-// alarm Detail line in the bell panel doesn't blow up on multi-line
-// upstream error blobs (curl's full TLS handshake transcript, for
-// instance). n is a byte budget rather than a rune count — the
-// detail is rendered in a fixed-width panel and bytes ≈ visual
-// width for the ASCII the adapter errors emit.
+// truncate clips a string at roughly n bytes with a trailing "…"
+// so the alarm Detail line in the bell panel doesn't blow up on
+// multi-line upstream error blobs (curl's full TLS handshake
+// transcript, for instance). The budget is bytes rather than runes
+// because the detail is rendered in a fixed-width panel and the
+// caller cares about visual width, not codepoint count.
+//
+// NEW-101 fix: pre-fix this cut at exactly s[:n], which produced
+// invalid UTF-8 when n landed mid-multi-byte-sequence (a feed
+// adapter could surface a localized error like "unauthorized: token
+// expired — refresh" with an em-dash, and a cap that lands on byte
+// 2 of the em-dash returned bytes the SPA renders as the Unicode
+// replacement character). utf8.RuneStart-walking backwards to a
+// valid boundary keeps the output valid UTF-8 at the cost of at
+// most 3 bytes of budget, which is well below the visual noise
+// threshold for a panel cap.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	// Walk back to the nearest rune start. utf8.RuneStart(s[i]) is
+	// true for ASCII bytes and the first byte of any multi-byte
+	// sequence; bytes 2-4 of a multi-byte sequence return false.
+	// Since valid UTF-8 sequences are at most 4 bytes, this loop
+	// terminates within 3 iterations.
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n] + "…"
 }
