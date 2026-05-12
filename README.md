@@ -1058,9 +1058,16 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 ### Notifications
 
-The bell fires for new findings that are CRITICAL or of type `TI Hit (IP)` / `TI Hit (Domain)` / `TI Hit (Hash)` / `Suspicious URL`. `Host Risk Score` is intentionally excluded — it's a per-host roll-up, not a discrete event, and the underlying network detections that pushed the host's score over the line have already generated their own notifications.
+The bell fires for new findings with **`score >= 99`** — only the top-tier confidence bucket the scoring formulas were calibrated to reach. Previous behaviour (CRITICAL severity or any TI type, regardless of score) fired often enough that operators learned to ignore the bell. `Host Risk Score` is still excluded — it's a per-host roll-up, not a discrete event, and the underlying network detections have already generated their own notifications.
 
-Each notification has a **Jump** button. Clicking it lands the analyst on the page containing that finding, regardless of the active tab's filter, sort, pagination, or delta-mode state. The Jump action clears every filter input (search, src/dst/port, severity, type, sensor, score floor, time range → All time, delta off), switches to the tab matching the finding's status, queries `/api/findings/{id}/position` to find the absolute offset under the cleared filter, fetches the page that contains it, and scrolls the row into view. Filters that the analyst had set are intentionally lost — the Jump is a "show me this finding now" action; rebuilding the filter is the cost of guaranteed visibility.
+Beyond detection findings, the bell also surfaces two operational alarms (each `Notification` carries a `kind` field — `finding`, `sensor`, or `feed`; empty reads as `finding` for backward compat):
+
+- **`kind=sensor`** — sensor heartbeat alarm. Emitted when an enrolled sensor's `last_seen_at` (or rsync log mtime, whichever is later) is more than 2h old. Transition-edge dedup: one alarm per staleness episode, cleared when the sensor checks in again. The **Jump** button opens the Sensors modal. External monitoring can read the same staleness state from [`GET /api/sensors/health`](#sensors).
+- **`kind=feed`** — feed reliability alarm. Emitted when an enabled feed has either `consecutive_failures >= 3` or has gone 24h without a successful refresh. Same transition-edge dedup. The **Jump** button opens the Feeds modal.
+
+Each notification has a **Jump** button. For `kind=finding` it lands the analyst on the page containing that finding, regardless of the active tab's filter, sort, pagination, or delta-mode state — clears every filter input (search, src/dst/port, severity, type, sensor, score floor, time range → All time, delta off), switches to the tab matching the finding's status, queries `/api/findings/{id}/position` to find the absolute offset under the cleared filter, fetches the page that contains it, and scrolls the row into view. Filters that the analyst had set are intentionally lost — the Jump is a "show me this finding now" action; rebuilding the filter is the cost of guaranteed visibility. For `kind=sensor` / `kind=feed` the Jump opens the corresponding modal so the operator can investigate the offending sensor or feed.
+
+A small green/red dot in the top bar tracks the `watch.heartbeat` SSE event (60s tick, unconditional). After 180s without a beat the dot flips red — proves the SSE pipeline is alive vs wedged.
 
 | Method | Path | Role | Description |
 |---|---|---|---|
@@ -1096,6 +1103,7 @@ Endpoints powering the Sensors modal. Read endpoints are open to admin + analyst
 | Method | Path | Role | Description |
 |---|---|---|---|
 | `GET` | `/api/sensors` | Analyst+ | List every sensor row (any status), most recent enrollment first |
+| `GET` | `/api/sensors/health` | Any | Per-sensor staleness state for external monitoring: `{"sensors":[{"name":"...","last_seen_at":N,"stale":bool,"stale_for_seconds":N,"stale_threshold_sec":7200}]}`. Same 2h threshold the bell heartbeat alarm uses. Skips disenrolled sensors; never-reported sensors render with `stale=false` (the clock hasn't started). |
 | `GET` | `/api/sensors/info` | Admin | `{"tls_fingerprint":"...","sensor_facing_host":"...","effective_host":"..."}` for rendering install one-liners |
 | `PUT` | `/api/sensors/host` | Admin | `{"host":"192.0.2.10"}` (or `"host:port"`); set the sensor-facing override that install one-liners target |
 | `GET` | `/api/sensors/tokens` | Admin | List enrollment tokens (used + unused) |
@@ -1123,7 +1131,7 @@ See [docs/QUIVER.md](docs/QUIVER.md) for the full Quiver protocol description.
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/events` | Any | SSE stream. Event types: `progress` `{"pct":N,"step":"..."}`, `status` `{"msg":"..."}`, `done` `{"count":N,"new_count":N,"cancelled":bool}`, `notification` (finding alert), `ti_result` `{"finding_id":N,"source":"...","detail":"...","hit":bool}`, `ti_done` `{"finding_id":N,"hits":N}`, `unauthorized_attempt` (full unauthorized-attempt row when an unknown sensor name checks in), `sensor_enrolled` (full sensor row when a fresh enrollment completes — drives the in-flight enrollment dialog's confirmation tick and the parent Sensors table refresh) |
+| `GET` | `/events` | Any | SSE stream. Event types: `progress` `{"pct":N,"step":"..."}`, `status` `{"msg":"..."}`, `done` `{"count":N,"new_count":N,"cancelled":bool}`, `notification` (`Notification` row — `kind` field is `finding`/`sensor`/`feed`; empty reads as `finding`), `ti_result` `{"finding_id":N,"source":"...","detail":"...","hit":bool}`, `ti_done` `{"finding_id":N,"hits":N}`, `unauthorized_attempt` (full unauthorized-attempt row when an unknown sensor name checks in), `sensor_enrolled` (full sensor row when a fresh enrollment completes — drives the in-flight enrollment dialog's confirmation tick and the parent Sensors table refresh), `watch.heartbeat` `{}` (unconditional 60s tick — UI flips a top-bar dot red after 180s without one) |
 
 ---
 

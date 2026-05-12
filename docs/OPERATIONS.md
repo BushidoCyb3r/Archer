@@ -26,10 +26,11 @@ Everything below is current as of **v0.17.0**.
 3. [Upgrade procedure](#upgrade-procedure)
 4. [Backup and restore](#backup-and-restore)
 5. [Sensor lifecycle](#sensor-lifecycle)
-6. [Audit log](#audit-log)
-7. [TLS certificate rotation](#tls-certificate-rotation)
-8. [Disaster recovery](#disaster-recovery)
-9. [Scope decisions](#scope-decisions)
+6. [Health monitoring](#health-monitoring)
+7. [Audit log](#audit-log)
+8. [TLS certificate rotation](#tls-certificate-rotation)
+9. [Disaster recovery](#disaster-recovery)
+10. [Scope decisions](#scope-decisions)
 
 ---
 
@@ -454,6 +455,89 @@ process — Archer can't recall data it already served.
 cycle (single-digit milliseconds in practice — the auth
 middleware re-checks the session map every request, by design,
 NEW-8). There is no "TTL until logout" window to wait out.
+
+---
+
+## Health monitoring
+
+v0.17.0 added three operational health surfaces. They share the same
+bell + SSE pipe as detection findings; the `kind` field on each
+`Notification` row tells the UI (and any external consumer of
+`/api/notifications`) what the alarm is about.
+
+### Bell (in-UI)
+
+- **Finding alarms.** `kind=finding`. Fire on new findings with
+  `score >= 99`. Before v0.17.0 the gate was "CRITICAL severity or
+  any TI type, regardless of score" — that fired often enough that
+  operators learned to ignore the bell. Tighter gate restores the
+  bell as a high-signal alert.
+- **Sensor heartbeat alarm.** `kind=sensor`, `target=<sensor name>`.
+  Fires when an enrolled sensor's `last_seen_at` (or rsync log
+  mtime, whichever is later) is more than **2h** old. One alarm per
+  staleness episode — transition-edge dedup means the bell doesn't
+  re-fire every 5min while the sensor stays silent. Recovery
+  (sensor checks in again) clears the dedup flag, so a future
+  re-staleness fires a fresh alarm. Disenrolled sensors and
+  never-reported sensors are skipped.
+- **Feed reliability alarm.** `kind=feed`, `target=<feed name>`.
+  Fires when an enabled feed has either `consecutive_failures >= 3`
+  (the refresh worker bumps the counter on every error and resets
+  it on every success) or has gone >24h since the last successful
+  refresh. Same transition-edge dedup as the sensor alarm.
+
+The bell's **Jump** button is kind-aware: `finding` jumps to the
+finding row (clearing filters); `sensor` opens the Sensors modal;
+`feed` opens the Feeds modal.
+
+### Watch heartbeat indicator
+
+A small dot in the top bar (next to the bell) reflects the
+`watch.heartbeat` SSE event. The server publishes it every 60s
+unconditional of watch config. The UI flips the dot:
+
+- **Green** while a beat arrived in the last 180s
+- **Red** after 180s with no beat (3 missed ticks)
+- **Grey** (unknown) before the first beat lands at page load
+
+Use it to distinguish "watch is healthy and quiet" from "watch is
+dead and quiet." A wedged SSE pipe or a dead server will both
+surface within ~3.5 minutes.
+
+### External monitoring (`/api/sensors/health`)
+
+```
+GET /api/sensors/health
+```
+
+returns:
+
+```json
+{
+  "sensors": [
+    {
+      "name": "lab-1",
+      "status": "enrolled",
+      "last_seen_at": 1715512345,
+      "stale": false,
+      "stale_for_seconds": 0,
+      "stale_threshold_sec": 7200
+    }
+  ]
+}
+```
+
+Same staleness threshold and signal as the in-UI bell alarm, so a
+Prometheus textfile collector or Nagios check is in sync with what
+the operator sees. Disenrolled sensors are skipped from the
+response; never-reported sensors render with `stale=false` (the
+clock hasn't started).
+
+The endpoint requires an authenticated session (`any` role —
+analyst, admin, or viewer). For service-to-service monitoring,
+point your collector at a dedicated viewer-role user and store its
+session cookie alongside the scraper config; do not use admin
+credentials for a monitoring poll.
 
 ---
 

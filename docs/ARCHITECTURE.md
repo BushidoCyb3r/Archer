@@ -329,11 +329,12 @@ subscribers connected to `/events`. Every event has a `type` and a JSON
 | `progress` | analyzer | `{"pct":0-100,"step":"Phase 1: conn"}` | Pipeline progress. |
 | `status` | analyzer, watch | `{"msg":"..."}` | Free-text status line surfaced as a transient toast. |
 | `done` | analyzer, watch | `{"count":N,"new_count":N,"cancelled":bool,"incremental":bool}` | Run complete. UI reloads findings. `incremental:true` for non-full watch ticks. |
-| `notification` | analyzer, watch | full `Finding` row | Critical/TI/IOC findings fire the bell. `Host Risk Score` is suppressed. |
+| `notification` | analyzer, watch, sensor heartbeat, feed health | `Notification` row | Bell entry. `kind` disambiguates: `finding` (score ≥ 99), `sensor` (heartbeat alarm), `feed` (reliability alarm). `Host Risk Score` is suppressed. |
 | `ti_result` | escalation handler | `{"finding_id":N,"source":"vt","detail":"...","hit":bool,"informative":bool}` | Per-service TI lookup outcome during escalation. |
 | `ti_done` | escalation handler | `{"finding_id":N,"hits":N}` | All TI lookups for this escalation have settled. Triggers consolidated note write. |
 | `sensor_enrolled` | quiver enroll handler | full `Sensor` row | Drives the in-flight enrollment dialog's confirmation tick. |
 | `unauthorized_attempt` | quiver checkin handler | full `UnauthorizedAttempt` row | Surfaces in the Sensors modal's "Unauthorized" tab. |
+| `watch.heartbeat` | server | `{}` | Unconditional 60s tick — proves the SSE pipeline is alive. UI flips a top-bar dot red after 180s without one. |
 
 Events are best-effort — a slow subscriber doesn't block the producer.
 The broker uses bounded buffered channels per subscriber and drops
