@@ -238,6 +238,59 @@ func TestRejectInternalFeedURL_LiteralIPs(t *testing.T) {
 	}
 }
 
+// TestValidateFeedRequest_AllowInternalBypass covers the v0.18.5+
+// AllowInternal opt-out of the NEW-18 SSRF guard. Invariant: a feed
+// whose URL targets internal address space is refused at config time
+// when AllowInternal is false (the default), and accepted when
+// AllowInternal is true. The bypass is per-feed scoped — a typo in a
+// different feed's URL still gets refused, because validateFeedRequest
+// only consults the request's own flag.
+//
+// Other validation (scheme, name, api_key on create, aging-days) is
+// independent — those must still apply regardless of AllowInternal.
+func TestValidateFeedRequest_AllowInternalBypass(t *testing.T) {
+	internalReq := func(allow bool) feedRequest {
+		return feedRequest{
+			SourceType:         "misp",
+			Name:               "internal-misp",
+			URL:                "https://10.0.0.17/feed",
+			APIKey:             "k",
+			IndicatorAgingDays: 30,
+			Enabled:            true,
+			AllowInternal:      allow,
+		}
+	}
+
+	// Default behavior: internal URL rejected.
+	if err := validateFeedRequest(internalReq(false), true); err == nil {
+		t.Fatalf("validateFeedRequest with AllowInternal=false should reject internal URL; got nil")
+	}
+
+	// Opt-in: internal URL accepted.
+	if err := validateFeedRequest(internalReq(true), true); err != nil {
+		t.Fatalf("validateFeedRequest with AllowInternal=true should accept internal URL; got %v", err)
+	}
+
+	// Scheme check still applies even with AllowInternal=true. A bypass
+	// of the SSRF guard isn't a bypass of every validation rule.
+	bad := internalReq(true)
+	bad.URL = "10.0.0.17/feed" // no scheme
+	if err := validateFeedRequest(bad, true); err == nil {
+		t.Errorf("validateFeedRequest with AllowInternal=true should still reject URL missing scheme; got nil")
+	}
+
+	// Public URL is unaffected by the flag — same accept either way.
+	pub := internalReq(false)
+	pub.URL = "https://misp.example.test/"
+	if err := validateFeedRequest(pub, true); err != nil {
+		t.Errorf("public URL should validate cleanly with AllowInternal=false; got %v", err)
+	}
+	pub.AllowInternal = true
+	if err := validateFeedRequest(pub, true); err != nil {
+		t.Errorf("public URL should validate cleanly with AllowInternal=true; got %v", err)
+	}
+}
+
 // TestRandomMinute_DistributionIsUnbiased verifies the rejection-
 // sampling fix in randomMinute. Pre-fix `b % 60` for b ∈ [0, 256)
 // produced minutes 0..15 ~5/256 each but minutes 16..59 ~4/256 each.

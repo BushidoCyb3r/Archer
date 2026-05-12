@@ -539,8 +539,8 @@ refresh (`refreshFeedsBeforeFullPass` in `internal/server/watch.go`).
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
 | `GET` | `/api/feeds` | any | List configured feeds. `api_key` is redacted; the response carries a `has_api_key` boolean instead. Each row also carries `last_fetch_truncated` (bool) — `true` when the most recent fetch hit the adapter's page-walk cap (10k × 100 pages on MISP, 1k × 100 pages on OpenCTI) with the upstream still indicating more data. |
-| `POST` | `/api/feeds` | admin | Create a feed. Required body fields: `source_type` (`misp`/`opencti`), `name`, `url` (with scheme), `api_key`, `indicator_aging_days` (≥ 0). Optional: `enabled`, `tls_skip_verify`. |
-| `PUT` | `/api/feeds/{id}` | admin | Update a feed. Empty `api_key` keeps the existing value (clearing requires delete + recreate). |
+| `POST` | `/api/feeds` | admin | Create a feed. Required body fields: `source_type` (`misp`/`opencti`), `name`, `url` (with scheme), `api_key`, `indicator_aging_days` (≥ 0). Optional: `enabled`, `tls_skip_verify`, `allow_internal`. `allow_internal=true` (v0.18.5+) opts this feed out of the SSRF guard so URLs targeting loopback / link-local / RFC1918 / IPv6 ULA space are accepted — for internal MISP / OpenCTI deployments. Per-feed scope; other feeds keep the guard. Audit-logged in `feed_create`. |
+| `PUT` | `/api/feeds/{id}` | admin | Update a feed. Empty `api_key` keeps the existing value (clearing requires delete + recreate). `allow_internal` is mutable per call and captured in the `feed_update` before/after maps so a later reviewer can prove who opted which feed in. |
 | `DELETE` | `/api/feeds/{id}` | admin | Delete a feed. FK cascade drops its `feed_indicators`. |
 | `POST` | `/api/feeds/{id}/refresh` | admin | One-shot fetch + upsert + prune for one feed (60-second cap). Used to verify connectivity right after configuring a feed; backed by the per-row Refresh button in the Feeds dialog. Watch-tick auto-refresh covers the steady-state case. |
 

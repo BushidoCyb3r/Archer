@@ -39,12 +39,13 @@ type OpenCTIClient struct {
 // timeout, 1000 indicators per page, 100-page cap. tlsSkipVerify=true
 // disables certificate verification on the upstream HTTPS request —
 // opt-in per feed for internal OpenCTI deployments running self-signed
-// or internal-CA certs.
-func NewOpenCTIClient(baseURL, apiKey string, tlsSkipVerify bool) *OpenCTIClient {
+// or internal-CA certs. allowInternal=true loosens the CheckRedirect
+// SSRF guard for internal OpenCTI URLs.
+func NewOpenCTIClient(baseURL, apiKey string, tlsSkipVerify, allowInternal bool) *OpenCTIClient {
 	return &OpenCTIClient{
 		BaseURL:   strings.TrimRight(baseURL, "/"),
 		APIKey:    apiKey,
-		HTTP:      httpClientWithTLS(tlsSkipVerify),
+		HTTP:      httpClientWithTLS(tlsSkipVerify, allowInternal),
 		PageSize:  1000,
 		PageLimit: 100,
 	}

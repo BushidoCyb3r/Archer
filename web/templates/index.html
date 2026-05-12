@@ -773,6 +773,17 @@
       Only enable for trusted internal feeds (self-signed or internal-CA certs).
       Disables verification of the upstream's TLS chain and hostname.
     </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-top:6px">
+      <input id="feeds-edit-allow-internal" type="checkbox">
+      Allow internal address (skip SSRF guard for this feed)
+    </label>
+    <div style="font-size:11px;color:var(--fg-dim);margin-left:22px">
+      Enable when this feed lives at an RFC1918 / loopback / link-local
+      address (e.g. an internal MISP at 10.x.y.z). The SSRF guard that
+      normally refuses such URLs is bypassed for this feed only, and
+      the fetch-time CheckRedirect also stops blocking internal hops.
+      Other feeds keep the guard in place.
+    </div>
     <div id="feeds-edit-error" style="display:none;margin-top:10px;color:var(--fg-bad);font-size:11px"></div>
   </div>
   <div class="dlg-footer">

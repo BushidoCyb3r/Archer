@@ -1,0 +1,26 @@
+-- Per-feed opt-out of the NEW-18 SSRF guard.
+--
+-- The audit-arc fix at NEW-18 added two guards against admin-pasted
+-- feed URLs that target internal address space: a syntactic-IP check
+-- at config time (rejectInternalFeedURL) and a resolved-IP check on
+-- redirects at fetch time (httpClientWithTLS.CheckRedirect). Both
+-- refuse loopback / link-local / RFC1918 / IPv6 ULA targets to stop
+-- a compromised or careless admin from configuring a feed at the
+-- cloud metadata endpoint, an internal Redis, or some adjacent
+-- internal API and exfiltrating data via the feed worker's request.
+--
+-- Real-world operator deployments routinely run their own MISP or
+-- OpenCTI on an internal-only address (e.g. 10.10.x.y) — that's the
+-- whole point of an internal threat-intel platform — and the
+-- blanket SSRF guard refuses to fetch from it. allow_internal is
+-- the per-feed escape hatch: the operator explicitly marks a feed
+-- as living inside their network, and both guards skip *that feed*
+-- (no global toggle, no all-feeds bypass, no surprise on a typo in
+-- a different feed's URL). Default 0 (deny) — the audit-arc shape
+-- holds for every feed unless the operator opts in.
+--
+-- Audit-log surface: feed_create / feed_update entries carry
+-- allow_internal in their before/after maps so a later forensic
+-- query can prove who opted which feed in.
+
+ALTER TABLE feeds ADD COLUMN allow_internal INTEGER NOT NULL DEFAULT 0;

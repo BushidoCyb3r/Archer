@@ -150,8 +150,13 @@ Run through this before exposing Archer to a multi-user team.
 - [ ] Egress from the Archer host to feed URLs (MISP, OpenCTI)
       should pass through your standard outbound proxy /
       monitoring. Feed URLs are admin-configurable; the SSRF
-      guards (NEW-18) refuse internal addresses but don't
-      restrict to a configured allowlist.
+      guards (NEW-18) refuse internal addresses by default but
+      a per-feed **Allow internal address** opt-out is available
+      (v0.18.5+) for the common case of pointing Archer at an
+      internal MISP/OpenCTI. The flag is captured in
+      `feed_create` / `feed_update` audit rows so a later
+      reviewer can prove who opted which feed in — keep the
+      audit log under retention to preserve that trail.
 
 ### Secrets
 

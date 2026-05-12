@@ -82,11 +82,15 @@ type MISPClient struct {
 // tlsSkipVerify=true disables certificate verification on the
 // upstream HTTPS request — opt-in per feed for internal MISP
 // deployments running self-signed or internal-CA certs.
-func NewMISPClient(baseURL, apiKey string, tlsSkipVerify bool) *MISPClient {
+// allowInternal=true loosens the CheckRedirect SSRF guard for this
+// client so redirects can resolve to internal addresses — paired
+// with the admin-side validateFeedRequest bypass for a feed whose
+// URL itself targets an internal MISP.
+func NewMISPClient(baseURL, apiKey string, tlsSkipVerify, allowInternal bool) *MISPClient {
 	return &MISPClient{
 		BaseURL:   strings.TrimRight(baseURL, "/"),
 		APIKey:    apiKey,
-		HTTP:      httpClientWithTLS(tlsSkipVerify),
+		HTTP:      httpClientWithTLS(tlsSkipVerify, allowInternal),
 		PageSize:  25000,
 		PageLimit: 100,
 	}
@@ -115,7 +119,7 @@ func NewMISPClient(baseURL, apiKey string, tlsSkipVerify bool) *MISPClient {
 // Stdlib's default CheckRedirect follows up to 10 redirects with no
 // host validation; we bound it at 5 and validate each hop. Audit
 // 2026-05-10 NEW-18.
-func httpClientWithTLS(skipVerify bool) *http.Client {
+func httpClientWithTLS(skipVerify, allowInternal bool) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if skipVerify {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
@@ -126,6 +130,16 @@ func httpClientWithTLS(skipVerify bool) *http.Client {
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
 				return fmt.Errorf("feed: too many redirects (>5)")
+			}
+			// allowInternal=true short-circuits the redirect host check.
+			// Paired with the admin-side validateFeedRequest bypass for
+			// a feed whose URL itself targets an internal MISP / OpenCTI
+			// — the operator explicitly accepted internal-address
+			// traffic for this feed, so a redirect from
+			// https://misp.internal/ to https://misp.internal/login is
+			// the legitimate auth flow and not an SSRF.
+			if allowInternal {
+				return nil
 			}
 			host := req.URL.Hostname()
 			if host == "" {

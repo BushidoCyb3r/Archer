@@ -46,6 +46,7 @@ type feedResponse struct {
 	Status             string `json:"status"`
 	Enabled            bool   `json:"enabled"`
 	TLSSkipVerify      bool   `json:"tls_skip_verify"`
+	AllowInternal      bool   `json:"allow_internal"`
 	CreatedAt          int64  `json:"created_at"`
 	UpdatedAt          int64  `json:"updated_at"`
 	HasAPIKey          bool   `json:"has_api_key"`
@@ -66,6 +67,7 @@ func toFeedResponse(f feeds.Feed) feedResponse {
 		Status:             f.Status,
 		Enabled:            f.Enabled,
 		TLSSkipVerify:      f.TLSSkipVerify,
+		AllowInternal:      f.AllowInternal,
 		CreatedAt:          f.CreatedAt,
 		UpdatedAt:          f.UpdatedAt,
 		HasAPIKey:          f.APIKey != "",
@@ -86,6 +88,7 @@ type feedRequest struct {
 	IndicatorAgingDays int    `json:"indicator_aging_days"`
 	Enabled            bool   `json:"enabled"`
 	TLSSkipVerify      bool   `json:"tls_skip_verify"`
+	AllowInternal      bool   `json:"allow_internal"`
 }
 
 // handleFeeds dispatches GET (list) and POST (create) on /api/feeds.
@@ -127,6 +130,7 @@ func (s *Server) handleFeeds(w http.ResponseWriter, r *http.Request) {
 			IndicatorAgingDays: req.IndicatorAgingDays,
 			Enabled:            req.Enabled,
 			TLSSkipVerify:      req.TLSSkipVerify,
+			AllowInternal:      req.AllowInternal,
 		})
 		if err != nil {
 			jsonError(w, err.Error(), http.StatusInternalServerError)
@@ -139,6 +143,7 @@ func (s *Server) handleFeeds(w http.ResponseWriter, r *http.Request) {
 			AfterValue: map[string]any{
 				"source_type": req.SourceType, "name": req.Name, "url": req.URL,
 				"enabled": req.Enabled, "tls_skip_verify": req.TLSSkipVerify,
+				"allow_internal":       req.AllowInternal,
 				"indicator_aging_days": req.IndicatorAgingDays,
 			},
 		})
@@ -192,6 +197,7 @@ func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 		before := map[string]any{
 			"source_type": string(current.SourceType), "name": current.Name, "url": current.URL,
 			"enabled": current.Enabled, "tls_skip_verify": current.TLSSkipVerify,
+			"allow_internal":       current.AllowInternal,
 			"indicator_aging_days": current.IndicatorAgingDays,
 		}
 		// Empty api_key in PUT keeps the existing one. Setting a new
@@ -207,6 +213,7 @@ func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 		current.IndicatorAgingDays = req.IndicatorAgingDays
 		current.Enabled = req.Enabled
 		current.TLSSkipVerify = req.TLSSkipVerify
+		current.AllowInternal = req.AllowInternal
 		if err := s.store.UpdateFeed(current); err != nil {
 			jsonError(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -219,6 +226,7 @@ func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 			AfterValue: map[string]any{
 				"source_type": string(current.SourceType), "name": current.Name, "url": current.URL,
 				"enabled": current.Enabled, "tls_skip_verify": current.TLSSkipVerify,
+				"allow_internal":       current.AllowInternal,
 				"indicator_aging_days": current.IndicatorAgingDays,
 			},
 		})
@@ -491,9 +499,9 @@ func (s *Server) refreshAllFeedsForWatch(ctx context.Context) {
 func (s *Server) buildFeedAdapter(f feeds.Feed) (feeds.Adapter, error) {
 	switch f.SourceType {
 	case feeds.SourceMISP:
-		return feeds.NewMISPClient(f.URL, f.APIKey, f.TLSSkipVerify), nil
+		return feeds.NewMISPClient(f.URL, f.APIKey, f.TLSSkipVerify, f.AllowInternal), nil
 	case feeds.SourceOpenCTI:
-		return feeds.NewOpenCTIClient(f.URL, f.APIKey, f.TLSSkipVerify), nil
+		return feeds.NewOpenCTIClient(f.URL, f.APIKey, f.TLSSkipVerify, f.AllowInternal), nil
 	default:
 		return nil, fmt.Errorf("unsupported feed source_type: %q", f.SourceType)
 	}
@@ -519,8 +527,14 @@ func validateFeedRequest(req feedRequest, requireAPIKey bool) error {
 	if !strings.HasPrefix(req.URL, "http://") && !strings.HasPrefix(req.URL, "https://") {
 		return fmt.Errorf("url must include scheme (http:// or https://)")
 	}
-	if err := rejectInternalFeedURL(req.URL); err != nil {
-		return err
+	// SSRF guard runs unless the operator explicitly opted this feed
+	// into the internal-address bypass. Per-feed scope means a typo
+	// in another feed's URL still gets refused. Audit-arc shape from
+	// NEW-18 holds for every feed unless allow_internal=true. v0.18.5+.
+	if !req.AllowInternal {
+		if err := rejectInternalFeedURL(req.URL); err != nil {
+			return err
+		}
 	}
 	if requireAPIKey && strings.TrimSpace(req.APIKey) == "" {
 		return fmt.Errorf("api_key is required")
