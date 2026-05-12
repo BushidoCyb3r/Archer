@@ -1818,8 +1818,31 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Re-assign IDs into a fresh sequence and translate every
+	// Correlations slice through an old→new map in the same pass.
+	// Without the translation step, exports carrying cross-finding
+	// references (Correlated Activity's contributor IDs, or any
+	// participating row's sibling list) would silently lose those
+	// references on import — the user's old IDs no longer match
+	// anything in the new fresh-ID space, and SetFindings's
+	// translation (NEW-91) drops IDs that resolve to neither a fresh
+	// nor a historical finding. NEW-97, twenty-second audit round.
+	oldToNew := make(map[int]int, len(payload.Findings))
 	for i := range payload.Findings {
+		oldToNew[payload.Findings[i].ID] = i + 1
 		payload.Findings[i].ID = i + 1
+	}
+	for i := range payload.Findings {
+		if len(payload.Findings[i].Correlations) == 0 {
+			continue
+		}
+		translated := make([]int, 0, len(payload.Findings[i].Correlations))
+		for _, oldID := range payload.Findings[i].Correlations {
+			if newID, ok := oldToNew[oldID]; ok {
+				translated = append(translated, newID)
+			}
+		}
+		payload.Findings[i].Correlations = translated
 	}
 	s.store.SetFindings(payload.Findings)
 	if len(payload.Allowlist) > 0 {
