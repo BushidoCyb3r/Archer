@@ -12,7 +12,6 @@
 const Sensors = (() => {
   let _isAdmin = false;
   let _info = null; // {tls_fingerprint, sensor_facing_host, effective_host}
-  let _tz   = '';   // IANA name from the watch config; '' = UTC
   let _diskBySensor = {}; // populated from /api/disk-usage; {<name>: bytes}
 
   // ── helpers ───────────────────────────────────────────────────────────
@@ -38,48 +37,28 @@ const Sensors = (() => {
       ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
-  // Pretty-print a unix timestamp. 0 / undefined become "—" so empty
-  // cells don't look like "1969-12-31".
+  // Time format matches the Feeds modal: short "YYYY-MM-DD HH:MM" in
+  // the cell, full "YYYY-MM-DD HH:MM:SS UTC" in the cell's title for
+  // hover. Both UTC — analyst-local timezone was previously honoured
+  // for the Last seen column via watch config, but mixed-basis cells
+  // (UTC tooltips on a local cell) made hover ambiguous, so the whole
+  // modal renders UTC now.
   function _fmtTS(ts) {
     if (!ts) return '—';
-    const d = new Date(ts * 1000);
-    return d.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+    return new Date(ts * 1000).toISOString().replace('T', ' ').slice(0, 16);
   }
-
-  function _fmtSlot(h, m) {
-    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  function _fmtTSFull(ts) {
+    if (!ts) return 'never';
+    return new Date(ts * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
   }
-
-  // _tzName returns whatever IANA name we render times in. Empty config
-  // means "use UTC", which the formatters below pass straight through.
-  function _tzName() { return _tz || 'UTC'; }
 
   // _fmtSlotLocal renders the hourly push slot. Under hourly mode the
   // slot is just a minute-of-hour and timezone-independent (every hour
-  // at :MM is the same in every timezone), so we drop the abbrev and
-  // show ":MM hourly" to make the cadence explicit.
+  // at :MM is the same in every timezone), so we show ":MM hourly" to
+  // make the cadence explicit without picking a timezone.
   function _fmtSlotLocal(_h, m) {
     const mm = String(m || 0).padStart(2, '0');
     return `:${mm} hourly`;
-  }
-
-  // _fmtTSLocal renders an epoch in the watch-mode timezone using the
-  // same YYYY-MM-DD HH:MM:SS TZ shape the rest of the modal uses.
-  function _fmtTSLocal(ts) {
-    if (!ts) return '—';
-    const d = new Date(ts * 1000);
-    try {
-      const fmt = new Intl.DateTimeFormat('en-US', {
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-        timeZone: _tzName(),
-        timeZoneName: 'short',
-      });
-      const parts = fmt.formatToParts(d).reduce((a, p) => (a[p.type] = p.value, a), {});
-      return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second} ${parts.timeZoneName}`;
-    } catch (e) {
-      return _fmtTS(ts);
-    }
   }
 
   // _slotHealth classifies whether the sensor hit its most recent
@@ -136,16 +115,6 @@ const Sensors = (() => {
     try { _info = await _api('/api/sensors/info'); } catch (e) { _info = null; }
   }
 
-  // _loadWatchTZ pulls the analyst-configured timezone from the watch
-  // endpoint (any authenticated user can hit it). Used for the Slot and
-  // Last seen columns so analysts read times in their own timezone.
-  async function _loadWatchTZ() {
-    try {
-      const w = await _api('/api/watch');
-      _tz = (w && w.timezone) || '';
-    } catch (e) { _tz = ''; }
-  }
-
   // _loadDiskUsage pulls per-sensor sizes from the server-side disk-usage
   // cache so the Sensors modal can render a Size column without each row
   // running its own walk. Failures fall through to an empty map; cells
@@ -181,28 +150,22 @@ const Sensors = (() => {
     }
     const now = Math.floor(Date.now() / 1000);
     tbody.innerHTML = sensors.map(sn => {
-      let actions = '';
-      if (_isAdmin) {
-        if (sn.status === 'enrolled') {
-          actions = `<button class="dlg-btn secondary" data-act="schedule" data-id="${sn.id}">Slot</button>
-                     <button class="dlg-btn danger" data-act="disenroll" data-id="${sn.id}" data-name="${_esc(sn.name)}">Disenroll</button>`;
-        } else if (sn.status === 'disenrolled') {
-          actions = `<button class="dlg-btn danger" data-act="purge" data-id="${sn.id}" data-name="${_esc(sn.name)}">Purge data</button>`;
-        }
-      }
+      const kebab = (_isAdmin && (sn.status === 'enrolled' || sn.status === 'disenrolled'))
+        ? `<button class="row-kebab sensors-row-kebab" data-id="${sn.id}" data-name="${_esc(sn.name)}" data-status="${_esc(sn.status)}" title="Row actions" aria-label="Row actions">⋮</button>`
+        : '';
       const sizeBytes = _diskBySensor[sn.name];
       const sizeCell = (sizeBytes != null)
-        ? `<td style="font-size:11px;color:var(--fg-dim);font-family:ui-monospace,monospace;white-space:nowrap">${_humanBytes(sizeBytes)}</td>`
+        ? `<td style="font-size:11px;color:var(--fg-dim);font-family:ui-monospace,monospace">${_humanBytes(sizeBytes)}</td>`
         : `<td style="font-size:11px;color:var(--fg-dim)">—</td>`;
       return `<tr>
-        <td style="font-family:monospace">${_esc(sn.name)}</td>
-        <td style="font-size:11px;color:var(--fg-dim)">${_esc(sn.host || '—')}</td>
+        <td style="font-family:monospace" title="${_esc(sn.name)}">${_esc(sn.name)}</td>
+        <td style="font-size:11px;color:var(--fg-dim)" title="${_esc(sn.host || '')}">${_esc(sn.host || '—')}</td>
         <td>${_statusBadge(sn.status)}</td>
-        <td style="font-family:monospace;white-space:nowrap">${_fmtSlotLocal(sn.schedule_hour, sn.schedule_minute)}</td>
-        <td style="font-size:11px;white-space:nowrap">${_fmtTSLocal(sn.last_seen_at)}</td>
+        <td style="font-family:monospace">${_fmtSlotLocal(sn.schedule_hour, sn.schedule_minute)}</td>
+        <td style="font-size:11px" title="${_fmtTSFull(sn.last_seen_at)}">${_fmtTS(sn.last_seen_at)}</td>
         <td>${_slotHealth(sn, now)}</td>
         ${sizeCell}
-        <td style="text-align:right">${actions}</td>
+        <td>${kebab}</td>
       </tr>`;
     }).join('');
   }
@@ -224,16 +187,16 @@ const Sensors = (() => {
       let status, color;
       if (t.expires_at <= now) { status = 'expired'; color = 'var(--sev-medium)'; }
       else { status = 'fresh'; color = 'var(--accent)'; }
-      const actions = _isAdmin
-        ? `<button class="dlg-btn secondary" data-act="revoke-token" data-id="${t.id}">Revoke</button>`
+      const kebab = _isAdmin
+        ? `<button class="row-kebab tokens-row-kebab" data-id="${t.id}" title="Row actions" aria-label="Row actions">⋮</button>`
         : '';
       return `<tr>
-        <td style="font-family:monospace;font-size:11px;white-space:nowrap">${_esc(t.token)}</td>
-        <td>${_esc(t.override_name || '—')}</td>
-        <td style="font-size:11px;white-space:nowrap">${_fmtTS(t.created_at)}</td>
-        <td style="font-size:11px;white-space:nowrap">${_fmtTS(t.expires_at)}</td>
+        <td style="font-family:monospace;font-size:11px" title="${_esc(t.token)}">${_esc(t.token)}</td>
+        <td title="${_esc(t.override_name || '')}">${_esc(t.override_name || '—')}</td>
+        <td style="font-size:11px" title="${_fmtTSFull(t.created_at)}">${_fmtTS(t.created_at)}</td>
+        <td style="font-size:11px" title="${_fmtTSFull(t.expires_at)}">${_fmtTS(t.expires_at)}</td>
         <td><span style="color:${color};font-size:11px">${status}</span></td>
-        <td style="text-align:right">${actions}</td>
+        <td>${kebab}</td>
       </tr>`;
     }).join('');
   }
@@ -246,17 +209,16 @@ const Sensors = (() => {
       return;
     }
     tbody.innerHTML = rows.map(a => {
-      const actions = _isAdmin
-        ? `<button class="dlg-btn secondary" data-act="enroll-this" data-name="${_esc(a.name)}">Enroll this</button>
-           <button class="dlg-btn secondary" data-act="dismiss-attempt" data-id="${a.id}">Dismiss</button>`
+      const kebab = _isAdmin
+        ? `<button class="row-kebab unauth-row-kebab" data-id="${a.id}" data-name="${_esc(a.name)}" title="Row actions" aria-label="Row actions">⋮</button>`
         : '';
       return `<tr>
-        <td style="font-family:monospace">${_esc(a.name)}</td>
-        <td style="font-family:monospace;font-size:11px">${_esc(a.source_ip)}</td>
-        <td style="font-size:11px;white-space:nowrap">${_fmtTS(a.first_seen)}</td>
-        <td style="font-size:11px;white-space:nowrap">${_fmtTS(a.last_seen)}</td>
+        <td style="font-family:monospace" title="${_esc(a.name)}">${_esc(a.name)}</td>
+        <td style="font-family:monospace;font-size:11px" title="${_esc(a.source_ip)}">${_esc(a.source_ip)}</td>
+        <td style="font-size:11px" title="${_fmtTSFull(a.first_seen)}">${_fmtTS(a.first_seen)}</td>
+        <td style="font-size:11px" title="${_fmtTSFull(a.last_seen)}">${_fmtTS(a.last_seen)}</td>
         <td>${a.attempt_count}</td>
-        <td style="text-align:right">${actions}</td>
+        <td>${kebab}</td>
       </tr>`;
     }).join('');
   }
@@ -344,52 +306,81 @@ const Sensors = (() => {
     if (typeof setStatus === 'function') setStatus('Install command copied');
   }
 
-  async function _onSensorsTbodyClick(e) {
-    const btn = e.target.closest('button[data-act]');
-    if (!btn) return;
-    const act = btn.dataset.act;
-    const id  = parseInt(btn.dataset.id, 10);
-    const name = btn.dataset.name || '';
-    if (act === 'disenroll') {
-      const ok = await _confirm('Disenroll sensor',
-        `Disenroll <code>${_esc(name)}</code>? Its <code>/logs/${_esc(name)}/</code> tree will be moved to <code>/logs/_archived/</code> and findings will be retagged. The sensor will stop pushing on its next checkin (≤24h). Logs and findings remain on Archer.`);
-      if (!ok) return;
-      await _api('/api/sensors/disenroll', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id})});
-      refresh();
-    } else if (act === 'purge') {
-      const ok = await _confirm('Purge sensor data',
-        `Permanently delete <code>${_esc(name)}</code>'s archived logs and all retagged findings? <strong>This cannot be undone.</strong>`);
-      if (!ok) return;
-      await _api('/api/sensors/purge', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id})});
-      refresh();
-    } else if (act === 'schedule') {
-      _openScheduleDialog(id);
-    }
+  async function _doDisenroll(id, name) {
+    const ok = await _confirm('Disenroll sensor',
+      `Disenroll <code>${_esc(name)}</code>? Its <code>/logs/${_esc(name)}/</code> tree will be moved to <code>/logs/_archived/</code> and findings will be retagged. The sensor will stop pushing on its next checkin (≤24h). Logs and findings remain on Archer.`);
+    if (!ok) return;
+    await _api('/api/sensors/disenroll', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id})});
+    refresh();
   }
 
-  async function _onTokensTbodyClick(e) {
-    const btn = e.target.closest('button[data-act="revoke-token"]');
+  async function _doPurge(id, name) {
+    const ok = await _confirm('Purge sensor data',
+      `Permanently delete <code>${_esc(name)}</code>'s archived logs and all retagged findings? <strong>This cannot be undone.</strong>`);
+    if (!ok) return;
+    await _api('/api/sensors/purge', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id})});
+    refresh();
+  }
+
+  function _onSensorsTbodyClick(e) {
+    const btn = e.target.closest('button.sensors-row-kebab');
     if (!btn) return;
-    const id = parseInt(btn.dataset.id, 10);
+    const id     = parseInt(btn.dataset.id, 10);
+    const name   = btn.dataset.name || '';
+    const status = btn.dataset.status || '';
+    let items;
+    if (status === 'enrolled') {
+      items = [
+        { label: 'Reassign slot', onClick: () => _openScheduleDialog(id) },
+        '---',
+        { label: 'Disenroll',     danger: true, onClick: () => _doDisenroll(id, name) },
+      ];
+    } else if (status === 'disenrolled') {
+      items = [
+        { label: 'Purge data',    danger: true, onClick: () => _doPurge(id, name) },
+      ];
+    } else {
+      return;
+    }
+    RowMenu.open(btn, items);
+  }
+
+  async function _doRevokeToken(id) {
     await _api('/api/sensors/tokens/revoke', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id})});
     refresh();
   }
 
-  async function _onUnauthTbodyClick(e) {
-    const btn = e.target.closest('button[data-act]');
+  function _onTokensTbodyClick(e) {
+    const btn = e.target.closest('button.tokens-row-kebab');
     if (!btn) return;
-    const act = btn.dataset.act;
-    if (act === 'dismiss-attempt') {
-      const id = parseInt(btn.dataset.id, 10);
-      await _api('/api/sensors/unauthorized/dismiss', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id})});
-      refresh();
-    } else if (act === 'enroll-this') {
-      // Pre-fill the override name and open the token dialog.
-      document.getElementById('sensors-token-override').value = btn.dataset.name || '';
-      document.getElementById('sensors-token-result').style.display = 'none';
-      document.getElementById('sensors-token-error').style.display = 'none';
-      document.getElementById('sensors-token-dlg').showModal();
-    }
+    const id = parseInt(btn.dataset.id, 10);
+    RowMenu.open(btn, [
+      { label: 'Revoke', danger: true, onClick: () => _doRevokeToken(id) },
+    ]);
+  }
+
+  async function _doDismissAttempt(id) {
+    await _api('/api/sensors/unauthorized/dismiss', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id})});
+    refresh();
+  }
+
+  function _doEnrollThis(name) {
+    document.getElementById('sensors-token-override').value = name || '';
+    document.getElementById('sensors-token-result').style.display = 'none';
+    document.getElementById('sensors-token-error').style.display = 'none';
+    document.getElementById('sensors-token-dlg').showModal();
+  }
+
+  function _onUnauthTbodyClick(e) {
+    const btn = e.target.closest('button.unauth-row-kebab');
+    if (!btn) return;
+    const id   = parseInt(btn.dataset.id, 10);
+    const name = btn.dataset.name || '';
+    RowMenu.open(btn, [
+      { label: 'Enroll this sensor', onClick: () => _doEnrollThis(name) },
+      '---',
+      { label: 'Dismiss attempt',    onClick: () => _doDismissAttempt(id) },
+    ]);
   }
 
   function _openScheduleDialog(id) {
@@ -430,7 +421,7 @@ const Sensors = (() => {
   // Kind=sensor alarms. Refreshes the data sources the modal reads
   // from, then shows the dialog.
   async function open() {
-    await Promise.all([_loadInfo(), _loadWatchTZ(), _loadDiskUsage()]);
+    await Promise.all([_loadInfo(), _loadDiskUsage()]);
     await refresh();
     const dlg = document.getElementById('sensors-dialog');
     if (dlg) dlg.showModal();
