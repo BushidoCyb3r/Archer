@@ -51,9 +51,18 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 	minScore, _ := strconv.Atoi(q.Get("min_score"))
 	delta := q.Get("delta") == "true"
 	sensorF := q.Get("sensor")
-	statusF := q.Get("status") // "open" | "acknowledged" | "escalated"
+	statusF := q.Get("status") // "open" | "acknowledged" | "escalated" | "dismissed"
 	iocOnly := q.Get("ioc_only") == "true"
 	spectralOnly := q.Get("spectral_only") == "true"
+	// includeDismissed lets internal callers (handleFindingsCounts)
+	// keep dismissed findings in the filter result so they can be
+	// bucketed separately. User-facing tabs default to excluding
+	// dismissed (the "I don't want to see this again" semantic):
+	// when statusF is empty AND includeDismissed is false, dismissed
+	// findings are filtered out below. Only the Dismissed tab
+	// (status=dismissed) and the counts endpoint
+	// (include_dismissed=true) bypass that.
+	includeDismissed := q.Get("include_dismissed") == "true"
 
 	srcMatcher := parseIPMatcher(q.Get("src_ip"))
 	dstMatcher := parseIPMatcher(q.Get("dst_ip"))
@@ -145,9 +154,9 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 			}
 		}
 		// Tab-aware filters. status="open" matches blank/empty status;
-		// status="acknowledged" / "escalated" match exactly. ioc_only mirrors
-		// the IOC Hits tab logic — IP in IOC list OR finding type is a
-		// Threat Intel Hit / Suspicious URL.
+		// status="acknowledged" / "escalated" / "dismissed" match exactly.
+		// ioc_only mirrors the IOC Hits tab logic — IP in IOC list OR
+		// finding type is a Threat Intel Hit / Suspicious URL.
 		if statusF != "" {
 			if statusF == "open" {
 				if string(f.Status) != "" {
@@ -156,6 +165,13 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 			} else if string(f.Status) != statusF {
 				continue
 			}
+		} else if !includeDismissed && f.Status == model.StatusDismissed {
+			// No explicit status filter and the caller hasn't opted
+			// into the counts-style include_dismissed flag → dismissed
+			// findings are invisible. Keeps the IOC tab (which sets
+			// ioc_only without a status) from accidentally surfacing
+			// dismissed rows.
+			continue
 		}
 		// TI Hit (IP/Domain/Hash) and Suspicious URL are produced by the
 		// automatic feeds (Feodo, URLhaus, AbuseIPDB, MISP/OpenCTI) and
