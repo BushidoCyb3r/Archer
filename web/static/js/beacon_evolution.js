@@ -292,8 +292,12 @@ const BeaconEvolution = (() => {
       ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
-  // init() wires the expand button + modal controls. Called once
-  // during app boot.
+  // init() wires the expand button + modal close. The Export button
+  // is a single dropdown (PNG / JPEG); app.js's _initExportDropdown
+  // wires it during boot because that helper lives in app.js's IIFE
+  // scope. Keeps the dropdown behaviour consistent with the other
+  // export dropdowns in the UI (Findings export, beacon chart
+  // export, graph export).
   function init() {
     const expandBtn = document.getElementById('beacon-evolution-expand');
     if (expandBtn) expandBtn.addEventListener('click', expand);
@@ -303,10 +307,6 @@ const BeaconEvolution = (() => {
       const dlg = document.getElementById('beacon-evolution-modal');
       if (dlg && typeof dlg.close === 'function') dlg.close();
     });
-    const pngBtn = document.getElementById('beacon-evolution-export-png');
-    if (pngBtn) pngBtn.addEventListener('click', () => exportImage('png'));
-    const jpgBtn = document.getElementById('beacon-evolution-export-jpg');
-    if (jpgBtn) jpgBtn.addEventListener('click', () => exportImage('jpeg'));
   }
 
   function clear() {

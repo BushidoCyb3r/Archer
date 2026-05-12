@@ -202,6 +202,7 @@
         </select>
       </label>
       <label title="Restrict to Beaconing findings whose timing score was rescued by the spectral path. Use this during spectral calibration to triage which rescues are true positives vs false positives."><input id="filter-spectral-only" type="checkbox"> Spectral rescued only</label>
+      <label title="Show the Dismissed tab in the tab strip. Dismissed findings are hidden from every other view by default; the Dismissed tab is the only place they surface."><input id="filter-show-dismissed" type="checkbox"> Show Dismissed tab</label>
     </div>
 
     <!-- Delta bar -->
@@ -211,6 +212,17 @@
     </div>
 
     <div id="info-line"></div>
+
+    <!-- Dismissed sub-tabs — visible only when the Dismissed top-level
+         tab is active. Two sub-views: Findings (flat list of all
+         dismissed findings) and Campaigns (campaigns roll-up over only
+         dismissed findings). Hosts is intentionally absent — bulk
+         operations over a host's findings would erase the host's risk
+         story. -->
+    <div id="dismissed-subtabs" style="display:none">
+      <button class="sub-tab-btn active" data-dismissed-sub="findings">Findings</button>
+      <button class="sub-tab-btn"        data-dismissed-sub="campaigns">Campaigns</button>
+    </div>
 
     <!-- Tabs + inline pagination controls (Findings tab only) -->
     <div id="tabs">
@@ -224,7 +236,6 @@
       <button class="tab-btn" data-tab="dismissed" id="dismissed-tab-btn" style="display:none">Dismissed</button>
       <button class="tab-btn" data-tab="campaigns">Campaigns</button>
       <button class="tab-btn" data-tab="hosts">Hosts</button>
-      <button class="tab-toggle" id="show-dismissed-toggle" title="Show or hide the Dismissed tab" type="button" aria-pressed="false">Show Dismissed</button>
       <div id="findings-pagination">
         <span class="page-info">
           Showing <span id="page-shown">0</span> of <span id="page-total">0</span>
@@ -344,8 +355,13 @@
         <div id="beacon-evolution-modal-header">
           <span id="beacon-evolution-modal-title">Score evolution</span>
           <div id="beacon-evolution-modal-actions">
-            <button id="beacon-evolution-export-png" type="button">Export PNG</button>
-            <button id="beacon-evolution-export-jpg" type="button">Export JPEG</button>
+            <div class="export-dropdown">
+              <button id="beacon-evolution-export-btn" type="button" title="Export the chart as an image">Export ▾</button>
+              <ul class="export-menu hidden" id="beacon-evolution-export-menu">
+                <li data-format="png">PNG</li>
+                <li data-format="jpeg">JPEG</li>
+              </ul>
+            </div>
             <button id="beacon-evolution-modal-close" type="button" aria-label="Close">×</button>
           </div>
         </div>
