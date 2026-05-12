@@ -214,7 +214,11 @@
     const pane = document.getElementById('detail-pane');
     return pane && pane.getAttribute('data-collapsed') === 'true';
   }
-  function _setDockCollapsed(on) {
+  // persist=true on the explicit toggle button so the operator's choice
+  // sticks across reloads; persist=false on the row-click auto-expand
+  // so a transient "show me this row" doesn't overwrite a standing
+  // "keep the dock collapsed" preference.
+  function _setDockCollapsed(on, persist = true) {
     const pane = document.getElementById('detail-pane');
     if (!pane) return;
     if (on) pane.setAttribute('data-collapsed', 'true');
@@ -224,7 +228,9 @@
       btn.setAttribute('aria-expanded', on ? 'false' : 'true');
       btn.title = on ? 'Expand details pane' : 'Collapse details pane';
     }
-    try { localStorage.setItem('archer:dock-collapsed', on ? 'true' : 'false'); } catch (_) {}
+    if (persist) {
+      try { localStorage.setItem('archer:dock-collapsed', on ? 'true' : 'false'); } catch (_) {}
+    }
   }
   function _initDockCollapse() {
     let collapsed = false;
@@ -3247,9 +3253,11 @@
       // Dismiss item toggles label/behaviour based on current status:
       // a dismissed finding offers Un-dismiss (→ status=open) so the
       // analyst can revert a mistake without flipping through the
-      // detail pane's status dropdown.
+      // detail pane's status dropdown. Skip on campaign aggregates —
+      // the row carries no status and the campaign-aware "Dismiss
+      // campaign" label was already set above.
       const dismissItem = document.getElementById('ctx-dismiss');
-      if (dismissItem) {
+      if (dismissItem && !(f && f._campaign)) {
         dismissItem.firstChild.nodeValue = status === 'dismissed' ? 'Un-dismiss' : 'Dismiss';
       }
       if (showColAware) {
@@ -3705,7 +3713,7 @@
       // keeping the dock collapsed would defeat the operator intent.
       f => {
         _selectedFinding = f;
-        if (_isDockCollapsed()) _setDockCollapsed(false);
+        if (_isDockCollapsed()) _setDockCollapsed(false, false);
         Detail.render(f);
         if (!f || !f.id) return;
         fetchFinding(f.id).then(full => {

@@ -1234,7 +1234,6 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
   width: 100%;
-  aspect-ratio: 9 / 4;
 }
 #beacon-evolution-modal-svg .axis,
 #beacon-evolution-modal-svg .gridline,
