@@ -195,6 +195,32 @@ button, input, select, textarea {
 #bell-btn:hover { background: var(--bg-elev-3); color: var(--fg-primary); }
 #bell-btn.has-alerts { color: var(--sev-critical); }
 
+/* Watch heartbeat dot — small status indicator next to the bell.
+   Green when a heartbeat arrived recently; red when stale (3+
+   consecutive 60s ticks missed); dim grey before the first
+   heartbeat is observed. The dot itself doesn't open anything;
+   its title attribute carries the current state for hover detail. */
+.health-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 4px;
+  flex-shrink: 0;
+  transition: background-color .25s, box-shadow .25s;
+}
+.health-dot.health-healthy {
+  background: var(--sev-low);
+  box-shadow: 0 0 6px var(--sev-low);
+}
+.health-dot.health-stale {
+  background: var(--sev-critical);
+  box-shadow: 0 0 6px var(--sev-critical);
+}
+.health-dot.health-unknown {
+  background: var(--fg-dim);
+}
+
 .badge {
   background: var(--sev-critical);
   color: #fff;

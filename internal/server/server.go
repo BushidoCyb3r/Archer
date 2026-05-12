@@ -78,6 +78,7 @@ func New(st *store.Store, us *store.UserStore, broker *Broker, webDir, logsDir, 
 	s.startBeaconHistoryPruneLoop()
 	s.startSensorHeartbeatLoop()
 	s.startFeedHealthLoop()
+	s.startWatchHeartbeatLoop()
 	// Idle-bucket eviction so a long-running flood from many source
 	// IPs doesn't grow the rate-limit map without bound. v0.14.3
 	// NEW-39. The done channel is never closed — eviction runs for

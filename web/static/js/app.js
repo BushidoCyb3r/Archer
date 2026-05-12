@@ -1427,6 +1427,48 @@
 
     SSE.on('notification', n => Notifications.add(n));
 
+    // Watch heartbeat — the server ticks watch.heartbeat every 60s
+    // independent of watch config; we use it to drive a small dot
+    // in the top bar that distinguishes "watch is healthy and
+    // quiet" from "watch is dead and quiet." After 180s without a
+    // tick (3 missed beats) the dot flips red. Until the first
+    // tick lands the dot is dim grey ("unknown"). A 30s checker
+    // re-evaluates the dot state so the UI updates promptly when
+    // the SSE pipe goes silent — without the checker, the dot
+    // would stay green forever if no heartbeat ever flipped it.
+    (function watchHeartbeatTracker() {
+      const dot = document.getElementById('watch-health-dot');
+      if (!dot) return;
+      const staleThresholdMS = 3 * 60 * 1000; // 3 missed 60s beats
+      let lastBeat = 0;
+      function fmtAge(ms) {
+        const s = Math.round(ms / 1000);
+        if (s < 60) return s + 's';
+        const m = Math.round(s / 60);
+        return m + 'm';
+      }
+      function setHealthy() {
+        dot.classList.remove('health-stale', 'health-unknown');
+        dot.classList.add('health-healthy');
+        dot.title = 'Watch heartbeat: healthy (last beat just now)';
+      }
+      function setStale(age) {
+        dot.classList.remove('health-healthy', 'health-unknown');
+        dot.classList.add('health-stale');
+        dot.title = 'Watch heartbeat: stale (no signal for ' + fmtAge(age) + ')';
+      }
+      function evaluate() {
+        if (lastBeat === 0) return; // still unknown, no signal yet
+        const age = Date.now() - lastBeat;
+        if (age >= staleThresholdMS) setStale(age);
+      }
+      SSE.on('watch.heartbeat', () => {
+        lastBeat = Date.now();
+        setHealthy();
+      });
+      setInterval(evaluate, 30000);
+    })();
+
     SSE.on('ti_result', evt => {
       const prefix = evt.hit ? '[HIT] ' : '[CLEAN] ';
       showToast(`${prefix}${evt.source}: ${evt.detail}`, 7000);
