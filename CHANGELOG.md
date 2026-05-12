@@ -30,6 +30,97 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.18.1] — 2026-05-12
+
+Operator-pulled dock-UX refinements stacked on top of v0.18.0, plus
+NEW-111 (twenty-fourth external review round, first post-v0.18.0)
+closing a bell-jump silent-no-op that surfaced in dogfooding.
+
+The dock pane work shipped together because each piece tightened
+the same workflow: drag the dock to whatever height the analyst
+wants, keep the action footer reachable from any view, scroll the
+body only when needed, let the detail text fill the room it has,
+and move Export TXT to the tab strip so it's reachable from every
+tab (and let it cover Detail + TI + Notes instead of just Notes).
+
+NEW-111 is the same shape as the bell-jump fix that landed earlier
+in the audit arc: a UI button that relies on cached state silently
+fails when state shifts. The earlier fix used a position-aware load
+to escape pagination drift; NEW-111 covers the filter-side case
+(finding whose src/dst was allowlisted or suppressed *after* the
+bell rang). filterFindings excludes the row from every listing
+endpoint, the position lookup 404s, Table.jumpTo silently returns,
+and the Jump click reads as a no-op. Three coordinated changes
+prevent both new and existing instances:
+
+- SetFindings's bell-emit gate consults the allowlist and
+  suppressions, mirroring filterFindings.
+- SetAllowlist and AddSuppression run a cleanup pass that
+  dismisses already-emitted finding notifications whose src/dst is
+  now hidden.
+- The bell-jump JS surfaces a clear status message when the
+  position endpoint reports the row is filtered out — Detail still
+  renders in the dock so the analyst can act via the footer.
+
+### Added
+
+- **Drag-to-resize on the detail dock.** Grab the top edge of the
+  pane and pull. Clamps to [120px, 80% viewport], re-clamps on
+  window resize. Height persists to localStorage so it survives
+  reloads, mirroring the collapse preference. Auto-expand on row
+  click no longer overwrites the persisted collapse state.
+- **Persistent action footer.** Acknowledge / Escalate / Dismiss /
+  Beacon Chart / PCAP Filter / Source Records / Suppress remain
+  visible when the dock is collapsed. Analysts can take workflow
+  actions on the selected finding from every view, including the
+  minimized state.
+- **Tab-inline Export TXT.** Moved from inside the Notes panel
+  into the dock-tab strip (right-aligned). Reachable from every
+  tab. Disabled when no finding is selected, matching the other
+  action buttons. The redundant "Analyst Notes" section header in
+  the Notes panel is gone — symmetric with the TI Results panel.
+- **Export TXT covers Detail + TI Results + Analyst Notes.**
+  Previously notes-only. The file now opens with the header block,
+  then DETAIL (the detector's emitted body), TI RESULTS (notes
+  authored "TI Enrichment"), and ANALYST NOTES (everything else).
+  Each section gets a placeholder when empty so the structure is
+  consistent across findings. Filename dropped the `-notes` suffix:
+  `archer-finding-{id}.txt`.
+
+### Changed
+
+- **Dock body scrolls only when needed.** The active dock-tab-panel
+  is now `flex: 1; min-height: 0; overflow-y: auto`. When the dock
+  is dragged tall enough that the content fits, no scrollbar
+  appears. When shorter, the body scrolls while the header bar,
+  tabs, and action footer stay pinned. Chrome elements grew
+  `flex-shrink: 0` so they don't get squashed when the pane shrinks.
+- **#detail-text fills the available space.** Removed the hardcoded
+  `height: 150px` cap. Pre-fix the text box was ~one inch tall
+  regardless of how much room the dock had. Now it grows with its
+  content and the panel's overflow handles scrolling when needed.
+
+### Fixed
+
+- **NEW-111: bell silently fails for findings hidden by the
+  allowlist or suppressions.** Three-part fix: SetFindings now
+  skips notification emit for findings whose src/dst is on the
+  allowlist or in the unexpired suppression set; SetAllowlist and
+  AddSuppression dismiss existing finding notifications whose
+  src/dst is now hidden; the bell-jump JS shows a clear status
+  message when the position endpoint reports the row is filtered
+  out, instead of letting Table.jumpTo silently return -1. The
+  finding's Detail still renders in the dock so the analyst can
+  act on it via the persistent footer.
+
+### Tests
+
+- Three tests in `store_test.go` articulate the bell-gate
+  invariant: notification iff the row would appear in the listing.
+  Exercises both gating paths (allowlist exact, allowlist CIDR,
+  suppression) and both IP roles (src, dst). Plus tests for the
+  cleanup paths on SetAllowlist and AddSuppression.
+
 ## [v0.18.0] — 2026-05-12
 
 Analyst-workflow slice. Four user-visible surfaces shipped together
