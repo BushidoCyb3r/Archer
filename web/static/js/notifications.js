@@ -34,19 +34,32 @@ const Notifications = (() => {
     _items.forEach(n => {
       const div = document.createElement('div');
       div.className = 'notif-item';
-      // _sevColor returns from a fixed enum; not user-controlled so
-      // it doesn't need escaping. finding_id and id are integers and
-      // pass through Number coercion. Every other interpolation
-      // routes through _esc.
+      const kind = n.kind || 'finding';
+      // Finding alarms render src→dst:port; sensor/feed alarms render
+      // a human-readable Detail line ("Sensor lab-1 hasn't checked in
+      // for 2h 15m") supplied by the emitter. _sevColor returns from
+      // a fixed enum; not user-controlled so it doesn't need escaping.
+      // id is integer-coerced. Every other interpolation routes
+      // through _esc.
+      let body;
+      if (kind === 'finding') {
+        body = `<div class="notif-addr">${_esc(n.src_ip || '')} → ${_esc(n.dst_ip || '')} ${n.dst_port ? ':' + _esc(String(n.dst_port)) : ''}</div>`;
+      } else {
+        body = `<div class="notif-addr">${_esc(n.detail || n.target || '')}</div>`;
+      }
       div.innerHTML = `
         <div class="notif-sev" style="color:${_sevColor(n.severity)}">${_esc(n.severity)} — ${_esc(n.type)}</div>
-        <div class="notif-addr">${_esc(n.src_ip || '')} → ${_esc(n.dst_ip || '')} ${n.dst_port ? ':' + _esc(String(n.dst_port)) : ''}</div>
+        ${body}
         <div class="notif-actions">
-          <button class="btn-jump" data-finding-id="${Number(n.finding_id) || 0}">Jump</button>
+          <button class="btn-jump" data-notif-id="${Number(n.id) || 0}">Jump</button>
           <button class="btn-dismiss-notif" data-id="${Number(n.id) || 0}">Dismiss</button>
         </div>`;
       el.appendChild(div);
     });
+  }
+
+  function _findById(id) {
+    return _items.find(x => x.id === id);
   }
 
   function _updateBadge() {
@@ -113,7 +126,8 @@ const Notifications = (() => {
       const dismissBtn = e.target.closest('.btn-dismiss-notif');
       if (jumpBtn) {
         close();
-        if (onJump) onJump(parseInt(jumpBtn.dataset.findingId, 10));
+        const notif = _findById(parseInt(jumpBtn.dataset.notifId, 10));
+        if (onJump && notif) onJump(notif);
       }
       if (dismissBtn) dismiss(dismissBtn.dataset.id);
     });
