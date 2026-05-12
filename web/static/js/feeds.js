@@ -96,7 +96,7 @@ const Feeds = (() => {
       const lastAnyFull = _fmtTSFull(f.last_refresh_at);
       const refreshTip = `Last refresh: ${lastAnyFull}\nLast full sync: ${lastFull}\nIncrementals between fulls only fetch attributes modified since the previous run.`;
       return `<tr${lastErrTitle}>
-        <td>${_esc(f.name)}${enabledMark}</td>
+        <td title="${_esc(f.name)}">${_esc(f.name)}${enabledMark}</td>
         <td>${_esc(f.source_type.toUpperCase())}</td>
         <td>${statusCol}</td>
         <td>${count}${truncBadge}</td>

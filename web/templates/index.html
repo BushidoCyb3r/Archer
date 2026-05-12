@@ -724,25 +724,23 @@
                  can expand to fit content; mirrors the Audit Log
                  table so "fetching · 50k indicators" and 7-digit
                  indicator counts render in full. -->
-            <!-- Floors tightened so the action column stays on
-                 screen at typical viewport widths. Each value is
-                 just-enough for realistic content with a small
-                 breathing margin; cells still expand to fit
-                 unusually long content. -->
-            <th style="min-width:110px">Name</th>
-            <th style="min-width:60px">Source</th>
-            <!-- Status: just-enough for the "fetching" pill which
-                 is the widest of the four pill labels. -->
-            <th style="min-width:100px">Status</th>
-            <!-- Indicators: fits 8-digit + commas ("12,345,678"). -->
-            <th style="min-width:110px">Indicators</th>
-            <!-- Last refresh: shortened timestamp format ("YYYY-MM-DD HH:MM",
-                 no seconds, no UTC suffix); full ISO + UTC on hover. -->
-            <th style="min-width:130px">Last refresh</th>
-            <th style="min-width:40px">Aging</th>
-            <!-- Action column floor — fits Refresh + Edit + Delete on
-                 one line with breathing room. -->
-            <th style="min-width:240px"></th>
+            <!-- Hard widths (not min-widths) because the table uses
+                 table-layout:fixed (see #feeds-table CSS). Columns
+                 honor these widths instead of auto-distributing the
+                 dialog's extra space — modal drag-resize adds
+                 whitespace around the table, not inside columns,
+                 so the action buttons stay at the same screen
+                 position regardless of dialog size. Sum = 790px;
+                 plus 7 × 20px horizontal cell padding = 930px;
+                 #feeds-table's max-width is 950px for a small
+                 breathing margin. -->
+            <th style="width:110px">Name</th>
+            <th style="width:60px">Source</th>
+            <th style="width:100px">Status</th>
+            <th style="width:110px">Indicators</th>
+            <th style="width:130px">Last refresh</th>
+            <th style="width:40px">Aging</th>
+            <th style="width:240px"></th>
           </tr>
         </thead>
         <tbody id="feeds-tbody"></tbody>

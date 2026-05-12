@@ -1867,6 +1867,16 @@ dialog::backdrop {
    dialog horizontally, gives rows breathing room, and styles the header. */
 #feeds-table {
   width: 100%;
+  /* Fixed-layout + max-width: columns honor their declared widths
+     rather than auto-distributing the dialog's extra space. The
+     modal's drag-resize handle (see dialog.js) still works, but
+     enlarging the modal just adds whitespace around the table —
+     the columns themselves don't grow, so the action column with
+     the Refresh / Edit / Delete buttons stays visible at the
+     same screen position. Shrinking the modal below 950px squishes
+     the columns proportionally. */
+  table-layout: fixed;
+  max-width: 950px;
   border-collapse: collapse;
   font-size: 14px;
 }
@@ -1886,11 +1896,13 @@ dialog::backdrop {
   border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
   white-space: nowrap;
-  /* No overflow:hidden / text-overflow:ellipsis — the column widths
-     are min-widths (not hard caps) so cells expand to fit content
-     instead of truncating. Status "fetching · 47k indicators · 12s"
-     and Indicators "1,234,567" both surface in full. Mirrors the
-     Audit Log table's behavior. */
+  /* Cells are pinned to their declared column widths via
+     table-layout:fixed on the table; unusually long content
+     (a verbose feed name) truncates with an ellipsis instead
+     of overflowing into the next cell. The Name cell's title
+     attribute carries the full name for hover. */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #feeds-table tr:hover td { background: var(--bg-elev-3); }
 #feeds-table .dlg-btn { padding: 3px 9px; font-size: 13px; margin-left: 4px; }
