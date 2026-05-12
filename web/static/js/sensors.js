@@ -188,7 +188,7 @@ const Sensors = (() => {
       if (t.expires_at <= now) { status = 'expired'; color = 'var(--sev-medium)'; }
       else { status = 'fresh'; color = 'var(--accent)'; }
       const kebab = _isAdmin
-        ? `<button class="row-kebab tokens-row-kebab" data-id="${t.id}" title="Row actions" aria-label="Row actions">⋮</button>`
+        ? `<button class="row-kebab tokens-row-kebab" data-id="${t.id}" data-token="${_esc(t.token)}" data-status="${status}" title="Row actions" aria-label="Row actions">⋮</button>`
         : '';
       return `<tr>
         <td style="font-family:monospace;font-size:11px" title="${_esc(t.token)}">${_esc(t.token)}</td>
@@ -352,13 +352,44 @@ const Sensors = (() => {
     refresh();
   }
 
+  // _showTokenCommand reopens the enroll dialog in "show existing
+  // command" mode for a pending token — admins click this when the
+  // sensor operator says "can you send me that curl line again." The
+  // create-section (override input + Generate button) is hidden so the
+  // dialog just surfaces the one-liner + Copy button. Dialog returns
+  // to create mode on close (see init).
+  function _showTokenCommand(token) {
+    if (!_info) {
+      alert('Sensor enrollment info not loaded yet — try opening the modal again.');
+      return;
+    }
+    document.getElementById('sensors-token-header').textContent = 'Sensor Enrollment Command';
+    document.getElementById('sensors-token-create-section').style.display = 'none';
+    document.getElementById('sensors-token-oneliner').value = _oneLiner(token, _info);
+    document.getElementById('sensors-token-result').style.display = '';
+    document.getElementById('sensors-token-error').style.display = 'none';
+    _setTokenStatus(null);
+    document.getElementById('sensors-token-dlg').showModal();
+  }
+
   function _onTokensTbodyClick(e) {
     const btn = e.target.closest('button.tokens-row-kebab');
     if (!btn) return;
     const id = parseInt(btn.dataset.id, 10);
-    RowMenu.open(btn, [
-      { label: 'Revoke', danger: true, onClick: () => _doRevokeToken(id) },
-    ]);
+    const token = btn.dataset.token || '';
+    const status = btn.dataset.status || '';
+    // Expired tokens can't be used to enroll, so the "Show enrollment
+    // command" item would be misleading. Only Revoke is offered.
+    const items = (status === 'fresh')
+      ? [
+          { label: 'Show enrollment command', onClick: () => _showTokenCommand(token) },
+          '---',
+          { label: 'Revoke', danger: true, onClick: () => _doRevokeToken(id) },
+        ]
+      : [
+          { label: 'Revoke', danger: true, onClick: () => _doRevokeToken(id) },
+        ];
+    RowMenu.open(btn, items);
   }
 
   async function _doDismissAttempt(id) {
@@ -367,9 +398,12 @@ const Sensors = (() => {
   }
 
   function _doEnrollThis(name) {
+    document.getElementById('sensors-token-header').textContent = 'Enroll a New Sensor';
+    document.getElementById('sensors-token-create-section').style.display = '';
     document.getElementById('sensors-token-override').value = name || '';
     document.getElementById('sensors-token-result').style.display = 'none';
     document.getElementById('sensors-token-error').style.display = 'none';
+    _setTokenStatus(null);
     document.getElementById('sensors-token-dlg').showModal();
   }
 
@@ -450,6 +484,8 @@ const Sensors = (() => {
     const newTokenBtn = document.getElementById('sensors-new-token-btn');
     if (newTokenBtn) {
       newTokenBtn.addEventListener('click', () => {
+        document.getElementById('sensors-token-header').textContent = 'Enroll a New Sensor';
+        document.getElementById('sensors-token-create-section').style.display = '';
         document.getElementById('sensors-token-override').value = '';
         document.getElementById('sensors-token-result').style.display = 'none';
         document.getElementById('sensors-token-error').style.display = 'none';
