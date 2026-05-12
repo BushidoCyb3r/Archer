@@ -593,8 +593,10 @@
                  #sensors-table CSS). Modal drag-resize adds
                  whitespace around the table; columns themselves
                  stay put so the kebab control doesn't shift on
-                 resize. Sum = 1090px; plus 8 × 20px horizontal
-                 cell padding = 1250px. -->
+                 resize. Data columns sum to 1040px; the trailing
+                 unwidth'd kebab column absorbs the leftover up
+                 to the table's 1250px max-width and right-aligns
+                 the kebab against the table's right edge. -->
             <th style="width:180px">Name</th>
             <th style="width:200px">Host</th>
             <th style="width:110px">Status</th>
@@ -602,7 +604,7 @@
             <th style="width:220px">Last seen</th>
             <th style="width:110px">Health</th>
             <th style="width:90px">Size</th>
-            <th style="width:50px"></th>
+            <th></th>
           </tr>
         </thead>
         <tbody id="sensors-tbody"></tbody>
@@ -614,18 +616,15 @@
       <table id="sensors-tokens-table">
         <thead>
           <tr>
-            <!-- Final blank <th> is a spacer: no declared width, so under
-                 table-layout:fixed it absorbs (max-width 1250 - data cols)
-                 of extra width. Keeps the data columns at their declared
-                 sizes while making the table visually span the same width
-                 as the Enrolled Sensors table above it. Mirror in <tbody>
-                 rows + the empty-state colspan in sensors.js. -->
+            <!-- Trailing unwidth'd kebab column absorbs the leftover
+                 up to the 1250px max-width and right-aligns the kebab
+                 against the table's right edge. Section width matches
+                 the Enrolled Sensors table above. -->
             <th style="width:300px">Token</th>
             <th style="width:180px">Override name</th>
             <th style="width:150px">Created</th>
             <th style="width:150px">Expires</th>
             <th style="width:90px">Status</th>
-            <th style="width:50px"></th>
             <th></th>
           </tr>
         </thead>
@@ -638,14 +637,13 @@
       <table id="sensors-unauth-table">
         <thead>
           <tr>
-            <!-- Final blank <th> is a spacer; see the Pending Tokens
-                 table above for the rationale. -->
+            <!-- Trailing unwidth'd kebab column; see Pending Tokens
+                 above for the rationale. -->
             <th style="width:140px">Name</th>
             <th style="width:160px">Source IP</th>
             <th style="width:150px">First seen</th>
             <th style="width:150px">Last seen</th>
             <th style="width:80px">Count</th>
-            <th style="width:50px"></th>
             <th></th>
           </tr>
         </thead>
