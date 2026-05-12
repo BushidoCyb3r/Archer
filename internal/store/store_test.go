@@ -1010,3 +1010,141 @@ func TestSetFindings_BellGate_AtLeast95Notifies(t *testing.T) {
 		}
 	}
 }
+
+// TestSetFindings_BellGate_HiddenByAllowlistOrSuppression codifies
+// NEW-111. The invariant: a notification is never emitted for a
+// finding whose row would be filtered out of the table by the
+// allowlist or suppression — same exclusion check that
+// findings_filter.go applies at read time. Pre-fix the bell rang for
+// allowlisted/suppressed findings: single-finding GET bypasses the
+// filter (Detail pane renders), but every list endpoint hides the
+// row, so Jump scrolled nowhere and the click was a silent no-op.
+//
+// Test articulates the invariant ("notification iff the row would
+// appear in the listing") and exercises both gating paths and both
+// IP roles (src vs dst), so a future refactor that only checks one
+// of the four shapes fails this test instead of slipping through.
+func TestSetFindings_BellGate_HiddenByAllowlistOrSuppression(t *testing.T) {
+	s := New(config.Default())
+
+	// Allowlist covers everything in 10.0.99.0/24 plus the specific
+	// mDNS multicast IPv6. Suppress 192.168.50.50 for an hour.
+	s.SetAllowlist([]string{"10.0.99.0/24", "ff02::fb"})
+	s.AddSuppression("192.168.50.50", time.Now().Add(time.Hour), "noisy mDNS responder")
+
+	findings := []model.Finding{
+		// Should ring: visible finding above threshold.
+		{Type: "Malicious JA3", SrcIP: "10.0.0.1", DstIP: "1.1.1.1",
+			Score: 95, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+		// Hidden by allowlist CIDR match on src.
+		{Type: "Beaconing", SrcIP: "10.0.99.5", DstIP: "1.1.1.2", DstPort: "443",
+			Score: 96, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+		// Hidden by allowlist CIDR match on dst.
+		{Type: "Beaconing", SrcIP: "10.0.0.2", DstIP: "10.0.99.6", DstPort: "443",
+			Score: 97, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+		// Hidden by allowlist exact-match on dst (IPv6 multicast).
+		{Type: "Correlated Activity", SrcIP: "fe80::fafc:e1ff:fe70:4334", DstIP: "ff02::fb",
+			Score: 99, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+		// Hidden by suppression on src.
+		{Type: "TI Hit (IP)", SrcIP: "192.168.50.50", DstIP: "1.1.1.3",
+			Score: 97, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+		// Hidden by suppression on dst.
+		{Type: "TI Hit (IP)", SrcIP: "1.1.1.4", DstIP: "192.168.50.50",
+			Score: 97, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+		// Should ring: dst is on neither list.
+		{Type: "Suspicious URL", SrcIP: "10.0.0.3", DstIP: "8.8.8.8",
+			Score: 96, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+	}
+	notifs := s.SetFindings(findings)
+	if len(notifs) != 2 {
+		t.Fatalf("got %d notifications, want 2 (only the unhidden findings); notifs=%+v", len(notifs), notifs)
+	}
+	rang := map[string]bool{}
+	for _, n := range notifs {
+		rang[n.SrcIP+"→"+n.DstIP] = true
+	}
+	if !rang["10.0.0.1→1.1.1.1"] {
+		t.Errorf("expected the visible Malicious JA3 finding to ring, got %+v", notifs)
+	}
+	if !rang["10.0.0.3→8.8.8.8"] {
+		t.Errorf("expected the visible Suspicious URL finding to ring, got %+v", notifs)
+	}
+}
+
+// TestSetAllowlist_DismissesHiddenFindingNotifications codifies the
+// cleanup path of NEW-111. Notifications emitted before the operator
+// adds an IP to the allowlist persist into the bell with no row to
+// jump to; SetAllowlist must walk active finding notifications and
+// dismiss those whose Src or Dst is now covered.
+func TestSetAllowlist_DismissesHiddenFindingNotifications(t *testing.T) {
+	s := New(config.Default())
+
+	// Ring three bells with the allowlist empty.
+	s.SetFindings([]model.Finding{
+		{Type: "Malicious JA3", SrcIP: "10.0.0.1", DstIP: "1.1.1.1",
+			Score: 95, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+		{Type: "Beaconing", SrcIP: "10.0.99.5", DstIP: "8.8.8.8", DstPort: "443",
+			Score: 96, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+		{Type: "Correlated Activity", SrcIP: "fe80::fafc:e1ff:fe70:4334", DstIP: "ff02::fb",
+			Score: 99, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+	})
+	if got := len(activeFindingNotifs(s)); got != 3 {
+		t.Fatalf("baseline: got %d active finding notifs, want 3", got)
+	}
+
+	// Now allowlist a CIDR covering one finding's src and an exact IP
+	// covering another's dst. Third stays visible.
+	s.SetAllowlist([]string{"10.0.99.0/24", "ff02::fb"})
+
+	active := activeFindingNotifs(s)
+	if len(active) != 1 {
+		t.Fatalf("after allowlist update: got %d active finding notifs, want 1 (only the visible one); active=%+v", len(active), active)
+	}
+	if active[0].SrcIP != "10.0.0.1" {
+		t.Errorf("surviving notification should be the unhidden one (10.0.0.1→1.1.1.1), got %+v", active[0])
+	}
+}
+
+// TestAddSuppression_DismissesHiddenFindingNotifications codifies
+// the cleanup path of NEW-111 for the suppression side.
+func TestAddSuppression_DismissesHiddenFindingNotifications(t *testing.T) {
+	s := New(config.Default())
+
+	s.SetFindings([]model.Finding{
+		{Type: "Malicious JA3", SrcIP: "10.0.0.1", DstIP: "1.1.1.1",
+			Score: 95, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+		{Type: "TI Hit (IP)", SrcIP: "192.168.50.50", DstIP: "8.8.8.8",
+			Score: 97, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+	})
+	if got := len(activeFindingNotifs(s)); got != 2 {
+		t.Fatalf("baseline: got %d active finding notifs, want 2", got)
+	}
+
+	s.AddSuppression("192.168.50.50", time.Now().Add(time.Hour), "test")
+
+	active := activeFindingNotifs(s)
+	if len(active) != 1 {
+		t.Fatalf("after suppression: got %d active finding notifs, want 1; active=%+v", len(active), active)
+	}
+	if active[0].SrcIP != "10.0.0.1" {
+		t.Errorf("surviving notification should be the unhidden one, got %+v", active[0])
+	}
+}
+
+// activeFindingNotifs returns the subset of s.GetNotifications() that
+// are (a) Kind="finding" (or unset, the pre-v0.17.0 default) and (b)
+// not yet dismissed. Helper for the cleanup-on-list-update tests.
+func activeFindingNotifs(s *Store) []model.Notification {
+	all := s.GetNotifications()
+	out := make([]model.Notification, 0, len(all))
+	for _, n := range all {
+		if n.Dismissed {
+			continue
+		}
+		if n.Kind != "" && n.Kind != "finding" {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
+}
