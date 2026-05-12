@@ -30,6 +30,18 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.18.3] — 2026-05-12
+
+### Changed
+
+- **Dismissed sub-tabs moved below the main tab strip.** The
+  Findings / Campaigns sub-tabs that appear when the Dismissed
+  top-level tab is active used to sit above the main tab row,
+  which inverted the visual hierarchy. Now the layout reads
+  top-down: pick Dismissed up top, sub-tabs reveal directly under
+  it to pick Findings vs Campaigns within that bucket. Same
+  elements and CSS — just an HTML reorder.
+
 ## [v0.18.2] — 2026-05-12
 
 Two small operator-pulled changes. The DB backup button closes a
