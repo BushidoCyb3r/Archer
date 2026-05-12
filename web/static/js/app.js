@@ -2568,6 +2568,35 @@
       dlg.close();
     });
 
+    // DB backup: anchor click against /api/admin/backup so the browser
+    // streams the response straight to disk instead of buffering the
+    // whole .db into memory like fetch + blob would. Same-origin GET
+    // carries the session cookie, so admin auth flows naturally.
+    // Server returns Content-Disposition with a timestamped filename;
+    // download="" leaves the filename to the server's header.
+    const backupBtn = document.getElementById('db-backup-btn');
+    const backupStatus = document.getElementById('db-backup-status');
+    if (backupBtn) {
+      backupBtn.addEventListener('click', () => {
+        backupStatus.textContent = 'Snapshotting…';
+        backupStatus.style.color = 'var(--fg-dim)';
+        const a = document.createElement('a');
+        a.href = '/api/admin/backup';
+        a.download = '';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        // The browser handles the rest. There's no completion event we
+        // can hang off a cross-process file save, so flip the message
+        // to a quiet "started" tone shortly after the click and clear
+        // it on the next dialog open.
+        setTimeout(() => {
+          backupStatus.textContent = 'Download started — check your browser';
+          backupStatus.style.color = 'var(--accent)';
+        }, 300);
+      });
+    }
+
     const resetBtn = document.getElementById('reset-analyze-btn');
     const resetStatus = document.getElementById('reset-analyze-status');
     if (resetBtn) {
