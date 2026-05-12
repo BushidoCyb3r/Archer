@@ -724,19 +724,25 @@
                  can expand to fit content; mirrors the Audit Log
                  table so "fetching · 50k indicators" and 7-digit
                  indicator counts render in full. -->
-            <th style="min-width:140px">Name</th>
-            <th style="min-width:70px">Source</th>
-            <th style="min-width:160px">Status</th>
-            <th style="min-width:100px">Indicators</th>
-            <th style="min-width:160px">Last refresh</th>
-            <!-- Aging holds "30 d" / "90 d" — needs almost no width.
-                 Shrunk so the action column floor isn't competing
-                 with whitespace for visible dialog space. -->
-            <th style="min-width:50px">Aging</th>
+            <!-- Floors tightened so the action column stays on
+                 screen at typical viewport widths. Each value is
+                 just-enough for realistic content with a small
+                 breathing margin; cells still expand to fit
+                 unusually long content. -->
+            <th style="min-width:110px">Name</th>
+            <th style="min-width:60px">Source</th>
+            <!-- Status: just-enough for the "fetching" pill which
+                 is the widest of the four pill labels. -->
+            <th style="min-width:100px">Status</th>
+            <!-- Indicators: fits 8-digit + commas ("12,345,678"). -->
+            <th style="min-width:110px">Indicators</th>
+            <!-- Last refresh: shortened timestamp format ("YYYY-MM-DD HH:MM",
+                 no seconds, no UTC suffix); full ISO + UTC on hover. -->
+            <th style="min-width:130px">Last refresh</th>
+            <th style="min-width:40px">Aging</th>
             <!-- Action column floor — fits Refresh + Edit + Delete on
-                 one line. Padded so the Delete button isn't right
-                 against the dialog's right edge. -->
-            <th style="min-width:280px"></th>
+                 one line with breathing room. -->
+            <th style="min-width:240px"></th>
           </tr>
         </thead>
         <tbody id="feeds-tbody"></tbody>
