@@ -75,6 +75,7 @@ func New(st *store.Store, us *store.UserStore, broker *Broker, webDir, logsDir, 
 	s.startWatch() // no-op if watch is disabled or unconfigured
 	s.startUnauthorizedPruneLoop()
 	s.startSuppressionsPruneLoop()
+	s.startBeaconHistoryPruneLoop()
 	// Idle-bucket eviction so a long-running flood from many source
 	// IPs doesn't grow the rate-limit map without bound. v0.14.3
 	// NEW-39. The done channel is never closed — eviction runs for
@@ -137,6 +138,31 @@ func (s *Server) startSuppressionsPruneLoop() {
 		defer t.Stop()
 		for range t.C {
 			s.store.PruneExpiredSuppressions()
+		}
+	}()
+}
+
+// startBeaconHistoryPruneLoop sweeps beacon_history rows older than
+// BeaconHistoryRetentionDays on a daily cadence. Independent of the
+// watch lifecycle — v0.16.2 piggybacked the sweep on the watch's
+// first-tick-of-UTC-day branch, which silently broke retention for
+// deployments running Archer in manual-analysis-only mode (watch
+// disabled). NEW-86 from the twentieth audit round: matches the
+// pattern startSuppressionsPruneLoop and startUnauthorizedPruneLoop
+// already use, so retention enforcement is unconditional on the
+// process lifecycle rather than on operator config.
+//
+// Runs once at startup (catches up a long-stopped instance) then
+// every 24 hours. The sweep is idempotent and cheap (single DELETE
+// keyed on day_utc), so the daily cadence has no cost concern even
+// on dense histories.
+func (s *Server) startBeaconHistoryPruneLoop() {
+	go func() {
+		s.store.PurgeBeaconHistory()
+		t := time.NewTicker(24 * time.Hour)
+		defer t.Stop()
+		for range t.C {
+			s.store.PurgeBeaconHistory()
 		}
 	}()
 }

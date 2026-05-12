@@ -79,6 +79,26 @@ type Finding struct {
 	// by SetFindings to write the beacon_history row. Not serialized
 	// to the findings JSON API — analysts see them via the per-finding
 	// history endpoint instead.
+	//
+	// LIFECYCLE: these fields are populated only at emit time. They
+	// are NOT persisted to the findings table (no columns), so:
+	//   - At server boot, loadFindings rebuilds in-memory Finding
+	//     objects with all four zeroed.
+	//   - SetFindings's preserve-historical loop carries forward
+	//     historical findings with whatever values they had on disk —
+	//     which is zero, since the table has no column.
+	//   - Only this-run finding emissions carry non-zero sub-scores;
+	//     by the time saveBeaconHistory reads them (immediately after
+	//     emission in the same SetFindings call), they're correct.
+	//   - Any future consumer reading these fields outside the
+	//     emit → SetFindings critical section must guard on IsNew or
+	//     join to beacon_history; the in-memory Finding object can't
+	//     be trusted to carry the sub-scores after a server restart.
+	//
+	// NEW-89 from the twentieth audit round documented this rather
+	// than adding columns — no consumer outside saveBeaconHistory
+	// currently needs the persistence. Add the columns (migration
+	// 0013) the first time a feature requires them.
 	TSScore   float64 `json:"-"`
 	DSScore   float64 `json:"-"`
 	HistScore float64 `json:"-"`
