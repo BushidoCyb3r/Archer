@@ -222,8 +222,18 @@ const BeaconEvolution = (() => {
       ['stroke', 'fill'].forEach(attr => {
         const v = el.getAttribute(attr);
         if (v && v.startsWith('var(')) {
-          const name = v.slice(4, v.indexOf(')')).trim();
-          if (resolved[name]) el.setAttribute(attr, resolved[name]);
+          // var(NAME) or var(NAME, FALLBACK): split on the first comma
+          // so a fallback literal doesn't get folded into the key. Off-DOM
+          // canvas render can't resolve var() at all, so we substitute the
+          // resolved value, or the fallback if the var isn't in our sample
+          // list. Without this, "var(--accent-alt, #6bb6ff)" strokes as
+          // transparent in the exported PNG.
+          const inner = v.slice(4, v.lastIndexOf(')'));
+          const comma = inner.indexOf(',');
+          const name = (comma >= 0 ? inner.slice(0, comma) : inner).trim();
+          const fallback = comma >= 0 ? inner.slice(comma + 1).trim() : '';
+          const repl = resolved[name] || fallback;
+          if (repl) el.setAttribute(attr, repl);
         }
       });
     });

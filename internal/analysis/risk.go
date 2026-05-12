@@ -90,6 +90,17 @@ func (a *Analyzer) aggregateRisk(_ []string) {
 	// in would double-count and spiral upward across runs. They're
 	// also the type we're about to regenerate, so leaving them in
 	// would feed the previous-run's composite back into the new one.
+	//
+	// Status filtering is deliberately absent. Dismissed findings
+	// still contribute to Host Risk Score: Dismiss is a lightweight
+	// reversible view-state bucket ("hide from my default tabs"), not
+	// a "false-positive, drop it" verdict. The underlying detection
+	// is still real evidence about the host until it's expired by
+	// re-analysis or actively suppressed via the IOC/allowlist
+	// surfaces. Excluding dismissed here would put load-bearing
+	// weight on a one-click reversible action; analysts who genuinely
+	// want a finding to stop influencing risk should add it to the
+	// allowlist or suppression list instead. NEW-110.
 	contribute := func(f model.Finding) {
 		src := f.SrcIP
 		if src == "" || src == "(cert)" || src == "(escalation)" || src == "(network)" {
