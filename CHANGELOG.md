@@ -30,6 +30,143 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.17.1] — 2026-05-12
+
+Twenty-third external review round, first post-v0.17.0. Seven
+items: two Mediums (NEW-98 notifications-not-persisted and NEW-99
+bell-threshold-over-corrected, both load-bearing for v0.17.0's
+notification-hygiene story), one Medium documentation correction
+(NEW-100 external-monitoring framing), three Lows (NEW-101 UTF-8
+truncate, NEW-103 SSE-open reset, NEW-104 re-enrollment lifecycle),
+and one deferred (NEW-102 rsync-failed-checkin-alive design).
+
+The pattern this round: v0.17.0's structural code (dedup pattern,
+SQL CASE, SSE plumbing) was right; the operational details (where
+exactly to set the threshold, what survives a restart, what counts
+as "external monitoring") had rough edges. The audit framing was
+crisp: "shallow polish on top of correct deep work." The cheap
+fixes here close most of the remaining gap.
+
+Two durable lessons surfaced and were saved to memory:
+
+- *Calibration thresholds are global + documented in code, not
+  per-deployment Settings.* When picking a calibration value
+  (bell threshold, scoring weight), pick a value defensible by
+  external reasoning, document the choice with the reasoning,
+  iterate based on operator-observation data. Don't expose as a
+  Settings toggle (breaks cross-deployment incident discussion);
+  don't bump discrete-tier scores to clear a threshold (score
+  field has too many consumers).
+- *Finding.Score carries two semantics simultaneously.* Continuous
+  evidence axis (Beaconing, Correlated Activity, DGA-bumped) vs
+  discrete severity-tier label (TI Hit, Malicious JA3, URI
+  patterns). Any cross-type comparison must consider both
+  populations; single-threshold gates conflate the two and produce
+  surprising results.
+
+### Breaking
+
+- **Bell threshold semantics changed.** The v0.17.0 gate of
+  `Score >= 99` is replaced with `Score >= 95`. This is more
+  permissive than v0.17.0 (which over-corrected) but tighter than
+  pre-v0.17.0 (which fired for CRITICAL severity or any TI type).
+  Operators who calibrated against the v0.17.0 threshold should
+  expect more bell rings, but only from detectors that score 95-98
+  — primarily URLhaus / FeodoTracker / Malicious JA3.
+
+### Bell tier enumeration (NEW-99 lock-in)
+
+The threshold enumerates which detector outputs ring at v0.17.1.
+The enumeration locks the contract so a future detector score
+change can't silently shift bell semantics.
+
+**Rings the bell** (score >= 95, IsNew, not Host Risk Score):
+
+| Detector | Score | Source |
+|----------|-------|--------|
+| Suspicious URL (URLhaus host match) | 96 | `internal/analysis/ti.go` |
+| TI Hit (IP) — FeodoTracker / URLhaus | 96-97 | `internal/analysis/ti.go` |
+| Malicious JA3 | 95 | `internal/analysis/ssl.go` |
+| Beaconing — DGA-bumped | up to 99 | `internal/analysis/dga.go` |
+| HTTP Beaconing — DGA-bumped | up to 99 | `internal/analysis/dga.go` |
+| Correlated Activity — multi-type stacks | up to 99 | `internal/analysis/correlate.go` |
+| Computed Beaconing / HTTP Beaconing | when ≥ 95 | `internal/analysis/conn.go`, `http_analysis.go` |
+
+**Does not ring** (in panel, but no bell — score below threshold or
+type excluded):
+
+| Detector | Score | Reason |
+|----------|-------|--------|
+| Cobalt Strike URI | 93 | Pattern-match, no externally-validated audit trail |
+| Zeek Notice (attack) | 92 | Zeek-derived; passthrough quality varies |
+| C2 URI Pattern | 91 | Pattern-match, broader false-positive surface |
+| MISP / OpenCTI broad match | 90 | Tier-3 confidence — feed-aggregator hits |
+| File hash hit | 90 | Tier-3 confidence — hash matches alone |
+| Host Risk Score | any | Roll-up, not a discrete event (excluded by type) |
+
+If a future detector change shifts a score across the threshold,
+update this enumeration in the same commit.
+
+### Fixed
+
+- **NEW-98 (Major): Notifications now survive server restart.**
+  Migration 0014 adds the `notifications` table mirroring the
+  `model.Notification` fields plus `created_at`. AddAlarm + the
+  SetFindings bell loop persist on emit; DismissNotification +
+  DismissAllNotifications persist the dismissed flag. InitDB
+  rehydrates on boot and seeds `notifCounter` from `MAX(id)` so
+  post-restart emissions can't collide with persisted rows. Pre-
+  fix, every active alarm (finding bell entries, sensor heartbeat
+  alarms, feed unhealthy alarms) was wiped on any redeploy — the
+  operator's last surface for "what alerted today" disappeared
+  with each restart. Same shape as NEW-72's fix for in-memory
+  Correlations.
+- **NEW-99 (Major): Bell threshold re-calibrated from
+  `Score >= 99` to `Score >= 95`.** v0.17.0's 99 gate over-
+  corrected — discrete-tier detectors top out below 99 by design,
+  so externally-validated high-confidence indicators (URLhaus,
+  Malicious JA3, FeodoTracker) stayed silent. 95 captures the top
+  of both the discrete-tier population AND the computed-score
+  population. Detector-by-detector outcome is enumerated above.
+- **NEW-100 (Documentation correction): "External monitoring"
+  framing retracted from `/api/sensors/health`.** The endpoint
+  requires session-cookie auth; Prometheus/Nagios scrape tooling
+  can't consume it directly today. README, API.md, and OPERATIONS
+  now describe it as for in-auth-boundary consumers (analyst-
+  facing dashboard tiles, IR triage shell helpers). A first-class
+  service-account-token surface for external monitoring is a
+  v0.18.x candidate.
+- **NEW-101 (Low): `truncate` in feed_health.go respects UTF-8
+  rune boundaries.** Pre-fix `s[:n]` could land mid-multi-byte
+  sequence, emitting invalid UTF-8 that the SPA rendered as the
+  Unicode replacement glyph. Walks back to the nearest rune start
+  via `utf8.RuneStart` before cutting. Regression test sweeps cap
+  values across a string containing em-dashes and confirms
+  `utf8.ValidString` on every result.
+- **NEW-103 (Low): Watch heartbeat tracker treats SSE `open` as
+  proof-of-life.** Pre-fix a brief SSE disconnect-and-reconnect
+  left the dot stale for up to one heartbeat interval (60s)
+  before the next server-side tick arrived. Subscribing to the
+  `open` event resets `lastBeat` so the dot flips back to healthy
+  as soon as the connection itself recovers.
+- **NEW-104 (Low): OPERATIONS documents re-enrollment lifecycle
+  for stale log directories.** The sensor heartbeat
+  `max(LastSeenAt, lastLogMTime)` check false-positives when a
+  sensor is re-enrolled under a name whose `/data/logs/<name>/`
+  directory still exists. Mitigation: clear the log directory
+  before re-enroll, or use Purge (which clears logs) rather than
+  plain Disenroll.
+
+### Deferred
+
+- **NEW-102: Rsync-failed-but-checkin-alive alarm.** The current
+  `max(LastSeenAt, lastLogMTime)` check correctly handles "rsync
+  alive, HMAC checkin broken" but silently misses the inverse
+  (HMAC firing hourly while rsync has stopped). A separate alarm
+  when `LastSeenAt - lastLogMTime > N` would close this gap;
+  needs design conversation and operator-observation data to
+  calibrate. Carried in TODO §3.
+
 ## [v0.17.0] — 2026-05-12
 
 Notification hygiene + operator visibility slice. Four changes
