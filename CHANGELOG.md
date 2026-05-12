@@ -30,6 +30,82 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.16.4] — 2026-05-12
+
+Twenty-first external review round, first post-v0.16.3. Three
+findings actioned, one acknowledged-but-deferred. The major item
+(NEW-91) is a continuation of NEW-71's institutional lesson:
+when fixing a bug, write the regression test against the
+end-to-end invariant the fix is supposed to enforce, not against
+the narrow failure case you noticed. v0.15.1 closed NEW-71's
+fresh-ID translation case but missed the historical-contributor
+path — a real bug that surfaced in steady-state operation,
+silently dropping every cross-run correlation reference.
+
+The discipline lesson lives [in
+memory](../../../.claude/projects/-root-Archer/memory/feedback_test_invariant_not_failure_case.md)
+so the next fix that ships with a passing test against the
+narrow case gets caught at write time.
+
+### Fixed
+
+- **NEW-91 (Major): Correlations referencing historical
+  contributors were silently dropped by SetFindings's
+  translation.** `correlate.go`'s historical-union path
+  (consults `findingsProvider` when `Phase 3.5` runs) puts
+  persisted IDs into this-run findings' `Correlations` slices
+  directly — the cross-run sibling references the chip is
+  supposed to surface. Pre-fix `SetFindings`'s NEW-71
+  translation looked up every ID in `freshToPersisted`;
+  historical persisted IDs aren't keys in that map (they're
+  values), so each one was silently dropped or mis-mapped to
+  an unrelated finding's persisted ID.
+  Worked example: Run 1 emits Beaconing (persisted ID 47) +
+  DNS Tunneling (persisted ID 92) + Correlated Activity (200).
+  Run 2 emits only Beaconing. correlate.go reads Beaconing
+  from `a.findings` (fresh ID 5) + DNS Tunneling from
+  `findingsProvider` (persisted ID 92) and emits Correlated
+  Activity with `Correlations=[5, 92]`. Pre-fix translation:
+  92 not in freshToPersisted → dropped. Result: `[bcn]`
+  (DNS reference lost). Post-fix: `historicalIDs` set built
+  from `s.findings` before translation gives 92 a pass-through
+  path → result `[bcn, dns]`.
+  Known limitation (case B2 in the audit notes): when a fresh
+  per-run ID happens to numerically equal a historical
+  persisted ID, the disambiguation is ambiguous and
+  freshToPersisted wins. Realistic only in fresh deployments
+  where the ID ranges overlap; mature deployments with
+  thousands of historical findings see persisted IDs well
+  above the fresh range.
+- **NEW-92: correlate.go dedup now keys on fingerprint, not
+  ID.** Same logical finding can appear in `pd.findingIDs`
+  twice — once with fresh ID (from `a.findings`) and once with
+  persisted ID (from `findingsProvider`). Pre-fix `idsByID`
+  dedup keyed on `f.ID`, which is wrong because the same
+  finding has two different IDs across the two sources.
+  Replaced with `idsByFingerprint map[model.Fingerprint]int`
+  where the historical pass overrides the fresh pass — the
+  chosen ID is the already-persisted one, which survives
+  SetFindings unchanged via NEW-91's identity-map path.
+- **NEW-94: doc drift in `TestDGAScore_KnownDGANames` comment.**
+  Comment claimed threshold `bigramLLH < -3.0` but the test
+  body and shipped default both use `-4.5`. Updated comment
+  to match. Same shape as NEW-79 (the production `bigramFloor`
+  comment) but in test code.
+
+### Acknowledged (not fixed)
+
+- **NEW-95: prune-loop pattern inconsistency.** Three TTL
+  entities exist today (`unauthorized_attempts`,
+  `suppressions`, `beacon_history`) with two prune patterns
+  (dedicated goroutine vs. coupling to another lifecycle —
+  the latter caused NEW-86). Session prune (NEW-69) is
+  unimplemented. The auditor recommends a `startPruneLoop`
+  helper to consolidate. Punted to a later release as a pure
+  refactor without an active failure mode — the v0.16.3
+  NEW-86 fix already corrected the actual bug; helper
+  consolidation is hygiene.
+
 ## [v0.16.3] — 2026-05-12
 
 Twentieth external review round. Five findings: three Mediums
