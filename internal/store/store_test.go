@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -403,6 +404,133 @@ func TestSetFindings_TranslatesCorrelationIDs(t *testing.T) {
 	}
 	if !sameIntSet(corr.Correlations, []int{bcnPersisted, dnsPersisted}) {
 		t.Errorf("Correlated Activity.Correlations = %v; want [%d, %d] (the two contributors)", corr.Correlations, bcnPersisted, dnsPersisted)
+	}
+}
+
+// TestSetFindings_PreservesHistoricalCorrelationIDs codifies NEW-91
+// (twenty-first audit round). correlate.go's historical-union path
+// puts persisted IDs directly into this-run findings' Correlations
+// slices (when a contributor exists in the store from a prior run
+// but doesn't re-fire this run). Pre-fix SetFindings's translation
+// looked up every ID in freshToPersisted; historical persisted IDs
+// aren't keys in that map, so they were silently dropped.
+//
+// Worked example (the common case):
+//
+//	Run 1: Beaconing fires, persisted ID 47.
+//	       DNS Tunneling fires, persisted ID 92.
+//	Run 2: Beaconing fires (fresh ID 5) — DNS Tunneling does NOT.
+//	       correlate.go consults findingsProvider, sees historical
+//	       DNS Tunneling, includes its persisted ID 92 in Beaconing's
+//	       Correlations alongside the fresh correlation-row ID.
+//
+// The post-SetFindings invariant: Beaconing.Correlations must
+// contain BOTH the translated correlation-row persisted ID AND the
+// historical DNS Tunneling persisted ID (92), unchanged. Pre-fix,
+// only the translated ID survived; the historical reference was
+// dropped, and the "+N corr" chip on Beaconing showed the wrong
+// count for every cross-run correlation.
+//
+// The fix: SetFindings builds a historicalIDs set from s.findings
+// before the translation pass, and treats IDs in that set as
+// identity-mapped during translation.
+func TestSetFindings_PreservesHistoricalCorrelationIDs(t *testing.T) {
+	s := New(config.Default())
+
+	// Pad run 1 with junk findings so the target contributor (DNS
+	// Tunneling) gets a high persisted ID. This represents the
+	// common deployment shape the auditor analyzed: fresh IDs are
+	// small (1..n where n is the per-run finding count), historical
+	// persisted IDs are large (after many runs, persisted IDs grow
+	// into the thousands).
+	//
+	// Without the padding, fresh IDs in run 2 (1, 2) collide
+	// numerically with historical persisted IDs (1, 2 from run 1)
+	// — case B2 in the audit notes, a known limitation of the
+	// fresh-vs-historical-ID disambiguation. With padding, DNS
+	// Tunneling lands at persisted ID 20, well above run 2's fresh
+	// range of 1..2, and translation can disambiguate cleanly.
+	run1 := []model.Finding{}
+	for i := 0; i < 18; i++ {
+		run1 = append(run1, model.Finding{
+			Type: "Suspicious URL", SrcIP: "10.0.0.99",
+			DstIP: fmt.Sprintf("198.51.100.%d", i+1), DstPort: "443",
+			Score: 50, Severity: model.SevMedium,
+			Timestamp: "2026-05-10 09:00:00",
+		})
+	}
+	run1 = append(run1,
+		model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-10 09:00:00"},
+		model.Finding{Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "53",
+			Score: 60, Severity: model.SevMedium, Timestamp: "2026-05-10 09:00:00"},
+	)
+	s.SetFindings(run1)
+	var bcnPersisted, dnsPersisted int
+	for _, f := range s.findings {
+		if f.SrcIP != "10.0.0.1" {
+			continue
+		}
+		switch f.Type {
+		case "Beaconing":
+			bcnPersisted = f.ID
+		case "DNS Tunneling":
+			dnsPersisted = f.ID
+		}
+	}
+	if bcnPersisted == 0 || dnsPersisted == 0 {
+		t.Fatalf("setup: failed to locate seeded contributors: bcn=%d dns=%d", bcnPersisted, dnsPersisted)
+	}
+
+	// Run 2: only Beaconing re-fires. correlate.go would build the
+	// pair from a.findings (fresh Beaconing) + findingsProvider
+	// (historical Beaconing + historical DNS Tunneling) and emit a
+	// Correlated Activity row. With NEW-92's fingerprint-dedup
+	// preferring the historical Beaconing's persisted ID, the
+	// resulting Correlations slice on the Correlated Activity row
+	// would be [bcnPersisted, dnsPersisted]. We simulate that
+	// directly here — the contract under test is SetFindings's
+	// translation, not correlate.go.
+	freshBcnID, freshCorrID := 1, 2
+	s.SetFindings([]model.Finding{
+		{
+			ID: freshBcnID, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00",
+			// Historical DNS Tunneling's persisted ID is in this slice
+			// directly (not a fresh ID). Pre-NEW-91, the translation
+			// would drop it.
+			Correlations: []int{dnsPersisted, freshCorrID},
+		},
+		{
+			ID: freshCorrID, Type: model.TypeCorrelatedActivity, SrcIP: "10.0.0.1", DstIP: "1.1.1.1",
+			Score: 85, Severity: model.SevCritical, Timestamp: "2026-05-11 09:00:00",
+			// Contributors: fresh Beaconing + historical DNS Tunneling
+			// (already in persisted-ID space).
+			Correlations: []int{freshBcnID, dnsPersisted},
+		},
+	})
+
+	var bcn, corr *model.Finding
+	for i := range s.findings {
+		f := &s.findings[i]
+		switch f.Type {
+		case "Beaconing":
+			bcn = f
+		case model.TypeCorrelatedActivity:
+			corr = f
+		}
+	}
+	if bcn == nil || corr == nil {
+		t.Fatalf("missing finding after run 2: bcn=%v corr=%v", bcn, corr)
+	}
+
+	if !sameIntSet(bcn.Correlations, []int{dnsPersisted, corr.ID}) {
+		t.Errorf("Beaconing.Correlations = %v; want [%d, %d] (historical DNS persisted ID preserved + fresh corr translated)",
+			bcn.Correlations, dnsPersisted, corr.ID)
+	}
+	if !sameIntSet(corr.Correlations, []int{bcnPersisted, dnsPersisted}) {
+		t.Errorf("Correlated Activity.Correlations = %v; want [%d, %d] (fresh bcn translated + historical dns preserved)",
+			corr.Correlations, bcnPersisted, dnsPersisted)
 	}
 }
 

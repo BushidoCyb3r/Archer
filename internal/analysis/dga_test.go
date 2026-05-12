@@ -10,8 +10,9 @@ import (
 
 // TestDGAScore_KnownDGANames verifies the detector fires on hostnames
 // shaped like real DGA output. The threshold pair (entropy > 3.5,
-// bigramLLH < -3.0) was calibrated against the embedded bigram table
-// so DGA-shaped strings cross both gates simultaneously.
+// bigramLLH < -4.5) — matching the config.go DGABigramThreshold
+// default — was calibrated against the embedded bigram table so
+// DGA-shaped strings cross both gates simultaneously.
 func TestDGAScore_KnownDGANames(t *testing.T) {
 	dgaCases := []string{
 		"kx9j3qm2pflw.com",

@@ -77,17 +77,28 @@ func (a *Analyzer) correlateFindings() {
 	type pairKey struct{ sensor, src, dst string }
 	type pairData struct {
 		types      map[string]bool
-		findingIDs []int
 		maxScore   int
 		earliestTS string
-		// idsByID dedups when historical union and this-run findings
-		// both contain the same finding (matched by ID after
-		// SetFindings's ID-carry-forward).
-		idsByID map[int]bool
+		// idsByFingerprint chooses one ID per unique fingerprint
+		// contributing to this pair. NEW-92 from the twenty-first
+		// audit round: pre-fix idsByID dedup keyed on f.ID, which
+		// is wrong because the same logical finding can appear once
+		// as a fresh per-run ID (from a.findings) and once as the
+		// persisted ID (from findingsProvider.GetFindings) — two
+		// different ID values for the same fingerprint. The downstream
+		// Correlations slice would carry both, then SetFindings's
+		// translation would handle them inconsistently (fresh ID
+		// translated correctly; persisted ID dropped or mis-mapped,
+		// per NEW-91). Fingerprint-based dedup gives one
+		// representation per finding, and the historical pass
+		// overrides the fresh pass so the chosen ID is the
+		// already-persisted one — survives SetFindings unchanged
+		// via NEW-91's identity-map path.
+		idsByFingerprint map[model.Fingerprint]int
 	}
 	pairs := make(map[pairKey]*pairData)
 
-	contribute := func(f model.Finding) {
+	contribute := func(f model.Finding, isHistorical bool) {
 		if !correlationEligibleType(f.Type) {
 			return
 		}
@@ -106,15 +117,20 @@ func (a *Analyzer) correlateFindings() {
 		pd := pairs[key]
 		if pd == nil {
 			pd = &pairData{
-				types:   make(map[string]bool),
-				idsByID: make(map[int]bool),
+				types:            make(map[string]bool),
+				idsByFingerprint: make(map[model.Fingerprint]int),
 			}
 			pairs[key] = pd
 		}
 		pd.types[f.Type] = true
-		if !pd.idsByID[f.ID] {
-			pd.idsByID[f.ID] = true
-			pd.findingIDs = append(pd.findingIDs, f.ID)
+		// Historical pass overrides fresh — historical IDs are
+		// already in persisted-ID space and survive SetFindings
+		// without translation, while fresh IDs depend on the
+		// freshToPersisted map. Preferring the historical ID makes
+		// the downstream Correlations slice more robust.
+		fp := f.Fingerprint()
+		if _, seen := pd.idsByFingerprint[fp]; !seen || isHistorical {
+			pd.idsByFingerprint[fp] = f.ID
 		}
 		if f.Score > pd.maxScore {
 			pd.maxScore = f.Score
@@ -129,13 +145,13 @@ func (a *Analyzer) correlateFindings() {
 
 	a.mu.RLock()
 	for _, f := range a.findings {
-		contribute(f)
+		contribute(f, false)
 	}
 	a.mu.RUnlock()
 
 	if a.findingsProvider != nil {
 		for _, f := range a.findingsProvider.GetFindings() {
-			contribute(f)
+			contribute(f, true)
 		}
 	}
 
@@ -172,10 +188,14 @@ func (a *Analyzer) correlateFindings() {
 		if len(pd.types) < minTypes {
 			continue
 		}
-		// Sort contributing IDs for stable Detail string + stable
-		// Correlations slice ordering. Sort happens once per pair so
-		// the cost is negligible.
-		sort.Ints(pd.findingIDs)
+		// Materialize the contributing IDs from the fingerprint-dedup
+		// map. Sort for stable Detail string + stable Correlations
+		// slice ordering across re-runs on identical input.
+		findingIDs := make([]int, 0, len(pd.idsByFingerprint))
+		for _, id := range pd.idsByFingerprint {
+			findingIDs = append(findingIDs, id)
+		}
+		sort.Ints(findingIDs)
 
 		// Score = max(contributor scores) + 5 per extra distinct type
 		// above the minimum, capped at 99. Floor is the underlying
@@ -212,8 +232,8 @@ func (a *Analyzer) correlateFindings() {
 		}
 		sort.Strings(typeList)
 
-		idStrs := make([]string, len(pd.findingIDs))
-		for i, id := range pd.findingIDs {
+		idStrs := make([]string, len(findingIDs))
+		for i, id := range findingIDs {
 			idStrs[i] = strconv.Itoa(id)
 		}
 
@@ -221,8 +241,8 @@ func (a *Analyzer) correlateFindings() {
 		// correlation row's Correlations field can list every
 		// contributing ID. The contributors' own Correlations get
 		// the same list plus the new row's ID.
-		contributorIDs := make([]int, len(pd.findingIDs))
-		copy(contributorIDs, pd.findingIDs)
+		contributorIDs := make([]int, len(findingIDs))
+		copy(contributorIDs, findingIDs)
 
 		a.add(model.Finding{
 			Type:     model.TypeCorrelatedActivity,
