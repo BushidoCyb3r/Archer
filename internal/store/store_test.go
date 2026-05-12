@@ -816,58 +816,197 @@ func TestBeaconHistory_CapsAtRetentionWindow(t *testing.T) {
 	}
 }
 
-// TestSetFindings_BellGate_OnlyScoreAtLeast99Notifies codifies the
-// noise-reduction gate. The invariant: a finding emits a bell
-// notification iff it is new AND score >= 99. Score 99 and 100 ring
-// the bell; everything below (including CRITICAL severity at score
-// 80–98 and TI hits below 99) does not. Host Risk Score is excluded
-// regardless of score because it's a roll-up, not a discrete event.
+// TestNotifications_PersistAcrossReload codifies NEW-98 (twenty-third
+// audit round). The invariant: every notification surfaced through
+// the bell (finding alarms via SetFindings, sensor/feed alarms via
+// AddAlarm) survives a store close + reopen, including its dismissed
+// state. Pre-fix s.notifications and s.notifCounter were in-memory
+// only; a restart wiped every active alarm, and the operator's last
+// surface for "what alerted today" disappeared on any redeploy.
+//
+// The test covers all three notification origin paths:
+//   - SetFindings bell emission (Kind=finding via score >= 99)
+//   - AddAlarm with Kind=sensor
+//   - AddAlarm with Kind=feed
+//
+// plus a dismissed-then-reloaded shape to assert the dismissed flag
+// round-trips. notifCounter is asserted to re-seed from MAX(id) so
+// the next emission can't collide with a persisted ID.
+func TestNotifications_PersistAcrossReload(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	// Run 1: emit one finding alarm (score 99) + one sensor alarm +
+	// one feed alarm. Dismiss the feed alarm so we can verify the
+	// dismissed bit round-trips.
+	s := New(config.Default())
+	s.InitDB(db)
+	s.SetFindings([]model.Finding{
+		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+			Score: 99, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+	})
+	s.AddAlarm(model.Notification{
+		Kind: "sensor", Target: "lab-1",
+		Severity: string(model.SevHigh), Type: "Sensor offline",
+		Detail: "Sensor lab-1 hasn't checked in for 2h 15m",
+	})
+	feedNotif := s.AddAlarm(model.Notification{
+		Kind: "feed", Target: "misp-prod",
+		Severity: string(model.SevHigh), Type: "Feed unhealthy",
+		Detail: "Feed misp-prod: 3 consecutive refresh failures",
+	})
+	s.DismissNotification(feedNotif.ID)
+
+	before := s.GetNotifications()
+	if len(before) != 3 {
+		t.Fatalf("run 1 has %d notifications, want 3", len(before))
+	}
+
+	// Close + reopen the DB to simulate a server restart. The
+	// migration runner is idempotent so a re-run is a no-op.
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+	db2, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("reopen db: %v", err)
+	}
+	db2.SetMaxOpenConns(1)
+	defer db2.Close()
+	if err := RunMigrations(db2); err != nil {
+		t.Fatalf("re-migrate: %v", err)
+	}
+	s2 := New(config.Default())
+	s2.InitDB(db2)
+	after := s2.GetNotifications()
+
+	if len(after) != 3 {
+		t.Fatalf("after reload: %d notifications, want 3 (lost on restart pre-fix)", len(after))
+	}
+
+	// Build name maps by ID for shape-comparison.
+	byID := map[int]model.Notification{}
+	for _, n := range after {
+		byID[n.ID] = n
+	}
+	for _, b := range before {
+		a, ok := byID[b.ID]
+		if !ok {
+			t.Errorf("notification id=%d (kind=%s target=%s) not present after reload", b.ID, b.Kind, b.Target)
+			continue
+		}
+		if a.Kind != b.Kind || a.Target != b.Target || a.Type != b.Type {
+			t.Errorf("notification id=%d shape drift: before=%+v after=%+v", b.ID, b, a)
+		}
+		if a.Dismissed != b.Dismissed {
+			t.Errorf("notification id=%d dismissed bit lost: before=%v after=%v", b.ID, b.Dismissed, a.Dismissed)
+		}
+		if a.Detail != b.Detail {
+			t.Errorf("notification id=%d Detail lost: before=%q after=%q", b.ID, b.Detail, a.Detail)
+		}
+	}
+
+	// notifCounter must seed above the highest persisted id so a new
+	// emission can't collide. Add a fresh alarm and confirm its id
+	// lands above feedNotif.ID (the highest pre-reload id).
+	newAlarm := s2.AddAlarm(model.Notification{
+		Kind: "sensor", Target: "lab-2",
+		Severity: string(model.SevHigh), Type: "Sensor offline",
+	})
+	if newAlarm.ID <= feedNotif.ID {
+		t.Errorf("post-reload AddAlarm assigned id=%d, want strictly > %d (notifCounter not seeded from MAX(id))", newAlarm.ID, feedNotif.ID)
+	}
+}
+
+// TestSetFindings_BellGate_AtLeast95Notifies codifies the bell
+// threshold contract enumerated in CHANGELOG v0.17.1 (NEW-99). The
+// invariant: a finding emits a bell notification iff it is new AND
+// score >= 95. The threshold was 99 in v0.17.0 and over-corrected
+// — discrete-tier detectors top out below 99 by design, so
+// externally-validated high-confidence indicators (URLhaus 96,
+// Malicious JA3 95, FeodoTracker 97) stayed silent. 95 captures
+// the top of both populations.
 //
 // Articulating the invariant rather than the failure case: the
-// previous gate (CRITICAL || TI) had a wide input space; this
-// asserts the contract holds across multiple shapes inside that
-// space — high-but-sub-99 CRITICAL, TI under 99, score 99 exactly,
-// score 100, score 100 Host Risk Score.
-func TestSetFindings_BellGate_OnlyScoreAtLeast99Notifies(t *testing.T) {
+// score axis has two semantics in this codebase (continuous-
+// composite for Beaconing-class detectors, discrete-tier for the
+// hard-coded hit detectors); this test asserts the gate behaves
+// consistently across both populations at the chosen boundary.
+//
+// The tier enumeration this test pins down (matches CHANGELOG):
+//
+//	Rings the bell:  URLhaus/FeodoTracker (96-97), Malicious JA3 (95),
+//	                 DGA-bumped Beaconing (up to 99), Correlated
+//	                 Activity stacks (up to 99), score-100 catch-all.
+//	Does NOT ring:   Cobalt Strike URI (93), Zeek attack notice (92),
+//	                 C2 URI Pattern (91), MISP/OpenCTI broad (90),
+//	                 Host Risk Score at any score (roll-up exclusion).
+func TestSetFindings_BellGate_AtLeast95Notifies(t *testing.T) {
 	s := New(config.Default())
 	findings := []model.Finding{
-		// Below threshold: should NOT notify even though severity is CRITICAL.
-		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
-			Score: 85, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
-		// Below threshold: TI Hit historically auto-notified regardless of
-		// score; under the new gate it must not.
-		{Type: "TI Hit", SrcIP: "10.0.0.2", DstIP: "1.1.1.2",
-			Score: 70, Severity: model.SevHigh, Timestamp: "2026-05-12 09:00:00"},
-		// Edge: exactly 99 — notifies.
-		{Type: "Beaconing", SrcIP: "10.0.0.3", DstIP: "1.1.1.3", DstPort: "443",
-			Score: 99, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
-		// Edge: 100 — notifies.
+		// Below threshold: representative discrete-tier scores from
+		// detectors that do NOT ring at the v0.17.1 threshold.
+		{Type: "MISP Match", SrcIP: "10.0.0.1", DstIP: "1.1.1.1",
+			Score: 90, Severity: model.SevHigh, Timestamp: "2026-05-12 09:00:00"},
+		{Type: "C2 URI Pattern", SrcIP: "10.0.0.2", DstIP: "1.1.1.2",
+			Score: 91, Severity: model.SevHigh, Timestamp: "2026-05-12 09:00:00"},
+		{Type: "Zeek Notice", SrcIP: "10.0.0.3", DstIP: "1.1.1.3",
+			Score: 92, Severity: model.SevHigh, Timestamp: "2026-05-12 09:00:00"},
 		{Type: "Cobalt Strike URI", SrcIP: "10.0.0.4", DstIP: "1.1.1.4",
+			Score: 93, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+		// Below threshold by score; CRITICAL severity is no longer
+		// enough on its own (this was the old gate).
+		{Type: "Beaconing", SrcIP: "10.0.0.5", DstIP: "1.1.1.5", DstPort: "443",
+			Score: 88, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+
+		// Boundary: exactly 95 — rings (Malicious JA3 lives here).
+		{Type: "Malicious JA3", SrcIP: "10.0.0.6", DstIP: "1.1.1.6",
+			Score: 95, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+		// URLhaus tier (96): rings.
+		{Type: "Suspicious URL", SrcIP: "10.0.0.7", DstIP: "1.1.1.7",
+			Score: 96, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+		// FeodoTracker tier (97): rings.
+		{Type: "TI Hit (IP)", SrcIP: "10.0.0.8", DstIP: "1.1.1.8",
+			Score: 97, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+		// Score-100 catch-all: rings.
+		{Type: "Beaconing", SrcIP: "10.0.0.9", DstIP: "1.1.1.9", DstPort: "443",
 			Score: 100, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+
 		// Excluded by type even at max score — Host Risk Score is a roll-up.
-		{Type: "Host Risk Score", SrcIP: "10.0.0.5", DstIP: "(host)",
+		{Type: "Host Risk Score", SrcIP: "10.0.0.10", DstIP: "(host)",
 			Score: 100, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
 	}
-	// All five are new on first SetFindings, so IsNew gets set inside.
 	notifs := s.SetFindings(findings)
 
-	if len(notifs) != 2 {
-		t.Fatalf("got %d notifications, want 2 (the two score>=99 non-rollup findings); notifs=%+v", len(notifs), notifs)
+	// Expected: Malicious JA3 (95), Suspicious URL (96), TI Hit (IP) (97),
+	// Beaconing (100). Four rings, in any order.
+	if len(notifs) != 4 {
+		t.Fatalf("got %d notifications, want 4 (the score>=95 non-rollup findings); notifs=%+v", len(notifs), notifs)
 	}
-	gotTypes := map[string]bool{}
+	ringingByType := map[string]bool{}
 	for _, n := range notifs {
-		gotTypes[n.Type] = true
+		ringingByType[n.Type] = true
 		if n.Kind != "finding" {
 			t.Errorf("notification for %s has Kind=%q, want \"finding\"", n.Type, n.Kind)
 		}
 	}
-	if !gotTypes["Beaconing"] {
-		t.Errorf("score-99 Beaconing missing from notifications: %+v", notifs)
+	wantRinging := []string{"Malicious JA3", "Suspicious URL", "TI Hit (IP)", "Beaconing"}
+	for _, want := range wantRinging {
+		if !ringingByType[want] {
+			t.Errorf("expected %q to ring (>=95), missing from %+v", want, notifs)
+		}
 	}
-	if !gotTypes["Cobalt Strike URI"] {
-		t.Errorf("score-100 Cobalt Strike URI missing from notifications: %+v", notifs)
-	}
-	if gotTypes["Host Risk Score"] {
-		t.Errorf("Host Risk Score (roll-up) should not notify even at score 100")
+	mustNotRing := []string{"MISP Match", "C2 URI Pattern", "Zeek Notice", "Cobalt Strike URI", "Host Risk Score"}
+	for _, sub := range mustNotRing {
+		if ringingByType[sub] {
+			t.Errorf("type %q is below threshold (or excluded) and must not ring", sub)
+		}
 	}
 }
