@@ -371,10 +371,21 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 	// detection-semantics change (e.g. v0.7.0's TI Hit type split) means many
 	// old fingerprints don't match any new finding and get preserved with
 	// their original IDs.
+	//
+	// historicalIDs is the set of persisted IDs currently in s.findings.
+	// Consulted by the Correlations translation pass (NEW-91) to
+	// distinguish "this ID is already a valid persisted ID, leave it
+	// alone" from "this ID is a fresh per-run ID, translate it." The
+	// historical-union path in correlate.go puts persisted IDs into
+	// this-run findings' Correlations slices (via findingsProvider);
+	// without this set, NEW-71's freshToPersisted lookup would drop
+	// every historical contributor reference.
 	existing := make(map[model.Fingerprint]model.Finding, len(s.findings))
+	historicalIDs := make(map[int]bool, len(s.findings))
 	maxExistingID := 0
 	for _, f := range s.findings {
 		existing[f.Fingerprint()] = f
+		historicalIDs[f.ID] = true
 		if f.ID > maxExistingID {
 			maxExistingID = f.ID
 		}
@@ -422,24 +433,43 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 		freshToPersisted[freshID] = findings[i].ID
 	}
 
-	// Translate Correlations references on this-run findings from the
-	// fresh per-run IDs to the post-rewrite persisted IDs. NEW-71.
-	// Defensive: a fresh ID that doesn't appear in the map (which
-	// shouldn't happen — correlate.go only annotates a.findings
-	// entries with IDs from a.findings, all of which pass through
-	// this loop) gets dropped rather than carried as a dangling
-	// reference. Preserved historical findings are NOT touched here:
-	// their Correlations slices were translated by the SetFindings
-	// run that originally persisted them and remain in terms of
+	// Translate Correlations references on this-run findings. Two
+	// classes of ID can appear here:
+	//
+	//  1. Fresh per-run IDs from a.nextID++ (this-run contributors).
+	//     These need translation through freshToPersisted to recover
+	//     the post-rewrite persisted ID. NEW-71.
+	//
+	//  2. Persisted IDs from the historical-union path (when
+	//     correlate.go consulted findingsProvider, contributors that
+	//     existed in s.findings but didn't re-fire this run end up
+	//     in Correlations slices with their persisted IDs already in
+	//     hand). These need pass-through, NOT translation —
+	//     translating them via freshToPersisted either drops them
+	//     silently (the common case, when the historical ID isn't in
+	//     the small 1..n fresh-ID range) or maps them to an unrelated
+	//     finding's persisted ID (the rarer collision case). NEW-91
+	//     from the twenty-first audit round.
+	//
+	// historicalIDs is consulted as the secondary lookup so the two
+	// classes can coexist in the same slice. An ID that's neither in
+	// freshToPersisted nor in historicalIDs is dropped — defensive
+	// against dangling references from a bugged caller.
+	//
+	// Preserved historical findings are NOT touched here: their
+	// Correlations slices were translated by the SetFindings run
+	// that originally persisted them and remain in terms of
 	// persisted IDs already.
 	for i := range findings {
 		if len(findings[i].Correlations) == 0 {
 			continue
 		}
 		translated := make([]int, 0, len(findings[i].Correlations))
-		for _, freshID := range findings[i].Correlations {
-			if persistedID, ok := freshToPersisted[freshID]; ok {
+		for _, id := range findings[i].Correlations {
+			if persistedID, ok := freshToPersisted[id]; ok {
 				translated = append(translated, persistedID)
+			} else if historicalIDs[id] {
+				translated = append(translated, id)
 			}
 		}
 		findings[i].Correlations = translated
