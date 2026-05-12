@@ -30,6 +30,80 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.19.0] — 2026-05-12
+
+### Added
+
+- **Per-row kebab (⋮) menu in the Feeds and Sensors modals.** Row
+  actions (Refresh / Edit / Delete on Feeds; Reassign slot / Disenroll
+  / Purge data on Sensors; Revoke on tokens; Enroll-this / Dismiss on
+  unauthorized attempts) now live behind a single compact ⋮ control
+  per row instead of a stack of inline buttons. Frees ~200px of column
+  width that previously held three-button action columns, and the
+  Action affordance no longer scrolls off-screen on narrow dialogs.
+  New shared module: `web/static/js/rowmenu.js`. Menu appends inside
+  the open `<dialog>` so the top-layer stacking context contains it;
+  closes on outside-click, ESC, scroll, or resize.
+- **"Show enrollment command" item on fresh pending tokens.** Admins
+  can replay a token's curl one-liner without revoking-and-regenerating
+  when the sensor operator asks for the install command again. Reopens
+  the enroll dialog in show-mode (header swaps to "Sensor Enrollment
+  Command", override input + Generate button hidden, one-liner
+  pre-filled with Copy ready) and shows the same blue pulse-dot
+  "Waiting for sensor to run the install command…" line that the
+  fresh-generate flow uses. The existing `sensor_enrolled` SSE
+  handler swaps it to the green ✓ "Enrolled as `<name>`" confirmation
+  when the sensor checks in. Expired tokens only offer Revoke.
+
+### Changed
+
+- **Sensors modal switches to `table-layout: fixed` with declared
+  column widths across all three sub-tables.** Columns honor their
+  declared sizes rather than stretching proportionally as the dialog
+  resizes; the rightmost kebab cell absorbs the leftover so all three
+  tables stack uniformly at 1250px (the natural width of the Enrolled
+  Sensors table).
+- **Sensors modal default-opens at 1250px** instead of 95vw so every
+  column is visible without the operator dragging the resize handle.
+  Matches the Feeds modal pattern. Drag-resize still works to widen
+  for whitespace or narrow to squish columns.
+- **All timestamps in the Sensors modal render as UTC `YYYY-MM-DD
+  HH:MM`** (full `YYYY-MM-DD HH:MM:SS UTC` in the hover title),
+  matching the Feeds modal. Replaces the previous mix of full-ISO +
+  analyst-configured-timezone rendering for Last seen; the watch-config
+  timezone is no longer consulted by the Sensors modal. Operators who
+  relied on local-time rendering can read the epoch from
+  `/api/sensors` and format client-side.
+- **Feeds modal column widths re-tuned**: Name 110 → 220, Source 90 →
+  100, Status 100 → 130, Indicators 110 → 130, Last refresh 130 → 150,
+  Aging 60 → 80. Total stays 1000px so the dialog still default-opens
+  at the table's natural width.
+- **Feeds modal uses `table-layout: fixed`** so drag-resize of the
+  dialog adds whitespace around the table instead of stretching
+  columns. Row controls stay at the same screen position regardless
+  of dialog size.
+- **Right-aligned kebab pinned to the rightmost column of every
+  Sensors sub-table.** The kebab sits flush against the table's right
+  edge for a uniform action-anchor placement.
+- **Manual feed-refresh hard-cap raised from 5 → 10 minutes.** Slow
+  MISP/OpenCTI servers fetching large attribute sets routinely exceed
+  5 minutes on full pulls; the 10-minute cap is the new ceiling
+  before the request returns `context deadline exceeded`. The
+  type-shard parallelism and 1000-row PageSize still keep typical
+  fetches under that.
+
+### Fixed
+
+- **Feed-refresh fetch no longer killable by a browser disconnect.**
+  The handler used to root its 5-minute timeout in `r.Context()` so
+  closing the Feeds dialog (or any intervening proxy timing out the
+  long-lived POST) canceled the in-flight MISP/OpenCTI fetch and left
+  the feed row stuck on `status=fetching` until the next watch tick.
+  Now rooted in `context.Background()` with the 10-minute cap; the
+  goroutine runs to completion regardless of whether the operator is
+  still watching. Closing the modal during a long refresh no longer
+  aborts the sync.
+
 ## [v0.18.10] — 2026-05-12
 
 ### Fixed
@@ -4967,7 +5041,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.19.0...HEAD
+[v0.19.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.18.10...v0.19.0
 [v0.14.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.13.0...v0.14.0
 [v0.13.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.12.0...v0.13.0
 [v0.12.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.11.0...v0.12.0
