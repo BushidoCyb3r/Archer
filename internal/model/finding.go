@@ -18,6 +18,16 @@ const (
 	StatusOpen         Status = ""
 	StatusAcknowledged Status = "acknowledged"
 	StatusEscalated    Status = "escalated"
+	// StatusDismissed is the analyst's "I don't want to see this
+	// again" close — stronger than Acknowledged (which keeps the
+	// finding visible in the Ack tab). Dismissed findings are
+	// hidden from every default view and only appear in the
+	// dedicated Dismissed tab (which is itself hidden unless the
+	// operator's "Show Dismissed" toggle is on). Reversible via
+	// the row's status menu. v0.18.0 lightweight Dismissed; a
+	// future stronger version may suppress the fingerprint from
+	// future analysis runs but this slice intentionally does not.
+	StatusDismissed Status = "dismissed"
 )
 
 // Finding is a single detection result.

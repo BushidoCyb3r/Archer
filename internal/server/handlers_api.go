@@ -369,12 +369,17 @@ func projectFindingList(in []model.Finding) []listFinding {
 }
 
 // handleFindingsCounts returns per-status totals (open / acknowledged /
-// escalated / ioc-matched) under the current filter. Used by the
-// dashboard's tab counter so analysts see accurate totals on every
-// tab without having to visit each one. Filters honored: search, type,
-// severity, min_score, src_ip, dst_ip, dst_port, sensor, from, to,
-// delta. Status / ioc_only filters are stripped — the endpoint
+// escalated / dismissed / ioc-matched) under the current filter. Used
+// by the dashboard's tab counter so analysts see accurate totals on
+// every tab without having to visit each one. Filters honored: search,
+// type, severity, min_score, src_ip, dst_ip, dst_port, sensor, from,
+// to, delta. Status / ioc_only filters are stripped — the endpoint
 // computes those buckets internally.
+//
+// `total` is the count of non-dismissed findings (the steady-state
+// "things that aren't yet closed-and-gone"). Dismissed are tracked as
+// their own `dis` bucket and not folded into `total` so the UI's
+// summary number doesn't grow forever as analysts dismiss noise.
 func (s *Server) handleFindingsCounts(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -384,24 +389,30 @@ func (s *Server) handleFindingsCounts(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	// Strip the bucket-defining params so filterFindings doesn't apply
 	// them — we want every finding the broader filter accepts so we can
-	// bucket by status.
+	// bucket by status. include_dismissed=true keeps dismissed findings
+	// in the result so we can count them as their own bucket; without
+	// it the default-exclude rule in filterFindings would hide them
+	// and the dis count would always read 0.
 	q.Del("status")
 	q.Del("ioc_only")
 	q.Del("limit")
 	q.Del("offset")
+	q.Set("include_dismissed", "true")
 
 	all := s.filterFindings(s.store.GetFindings(), q)
-	var open, ack, esc, ioc int
+	var open, ack, esc, dis, ioc int
 	for _, f := range all {
-		switch string(f.Status) {
-		case "":
+		switch f.Status {
+		case model.StatusOpen:
 			open++
-		case "acknowledged":
+		case model.StatusAcknowledged:
 			ack++
-		case "escalated":
+		case model.StatusEscalated:
 			esc++
+		case model.StatusDismissed:
+			dis++
 		}
-		if f.IOCMatch || model.IsThreatIntelType(f.Type) {
+		if (f.IOCMatch || model.IsThreatIntelType(f.Type)) && f.Status != model.StatusDismissed {
 			ioc++
 		}
 	}
@@ -411,8 +422,9 @@ func (s *Server) handleFindingsCounts(w http.ResponseWriter, r *http.Request) {
 		"open":  open,
 		"ack":   ack,
 		"esc":   esc,
+		"dis":   dis,
 		"ioc":   ioc,
-		"total": len(all),
+		"total": len(all) - dis,
 	})
 }
 
@@ -527,10 +539,10 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 		// validateImportedFinding already applies on /api/import.
 		// v0.14.3 NEW-37.
 		switch model.Status(req.Status) {
-		case model.StatusOpen, model.StatusAcknowledged, model.StatusEscalated:
+		case model.StatusOpen, model.StatusAcknowledged, model.StatusEscalated, model.StatusDismissed:
 			// ok
 		default:
-			jsonError(w, "invalid status — must be \"\" (open), \"acknowledged\", or \"escalated\"", http.StatusBadRequest)
+			jsonError(w, "invalid status — must be \"\" (open), \"acknowledged\", \"escalated\", or \"dismissed\"", http.StatusBadRequest)
 			return
 		}
 		user := userFromCtx(r)
@@ -1892,7 +1904,7 @@ func validateImportedFinding(f model.Finding) error {
 		}
 	}
 	switch f.Status {
-	case model.StatusOpen, model.StatusAcknowledged, model.StatusEscalated:
+	case model.StatusOpen, model.StatusAcknowledged, model.StatusEscalated, model.StatusDismissed:
 	default:
 		return fmt.Errorf("invalid status %q", f.Status)
 	}
