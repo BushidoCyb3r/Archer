@@ -32,8 +32,16 @@ const Feeds = (() => {
       ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
+  // Short form for the table cell: "YYYY-MM-DD HH:MM" (no seconds,
+  // no "UTC" suffix). Seconds aren't load-bearing for "when did this
+  // last refresh" and they cost ~30px of column width on every row.
+  // The full ISO timestamp surfaces via _fmtTSFull in the cell title.
   function _fmtTS(ts) {
     if (!ts) return '—';
+    return new Date(ts * 1000).toISOString().replace('T', ' ').slice(0, 16);
+  }
+  function _fmtTSFull(ts) {
+    if (!ts) return 'never';
     return new Date(ts * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
   }
 
@@ -84,8 +92,9 @@ const Feeds = (() => {
       const truncBadge = f.last_fetch_truncated
         ? ` <span title="Last fetch hit the adapter's page-walk cap — upstream has more indicators than were pulled. Consider narrowing the upstream query." style="color:var(--sev-medium);font-weight:600">⚠ truncated</span>`
         : '';
-      const lastFull = f.last_full_refresh_at ? _fmtTS(f.last_full_refresh_at) : 'never';
-      const refreshTip = `Last full sync: ${lastFull}\nIncrementals between fulls only fetch attributes modified since the previous run.`;
+      const lastFull = _fmtTSFull(f.last_full_refresh_at);
+      const lastAnyFull = _fmtTSFull(f.last_refresh_at);
+      const refreshTip = `Last refresh: ${lastAnyFull}\nLast full sync: ${lastFull}\nIncrementals between fulls only fetch attributes modified since the previous run.`;
       return `<tr${lastErrTitle}>
         <td>${_esc(f.name)}${enabledMark}</td>
         <td>${_esc(f.source_type.toUpperCase())}</td>
