@@ -9,8 +9,8 @@
   let _selectedFinding = null;
   let _ctxFinding      = null;
   let _watchActive     = false;
-  let _tabMode         = 'findings'; // 'findings' | 'ack' | 'esc' | 'ioc' (drives findings-table filter)
-  let _activeTab       = 'findings'; // 'findings' | 'ack' | 'esc' | 'ioc' | 'campaigns' | 'hosts' (which panel is visible)
+  let _tabMode         = 'findings'; // 'findings' | 'ack' | 'esc' | 'ioc' | 'dismissed' (drives findings-table filter)
+  let _activeTab       = 'findings'; // 'findings' | 'ack' | 'esc' | 'ioc' | 'dismissed' | 'campaigns' | 'hosts' (which panel is visible)
   let _iocSet          = new Set();  // live cache of IOC list IPs for instant tab overlay
   let _allowSet        = new Set();  // live cache of allowlist entries — used by the right-click menu's state-aware items
   let _logsDir         = '/logs';
@@ -34,10 +34,11 @@
     };
   }
   const _tabState = {
-    findings: _newTabState(),
-    ack:      _newTabState(),
-    esc:      _newTabState(),
-    ioc:      _newTabState(),
+    findings:  _newTabState(),
+    ack:       _newTabState(),
+    esc:       _newTabState(),
+    ioc:       _newTabState(),
+    dismissed: _newTabState(),
   };
   function _curTab() { return _tabState[_tabMode] || _tabState.findings; }
   function _invalidateAllTabs() {
@@ -73,6 +74,119 @@
     _aggTabState.hosts     = { offset: 0, total: 0 };
   }
   let _countsLoaded = false;
+
+  // Show-Dismissed toggle state. When true the Dismissed tab is
+  // visible in the tab strip and its count surfaces in the info line.
+  // When false the tab is hidden entirely (an analyst who hasn't
+  // dismissed anything yet shouldn't see an extra navigation slot).
+  // Persisted in localStorage so the analyst's preference survives
+  // reload — same pattern the dock collapse state uses.
+  let _showDismissed = false;
+  function _applyShowDismissed(on) {
+    _showDismissed = !!on;
+    const btn = document.getElementById('dismissed-tab-btn');
+    const toggle = document.getElementById('show-dismissed-toggle');
+    if (btn) btn.style.display = on ? '' : 'none';
+    if (toggle) toggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+    // If the analyst hides the Dismissed tab while it's the active
+    // view, route them back to the Findings tab so they don't end up
+    // staring at an invisible tab.
+    if (!on && _activeTab === 'dismissed') {
+      const def = document.querySelector('.tab-btn[data-tab="findings"]');
+      if (def) def.click();
+    }
+    updateInfoLine();
+  }
+  function _initShowDismissedToggle() {
+    try {
+      const stored = localStorage.getItem('archer:show-dismissed');
+      _applyShowDismissed(stored === 'true');
+    } catch (_) {
+      _applyShowDismissed(false);
+    }
+    const toggle = document.getElementById('show-dismissed-toggle');
+    if (!toggle) return;
+    toggle.addEventListener('click', () => {
+      const next = !_showDismissed;
+      try { localStorage.setItem('archer:show-dismissed', String(next)); } catch (_) {}
+      _applyShowDismissed(next);
+    });
+  }
+
+  // Dock state — which tab is active inside the findings detail pane
+  // (Detail / Notes / TI Results) and whether the dock is collapsed.
+  // Both persist in localStorage so the analyst's last view shape
+  // survives reload. `dock-tab` lives separately from the main tab
+  // (Findings/Ack/Esc/Dismissed/...) so flipping main tabs doesn't
+  // reset which dock tab the analyst was reading from.
+  let _dockTab = 'detail'; // 'detail' | 'notes' | 'ti'
+  function _setDockTab(name) {
+    if (name !== 'detail' && name !== 'notes' && name !== 'ti') name = 'detail';
+    _dockTab = name;
+    try { localStorage.setItem('archer:dock-tab', name); } catch (_) {}
+    document.querySelectorAll('.dock-tab-btn').forEach(b => {
+      const on = b.dataset.dockTab === name;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    document.querySelectorAll('.dock-tab-panel').forEach(p => {
+      const on = p.id === 'dock-panel-' + name;
+      p.classList.toggle('active', on);
+      if (on) p.removeAttribute('hidden');
+      else p.setAttribute('hidden', '');
+    });
+  }
+  function _initDockTabs() {
+    try {
+      const stored = localStorage.getItem('archer:dock-tab');
+      if (stored) _dockTab = stored;
+    } catch (_) {}
+    _setDockTab(_dockTab);
+    document.querySelectorAll('.dock-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => _setDockTab(btn.dataset.dockTab));
+    });
+  }
+  // Dock collapse: hides tabs/body/footer so the table claims the
+  // vertical space the dock was taking. Clicking a row auto-expands
+  // because seeing detail is the point of clicking — keeping the
+  // dock collapsed when an analyst actively asks for content would
+  // be hostile UX.
+  function _isDockCollapsed() {
+    const pane = document.getElementById('detail-pane');
+    return pane && pane.getAttribute('data-collapsed') === 'true';
+  }
+  function _setDockCollapsed(on) {
+    const pane = document.getElementById('detail-pane');
+    if (!pane) return;
+    if (on) pane.setAttribute('data-collapsed', 'true');
+    else pane.removeAttribute('data-collapsed');
+    const btn = document.getElementById('dock-collapse-btn');
+    if (btn) {
+      btn.setAttribute('aria-expanded', on ? 'false' : 'true');
+      btn.title = on ? 'Expand details pane' : 'Collapse details pane';
+    }
+    try { localStorage.setItem('archer:dock-collapsed', on ? 'true' : 'false'); } catch (_) {}
+  }
+  function _initDockCollapse() {
+    let collapsed = false;
+    try { collapsed = localStorage.getItem('archer:dock-collapsed') === 'true'; } catch (_) {}
+    _setDockCollapsed(collapsed);
+    const btn = document.getElementById('dock-collapse-btn');
+    if (btn) btn.addEventListener('click', () => _setDockCollapsed(!_isDockCollapsed()));
+  }
+  // Keyboard shortcuts: 1/2/3 flip the dock tabs when the focus
+  // isn't inside a text input. Lets the analyst rapid-triage with
+  // one keystroke per tab during the back-and-forth workflow.
+  function _initDockKeyboardShortcuts() {
+    document.addEventListener('keydown', e => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (e.key === '1') { _setDockTab('detail'); }
+      else if (e.key === '2') { _setDockTab('notes'); }
+      else if (e.key === '3') { _setDockTab('ti'); }
+    });
+  }
 
   // Cached Archer version metadata fetched from /api/version. Populated by
   // _loadVersion() during init so JSON exports and the statusbar/About dialog
@@ -348,10 +462,11 @@
       const r = await fetch('/api/findings/counts' + (qs ? '?' + qs : ''));
       if (!r.ok) return;
       const c = await r.json();
-      _tabState.findings.total = c.open || 0;
-      _tabState.ack.total      = c.ack  || 0;
-      _tabState.esc.total      = c.esc  || 0;
-      _tabState.ioc.total      = c.ioc  || 0;
+      _tabState.findings.total  = c.open || 0;
+      _tabState.ack.total       = c.ack  || 0;
+      _tabState.esc.total       = c.esc  || 0;
+      _tabState.ioc.total       = c.ioc  || 0;
+      _tabState.dismissed.total = c.dis  || 0;
       _countsLoaded = true;
       // Per-tab `loaded` is reserved for "findings rows fetched". The
       // counts endpoint only populates totals; the row data arrives on
@@ -487,6 +602,12 @@
       `${fmt(ts.esc.total)} escalated`,
     ];
     if (_countsLoaded && ts.ioc.total > 0) parts.push(`${fmt(ts.ioc.total)} IOC`);
+    // Surface dismissed count only when the operator has enabled the
+    // Show Dismissed toggle; otherwise the count stays out of the
+    // info line so dismissed-by-choice items don't add noise.
+    if (_countsLoaded && _showDismissed && ts.dismissed.total > 0) {
+      parts.push(`${fmt(ts.dismissed.total)} dismissed`);
+    }
     document.getElementById('info-line').textContent = parts.join('  •  ');
 
     // findings-count reflects the active tab — what's currently rendered.
@@ -524,7 +645,7 @@
         btn.classList.add('active');
         _activeTab = tab;
 
-        const findingsTab = tab === 'findings' || tab === 'ack' || tab === 'esc' || tab === 'ioc';
+        const findingsTab = tab === 'findings' || tab === 'ack' || tab === 'esc' || tab === 'ioc' || tab === 'dismissed';
         if (findingsTab) {
           // All four share #tab-findings panel; just change the cache slot.
           // Cached tabs render instantly; first-visit tabs fetch their
@@ -730,10 +851,11 @@
     // Findings tab fetches every status (including acknowledged and
     // escalated) and filters client-side via _applyTabFilter — fine for
     // a thousand findings, painful for hundreds of thousands.
-    if (_tabMode === 'ack')      params.status = 'acknowledged';
-    else if (_tabMode === 'esc') params.status = 'escalated';
-    else if (_tabMode === 'ioc') params.ioc_only = 'true';
-    else                         params.status = 'open';
+    if (_tabMode === 'ack')            params.status = 'acknowledged';
+    else if (_tabMode === 'esc')       params.status = 'escalated';
+    else if (_tabMode === 'dismissed') params.status = 'dismissed';
+    else if (_tabMode === 'ioc')       params.ioc_only = 'true';
+    else                               params.status = 'open';
     if (_deltaMode) params.delta = 'true';
 
     return params;
@@ -750,6 +872,7 @@
     const p = _currentFilterParams();
     if (_tabMode === 'ack') p.status = 'acknowledged';
     else if (_tabMode === 'esc') p.status = 'escalated';
+    else if (_tabMode === 'dismissed') p.status = 'dismissed';
     else if (_tabMode === 'ioc') p.ioc_only = 'true';
     else p.status = 'open'; // default 'findings' tab
     if (_deltaMode) p.delta = 'true';
@@ -1797,6 +1920,40 @@
     });
   }
 
+  // _toggleDismiss is the single source of truth for dismiss /
+  // un-dismiss. Called from both the context-menu Dismiss item and
+  // (post-tabbed-dock) the action footer's Dismiss button so both
+  // entry points run identical state-transition logic. Lives at
+  // IIFE-level so initContextMenu's click handler can call it
+  // alongside initDetailActions's button handler.
+  async function _toggleDismiss(f) {
+    const newStatus = f.status === 'dismissed' ? '' : 'dismissed';
+    const label = newStatus === 'dismissed' ? 'Dismiss Finding' : 'Un-dismiss Finding';
+    const note = await promptNote(label);
+    if (note === null) return; // cancelled
+    try {
+      await api(`/api/findings/${f.id}`, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({status: newStatus, note}),
+      });
+      const updated = await fetchFinding(f.id);
+      if (_selectedFinding && _selectedFinding.id === f.id) {
+        _selectedFinding = updated;
+        Detail.render(updated);
+      }
+      const idx = _allFindings.findIndex(x => x.id === f.id);
+      if (idx >= 0) _allFindings[idx] = updated;
+      Table.update(updated);
+      // After dismiss the row leaves the current tab; after
+      // un-dismiss it leaves the Dismissed tab. Either way the
+      // tab needs to refetch so totals + visible rows reconcile.
+      _invalidateAllTabs();
+      _loadCounts();
+      _applyTabFilter();
+    } catch (e) { setStatus('Error: ' + e); }
+  }
+
   function initDetailActions() {
     const rawBtn = document.getElementById('raw-btn');
     if (rawBtn) {
@@ -1821,6 +1978,11 @@
     if (rawExport) {
       rawExport.addEventListener('click', () => _exportRawRecordsCSV());
     }
+
+    document.getElementById('dismiss-btn').addEventListener('click', async () => {
+      if (!_selectedFinding) return;
+      _toggleDismiss(_selectedFinding);
+    });
 
     document.getElementById('ack-btn').addEventListener('click', async () => {
       if (!_selectedFinding) return;
@@ -2928,11 +3090,21 @@
       // State-aware: don't offer actions that no longer apply.
       const status = (f && f.status) || 'open';
       _disable('ctx-ack',
-        status === 'acknowledged' || status === 'escalated',
-        status === 'escalated' ? 'Already escalated' : 'Already acknowledged');
+        status === 'acknowledged' || status === 'escalated' || status === 'dismissed',
+        status === 'escalated' ? 'Already escalated'
+          : status === 'dismissed' ? 'Already dismissed'
+          : 'Already acknowledged');
       _disable('ctx-escalate',
-        status === 'escalated',
-        'Already escalated');
+        status === 'escalated' || status === 'dismissed',
+        status === 'dismissed' ? 'Already dismissed' : 'Already escalated');
+      // Dismiss item toggles label/behaviour based on current status:
+      // a dismissed finding offers Un-dismiss (→ status=open) so the
+      // analyst can revert a mistake without flipping through the
+      // detail pane's status dropdown.
+      const dismissItem = document.getElementById('ctx-dismiss');
+      if (dismissItem) {
+        dismissItem.firstChild.nodeValue = status === 'dismissed' ? 'Un-dismiss' : 'Dismiss';
+      }
       if (showColAware) {
         _disable('ctx-allowlist', _allowSet.has(_ctxTarget), 'Already on allowlist');
         _disable('ctx-ioc-add',   _iocSet.has(_ctxTarget),   'Already on IOC list');
@@ -3027,6 +3199,9 @@
     });
     document.getElementById('ctx-escalate').addEventListener('click', () => {
       if (_ctxFinding) document.getElementById('esc-btn').click();
+    });
+    document.getElementById('ctx-dismiss').addEventListener('click', () => {
+      if (_ctxFinding) _toggleDismiss(_ctxFinding);
     });
     document.getElementById('ctx-source-records').addEventListener('click', () => {
       if (_ctxFinding) document.getElementById('raw-btn').click();
@@ -3374,9 +3549,12 @@
       // pane responds without a roundtrip, then upgrade to the full
       // finding (which carries ts_data / intervals / notes that the
       // list projection strips). The chart and notes affordances only
-      // light up after the upgrade lands.
+      // light up after the upgrade lands. Auto-expand the dock when
+      // collapsed — clicking a row is an explicit ask for detail, so
+      // keeping the dock collapsed would defeat the operator intent.
       f => {
         _selectedFinding = f;
+        if (_isDockCollapsed()) _setDockCollapsed(false);
         Detail.render(f);
         if (!f || !f.id) return;
         fetchFinding(f.id).then(full => {
@@ -3489,6 +3667,16 @@
       let targetTab = 'findings';
       if (target.status === 'acknowledged') targetTab = 'ack';
       else if (target.status === 'escalated') targetTab = 'esc';
+      else if (target.status === 'dismissed') {
+        targetTab = 'dismissed';
+        // If the analyst's Show Dismissed toggle is off, force it on
+        // so the jump lands somewhere visible. localStorage is
+        // updated so the choice persists past this jump.
+        if (!_showDismissed) {
+          try { localStorage.setItem('archer:show-dismissed', 'true'); } catch (_) {}
+          _applyShowDismissed(true);
+        }
+      }
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       const tabBtn = document.querySelector(`.tab-btn[data-tab="${targetTab}"]`);
       if (tabBtn) tabBtn.classList.add('active');
@@ -3568,6 +3756,11 @@
     BeaconChart.init();
     _initExportDropdown('chart-export-btn', 'chart-export-menu', BeaconChart.exportImage);
     initTabs();
+    _initShowDismissedToggle();
+    _initDockTabs();
+    _initDockCollapse();
+    _initDockKeyboardShortcuts();
+    if (typeof BeaconEvolution !== 'undefined' && BeaconEvolution.init) BeaconEvolution.init();
     initFilterBar();
     initDeltaBar();
     initLogsPanel();

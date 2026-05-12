@@ -7,9 +7,11 @@
 // scores (ts, ds, hist, dur — each on the 0..1 axis, the composite
 // on its own 0..100 scale shown on the right gutter).
 //
-// Rendered into existing #beacon-evolution{svg,legend,header}
-// elements. Show/hide the wrapper based on whether the current
-// finding's type carries beacon_history rows.
+// Two render destinations: the in-place chart inside the Detail tab
+// (small, fixed aspect ratio via CSS) and the expand-to-modal view
+// (larger, exportable as PNG or JPEG). Both share the same render
+// path — _renderInto draws into any (SVG, legend) element pair.
+// v0.18.0 added the modal + export affordance.
 
 'use strict';
 
@@ -22,6 +24,9 @@ const BeaconEvolution = (() => {
     dur:   '#8ec07c',
   };
 
+  let _lastRows = null;
+  let _currentFindingID = null;
+
   function _hide() {
     const wrap = document.getElementById('beacon-evolution');
     if (wrap) wrap.style.display = 'none';
@@ -32,13 +37,10 @@ const BeaconEvolution = (() => {
     if (wrap) wrap.style.display = 'block';
   }
 
-  function _empty(message) {
-    const svg = document.getElementById('beacon-evolution-svg');
-    if (!svg) return;
-    svg.innerHTML =
+  function _empty(svgEl, legendEl, message) {
+    if (svgEl) svgEl.innerHTML =
       `<text x="50%" y="50%" text-anchor="middle" class="label" fill="var(--fg-dim)">${message}</text>`;
-    const legend = document.getElementById('beacon-evolution-legend');
-    if (legend) legend.innerHTML = '';
+    if (legendEl) legendEl.innerHTML = '';
   }
 
   // load(findingID, type) fetches and renders the chart for the
@@ -46,43 +48,53 @@ const BeaconEvolution = (() => {
   // the chart, anything else hides the container entirely.
   function load(findingID, type) {
     if (type !== 'Beaconing' && type !== 'HTTP Beaconing') {
+      _lastRows = null;
+      _currentFindingID = null;
       _hide();
       return;
     }
     _show();
-    _empty('Loading…');
+    _currentFindingID = findingID;
+    const svg = document.getElementById('beacon-evolution-svg');
+    const legend = document.getElementById('beacon-evolution-legend');
+    _empty(svg, legend, 'Loading…');
     fetch(`/api/findings/${findingID}/history`, { credentials: 'same-origin' })
       .then(r => {
         if (!r.ok) throw new Error(`history HTTP ${r.status}`);
         return r.json();
       })
-      .then(rows => _render(rows))
+      .then(rows => {
+        // Drop the result if the analyst clicked a different finding
+        // while the request was in flight — prevents stale rows from
+        // overwriting the now-current chart.
+        if (_currentFindingID !== findingID) return;
+        _lastRows = rows;
+        _renderInto(rows, svg, legend);
+      })
       .catch(err => {
         console.warn('beacon evolution fetch failed:', err);
-        _empty('History unavailable.');
+        _empty(svg, legend, 'History unavailable.');
       });
   }
 
-  function _render(rows) {
-    const svg = document.getElementById('beacon-evolution-svg');
-    if (!svg) return;
+  // _renderInto draws the chart into any (svgEl, legendEl) pair.
+  // Used by both the in-place small chart and the larger modal view.
+  // viewBox stays 600x120; CSS aspect-ratio on each container scales
+  // it to the right display dimensions while keeping the chart's
+  // proportions consistent across both destinations.
+  function _renderInto(rows, svgEl, legendEl) {
+    if (!svgEl) return;
     if (!rows || rows.length === 0) {
-      _empty('No history yet — first daily snapshot lands on the next full pass.');
+      _empty(svgEl, legendEl, 'No history yet — first daily snapshot lands on the next full pass.');
       return;
     }
 
-    // Viewport: 600x120 with margins for axis labels. The SVG itself
-    // is set to 100% width and preserveAspectRatio="none" so the
-    // chart stretches to fit the detail pane, which keeps the
-    // implementation simple at the cost of horizontal-stretch when
-    // the pane is wide. Acceptable trade-off — sparkline-style charts
-    // are aspect-ratio-flexible by convention.
-    const W = 600, H = 120;
-    const ML = 28, MR = 28, MT = 8, MB = 18;
+    const W = 600, H = 200;
+    const ML = 36, MR = 32, MT = 12, MB = 22;
     const plotW = W - ML - MR;
     const plotH = H - MT - MB;
 
-    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
 
     const n = rows.length;
     const xOf = i => n === 1 ? ML + plotW / 2 : ML + (i / (n - 1)) * plotW;
@@ -93,11 +105,6 @@ const BeaconEvolution = (() => {
       .map((v, i) => `${i === 0 ? 'M' : 'L'} ${xOf(i).toFixed(1)} ${yFn(v).toFixed(1)}`)
       .join(' ');
 
-    // Render max_score as the primary trajectory line. The spike value
-    // is what triage cares about — a beacon that hit 88 at noon and
-    // fell back to 60 by evening is a different story from one that
-    // held at 60 all day, and the chart distinguishes them. last_score
-    // is in the row payload for forensic detail but not drawn here.
     const scoreLine = linePath(rows.map(r => r.max_score), yScore);
     const tsLine    = linePath(rows.map(r => r.ts_score),   ySub);
     const dsLine    = linePath(rows.map(r => r.ds_score),   ySub);
@@ -107,14 +114,6 @@ const BeaconEvolution = (() => {
     const firstDay = rows[0].day_utc;
     const lastDay  = rows[rows.length - 1].day_utc;
 
-    // Per-day data points carry an SVG <title> tooltip surfacing
-    // max / last / max-time / last-time / sub-axes. The dual-column
-    // schema NEW-76 introduced isn't useful unless the analyst can
-    // see both numbers; v0.16.2 shipped only the max line, so the
-    // last_score / max_score_at / last_score_at fields were dead
-    // weight in the API response. NEW-87 from the twentieth audit
-    // round closes the loop — native browser tooltip, no JS event
-    // wiring required.
     const dataPoints = rows.map((r, i) => {
       const cx = xOf(i).toFixed(1);
       const cy = yScore(r.max_score).toFixed(1);
@@ -128,12 +127,12 @@ const BeaconEvolution = (() => {
       }
       titleLines.push(`ts=${(r.ts_score||0).toFixed(2)}  ds=${(r.ds_score||0).toFixed(2)}  hist=${(r.hist_score||0).toFixed(2)}  dur=${(r.dur_score||0).toFixed(2)}`);
       return `
-        <circle class="data-point" cx="${cx}" cy="${cy}" r="3" fill="${COLORS.score}" stroke="none">
+        <circle class="data-point" cx="${cx}" cy="${cy}" r="3.5" fill="${COLORS.score}" stroke="none">
           <title>${_esc(titleLines.join('\n'))}</title>
         </circle>`;
     }).join('');
 
-    svg.innerHTML = `
+    svgEl.innerHTML = `
       <line class="axis" x1="${ML}" y1="${MT}"        x2="${ML}" y2="${H - MB}"/>
       <line class="axis" x1="${ML}" y1="${H - MB}"    x2="${W - MR}" y2="${H - MB}"/>
       <line class="gridline" x1="${ML}" y1="${MT}"           x2="${W - MR}" y2="${MT}"/>
@@ -141,8 +140,8 @@ const BeaconEvolution = (() => {
       <text class="label" x="${ML - 4}" y="${MT + 4}"             text-anchor="end">100</text>
       <text class="label" x="${ML - 4}" y="${MT + plotH/2 + 4}"   text-anchor="end">50</text>
       <text class="label" x="${ML - 4}" y="${H - MB + 2}"         text-anchor="end">0</text>
-      <text class="label" x="${ML}"     y="${H - 4}">${_esc(firstDay)}</text>
-      <text class="label" x="${W - MR}" y="${H - 4}" text-anchor="end">${_esc(lastDay)}</text>
+      <text class="label" x="${ML}"     y="${H - 6}">${_esc(firstDay)}</text>
+      <text class="label" x="${W - MR}" y="${H - 6}" text-anchor="end">${_esc(lastDay)}</text>
       <path class="sub-line"   d="${tsLine}"    stroke="${COLORS.ts}"/>
       <path class="sub-line"   d="${dsLine}"    stroke="${COLORS.ds}"/>
       <path class="sub-line"   d="${histLine}"  stroke="${COLORS.hist}"/>
@@ -151,9 +150,8 @@ const BeaconEvolution = (() => {
       ${dataPoints}
     `;
 
-    const legend = document.getElementById('beacon-evolution-legend');
-    if (legend) {
-      legend.innerHTML = [
+    if (legendEl) {
+      legendEl.innerHTML = [
         ['Score (0-100)', COLORS.score],
         ['ts',            COLORS.ts],
         ['ds',            COLORS.ds],
@@ -163,6 +161,118 @@ const BeaconEvolution = (() => {
         `<span class="leg-item"><span class="leg-swatch" style="background:${color}"></span>${_esc(label)}</span>`
       ).join('');
     }
+  }
+
+  // expand() opens the modal view with the same rows the in-place
+  // chart is showing, rendered into the modal's larger SVG. Modal-
+  // local PNG/JPEG buttons then export the rendered chart.
+  function expand() {
+    if (!_lastRows) return;
+    const dlg = document.getElementById('beacon-evolution-modal');
+    if (!dlg) return;
+    const svg = document.getElementById('beacon-evolution-modal-svg');
+    const legend = document.getElementById('beacon-evolution-modal-legend');
+    _renderInto(_lastRows, svg, legend);
+    if (typeof dlg.showModal === 'function') dlg.showModal();
+    else dlg.setAttribute('open', '');
+  }
+
+  // exportImage(format) renders the modal SVG to a PNG or JPEG and
+  // triggers a download. Client-side only: serialize SVG → draw to
+  // a backing canvas → toDataURL → <a download>. Resolution is
+  // pegged at the SVG's natural viewBox scaled 2x so the export is
+  // crisp on hi-DPI screens without ballooning file size.
+  function exportImage(format) {
+    const svg = document.getElementById('beacon-evolution-modal-svg');
+    if (!svg) return;
+    const fmt = format === 'jpeg' ? 'jpeg' : 'png';
+    const mime = fmt === 'jpeg' ? 'image/jpeg' : 'image/png';
+
+    // Inline computed styles so the serialized SVG carries the
+    // colours/fonts the page CSS provides. Without this the
+    // canvas-drawn image renders as transparent strokes — the SVG
+    // has no inline styles, only class selectors that the off-DOM
+    // image element can't resolve.
+    const cloned = svg.cloneNode(true);
+    const cssVarSamples = [
+      ['--sev-critical', 'var(--sev-critical)'],
+      ['--sev-high',     'var(--sev-high)'],
+      ['--sev-low',      'var(--sev-low)'],
+      ['--sev-info',     'var(--sev-info)'],
+      ['--accent',       'var(--accent)'],
+      ['--fg-dim',       'var(--fg-dim)'],
+      ['--border-subtle','var(--border-subtle)'],
+      ['--bg-elev-2',    'var(--bg-elev-2)'],
+    ];
+    const probe = document.createElement('div');
+    probe.style.position = 'absolute';
+    probe.style.visibility = 'hidden';
+    document.body.appendChild(probe);
+    const resolve = name => {
+      probe.style.color = `var(${name})`;
+      return getComputedStyle(probe).color;
+    };
+    const resolved = {};
+    cssVarSamples.forEach(([k]) => { resolved[k] = resolve(k); });
+    document.body.removeChild(probe);
+
+    // Replace var() references with the resolved RGB values so the
+    // serialized markup is self-contained.
+    cloned.querySelectorAll('*').forEach(el => {
+      ['stroke', 'fill'].forEach(attr => {
+        const v = el.getAttribute(attr);
+        if (v && v.startsWith('var(')) {
+          const name = v.slice(4, v.indexOf(')')).trim();
+          if (resolved[name]) el.setAttribute(attr, resolved[name]);
+        }
+      });
+    });
+
+    // Match the class-based stroke widths and fills via inline
+    // style so they survive the off-DOM render.
+    cloned.querySelectorAll('.axis')      .forEach(e => { e.style.stroke = resolved['--border-subtle']; e.style.strokeWidth = '1'; });
+    cloned.querySelectorAll('.gridline')  .forEach(e => { e.style.stroke = resolved['--border-subtle']; e.style.strokeWidth = '1'; e.style.strokeDasharray = '2 4'; e.style.opacity = '0.5'; });
+    cloned.querySelectorAll('.score-line').forEach(e => { e.style.fill = 'none'; e.style.strokeWidth = '2'; });
+    cloned.querySelectorAll('.sub-line')  .forEach(e => { e.style.fill = 'none'; e.style.strokeWidth = '1.2'; e.style.opacity = '0.75'; });
+    cloned.querySelectorAll('.label')     .forEach(e => { e.style.fontSize = '11px'; e.style.fill = resolved['--fg-dim']; e.style.fontFamily = 'monospace'; });
+
+    const viewBox = cloned.getAttribute('viewBox') || '0 0 600 200';
+    const [, , vbW, vbH] = viewBox.split(/\s+/).map(Number);
+    const scale = 2;
+    cloned.setAttribute('width',  String(vbW * scale));
+    cloned.setAttribute('height', String(vbH * scale));
+    cloned.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+
+    const svgString = new XMLSerializer().serializeToString(cloned);
+    const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width  = vbW * scale;
+      canvas.height = vbH * scale;
+      const ctx = canvas.getContext('2d');
+      if (fmt === 'jpeg') {
+        // JPEG has no alpha — fill the background so the chart
+        // doesn't end up on a black canvas-default field.
+        ctx.fillStyle = resolved['--bg-elev-2'] || '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      const dataUrl = canvas.toDataURL(mime, fmt === 'jpeg' ? 0.92 : undefined);
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `beacon-evolution-finding-${_currentFindingID || 'chart'}.${fmt === 'jpeg' ? 'jpg' : 'png'}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
+    img.onerror = err => {
+      console.warn('beacon evolution export failed:', err);
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
   }
 
   // _fmtTime turns a Unix-seconds timestamp into a compact local-time
@@ -182,9 +292,28 @@ const BeaconEvolution = (() => {
       ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
+  // init() wires the expand button + modal controls. Called once
+  // during app boot.
+  function init() {
+    const expandBtn = document.getElementById('beacon-evolution-expand');
+    if (expandBtn) expandBtn.addEventListener('click', expand);
+
+    const closeBtn = document.getElementById('beacon-evolution-modal-close');
+    if (closeBtn) closeBtn.addEventListener('click', () => {
+      const dlg = document.getElementById('beacon-evolution-modal');
+      if (dlg && typeof dlg.close === 'function') dlg.close();
+    });
+    const pngBtn = document.getElementById('beacon-evolution-export-png');
+    if (pngBtn) pngBtn.addEventListener('click', () => exportImage('png'));
+    const jpgBtn = document.getElementById('beacon-evolution-export-jpg');
+    if (jpgBtn) jpgBtn.addEventListener('click', () => exportImage('jpeg'));
+  }
+
   function clear() {
+    _lastRows = null;
+    _currentFindingID = null;
     _hide();
   }
 
-  return { load, clear };
+  return { init, load, expand, exportImage, clear };
 })();
