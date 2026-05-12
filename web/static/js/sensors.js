@@ -366,7 +366,10 @@ const Sensors = (() => {
     document.getElementById('sensors-token-oneliner').value = _oneLiner(token, _info);
     document.getElementById('sensors-token-result').style.display = '';
     document.getElementById('sensors-token-error').style.display = 'none';
-    _setTokenStatus(null);
+    // Same pulse-dot waiting state as the fresh-generate flow — the
+    // sensor_enrolled SSE listener (see init) swaps it for the
+    // confirmation tick when the sensor finishes enrolling.
+    _setTokenStatus('waiting');
     document.getElementById('sensors-token-dlg').showModal();
   }
 
