@@ -30,6 +30,62 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.18.5] — 2026-05-12
+
+Operator-pulled. The NEW-18 SSRF guard from the audit arc refused
+every feed URL targeting RFC1918 / loopback / link-local / IPv6 ULA
+space — right for the cloud-metadata / hostile-admin threat model
+the audit was written against, wrong for the common real-world
+deployment where the operator legitimately runs an internal MISP or
+OpenCTI on the same internal network as Archer. Real reports from
+dogfooding: a feed at `https://10.10.40.17/` returned
+`url host 10.10.40.17 is an internal address; refused to prevent
+SSRF`.
+
+The fix adds a per-feed `allow_internal` opt-out, mirroring the
+existing `tls_skip_verify` shape. Both bypasses are per-feed,
+default-off, audit-logged. Per-feed scope means a typo in another
+feed's URL still gets refused — the audit-arc contract holds for
+every feed unless explicitly opted in.
+
+### Added
+
+- **Per-feed `allow_internal` flag.** A new "Allow internal
+  address (skip SSRF guard for this feed)" checkbox in the feed
+  edit dialog. When ticked, the feed's URL can target RFC1918 /
+  loopback / link-local / IPv6 ULA space and the fetch-time
+  CheckRedirect lets internal-address hops follow through. Per-feed
+  scope: ticking it on the internal MISP at `10.10.40.17` doesn't
+  weaken any other feed's SSRF guard. Default off. Captured in
+  `feed_create` / `feed_update` audit-log entries (`allow_internal`
+  appears in the before/after maps) so a later reviewer can prove
+  who opted which feed in.
+
+### Schema
+
+- **Migration 0015 — `feeds.allow_internal`.** `ALTER TABLE feeds
+  ADD COLUMN allow_internal INTEGER NOT NULL DEFAULT 0`. Existing
+  feeds default to 0 (deny) — no behavior change for any feed not
+  explicitly opted in.
+
+### API
+
+- `POST /api/feeds` and `PUT /api/feeds/{id}` now accept an
+  `allow_internal` boolean field in the request body. Default
+  `false`. `GET /api/feeds` returns the field on each feed row.
+
+### Tests
+
+- `TestValidateFeedRequest_AllowInternalBypass` articulates the
+  invariant rather than the failure case: an internal URL is
+  rejected when `AllowInternal=false` and accepted when
+  `AllowInternal=true`, while other validation (scheme, name,
+  api_key on create, aging-days) still applies regardless of the
+  flag. The existing `TestRejectInternalFeedURL_LiteralIPs`
+  (NEW-18 contract) is unchanged — `rejectInternalFeedURL` itself
+  still refuses internal literals; the gating happens one level
+  up at `validateFeedRequest`.
+
 ## [v0.18.4] — 2026-05-12
 
 ### Changed
