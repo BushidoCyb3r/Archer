@@ -175,7 +175,7 @@ CREATE TABLE findings (
     detail       TEXT,         -- human-readable description
     timestamp    TEXT,
     source_file  TEXT,         -- path under /logs
-    status       TEXT,         -- ''/'acknowledged'/'escalated'
+    status       TEXT,         -- ''/'acknowledged'/'escalated'/'dismissed'
     analyst      TEXT,         -- email of analyst who set status
     analyst_note TEXT,         -- free-text note
     status_ts    TEXT,         -- when status was set
@@ -235,6 +235,39 @@ CREATE TABLE sensors (
 CREATE TABLE enrollment_tokens (...);
 CREATE TABLE unauthorized_attempts (...);
 
+-- v0.17.1 NEW-98 / migration 0014. Notifications persist across server
+-- restart so a finding that rang the bell at T isn't lost if Archer
+-- restarts at T+5 minutes. Kind disambiguates row meaning:
+--   'finding' carries FindingID + SrcIP/DstIP/DstPort; Jump scrolls
+--     to the row in the findings table.
+--   'sensor' carries Target=sensor name; Jump opens the Sensors modal.
+--   'feed'   carries Target=feed name;   Jump opens the Feeds modal.
+-- Empty Kind reads as 'finding' (pre-v0.17.0 persisted rows).
+-- Dismissed is a soft delete — the row stays for forensic purposes
+-- but the bell ignores dismissed=1.
+CREATE TABLE notifications (
+    id         INTEGER PRIMARY KEY,
+    kind       TEXT DEFAULT '',         -- 'finding'/'sensor'/'feed' or empty
+    target     TEXT DEFAULT '',         -- sensor or feed name (non-finding)
+    detail     TEXT DEFAULT '',         -- human-readable description
+    finding_id INTEGER DEFAULT 0,       -- 0 for non-finding rows
+    severity   TEXT NOT NULL,
+    type       TEXT NOT NULL,
+    src_ip     TEXT DEFAULT '',
+    dst_ip     TEXT DEFAULT '',
+    dst_port   TEXT DEFAULT '',
+    dismissed  INTEGER DEFAULT 0
+);
+
+-- v0.17.0 / migration 0013. Per-feed reliability tracking — see
+-- internal/server/feed_health.go. UpdateFeedRefreshState toggles
+-- this column via SQL CASE on the refresh status so concurrent
+-- refresh ticks can't race the read-modify-write counter. The
+-- feed-reliability alarm fires at >=3 consecutive failures OR
+-- >24h since the last successful refresh.
+-- (column added to existing feeds table)
+ALTER TABLE feeds ADD COLUMN consecutive_failures INTEGER DEFAULT 0;
+
 -- Users live in a separate file (/data/users.db, sometimes co-located):
 CREATE TABLE users (...);
 CREATE TABLE sessions (...);
@@ -279,6 +312,16 @@ analyst work doesn't get destroyed by a re-analysis.
 
 The flag `IsNew` is set for fingerprint-fresh findings — TI
 cross-annotation and notification-firing both gate on this.
+
+The notification-emit block consults the allowlist and active
+suppression set via `isHiddenLocked(srcIP, dstIP)` before adding to
+`s.notifications`. The same exclusion check `filterFindings` applies
+at read time runs here too, so the bell never rings for a finding
+whose row would be invisible in the table. NEW-111 (v0.18.1) — the
+matching cleanup pass `dismissHiddenFindingNotificationsLocked` runs
+from `SetAllowlist` and `AddSuppression` to mark already-emitted
+finding notifications dismissed when their src or dst is now hidden.
+Sensor and feed alarms have no src/dst IPs and pass through unchanged.
 
 After the merge persists, `SetFindings` also writes one row per
 Beaconing / HTTP Beaconing finding to `beacon_history`, keyed by
