@@ -58,7 +58,12 @@ type Feed struct {
 	LastFetchTruncated bool // last fetch hit the adapter's page-walk cap
 	LastError          string
 	Status             string // "idle" | "fetching" | "ok" | "error"
-	Enabled            bool
+	// ConsecutiveFailures counts back-to-back failed refreshes. Reset
+	// to 0 on each successful refresh; incremented on each failure.
+	// Read by the feed-reliability alarm loop to surface silently-
+	// failing feeds before they age all their indicators out.
+	ConsecutiveFailures int
+	Enabled             bool
 	// TLSSkipVerify disables certificate verification on the upstream
 	// HTTPS request. Off by default. Internal MISP / OpenCTI deployments
 	// commonly run with self-signed or internal-CA certs that the Archer

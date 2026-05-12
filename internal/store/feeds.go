@@ -53,7 +53,8 @@ func (s *Store) GetFeed(id int64) (feeds.Feed, error) {
 			indicator_aging_days,
 			last_refresh_at, last_full_refresh_at,
 			last_indicator_count, last_fetch_truncated, last_error,
-			status, enabled, tls_skip_verify, created_at, updated_at
+			status, enabled, tls_skip_verify, created_at, updated_at,
+			consecutive_failures
 		FROM feeds WHERE id = ?`, id)
 	return scanFeed(row)
 }
@@ -69,7 +70,8 @@ func (s *Store) ListFeeds() []feeds.Feed {
 			indicator_aging_days,
 			last_refresh_at, last_full_refresh_at,
 			last_indicator_count, last_fetch_truncated, last_error,
-			status, enabled, tls_skip_verify, created_at, updated_at
+			status, enabled, tls_skip_verify, created_at, updated_at,
+			consecutive_failures
 		FROM feeds ORDER BY id`)
 	if err != nil {
 		return nil
@@ -131,6 +133,11 @@ func (s *Store) UpdateFeedRefreshState(id int64, status string, lastRefreshAt, l
 	if s.db == nil {
 		return fmt.Errorf("store: db not initialized")
 	}
+	// consecutive_failures: reset to 0 on "ok", increment on "error",
+	// unchanged for any other status (e.g. "fetching" mid-cycle marks
+	// don't reach this method anyway — they use UpdateFeedStatus).
+	// Encoding the toggle in SQL avoids a read-modify-write race
+	// between two concurrent refreshes of the same feed.
 	_, err := s.db.Exec(`
 		UPDATE feeds SET
 			status = ?,
@@ -139,10 +146,17 @@ func (s *Store) UpdateFeedRefreshState(id int64, status string, lastRefreshAt, l
 			last_indicator_count = ?,
 			last_fetch_truncated = ?,
 			last_error = ?,
+			consecutive_failures = CASE
+				WHEN ? = 'ok'    THEN 0
+				WHEN ? = 'error' THEN consecutive_failures + 1
+				ELSE consecutive_failures
+			END,
 			updated_at = ?
 		WHERE id = ?`,
 		status, lastRefreshAt, lastFullRefreshAt, lastIndicatorCount,
-		boolToInt(lastFetchTruncated), lastError, time.Now().Unix(), id,
+		boolToInt(lastFetchTruncated), lastError,
+		status, status,
+		time.Now().Unix(), id,
 	)
 	if err != nil {
 		return fmt.Errorf("store: update feed refresh state %d: %w", id, err)
@@ -484,6 +498,7 @@ func scanFeed(r rowScanner) (feeds.Feed, error) {
 		&f.LastRefreshAt, &f.LastFullRefreshAt,
 		&f.LastIndicatorCount, &lastFetchTruncated, &f.LastError,
 		&f.Status, &enabled, &tlsSkipVerify, &f.CreatedAt, &f.UpdatedAt,
+		&f.ConsecutiveFailures,
 	); err != nil {
 		return feeds.Feed{}, err
 	}
