@@ -30,6 +30,21 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.18.9] — 2026-05-12
+
+### Fixed
+
+- **Feeds modal Delete button stays visible.** After v0.18.8
+  left-aligned the action buttons, Delete was still getting
+  clipped on narrower screens because the sum of column
+  min-widths was eating the dialog's visible width. Trimmed
+  the floors on every column with slack (Name, Source, Status,
+  Indicators, Last refresh, especially Aging which only needs
+  ~50px for "30 d") and bumped the action column to 280px so
+  Refresh / Edit / Delete sit on one line with breathing room
+  from the dialog's right edge. Net floor dropped from ~1060px
+  to ~960px.
+
 ## [v0.18.8] — 2026-05-12
 
 ### Fixed
