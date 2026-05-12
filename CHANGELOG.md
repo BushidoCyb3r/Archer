@@ -30,6 +30,23 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.18.4] — 2026-05-12
+
+### Changed
+
+- **Score Evolution promoted to its own dock tab.** The 30-day
+  beacon score evolution chart used to live at the bottom of the
+  Detail tab panel; analysts scrolled past the textual summary to
+  reach it. Now sits as a peer tab next to TI Results, only
+  visible when the selected finding is `Beaconing` or
+  `HTTP Beaconing` (the two types that carry `beacon_history`
+  rows). For every other finding type the tab button hides
+  entirely so the tab strip stays honest. Keyboard shortcut `4`
+  flips to Score Evolution. When an analyst switches from a
+  beacon finding to a non-beacon one while Score Evolution is
+  active, the dock snaps back to Detail so the visible active
+  state matches the visible tab strip.
+
 ## [v0.18.3] — 2026-05-12
 
 ### Changed
