@@ -90,7 +90,7 @@ const Feeds = (() => {
         <td>${_esc(f.name)}${enabledMark}</td>
         <td>${_esc(f.source_type.toUpperCase())}</td>
         <td>${statusCol}</td>
-        <td style="text-align:right">${count}${truncBadge}</td>
+        <td>${count}${truncBadge}</td>
         <td title="${_esc(refreshTip)}">${_fmtTS(f.last_refresh_at)}</td>
         <td>${_esc(f.indicator_aging_days)} d</td>
         <td style="text-align:right">${adminCtrls}</td>
