@@ -1056,6 +1056,14 @@
       </div>
     </div>
     <div class="settings-group">
+      <div class="settings-group-title">Backup</div>
+      <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
+        Download a consistent snapshot of the live SQLite database (findings, notes, audit log, sensor enrollments, allowlist / IOC / suppressions, users). Uses VACUUM INTO so the snapshot captures any in-flight WAL data. The file contains sensitive secrets and credential hashes — handle accordingly. To restore later, stop Archer and replace /data/archer.db with the downloaded file.
+      </div>
+      <button class="dlg-btn secondary" id="db-backup-btn" type="button">Download DB backup</button>
+      <span id="db-backup-status" style="margin-left:12px;color:var(--fg-dim)"></span>
+    </div>
+    <div class="settings-group">
       <div class="settings-group-title" style="color:var(--sev-high, #c66)">Danger Zone</div>
       <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
         Discards every finding in the database and re-analyzes the current log set from scratch. Analyst notes, statuses, and acknowledgements on existing findings are lost. Use after a threshold change when you want a clean baseline.

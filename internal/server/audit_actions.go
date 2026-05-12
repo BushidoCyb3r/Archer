@@ -69,6 +69,11 @@ const (
 	ActionAnalyzePause  = "analyze_pause"
 	ActionAnalyzeResume = "analyze_resume"
 	ActionAnalyzeReset  = "analyze_reset"
+
+	// Admin DB backup (v0.18.2+). The snapshot file contains every
+	// finding, note, audit row, sensor secret, and user credential
+	// hash — an exfil-via-backup attempt has to leave a row here.
+	ActionDBBackup = "db_backup"
 )
 
 // knownAuditActions is the authoritative set of action names the
@@ -112,4 +117,5 @@ var knownAuditActions = map[string]struct{}{
 	ActionAnalyzePause:              {},
 	ActionAnalyzeResume:             {},
 	ActionAnalyzeReset:              {},
+	ActionDBBackup:                  {},
 }

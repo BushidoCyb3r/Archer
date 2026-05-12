@@ -279,6 +279,12 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/users", any(s.handleUsersCollection))
 	s.mux.Handle("/api/users/", admin(s.handleUserItem))
 
+	// Admin DB backup — streams a VACUUM INTO snapshot of the live
+	// SQLite database. Admin-only and audit-logged. The downloaded
+	// file is forensic-grade (every finding, note, audit row, sensor
+	// secret, etc.).
+	s.mux.Handle("/api/admin/backup", admin(s.handleAdminBackup))
+
 	// Threat intel — read=any
 	s.mux.Handle("/api/ti/services", any(s.handleTIServices))
 
