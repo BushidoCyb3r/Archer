@@ -91,6 +91,8 @@ const Detail = (() => {
       rawBtn.disabled = !(f.src_ip && f.dst_ip);
       rawBtn.dataset.findingId = f.id;
     }
+    const exportBtn = document.getElementById('export-notes-btn');
+    if (exportBtn) exportBtn.disabled = false;
 
     ackBtn.textContent     = f.status === 'acknowledged' ? 'Acknowledged' : 'Acknowledge';
     dismissBtn.textContent = f.status === 'dismissed'    ? 'Un-dismiss'   : 'Dismiss';
@@ -178,7 +180,7 @@ const Detail = (() => {
     if (tl) tl.innerHTML = '';
     _setBadge(document.getElementById('notes-badge'), 0);
     _setBadge(document.getElementById('ti-badge'),    0);
-    ['ack-btn','esc-btn','dismiss-btn','chart-btn','pcap-btn','supp-btn'].forEach(id => {
+    ['ack-btn','esc-btn','dismiss-btn','chart-btn','pcap-btn','supp-btn','export-notes-btn'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.disabled = true;
     });

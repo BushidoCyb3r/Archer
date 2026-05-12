@@ -239,6 +239,61 @@
     const btn = document.getElementById('dock-collapse-btn');
     if (btn) btn.addEventListener('click', () => _setDockCollapsed(!_isDockCollapsed()));
   }
+  // Drag-to-resize: grab the top edge of the dock and pull. Sets a
+  // --dock-height CSS variable on #detail-pane that the .css file
+  // consumes via height: var(--dock-height, auto). Clamping bounds the
+  // result so the operator can't accidentally drag the dock to a sliver
+  // or push the table off-screen. Persists on mouseup so the operator's
+  // last height survives reloads, mirroring the collapse preference.
+  const DOCK_HEIGHT_MIN = 120;
+  function _dockHeightMax() { return Math.floor(window.innerHeight * 0.8); }
+  function _setDockHeight(px, persist) {
+    const pane = document.getElementById('detail-pane');
+    if (!pane) return;
+    const clamped = Math.max(DOCK_HEIGHT_MIN, Math.min(_dockHeightMax(), Math.round(px)));
+    pane.style.setProperty('--dock-height', clamped + 'px');
+    if (persist) {
+      try { localStorage.setItem('archer:dock-height', String(clamped)); } catch (_) {}
+    }
+  }
+  function _initDockResize() {
+    const handle = document.getElementById('dock-resize-handle');
+    const pane = document.getElementById('detail-pane');
+    if (!handle || !pane) return;
+    try {
+      const stored = parseInt(localStorage.getItem('archer:dock-height'), 10);
+      if (Number.isFinite(stored)) _setDockHeight(stored, false);
+    } catch (_) {}
+    let dragging = false;
+    handle.addEventListener('mousedown', e => {
+      if (_isDockCollapsed()) return;
+      dragging = true;
+      document.body.classList.add('dock-resizing');
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      // Pane sits at the bottom of the viewport; height = viewport bottom
+      // minus current mouse Y. Drag up → pane grows; drag down → shrinks.
+      _setDockHeight(window.innerHeight - e.clientY, false);
+    });
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      document.body.classList.remove('dock-resizing');
+      const cur = pane.style.getPropertyValue('--dock-height');
+      const px = parseInt(cur, 10);
+      if (Number.isFinite(px)) {
+        try { localStorage.setItem('archer:dock-height', String(px)); } catch (_) {}
+      }
+    });
+    // Viewport shrink can push the dock past 80% — re-clamp so the
+    // operator doesn't end up with the table squashed off-screen.
+    window.addEventListener('resize', () => {
+      const cur = parseInt(pane.style.getPropertyValue('--dock-height'), 10);
+      if (Number.isFinite(cur)) _setDockHeight(cur, false);
+    });
+  }
   // Keyboard shortcuts: 1/2/3 flip the dock tabs when the focus
   // isn't inside a text input. Lets the analyst rapid-triage with
   // one keystroke per tab during the back-and-forth workflow.
@@ -2254,26 +2309,30 @@
       if (_selectedFinding) openSuppressDialog(_selectedFinding);
     });
 
-    // Export the selected finding's notes as a plain-text file. Pure
-    // client-side: notes are already loaded with the finding payload, so
-    // no extra round trip and no new endpoint to authenticate.
+    // Export the selected finding's full context (Detail body + TI
+    // Results + Analyst Notes) as a plain-text file. Pure client-side:
+    // everything is already on the finding payload, so no extra round
+    // trip and no new endpoint to authenticate.
     const exportBtn = document.getElementById('export-notes-btn');
     if (exportBtn) {
       exportBtn.addEventListener('click', () => {
         if (!_selectedFinding) return;
-        _downloadNotesText(_selectedFinding);
+        _downloadFindingText(_selectedFinding);
       });
     }
   }
 
-  // _downloadNotesText builds a self-contained text file: a finding-context
-  // header (so the file is readable on its own without the Archer UI) plus
-  // the full notes thread in chronological order.
-  function _downloadNotesText(f) {
+  // _downloadFindingText builds a self-contained text file: a
+  // finding-context header (so the file is readable on its own without
+  // the Archer UI), the detector's Detail body, TI Results, and the
+  // analyst notes thread. TI vs analyst partitioning mirrors the dock's
+  // exact-match on author === "TI Enrichment" (see detail.js's
+  // _renderNotes). Locked by a Go-side contract test (NEW-108).
+  function _downloadFindingText(f) {
     const sep = '────────────────────────────────────────────────────────────';
     const dst = f.dst_ip ? (f.dst_ip + (f.dst_port ? ':' + f.dst_port : '')) : '';
     const lines = [
-      `Archer Finding #${f.id} — Notes Export`,
+      `Archer Finding #${f.id}`,
       sep,
       `Type:        ${f.type || ''}`,
       `Severity:    ${f.severity || ''}`,
@@ -2285,22 +2344,43 @@
       `Sensor:      ${f.sensor || ''}`,
       sep,
       '',
+      'DETAIL',
+      sep,
+      f.detail ? String(f.detail) : '(no detail)',
+      '',
     ];
+
     const notes = Array.isArray(f.notes) ? f.notes : [];
-    if (notes.length === 0) {
-      lines.push('(no notes)');
+    const tiNotes = notes.filter(n => (n.author || '') === 'TI Enrichment');
+    const analystNotes = notes.filter(n => (n.author || '') !== 'TI Enrichment');
+
+    lines.push('TI RESULTS', sep);
+    if (tiNotes.length === 0) {
+      lines.push('(no TI results)', '');
     } else {
-      notes.forEach((n, i) => {
+      tiNotes.forEach((n, i) => {
+        lines.push(`TI Result ${i + 1} — ${n.author || 'unknown'} • ${n.timestamp || ''}`);
+        lines.push(n.text || '');
+        lines.push('');
+      });
+    }
+
+    lines.push('ANALYST NOTES', sep);
+    if (analystNotes.length === 0) {
+      lines.push('(no notes)', '');
+    } else {
+      analystNotes.forEach((n, i) => {
         lines.push(`Note ${i + 1} — ${n.author || 'unknown'} • ${n.timestamp || ''}`);
         lines.push(n.text || '');
         lines.push('');
       });
     }
+
     const blob = new Blob([lines.join('\n')], {type: 'text/plain;charset=utf-8'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    a.download = `archer-finding-${f.id}-notes.txt`;
+    a.download = `archer-finding-${f.id}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -3925,6 +4005,7 @@
     _initDismissedSubTabs();
     _initDockTabs();
     _initDockCollapse();
+    _initDockResize();
     _initDockKeyboardShortcuts();
     if (typeof BeaconEvolution !== 'undefined' && BeaconEvolution.init) {
       BeaconEvolution.init();
