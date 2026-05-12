@@ -301,21 +301,20 @@
           <button class="dock-tab-btn active" type="button" role="tab" data-dock-tab="detail" aria-selected="true">Detail</button>
           <button class="dock-tab-btn"        type="button" role="tab" data-dock-tab="notes"  aria-selected="false">Notes<span class="dock-tab-count" id="notes-badge"></span></button>
           <button class="dock-tab-btn"        type="button" role="tab" data-dock-tab="ti"     aria-selected="false">TI Results<span class="dock-tab-count" id="ti-badge"></span></button>
+          <!-- Score Evolution tab — only meaningful for Beaconing /
+               HTTP Beaconing findings. Hidden by default; detail.js
+               reveals it when the selected finding is a beacon type
+               and snaps the active tab back to Detail when switching
+               to a non-beacon finding. -->
+          <button class="dock-tab-btn" type="button" role="tab" data-dock-tab="evolution" id="evolution-tab-btn" aria-selected="false" style="display:none">Score Evolution</button>
           <button id="export-notes-btn" type="button" title="Download this finding's detail, TI results, and analyst notes as a .txt file" disabled>Export TXT</button>
         </div>
         <div id="dock-body">
-          <!-- Detail tab: the finding's score/severity/IPs body + the
-               30-day beacon score evolution chart (Beaconing types only). -->
+          <!-- Detail tab: the finding's score/severity/IPs body. The
+               30-day beacon score evolution chart lives in its own
+               Score Evolution tab now (revealed only for beacon types). -->
           <div class="dock-tab-panel active" id="dock-panel-detail" role="tabpanel">
             <div id="detail-text"></div>
-            <div id="beacon-evolution" style="display:none">
-              <div id="beacon-evolution-header">
-                <span>Score evolution (last 30 days)</span>
-                <button id="beacon-evolution-expand" type="button" title="Open chart in expanded view with export options" aria-label="Expand chart">↗</button>
-              </div>
-              <svg id="beacon-evolution-svg" preserveAspectRatio="xMidYMid meet"></svg>
-              <div id="beacon-evolution-legend"></div>
-            </div>
           </div>
           <!-- Notes tab: analyst-authored notes only (TI Enrichment
                machine-authored notes route to the TI Results tab so
@@ -333,6 +332,20 @@
                escalated or no TI sources returned hits. -->
           <div class="dock-tab-panel" id="dock-panel-ti" role="tabpanel" hidden>
             <div id="ti-results-list"></div>
+          </div>
+          <!-- Score Evolution tab: 30-day beacon score evolution
+               chart for Beaconing / HTTP Beaconing findings. The
+               tab button is hidden for other finding types so the
+               tab strip stays honest. -->
+          <div class="dock-tab-panel" id="dock-panel-evolution" role="tabpanel" hidden>
+            <div id="beacon-evolution" style="display:none">
+              <div id="beacon-evolution-header">
+                <span>Score evolution (last 30 days)</span>
+                <button id="beacon-evolution-expand" type="button" title="Open chart in expanded view with export options" aria-label="Expand chart">↗</button>
+              </div>
+              <svg id="beacon-evolution-svg" preserveAspectRatio="xMidYMid meet"></svg>
+              <div id="beacon-evolution-legend"></div>
+            </div>
           </div>
         </div>
         <div id="detail-actions">

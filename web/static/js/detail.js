@@ -103,6 +103,21 @@ const Detail = (() => {
 
     // Score evolution chart — Beaconing / HTTP Beaconing only.
     // BeaconEvolution.load is a no-op for other types (hides container).
+    // The Score Evolution tab button is also revealed/hidden in
+    // lockstep so the tab strip only offers it for beacon types.
+    // When switching to a non-beacon finding while the Evolution
+    // tab is active, snap back to Detail — clicking the Detail tab
+    // button routes through the registered handler so behavior
+    // matches an analyst clicking it themselves.
+    const hasEvolution = f.type === 'Beaconing' || f.type === 'HTTP Beaconing';
+    const evolutionBtn = document.getElementById('evolution-tab-btn');
+    if (evolutionBtn) {
+      evolutionBtn.style.display = hasEvolution ? '' : 'none';
+      if (!hasEvolution && evolutionBtn.classList.contains('active')) {
+        const detailBtn = document.querySelector('.dock-tab-btn[data-dock-tab="detail"]');
+        if (detailBtn) detailBtn.click();
+      }
+    }
     if (typeof BeaconEvolution !== 'undefined') {
       BeaconEvolution.load(f.id, f.type);
     }
@@ -184,6 +199,17 @@ const Detail = (() => {
       const el = document.getElementById(id);
       if (el) el.disabled = true;
     });
+    // Hide the Score Evolution tab when no finding is selected. If
+    // the tab was active, snap back to Detail so the panel area
+    // doesn't look broken.
+    const evolutionBtn = document.getElementById('evolution-tab-btn');
+    if (evolutionBtn) {
+      if (evolutionBtn.classList.contains('active')) {
+        const detailBtn = document.querySelector('.dock-tab-btn[data-dock-tab="detail"]');
+        if (detailBtn) detailBtn.click();
+      }
+      evolutionBtn.style.display = 'none';
+    }
     if (typeof BeaconEvolution !== 'undefined') BeaconEvolution.clear();
   }
 
