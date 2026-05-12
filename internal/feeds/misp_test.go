@@ -87,7 +87,7 @@ func newMISPTestServer(t *testing.T) (*httptest.Server, *mispTestHandler) {
 func TestMISPClient_Fetch_ParsesAndNormalizes(t *testing.T) {
 	srv, h := newMISPTestServer(t)
 
-	c := NewMISPClient(srv.URL, "test-key", false)
+	c := NewMISPClient(srv.URL, "test-key", false, false)
 	res, err := c.Fetch(context.Background(), 0)
 	if err != nil {
 		t.Fatalf("Fetch returned error: %v", err)
@@ -168,7 +168,7 @@ func TestMISPClient_Fetch_ParsesAndNormalizes(t *testing.T) {
 func TestMISPClient_Fetch_PassesTimestampFilterWhenSinceSet(t *testing.T) {
 	srv, h := newMISPTestServer(t)
 
-	c := NewMISPClient(srv.URL, "test-key", false)
+	c := NewMISPClient(srv.URL, "test-key", false, false)
 	const since int64 = 1700000000
 	if _, err := c.Fetch(context.Background(), since); err != nil {
 		t.Fatalf("Fetch returned error: %v", err)
@@ -190,7 +190,7 @@ func TestMISPClient_Fetch_PassesTimestampFilterWhenSinceSet(t *testing.T) {
 func TestMISPClient_Fetch_OmitsTimestampFilterWhenSinceZero(t *testing.T) {
 	srv, h := newMISPTestServer(t)
 
-	c := NewMISPClient(srv.URL, "test-key", false)
+	c := NewMISPClient(srv.URL, "test-key", false, false)
 	if _, err := c.Fetch(context.Background(), 0); err != nil {
 		t.Fatalf("Fetch returned error: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestMISPClient_Fetch_RespectsConcurrencyCap(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewMISPClient(srv.URL, "test-key", false)
+	c := NewMISPClient(srv.URL, "test-key", false, false)
 	if _, err := c.Fetch(context.Background(), 0); err != nil {
 		t.Fatalf("Fetch returned error: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestMISPClient_Fetch_PropagatesHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewMISPClient(srv.URL, "bad-key", false)
+	c := NewMISPClient(srv.URL, "bad-key", false, false)
 	_, err := c.Fetch(context.Background(), 0)
 	if err == nil {
 		t.Fatalf("expected error on HTTP 401, got nil")

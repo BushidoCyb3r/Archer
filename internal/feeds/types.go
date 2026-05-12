@@ -71,6 +71,15 @@ type Feed struct {
 	// opt-in to bypass that check. UI surfaces it with an explicit
 	// warning — turn off only for trusted internal feeds.
 	TLSSkipVerify bool
+	// AllowInternal opts this feed out of the NEW-18 SSRF guard
+	// (loopback / link-local / RFC1918 / IPv6 ULA refusal). Off by
+	// default — the SSRF deny-list applies. Operators with an
+	// internal MISP / OpenCTI at e.g. 10.x.y.z mark the feed as
+	// allow_internal=true to fetch from it; both the config-time
+	// validator and the fetch-time CheckRedirect honor the flag for
+	// that feed only. Per-feed scope means a typo in another feed's
+	// URL still can't reach internal space.
+	AllowInternal bool
 	CreatedAt     int64
 	UpdatedAt     int64
 }

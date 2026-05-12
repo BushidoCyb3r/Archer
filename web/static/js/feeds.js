@@ -111,6 +111,7 @@ const Feeds = (() => {
     document.getElementById('feeds-edit-aging').value = feed ? feed.indicator_aging_days : 30;
     document.getElementById('feeds-edit-enabled').checked = feed ? feed.enabled : true;
     document.getElementById('feeds-edit-tls-skip-verify').checked = feed ? !!feed.tls_skip_verify : false;
+    document.getElementById('feeds-edit-allow-internal').checked = feed ? !!feed.allow_internal : false;
     const err = document.getElementById('feeds-edit-error');
     err.style.display = 'none';
     err.textContent = '';
@@ -129,6 +130,7 @@ const Feeds = (() => {
       indicator_aging_days: parseInt(document.getElementById('feeds-edit-aging').value, 10) || 0,
       enabled:              document.getElementById('feeds-edit-enabled').checked,
       tls_skip_verify:      document.getElementById('feeds-edit-tls-skip-verify').checked,
+      allow_internal:       document.getElementById('feeds-edit-allow-internal').checked,
     };
 
     try {

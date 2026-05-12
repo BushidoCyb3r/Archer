@@ -268,6 +268,14 @@ CREATE TABLE notifications (
 -- (column added to existing feeds table)
 ALTER TABLE feeds ADD COLUMN consecutive_failures INTEGER DEFAULT 0;
 
+-- v0.18.5 / migration 0015. Per-feed opt-out of the NEW-18 SSRF
+-- guard. Default 0 (deny). Setting to 1 lets validateFeedRequest
+-- accept a feed URL targeting internal address space, and lets the
+-- per-feed httpClientWithTLS CheckRedirect follow internal hops.
+-- See docs/FEEDS.md "Internal address bypass" for the operator
+-- guidance. feed_create / feed_update audit rows carry the flag.
+ALTER TABLE feeds ADD COLUMN allow_internal INTEGER NOT NULL DEFAULT 0;
+
 -- Users live in a separate file (/data/users.db, sometimes co-located):
 CREATE TABLE users (...);
 CREATE TABLE sessions (...);
