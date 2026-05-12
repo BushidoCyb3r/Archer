@@ -30,6 +30,18 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.18.8] — 2026-05-12
+
+### Fixed
+
+- **Feeds modal action buttons are now left-aligned in their
+  cell.** The Refresh / Edit / Delete cluster was inline-styled
+  `text-align:right`, which pushed the rightmost button off the
+  visible dialog width when the column grew. Dropping the
+  alignment makes the buttons sit at the left edge of the cell,
+  visible at the start of the column regardless of how wide it
+  expanded.
+
 ## [v0.18.7] — 2026-05-12
 
 ### Fixed
