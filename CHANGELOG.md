@@ -30,6 +30,75 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.16.5] — 2026-05-12
+
+Twenty-second external review round, first post-v0.16.4. Two
+findings, both Major, both in the cross-detector correlation
+plumbing. The pattern this round repeats the v0.15.1 / v0.16.4
+lesson: a fix that ships with a passing test against the narrow
+case it observed can leave half the contract un-validated. The
+v0.16.4 NEW-92 fix routed dedup through fingerprint correctly,
+but in choosing which ID to keep when the same fingerprint
+appeared in both passes it stored an ID the downstream annotation
+apply pass couldn't look up — silently clearing every this-run
+contributor's Correlations whenever it had a historical
+fingerprint-twin. The audit's framing: the contract is
+"every this-run participant gets its Correlations populated,
+regardless of historical co-firers" — the prior test asserted
+that contract on the no-historical-twin shape only.
+
+Both regressions ship with invariant-shaped tests that exercise
+multiple input shapes against the same code path (per the
+[memory note](../../../.claude/projects/-root-Archer/memory/feedback_test_invariant_not_failure_case.md)),
+not just the narrow failure case the auditor described.
+
+### Fixed
+
+- **NEW-96 (Major): correlate.go silently cleared this-run
+  contributors' Correlations when a historical fingerprint-twin
+  also fired.** NEW-92's fingerprint-dedup chose to override
+  fresh IDs with historical IDs in the `idsByFingerprint` map,
+  on the reasoning that persisted IDs survive `SetFindings`
+  unchanged. The annotation apply pass at the bottom of
+  `correlateFindings`, however, keys map lookups on
+  `a.findings[i].ID` — the FRESH ID for this-run findings. When
+  a fingerprint had both fresh and historical contributors, the
+  map's key was the historical persisted ID, the lookup under
+  the fresh ID returned nil, and the apply pass fell through to
+  the "doesn't participate this run" branch (case 3) and
+  cleared the slice to nil. Asymmetric result: the Correlated
+  Activity row listed Beaconing as a contributor while the
+  Beaconing finding itself claimed no correlations; the chip
+  count on the contributor row read "+0". Fix: invert the
+  dedup choice — first-seen wins, and iteration order
+  (`a.findings` before `findingsProvider`) means fresh IDs win.
+  NEW-91's identity-map path translates either ID space
+  correctly downstream, so preferring fresh costs nothing for
+  correctness and is the only choice that makes the annotation
+  pass find its entries. Regression test asserts the invariant
+  ("every this-run participant retains its Correlations
+  regardless of whether a historical twin fingerprint also
+  contributes") on the historical-twin shape that broke
+  pre-fix.
+- **NEW-97 (Major): JSON import silently dropped every
+  Correlations reference between imported findings.** The
+  import handler (`handleImportJSON`) reassigns every imported
+  finding's `ID` to `i+1` so the new store has a clean
+  sequential ID space. Pre-fix the `Correlations` slices were
+  left untouched, still referencing the exporter's old IDs.
+  SetFindings's NEW-91 translation looks up each ID in
+  `freshToPersisted` (built from this-run fresh IDs, which are
+  now 1..N) then `historicalIDs` (the pre-import store, empty
+  on a fresh import target). Neither matched, every reference
+  dropped silently — exporting and re-importing a finding set
+  lost the entire correlation graph. Fix: build an `oldToNew`
+  map during the ID reassignment pass and translate every
+  `Correlations` slice through it before calling SetFindings.
+  Regression test asserts the invariant ("every Correlations
+  reference between imported findings survives the rewrite")
+  across three shapes in one payload — contributor→sibling,
+  contributor→correlation row, and correlation row→contributors.
+
 ## [v0.16.4] — 2026-05-12
 
 Twenty-first external review round, first post-v0.16.3. Three
