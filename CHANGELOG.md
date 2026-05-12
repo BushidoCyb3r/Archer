@@ -30,6 +30,78 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.16.3] — 2026-05-12
+
+Twentieth external review round. Five findings: three Mediums
+addressed in this release, one Low documented, one Low
+acknowledged as deferred-by-design. None critical.
+
+The pattern this round is "v0.16.0/v0.16.1 introduced the
+infrastructure for beacon history; this release closes the gaps
+between what the schema can support and what the operator
+actually sees." NEW-87 in particular: the dual-column
+(max_score, last_score) UPSERT design from NEW-76 was already
+producing data, but the chart only rendered one of them — the
+analyst couldn't see the spike-vs-current distinction the schema
+was specifically built to surface. The hover tooltip closes the
+loop without re-opening a design conversation.
+
+### Fixed
+
+- **NEW-86: beacon_history retention silently broken when watch
+  is disabled.** `PurgeBeaconHistory()` was wired only from the
+  watch loop's first-tick-of-UTC-day branch, so deployments
+  running Archer in manual-analysis-only mode never swept
+  history rows and accumulated them indefinitely.
+  `startBeaconHistoryPruneLoop` is now a dedicated daily goroutine
+  matching the pattern `startSuppressionsPruneLoop` /
+  `startUnauthorizedPruneLoop` already use — fires once at boot
+  (catches up a long-stopped instance) and every 24h thereafter,
+  unconditional on watch config. The watch-loop caller is removed
+  to avoid duplicate work.
+- **NEW-87: chart now surfaces last_score / max_score_at /
+  last_score_at via SVG tooltip.** The NEW-76 schema added these
+  columns specifically so a beacon that spiked at noon and fell
+  back by evening renders as "Max: 88 (peaked 14:23) / Last: 60
+  (most recent 18:00)" rather than just "Score: 60." v0.16.2
+  shipped the schema but the chart didn't read the new fields.
+  Each daily data point now carries a `<title>` element with
+  Max, Last (when different from Max), the two timestamps, and
+  the four sub-axis values. Native browser tooltip, no JS event
+  wiring. Tooltip uses local time (HH:MM) for the timestamps;
+  legacy backfilled rows with `*_at=0` render as `—`.
+- **NEW-88: BeaconHistory read query now caps at the retention
+  window.** `WHERE day_utc >= (now - BeaconHistoryRetentionDays)`
+  is defense-in-depth against three failure modes: (a) purge
+  hasn't run yet on a fresh boot, (b) a future operator promotes
+  retention to a longer window while the chart still expects 30
+  days, (c) a malformed manual SQL insert at an extreme date
+  distorts the chart's x-axis scale. Regression test asserts a
+  row 30+ days outside the window is clipped from the response
+  even when physically present in the table.
+
+### Documented (not fixed)
+
+- **NEW-89: Finding sub-score lifecycle.** `TSScore` / `DSScore`
+  / `HistScore` / `DurScore` are populated only at emit time and
+  not persisted to the `findings` table. Preserved-historical
+  findings have zero sub-scores after a server restart. No
+  current consumer reads them outside the
+  emit → `saveBeaconHistory` critical section, but a future
+  consumer (sub-axis filtering, detail-pane breakdown UI) would
+  see stale zeros for historical findings. Documented the
+  lifecycle invariant in `model/finding.go` so the bug-in-waiting
+  is named; add migration 0013 with four REAL columns the first
+  time a feature requires the persistence.
+- **NEW-90: spectral diagnostics not in beacon_history schema.**
+  Beaconing findings record `spectral_rescued` / `spectral_period`
+  / `spectral_power` in the Detail string but not as structured
+  beacon_history columns. The chart can't render "this beacon
+  started getting spectral-rescued on day 5." Deferred to a
+  future schema bump — when migration 0013 is justified by
+  NEW-89 (sub-score persistence) or another consumer, bundle
+  the spectral columns into the same migration.
+
 ## [v0.16.2] — 2026-05-11
 
 Nineteenth external review round, first post-v0.16.1. Five
