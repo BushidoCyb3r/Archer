@@ -1968,6 +1968,16 @@ dialog::backdrop {
 #sensors-tokens-table tr:hover td,
 #sensors-unauth-table tr:hover td { background: var(--bg-elev-3); }
 
+/* Trailing column is the unwidth'd kebab cell — right-aligned so
+   the kebab sits flush against the table's right edge for every
+   row, consistent across all three tables. */
+#sensors-table th:last-child,
+#sensors-table td:last-child,
+#sensors-tokens-table th:last-child,
+#sensors-tokens-table td:last-child,
+#sensors-unauth-table th:last-child,
+#sensors-unauth-table td:last-child { text-align: right; }
+
 /* Kebab (⋮) row-action button — narrow square, transparent until hover.
    Used in the Feeds + Sensors modals to open a popover with row actions
    (Refresh / Edit / Delete, Disenroll / Slot, etc.) without paying for
