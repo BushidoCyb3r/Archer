@@ -959,6 +959,9 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
   fill: none;
   stroke-width: 2;
 }
+#beacon-evolution-svg .data-point {
+  cursor: help;
+}
 #beacon-evolution-svg .sub-line {
   fill: none;
   stroke-width: 1.2;

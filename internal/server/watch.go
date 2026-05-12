@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/analysis"
-	"github.com/BushidoCyb3r/Archer/internal/store"
 )
 
 // startWatch starts the watch loop if watch is enabled in the config.
@@ -259,18 +258,12 @@ func (s *Server) triggerWatchAnalysis() {
 		lastFull.YearDay() != now.YearDay()
 
 	if needFull {
-		// First full pass of the operator's day is also when we
-		// sweep beacon_history rows that have aged out of the
-		// retention window. Same gate (needFull) means the sweep
-		// runs at most once per day regardless of how many watch
-		// ticks fire — incremental ticks don't accumulate history
-		// rows of their own, so they have nothing to sweep.
-		if removed := s.store.PurgeBeaconHistory(); removed > 0 {
-			msg, _ := json.Marshal(map[string]any{
-				"msg": fmt.Sprintf("Purged %d beacon_history row(s) older than %d days.", removed, store.BeaconHistoryRetentionDays),
-			})
-			s.broker.Publish(SSEEvent{Type: "status", Data: string(msg)})
-		}
+		// beacon_history retention is now swept by the dedicated
+		// startBeaconHistoryPruneLoop goroutine (NEW-86 v0.16.3) —
+		// piggy-backing on the watch's needFull gate silently
+		// broke retention for deployments running with the watch
+		// disabled. The prune loop runs unconditional on watch
+		// config, so the watch path no longer needs to invoke it.
 		s.refreshFeedsBeforeFullPass()
 		s.launchAnalysisWithOptions(files, false)
 		return

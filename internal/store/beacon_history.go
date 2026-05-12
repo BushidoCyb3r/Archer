@@ -165,21 +165,32 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
 	}
 }
 
-// BeaconHistory returns every history row for the given key sorted
-// ascending by day_utc. Empty slice when no rows match (caller treats
-// that as "no history yet" rather than an error). Caller derives the
-// key from a finding via Finding.BeaconHistoryKey().
+// BeaconHistory returns history rows for the given key sorted
+// ascending by day_utc, capped to the retention window. Empty slice
+// when no rows match (caller treats that as "no history yet" rather
+// than an error). Caller derives the key from a finding via
+// Finding.BeaconHistoryKey().
+//
+// The day_utc >= cutoff filter is defense-in-depth against three
+// failure modes the retention store-side enforcement alone doesn't
+// cover: (a) PurgeBeaconHistory hasn't run yet on a fresh boot, (b)
+// a future operator promotes retention to 365 days but the chart
+// still wants 30, (c) a malformed manual SQL insert with a date in
+// the distant past or future would otherwise distort the chart's
+// x-axis scale. NEW-88 from the twentieth audit round.
 func (s *Store) BeaconHistory(key string) []BeaconHistoryRow {
 	if s.db == nil || key == "" {
 		return nil
 	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -BeaconHistoryRetentionDays).Format("2006-01-02")
 	rows, err := s.db.Query(`
         SELECT day_utc, max_score, max_score_at, last_score, last_score_at,
                severity, ts_score, ds_score, hist_score, dur_score
         FROM beacon_history
         WHERE fingerprint = ?
+          AND day_utc >= ?
         ORDER BY day_utc ASC
-    `, key)
+    `, key, cutoff)
 	if err != nil {
 		log.Printf("store: beacon_history query: %v", err)
 		return nil

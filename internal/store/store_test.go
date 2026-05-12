@@ -641,3 +641,49 @@ func TestSetFindings_PreservesNonRollupHistorical(t *testing.T) {
 		t.Errorf("DNS Tunneling not preserved; got %d row(s)", gotTypes["DNS Tunneling"])
 	}
 }
+
+// TestBeaconHistory_CapsAtRetentionWindow codifies NEW-88. The read
+// path must clip rows older than the retention window even when
+// they're physically present in the table — defense against PurgeBeaconHistory
+// failing to run (e.g. boot before the first prune-loop tick), future
+// retention bumps, or malformed manual inserts at extreme dates.
+func TestBeaconHistory_CapsAtRetentionWindow(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s := New(config.Default())
+	s.InitDB(db)
+
+	key := "fp-beaconhistory-cap-test"
+	now := time.Now().UTC()
+	inside := now.AddDate(0, 0, -10).Format("2006-01-02")
+	stale := now.AddDate(0, 0, -(BeaconHistoryRetentionDays + 30)).Format("2006-01-02")
+
+	for _, day := range []string{inside, stale} {
+		_, err := db.Exec(`INSERT INTO beacon_history
+            (fingerprint, day_utc, finding_type, src_ip, dst_ip, dst_port, host, uri,
+             max_score, max_score_at, last_score, last_score_at,
+             severity, ts_score, ds_score, hist_score, dur_score, created_at)
+            VALUES (?, ?, 'Beaconing', '10.0.0.1', '1.1.1.1', '443', '', '',
+                    80, ?, 80, ?, 'HIGH', 1, 1, 0, 1, ?)`,
+			key, day, now.Unix(), now.Unix(), now.Unix())
+		if err != nil {
+			t.Fatalf("seed beacon_history row for %s: %v", day, err)
+		}
+	}
+
+	got := s.BeaconHistory(key)
+	if len(got) != 1 {
+		t.Fatalf("BeaconHistory returned %d rows, want 1 (stale day must be clipped)", len(got))
+	}
+	if got[0].DayUTC != inside {
+		t.Errorf("returned row has day_utc=%q, want %q (the in-window day)", got[0].DayUTC, inside)
+	}
+}

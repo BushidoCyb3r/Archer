@@ -107,6 +107,32 @@ const BeaconEvolution = (() => {
     const firstDay = rows[0].day_utc;
     const lastDay  = rows[rows.length - 1].day_utc;
 
+    // Per-day data points carry an SVG <title> tooltip surfacing
+    // max / last / max-time / last-time / sub-axes. The dual-column
+    // schema NEW-76 introduced isn't useful unless the analyst can
+    // see both numbers; v0.16.2 shipped only the max line, so the
+    // last_score / max_score_at / last_score_at fields were dead
+    // weight in the API response. NEW-87 from the twentieth audit
+    // round closes the loop — native browser tooltip, no JS event
+    // wiring required.
+    const dataPoints = rows.map((r, i) => {
+      const cx = xOf(i).toFixed(1);
+      const cy = yScore(r.max_score).toFixed(1);
+      const sameMaxLast = r.max_score === r.last_score;
+      const titleLines = [
+        r.day_utc,
+        `Max: ${r.max_score} (peaked ${_fmtTime(r.max_score_at)})`,
+      ];
+      if (!sameMaxLast) {
+        titleLines.push(`Last: ${r.last_score} (most recent ${_fmtTime(r.last_score_at)})`);
+      }
+      titleLines.push(`ts=${(r.ts_score||0).toFixed(2)}  ds=${(r.ds_score||0).toFixed(2)}  hist=${(r.hist_score||0).toFixed(2)}  dur=${(r.dur_score||0).toFixed(2)}`);
+      return `
+        <circle class="data-point" cx="${cx}" cy="${cy}" r="3" fill="${COLORS.score}" stroke="none">
+          <title>${_esc(titleLines.join('\n'))}</title>
+        </circle>`;
+    }).join('');
+
     svg.innerHTML = `
       <line class="axis" x1="${ML}" y1="${MT}"        x2="${ML}" y2="${H - MB}"/>
       <line class="axis" x1="${ML}" y1="${H - MB}"    x2="${W - MR}" y2="${H - MB}"/>
@@ -122,6 +148,7 @@ const BeaconEvolution = (() => {
       <path class="sub-line"   d="${histLine}"  stroke="${COLORS.hist}"/>
       <path class="sub-line"   d="${durLine}"   stroke="${COLORS.dur}"/>
       <path class="score-line" d="${scoreLine}" stroke="${COLORS.score}"/>
+      ${dataPoints}
     `;
 
     const legend = document.getElementById('beacon-evolution-legend');
@@ -136,6 +163,18 @@ const BeaconEvolution = (() => {
         `<span class="leg-item"><span class="leg-swatch" style="background:${color}"></span>${_esc(label)}</span>`
       ).join('');
     }
+  }
+
+  // _fmtTime turns a Unix-seconds timestamp into a compact local-time
+  // string like "14:23" for the tooltip. Empty / zero values render
+  // as "—" so a partially-populated row (legacy / migration backfill
+  // where *_at was set to 0) doesn't display "01:00 1970-01-01".
+  function _fmtTime(unixSeconds) {
+    if (!unixSeconds || unixSeconds <= 0) return '—';
+    const d = new Date(unixSeconds * 1000);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
   }
 
   function _esc(s) {
