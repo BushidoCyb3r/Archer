@@ -546,6 +546,7 @@ requires `admin` (enforced inside each handler).
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
 | `GET` | `/api/sensors` | any | List enrolled sensors + status. |
+| `GET` | `/api/sensors/health` | any | Per-sensor staleness state for external monitoring: `{sensors:[{name, last_seen_at, stale, stale_for_seconds, stale_threshold_sec}]}`. `stale=true` when `last_seen_at` is older than the 2h threshold; `stale_for_seconds` is how far past. Same threshold the bell heartbeat alarm uses. |
 | `GET` | `/api/sensors/info` | any | Server identity for the install script: TLS fingerprint, hostname, port. |
 | `GET` | `/api/sensors/host` | any | Reachable hostname/IP for sensor configuration. |
 | `GET` | `/api/sensors/tokens` | any (read) / admin (POST create) | Manage one-time enrollment tokens. |
@@ -611,11 +612,12 @@ Event types currently published:
 | `progress` | During analysis | `{step:"Beaconing", pct:55}` |
 | `status` | Worker state changes | `{state:"running"\|"paused"\|"idle"}` |
 | `done` | Analysis finishes | `{findings_added:int, duration_ms:int}` |
-| `notification` | New CRITICAL/IOC finding | Notification shape (`internal/model/finding.go`). |
+| `notification` | New bell alarm — finding (`score >= 99`), sensor (heartbeat), or feed (reliability) | `Notification` shape (`internal/model/finding.go`). `kind` field is `finding` / `sensor` / `feed`; empty reads as `finding`. |
 | `ti_result` | TI escalation streams a hit | `{finding_id, service, detail, severity}` |
 | `ti_done` | TI escalation completes | `{finding_id}` |
 | `sensor_enrolled` | New sensor accepts enrollment | `{name, ts}` |
 | `unauthorized_attempt` | Bad token / unknown key blocked | `{ip, name_attempted, ts}` |
+| `watch.heartbeat` | Every 60s, unconditional | `{}` — empty object; presence is the signal. UI flips a top-bar dot red after 180s without a tick. |
 
 The SSE broker is at-most-once and does not replay. A reconnecting
 client will miss events that fired during the disconnect; for state
