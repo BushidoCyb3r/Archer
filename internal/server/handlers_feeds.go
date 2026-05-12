@@ -266,7 +266,7 @@ func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 // for one feed, bypassing the watch-tick cadence. Always full —
 // operators clicking Refresh are expressing intent to verify upstream
 // state, and an incremental here would defeat that. Synchronous,
-// capped at 5 minutes; type-shard parallelism and the larger
+// capped at 10 minutes; type-shard parallelism and the larger
 // PageSize keep large MISP fetches under that cap on most realistic
 // feeds. Used to verify connectivity after configuring a new feed
 // without waiting for the next watch tick.
@@ -292,8 +292,8 @@ func (s *Server) handleFeedRefresh(w http.ResponseWriter, r *http.Request, id in
 
 	// Detached from r.Context() so a browser disconnect (dialog closed,
 	// page reload, intervening proxy timeout) doesn't cancel an in-flight
-	// MISP/OpenCTI pull mid-sync. The 5-minute hard cap still bounds it.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// MISP/OpenCTI pull mid-sync. The 10-minute hard cap still bounds it.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	// Manual refresh is always a full pull. Operators clicking Refresh
