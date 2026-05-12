@@ -259,7 +259,10 @@ The most-used surface. Findings are detector outputs, persisted in
 ```
 
 - `severity` is one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`.
-- `status` is `""` (open), `acknowledged`, or `escalated`.
+- `status` is `""` (open), `acknowledged`, `escalated`, or `dismissed`.
+  Dismissed is a lightweight reversible view-state bucket — see
+  the **Dismissed status** note under **`GET /api/findings`
+  query parameters** below.
 - `intervals`, `ts_data`, `notes`, `sensor`, `hostname`, `uri`,
   `correlations` are `omitempty` — expect their absence on findings
   that don't carry that data.
@@ -295,8 +298,9 @@ The most-used surface. Findings are detector outputs, persisted in
 | `dst_port` | int or comma-list | Port set. e.g., `443` or `80,443,8080`. |
 | `sensor` | string | Sensor name (matches the per-sensor authorized_keys directory). |
 | `from`, `to` | timestamp | Time range. Both `YYYY-MM-DD HH:MM:SS` (UTC) and RFC 3339 accepted. |
-| `status` | `open`/`acknowledged`/`escalated` | Status filter. |
+| `status` | `open`/`acknowledged`/`escalated`/`dismissed` | Status filter. |
 | `ioc_only` | `true` | Only findings whose `src_ip` or `dst_ip` is in the IOC list. |
+| `include_dismissed` | `true` | Counts-style flag for callers that want dismissed findings included in an otherwise-unscoped result. Has no effect when `status` is explicitly set. Default behavior (omitted or `false`): if no `status` filter is provided, dismissed findings are excluded — the "I don't want to see this again" semantic carries through every non-Dismissed tab. Used internally by `/api/findings/counts` to bucket dismissed separately. |
 | `spectral_only` | `true` | Only Beaconing findings whose timing score was rescued by the spectral path. Matches on the `Spectral rescued:` substring in the Detail field. Useful during spectral-tuning calibration — see `docs/SPECTRAL_TUNING.md`. |
 | `sort` | `score`/`severity`/`type`/`src_ip`/`dst_ip`/`timestamp` | Sort key (default `score`). |
 | `dir` | `asc`/`desc` | Sort direction (default `desc`). |
@@ -512,6 +516,12 @@ operator-initiated invocations, not scheduler ticks.
 | `PUT` | `/api/users/{id}` | admin | Update role, status (activate pending users). |
 | `DELETE` | `/api/users/{id}` | admin | Remove user. |
 
+### Admin
+
+| Method | Path | Role | Notes |
+|--------|------|------|-------|
+| `GET` | `/api/admin/backup` | admin | Streams a consistent `VACUUM INTO` snapshot of `/data/archer.db` as a downloadable file. Response: `Content-Type: application/octet-stream`; `Content-Disposition: attachment; filename="archer-backup-YYYYMMDD-HHMMSS.db"` (UTC). The temp snapshot is removed after the stream completes. Audit-logged as `db_backup` with `size_bytes` and `filename` in Details. v0.18.2+. |
+
 ### Threat intel
 
 | Method | Path | Role | Notes |
@@ -612,7 +622,7 @@ Event types currently published:
 | `progress` | During analysis | `{step:"Beaconing", pct:55}` |
 | `status` | Worker state changes | `{state:"running"\|"paused"\|"idle"}` |
 | `done` | Analysis finishes | `{findings_added:int, duration_ms:int}` |
-| `notification` | New bell alarm — finding (`score >= 99`), sensor (heartbeat), or feed (reliability) | `Notification` shape (`internal/model/finding.go`). `kind` field is `finding` / `sensor` / `feed`; empty reads as `finding`. |
+| `notification` | New bell alarm — finding (`score >= 95`), sensor (heartbeat), or feed (reliability) | `Notification` shape (`internal/model/finding.go`). Fields: `id`, `kind` (`finding` / `sensor` / `feed`; empty reads as `finding`), `target` (sensor / feed name for non-finding kinds), `detail` (human-readable text for sensor/feed alarms), `finding_id` (finding kind only), `severity`, `type`, `src_ip`, `dst_ip`, `dst_port`, `dismissed`. **Bell-emit gate (v0.18.1+):** finding notifications are skipped when the finding's src or dst matches the allowlist or an active suppression — the bell only rings for rows that will appear in the table. Existing finding notifications are dismissed in-place when an admin updates the allowlist or adds a suppression that covers their src/dst. NEW-111. Bell threshold for findings was tightened to `score >= 95` at v0.17.1 (was 99 in v0.17.0, over-corrected). |
 | `ti_result` | TI escalation streams a hit | `{finding_id, service, detail, severity}` |
 | `ti_done` | TI escalation completes | `{finding_id}` |
 | `sensor_enrolled` | New sensor accepts enrollment | `{name, ts}` |

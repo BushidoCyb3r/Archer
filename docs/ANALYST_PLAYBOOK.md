@@ -222,29 +222,38 @@ trustworthy than a score of 88 with a chart that looks
 clumpy. The detector is calibrated for noise floor; your eyes
 are calibrated for adversary tradecraft. Use both.
 
-**Step 5 — Decide one of four things:**
+**Step 5 — Decide one of five things:**
 
-Archer's finding status enum has three values: `open` (default,
-empty string), `acknowledged`, and `escalated`. There is no
-distinct "false_positive" status — confirmed-benign findings are
-handled by acknowledging with a clear note *plus* (when
-applicable) adding the destination to the allowlist or a
-suppression so the same finding doesn't recur. The three-status
-model + curation lists is intentional; the alternative
-(four-status with `false_positive`) was considered and rejected
-because the allowlist/suppression artifact is the operational
-remediation that actually prevents the finding from firing
-again.
+Archer's finding status enum has four values: `open` (default,
+empty string), `acknowledged`, `escalated`, and `dismissed`
+(v0.18.0). There is no distinct "false_positive" status —
+confirmed-benign findings are still handled by acknowledging
+with a clear note *plus* (when applicable) adding the
+destination to the allowlist or a suppression so the same
+finding doesn't recur. Dismissed is **not** the false-positive
+button; it's a lightweight reversible view-state bucket that
+says "hide this from my default tabs without committing to the
+heavier Acknowledge semantic." Dismissed findings still
+contribute to Host Risk Score — Dismiss is view-only, not a
+risk-scoring verdict.
 
 | Decision | When | What you do |
 |---|---|---|
 | **Escalate** | Beacon pattern + suspicious destination + can't explain it | Click Escalate, fill in the IPs and services for TI pivot, write a one-line note (date / what you saw / why escalating). Status becomes `escalated`. |
 | **Acknowledge + suppress** | You've matched it to a known software pattern (see FP catalog below). Add the destination to the allowlist or a suppression so the finding stops recurring. | Status → `acknowledged`. Note records *what software / what pattern / why*. Then add the destination to the allowlist (or create a suppression). Future analyses won't surface this finding again, but the audit log preserves who added the curation entry and when. |
 | **Acknowledge** | You've looked, decided it's not malicious, but don't want to add a permanent curation entry (because the destination is contextually fine *this time* but might warrant re-investigation if the pattern changes). | Status → `acknowledged`. Note records the rationale and the re-check condition. |
+| **Dismiss** | You looked, this isn't worth keeping in your default view, but you don't want to commit to Acknowledge's "I've reviewed and judged this" semantic. Use cases: noise findings during a high-volume incident triage pass; a beacon you'll come back to next week; a bulk-cleanup of a campaign that's clearly known-low-value. | Status → `dismissed`. Hidden from every standard tab; visible in the dedicated Dismissed tab (Findings + Campaigns sub-tabs). Reversible — right-click → Un-dismiss. **Right-click a Campaigns row → "Dismiss campaign"** to bulk-dismiss every open finding in that campaign with a shared note. Doesn't affect HRS; use suppression / allowlist if you want a detection to stop influencing risk. |
 | **Leave open** | You need to come back to it — wait another day for more data, ask a colleague, check a logfile | No status change. Add a note saying what you're waiting on. |
 
 The status transitions land in the audit log (v0.14.1) so a
 later reviewer can reconstruct the decision trail.
+
+**Dismiss vs Acknowledge in one sentence:** Acknowledge says
+"I've judged this finding and made a call"; Dismiss says "I
+don't want to see this in my default view right now." Reach for
+Dismiss when triaging volume; reach for Acknowledge + suppress
+when triaging a benign pattern; reach for Escalate when the
+beacon doesn't fit either bucket.
 
 ---
 

@@ -15,7 +15,7 @@ read this whole document, start with **`docs/QUICKSTART_OPS.md`**
 — it's the 5-minute "deploy + restore + three things to know"
 companion. Come back here when the questions get deeper.
 
-Everything below is current as of **v0.17.1**.
+Everything below is current as of **v0.18.3**.
 
 ---
 
@@ -268,7 +268,24 @@ Skip:
 
 ### Backup procedure
 
-For a running container:
+**UI path (v0.18.2+, recommended for ad-hoc backups).** Sign in as an
+admin, open Settings → Backup → **Download DB backup**. Archer runs
+`VACUUM INTO` on the live SQLite database to produce a consistent
+snapshot, streams it to the browser with a timestamped filename
+(`archer-backup-YYYYMMDD-HHMMSS.db`), and removes the server-side
+temp file as the stream completes. The download is audit-logged as
+`db_backup` with size + filename so an exfil-via-backup attempt leaves
+a row in `audit_log`. The button works while analysis is running.
+
+Caveats:
+- Only the database is backed up via this path. TLS material and
+  `/logs/` still need to be backed up separately (see the shell
+  procedure below).
+- The file contains every credential hash, sensor secret, and audit
+  row — handle with the same care as the live DB.
+
+**Shell path (scriptable, full set).** For a running container,
+backing up DB + TLS + logs in one pass:
 
 ```sh
 docker compose exec archer sh -c '
@@ -282,8 +299,10 @@ tar czf ./backup-logs-$(date -u +%Y%m%dT%H%M%SZ).tgz -C /var/lib/docker/volumes/
 
 (Adjust the host-side volume path to match your docker setup.)
 
-The `sqlite3 .backup` command is online — safe to run against the
-live database; SQLite's WAL mode tolerates concurrent reads.
+Either path produces an equivalent SQLite file — `VACUUM INTO`
+(UI) and `.backup` (shell) both yield clean, consistent snapshots
+that include any in-flight WAL data. WAL mode tolerates concurrent
+reads, so both run safely against the live database.
 
 ### Restore procedure
 

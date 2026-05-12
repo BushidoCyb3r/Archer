@@ -1114,6 +1114,18 @@ Beaconing findings against the same host count once, not twice. This is
 deliberate: the host-risk view answers "how many independent kinds of bad
 behavior is this host exhibiting," not "how loud is each one."
 
+**Status filtering is deliberately absent from `aggregateRisk`.** Dismissed
+findings still contribute to HRS. Dismiss is a lightweight reversible
+view-state bucket ("hide from my default tabs"), not a "false-positive,
+drop it" verdict. The underlying detection is still real evidence about
+the host until it's expired by re-analysis or actively suppressed via
+the IOC / allowlist / suppression surfaces. Putting load-bearing weight
+on a one-click reversible action would be the wrong shape; analysts who
+want a finding to stop influencing risk should use the allowlist or
+suppression list instead. The contract is enforced by a code comment in
+`aggregateRisk` and recorded under "Detection changes" in v0.18.0's
+CHANGELOG entry. NEW-110.
+
 ---
 
 ## 15. Worked example you can use to explain a beacon
