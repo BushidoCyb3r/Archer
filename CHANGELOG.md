@@ -30,6 +30,22 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.18.10] — 2026-05-12
+
+### Fixed
+
+- **Feeds modal action buttons fit on screen at typical viewport
+  widths.** The min-width floors set in v0.18.6 reserved more
+  horizontal space than realistic content used, pushing the
+  action column off the right edge of the dialog. Retuned every
+  floor to just-enough-for-content with a small margin
+  (validated against actual rendered widths) and shortened the
+  Last refresh timestamp from `YYYY-MM-DD HH:MM:SS UTC` to
+  `YYYY-MM-DD HH:MM` (full form on hover via the cell tooltip).
+  Indicators column still has room for 8-digit + commas
+  (`12,345,678`). Floor sum dropped from 960px to 790px — table
+  now fits in a ~950px viewport with margin.
+
 ## [v0.18.9] — 2026-05-12
 
 ### Fixed
