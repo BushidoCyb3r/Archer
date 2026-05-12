@@ -660,15 +660,21 @@
 </dialog>
 
 <dialog id="sensors-token-dlg">
-  <div class="dlg-header">Enroll a New Sensor</div>
+  <div class="dlg-header" id="sensors-token-header">Enroll a New Sensor</div>
   <div class="dlg-body">
-    <div style="margin-bottom:10px">
-      <label style="font-size:11px;color:var(--fg-dim);display:block;margin-bottom:4px">
-        Optional: pre-set sensor name (overrides the sensor's hostname)
-      </label>
-      <input id="sensors-token-override" class="dlg-input" type="text" placeholder="leave blank to use sensor hostname">
+    <!-- "Create" section is hidden when the dialog is opened in
+         show-existing-command mode (Pending Tokens kebab → "Show
+         enrollment command") so the operator just sees the curl
+         line + Copy button. -->
+    <div id="sensors-token-create-section">
+      <div style="margin-bottom:10px">
+        <label style="font-size:11px;color:var(--fg-dim);display:block;margin-bottom:4px">
+          Optional: pre-set sensor name (overrides the sensor's hostname)
+        </label>
+        <input id="sensors-token-override" class="dlg-input" type="text" placeholder="leave blank to use sensor hostname">
+      </div>
+      <button id="sensors-token-generate" class="dlg-btn primary">Generate token</button>
     </div>
-    <button id="sensors-token-generate" class="dlg-btn primary">Generate token</button>
     <div id="sensors-token-result" style="margin-top:14px;display:none">
       <div style="font-size:11px;color:var(--fg-dim);margin-bottom:4px">
         Token expires in 24 hours. Run on the sensor:
