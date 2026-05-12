@@ -1854,8 +1854,12 @@ dialog::backdrop {
 #allowlist-dialog,
 #ioc-dialog                   { width: 480px; }
 #sensors-token-dlg            { width: min(95vw, 1250px); }
-#sensors-dialog               { width: min(95vw, 1100px); }
-#feeds-dialog                 { width: min(95vw, 1100px); }
+/* Sensors + Feeds modals open wide so columns have room before they
+   need to truncate. Same shape the Audit Log dialog uses — let
+   max-width float to 95vw so the dialog grows with the analyst's
+   screen instead of getting clipped at 1100px on a 27" display. */
+#sensors-dialog               { width: 95vw; max-width: 1500px; }
+#feeds-dialog                 { width: 95vw; max-width: 1500px; }
 #feeds-edit-dlg               { width: 480px; }
 
 /* Feeds table — same scaffold as the Sensors table. The inline column
@@ -1882,11 +1886,45 @@ dialog::backdrop {
   border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* No overflow:hidden / text-overflow:ellipsis — the column widths
+     are min-widths (not hard caps) so cells expand to fit content
+     instead of truncating. Status "fetching · 47k indicators · 12s"
+     and Indicators "1,234,567" both surface in full. Mirrors the
+     Audit Log table's behavior. */
 }
 #feeds-table tr:hover td { background: var(--bg-elev-3); }
 #feeds-table .dlg-btn { padding: 3px 9px; font-size: 13px; margin-left: 4px; }
+
+/* Sensors table mirrors the Feeds table layout — same min-width
+   columns, same no-truncate / no-wrap behavior so long sensor
+   hostnames and full health strings ("3h 12m stale") surface in
+   full. Without these rules the table inherited browser defaults
+   (auto layout with wrapping) and long host columns folded onto
+   two lines while short ones stayed cramped. */
+#sensors-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+#sensors-table th {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+#sensors-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+#sensors-table tr:hover td { background: var(--bg-elev-3); }
+#sensors-table .dlg-btn { padding: 3px 9px; font-size: 13px; margin-left: 4px; }
 
 /* Findings table pagination header — sits above the table, right-
    aligned with the Details column area. Holds the position indicator
