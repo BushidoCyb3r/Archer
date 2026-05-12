@@ -1916,18 +1916,23 @@ dialog::backdrop {
 #feeds-table tr:hover td { background: var(--bg-elev-3); }
 #feeds-table .dlg-btn { padding: 3px 9px; font-size: 13px; margin-left: 4px; }
 
-/* Sensors table mirrors the Feeds table layout — same min-width
-   columns, same no-truncate / no-wrap behavior so long sensor
-   hostnames and full health strings ("3h 12m stale") surface in
-   full. Without these rules the table inherited browser defaults
-   (auto layout with wrapping) and long host columns folded onto
-   two lines while short ones stayed cramped. */
-#sensors-table {
+/* Sensors tables — same fixed-layout treatment as the Feeds table:
+   declared column widths win over auto-distribution, the kebab cell
+   stays the same width regardless of modal drag-resize, and long
+   content (hostnames, IPs, timestamps) truncates with an ellipsis
+   instead of wrapping onto two lines. */
+#sensors-table,
+#sensors-tokens-table,
+#sensors-unauth-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 14px;
 }
-#sensors-table th {
+#sensors-table { max-width: 1250px; }
+#sensors-table th,
+#sensors-tokens-table th,
+#sensors-unauth-table th {
   text-align: left;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
@@ -1938,14 +1943,81 @@ dialog::backdrop {
   text-transform: uppercase;
   white-space: nowrap;
 }
-#sensors-table td {
+#sensors-table td,
+#sensors-tokens-table td,
+#sensors-unauth-table td {
   padding: 8px 10px;
   border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-#sensors-table tr:hover td { background: var(--bg-elev-3); }
-#sensors-table .dlg-btn { padding: 3px 9px; font-size: 13px; margin-left: 4px; }
+#sensors-table tr:hover td,
+#sensors-tokens-table tr:hover td,
+#sensors-unauth-table tr:hover td { background: var(--bg-elev-3); }
+
+/* Kebab (⋮) row-action button — narrow square, transparent until hover.
+   Used in the Feeds + Sensors modals to open a popover with row actions
+   (Refresh / Edit / Delete, Disenroll / Slot, etc.) without paying for
+   a wide action column. Pair with the .row-menu rules below. */
+.row-kebab {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--fg-secondary);
+  font-size: 16px;
+  line-height: 1;
+  padding: 1px 7px 3px 7px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.row-kebab:hover {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  border-color: var(--accent);
+}
+.row-kebab:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Row-menu popover. Same look as .ctx-menu but a distinct class so it
+   doesn't entangle the findings-table right-click menu's lifecycle.
+   z-index is above the dialog's stacking — RowMenu appends it inside
+   the open <dialog> so the top-layer rules naturally cover it. */
+.row-menu {
+  position: fixed;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  list-style: none;
+  z-index: 10001;
+  min-width: 160px;
+  padding: 4px 0;
+  margin: 0;
+}
+.row-menu li {
+  padding: 7px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--fg-secondary);
+  transition: background .08s, color .08s;
+}
+.row-menu li:hover { background: var(--accent-soft); color: var(--accent-hover); }
+.row-menu-sep {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 4px 0;
+  padding: 0;
+  cursor: default;
+}
+.row-menu-sep:hover { background: var(--border-subtle); }
+.row-menu-danger { color: var(--sev-critical); }
+.row-menu-danger:hover { background: var(--sev-critical); color: #fff; }
+.row-menu-disabled { color: var(--fg-dim); opacity: 0.55; cursor: not-allowed; }
+.row-menu-disabled:hover { background: transparent; color: var(--fg-dim); }
 
 /* Findings table pagination header — sits above the table, right-
    aligned with the Details column area. Holds the position indicator

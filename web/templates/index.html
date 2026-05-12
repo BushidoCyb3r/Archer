@@ -589,20 +589,20 @@
       <table id="sensors-table">
         <thead>
           <tr>
-            <!-- min-width (not width) so columns can expand to fit
-                 content while keeping a floor. Mirrors the Feeds
-                 modal + Audit Log table behavior. -->
-            <th style="min-width:140px">Name</th>
-            <th style="min-width:170px">Host</th>
-            <th style="min-width:110px">Status</th>
-            <th style="min-width:140px">Slot</th>
-            <th style="min-width:200px">Last seen</th>
-            <th style="min-width:110px">Health</th>
-            <th style="min-width:100px">Size</th>
-            <!-- Action column floor — fits the per-sensor admin
-                 buttons (Disenroll / Purge) without getting clipped
-                 when other columns expand to fit long content. -->
-            <th style="min-width:200px"></th>
+            <!-- Hard widths under table-layout:fixed (see
+                 #sensors-table CSS). Modal drag-resize adds
+                 whitespace around the table; columns themselves
+                 stay put so the kebab control doesn't shift on
+                 resize. Sum = 1090px; plus 8 × 20px horizontal
+                 cell padding = 1250px. -->
+            <th style="width:180px">Name</th>
+            <th style="width:200px">Host</th>
+            <th style="width:110px">Status</th>
+            <th style="width:130px">Slot</th>
+            <th style="width:220px">Last seen</th>
+            <th style="width:110px">Health</th>
+            <th style="width:90px">Size</th>
+            <th style="width:50px"></th>
           </tr>
         </thead>
         <tbody id="sensors-tbody"></tbody>
@@ -616,10 +616,10 @@
           <tr>
             <th style="width:300px">Token</th>
             <th style="width:180px">Override name</th>
-            <th style="width:170px">Created</th>
-            <th style="width:170px">Expires</th>
+            <th style="width:150px">Created</th>
+            <th style="width:150px">Expires</th>
             <th style="width:90px">Status</th>
-            <th></th>
+            <th style="width:50px"></th>
           </tr>
         </thead>
         <tbody id="sensors-tokens-tbody"></tbody>
@@ -633,10 +633,10 @@
           <tr>
             <th style="width:140px">Name</th>
             <th style="width:160px">Source IP</th>
-            <th style="width:170px">First seen</th>
-            <th style="width:170px">Last seen</th>
-            <th style="width:110px">Count</th>
-            <th></th>
+            <th style="width:150px">First seen</th>
+            <th style="width:150px">Last seen</th>
+            <th style="width:80px">Count</th>
+            <th style="width:50px"></th>
           </tr>
         </thead>
         <tbody id="sensors-unauth-tbody"></tbody>
@@ -729,18 +729,18 @@
                  honor these widths instead of auto-distributing the
                  dialog's extra space — modal drag-resize adds
                  whitespace around the table, not inside columns,
-                 so the action buttons stay at the same screen
-                 position regardless of dialog size. Sum = 790px;
-                 plus 7 × 20px horizontal cell padding = 930px;
-                 #feeds-table's max-width is 950px for a small
-                 breathing margin. -->
-            <th style="width:110px">Name</th>
-            <th style="width:90px">Source</th>
-            <th style="width:100px">Status</th>
-            <th style="width:110px">Indicators</th>
-            <th style="width:130px">Last refresh</th>
-            <th style="width:60px">Aging</th>
-            <th style="width:240px"></th>
+                 so row controls stay at the same screen position
+                 regardless of dialog size. Sum = 860px; plus 7 ×
+                 20px horizontal cell padding = 1000px; matches
+                 #feeds-dialog's default-open width. The Action
+                 column is just a kebab (⋮) → row-menu popover. -->
+            <th style="width:220px">Name</th>
+            <th style="width:100px">Source</th>
+            <th style="width:130px">Status</th>
+            <th style="width:130px">Indicators</th>
+            <th style="width:150px">Last refresh</th>
+            <th style="width:80px">Aging</th>
+            <th style="width:50px"></th>
           </tr>
         </thead>
         <tbody id="feeds-tbody"></tbody>
@@ -1170,6 +1170,7 @@
 <script src="/static/js/campaigns.js"></script>
 <script src="/static/js/resize.js"></script>
 <script src="/static/js/dialog.js"></script>
+<script src="/static/js/rowmenu.js"></script>
 <script src="/static/js/graph.js"></script>
 <script src="/static/js/sensors.js"></script>
 <script src="/static/js/feeds.js"></script>

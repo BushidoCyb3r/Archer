@@ -77,11 +77,8 @@ const Feeds = (() => {
       const statusCol = _statusPill(f.status);
       const enabledMark = f.enabled ? '' : ' <span style="color:var(--fg-dim);font-style:italic">(disabled)</span>';
       const lastErrTitle = f.last_error ? ` title="${_esc(f.last_error)}"` : '';
-      const refreshDisabled = f.enabled ? '' : 'disabled';
       const adminCtrls = _isAdmin
-        ? `<button class="dlg-btn secondary feeds-row-refresh" data-id="${f.id}" ${refreshDisabled}>Refresh</button>
-           <button class="dlg-btn secondary feeds-row-edit" data-id="${f.id}">Edit</button>
-           <button class="dlg-btn danger feeds-row-delete" data-id="${f.id}">Delete</button>`
+        ? `<button class="row-kebab feeds-row-kebab" data-id="${f.id}" data-enabled="${f.enabled ? '1' : '0'}" title="Row actions" aria-label="Row actions">⋮</button>`
         : '';
       const isFetching = f.status === 'fetching';
       const liveCount = (f.live_indicator_count || 0).toLocaleString();
@@ -166,44 +163,49 @@ const Feeds = (() => {
 
   // ── row actions ───────────────────────────────────────────────────────
 
-  async function _onRowClick(ev) {
-    const t = ev.target;
-    const id = t.dataset && t.dataset.id;
-    if (!id) return;
-    if (t.classList.contains('feeds-row-refresh')) {
-      t.disabled = true;
-      const orig = t.textContent;
-      t.textContent = 'Refreshing…';
-      try {
-        const r = await _api('/api/feeds/' + id + '/refresh', {method: 'POST'});
-        t.textContent = `+${r.indicators_added || 0} / ~${r.indicators_refreshed || 0}`;
-        setTimeout(() => { t.textContent = orig; t.disabled = false; }, 2500);
-      } catch (e) {
-        t.textContent = 'failed';
-        t.title = e.message;
-        setTimeout(() => { t.textContent = orig; t.disabled = false; t.title = ''; }, 2500);
-      }
+  async function _doRefresh(id) {
+    try {
+      await _api('/api/feeds/' + id + '/refresh', {method: 'POST'});
+    } catch (e) {
+      alert('Refresh failed: ' + e.message);
+    }
+    await refresh();
+  }
+
+  async function _doEdit(id) {
+    try {
+      const data = await _api('/api/feeds');
+      const feed = (data.feeds || []).find(f => String(f.id) === String(id));
+      if (!feed) return;
+      _openEditDialog(feed);
+    } catch (e) { /* swallow */ }
+  }
+
+  async function _doDelete(id) {
+    if (!confirm('Delete this feed and all its indicators?')) return;
+    try {
+      await _api('/api/feeds/' + id, {method: 'DELETE'});
       await refresh();
-      return;
+    } catch (e) {
+      alert('Delete failed: ' + e.message);
     }
-    if (t.classList.contains('feeds-row-edit')) {
-      try {
-        const data = await _api('/api/feeds');
-        const feed = (data.feeds || []).find(f => String(f.id) === String(id));
-        if (!feed) return;
-        _openEditDialog(feed);
-      } catch (e) { /* swallow */ }
-      return;
-    }
-    if (t.classList.contains('feeds-row-delete')) {
-      if (!confirm('Delete this feed and all its indicators?')) return;
-      try {
-        await _api('/api/feeds/' + id, {method: 'DELETE'});
-        await refresh();
-      } catch (e) {
-        alert('Delete failed: ' + e.message);
-      }
-    }
+  }
+
+  function _onRowClick(ev) {
+    const btn = ev.target.closest('button.feeds-row-kebab');
+    if (!btn) return;
+    const id = btn.dataset.id;
+    if (!id) return;
+    const enabled = btn.dataset.enabled === '1';
+    const items = [
+      enabled
+        ? { label: 'Refresh', onClick: () => _doRefresh(id) }
+        : { label: 'Refresh', disabled: true, hint: 'Enable the feed before refreshing' },
+      { label: 'Edit',    onClick: () => _doEdit(id) },
+      '---',
+      { label: 'Delete',  danger: true, onClick: () => _doDelete(id) },
+    ];
+    RowMenu.open(btn, items);
   }
 
   // ── live-progress polling ─────────────────────────────────────────────
