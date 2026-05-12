@@ -218,8 +218,13 @@
       <button class="tab-btn" data-tab="ack">Acknowledged</button>
       <button class="tab-btn" data-tab="esc">Escalated</button>
       <button class="tab-btn" data-tab="ioc">IOC Hits</button>
+      <!-- Dismissed tab is hidden by default; the Show Dismissed toggle
+           below flips it on. State persists in localStorage so the
+           analyst's preference survives reload. -->
+      <button class="tab-btn" data-tab="dismissed" id="dismissed-tab-btn" style="display:none">Dismissed</button>
       <button class="tab-btn" data-tab="campaigns">Campaigns</button>
       <button class="tab-btn" data-tab="hosts">Hosts</button>
+      <button class="tab-toggle" id="show-dismissed-toggle" title="Show or hide the Dismissed tab" type="button" aria-pressed="false">Show Dismissed</button>
       <div id="findings-pagination">
         <span class="page-info">
           Showing <span id="page-shown">0</span> of <span id="page-total">0</span>
@@ -266,38 +271,87 @@
         </table>
       </div>
 
-      <!-- Detail pane — always visible when any findings-type tab is active -->
+      <!-- Detail pane — always visible when any findings-type tab is
+           active. Tabbed dock: the finding identifier sits up top with a
+           collapse chevron; the Detail / Notes / TI Results tabs flip
+           between content panels; the action footer is persistent and
+           visible regardless of active tab so the analyst can take
+           workflow action from any view. -->
       <div id="detail-pane">
-        <div id="detail-header">Select a finding</div>
-        <div id="detail-text"></div>
+        <div id="dock-header-bar">
+          <div id="detail-header">Select a finding</div>
+          <button id="dock-collapse-btn" type="button" title="Collapse details pane" aria-label="Collapse details pane" aria-expanded="true">⌄</button>
+        </div>
+        <div id="dock-tabs" role="tablist">
+          <button class="dock-tab-btn active" type="button" role="tab" data-dock-tab="detail" aria-selected="true">Detail</button>
+          <button class="dock-tab-btn"        type="button" role="tab" data-dock-tab="notes"  aria-selected="false">Notes<span class="dock-tab-count" id="notes-badge"></span></button>
+          <button class="dock-tab-btn"        type="button" role="tab" data-dock-tab="ti"     aria-selected="false">TI Results<span class="dock-tab-count" id="ti-badge"></span></button>
+        </div>
+        <div id="dock-body">
+          <!-- Detail tab: the finding's score/severity/IPs body + the
+               30-day beacon score evolution chart (Beaconing types only). -->
+          <div class="dock-tab-panel active" id="dock-panel-detail" role="tabpanel">
+            <div id="detail-text"></div>
+            <div id="beacon-evolution" style="display:none">
+              <div id="beacon-evolution-header">
+                <span>Score evolution (last 30 days)</span>
+                <button id="beacon-evolution-expand" type="button" title="Open chart in expanded view with export options" aria-label="Expand chart">↗</button>
+              </div>
+              <svg id="beacon-evolution-svg" preserveAspectRatio="xMidYMid meet"></svg>
+              <div id="beacon-evolution-legend"></div>
+            </div>
+          </div>
+          <!-- Notes tab: analyst-authored notes only (TI Enrichment
+               machine-authored notes route to the TI Results tab so
+               the analyst's read of "what I noted" stays focused). -->
+          <div class="dock-tab-panel" id="dock-panel-notes" role="tabpanel" hidden>
+            <div id="notes-header">
+              <span>Analyst Notes</span>
+              <button id="export-notes-btn" type="button" title="Download all notes for this finding as a .txt file">Export TXT</button>
+            </div>
+            <div id="notes-list"></div>
+            <div id="add-note-row">
+              <textarea id="inline-note-input" placeholder="Add a note…" rows="2"></textarea>
+              <button id="add-note-btn">Add Note</button>
+            </div>
+          </div>
+          <!-- TI Results tab: notes whose Author is "TI Enrichment"
+               (the consolidated TI lookup summaries appended after
+               escalation). Empty state when the finding hasn't been
+               escalated or no TI sources returned hits. -->
+          <div class="dock-tab-panel" id="dock-panel-ti" role="tabpanel" hidden>
+            <div id="ti-results-list"></div>
+          </div>
+        </div>
         <div id="detail-actions">
-          <button class="action-btn ack" id="ack-btn" disabled>Acknowledge</button>
-          <button class="action-btn esc" id="esc-btn" disabled>Escalate</button>
+          <button class="action-btn ack"     id="ack-btn"     disabled>Acknowledge</button>
+          <button class="action-btn esc"     id="esc-btn"     disabled>Escalate</button>
+          <button class="action-btn dismiss" id="dismiss-btn" disabled>Dismiss</button>
+          <span class="action-divider" aria-hidden="true"></span>
           <button class="action-btn chart" id="chart-btn" disabled>Beacon Chart</button>
-          <button class="action-btn pcap" id="pcap-btn" disabled>PCAP Filter</button>
-          <button class="action-btn raw" id="raw-btn" disabled>Source Records</button>
-          <button class="action-btn supp" id="supp-btn" disabled>Suppress</button>
+          <button class="action-btn pcap"  id="pcap-btn"  disabled>PCAP Filter</button>
+          <button class="action-btn raw"   id="raw-btn"   disabled>Source Records</button>
+          <button class="action-btn supp"  id="supp-btn"  disabled>Suppress</button>
           <span id="analyst-rec"></span>
         </div>
-        <!-- 30-day score evolution chart for Beaconing / HTTP Beaconing findings. -->
-        <div id="beacon-evolution" style="display:none">
-          <div id="beacon-evolution-header">Score evolution (last 30 days)</div>
-          <svg id="beacon-evolution-svg" width="100%" height="120" preserveAspectRatio="none"></svg>
-          <div id="beacon-evolution-legend"></div>
-        </div>
-        <div id="notes-section" style="display:none">
-          <div id="notes-header" style="display:flex;align-items:center;justify-content:space-between">
-            <span>Analyst Notes</span>
-            <button id="export-notes-btn" type="button" title="Download all notes for this finding as a .txt file"
-                    style="background:transparent;border:1px solid var(--border);color:var(--fg-secondary);padding:3px 10px;border-radius:var(--radius);font-size:11px;cursor:pointer">Export TXT</button>
-          </div>
-          <div id="notes-list"></div>
-          <div id="add-note-row">
-            <textarea id="inline-note-input" placeholder="Add a note…" rows="2"></textarea>
-            <button id="add-note-btn">Add Note</button>
-          </div>
-        </div>
       </div>
+
+      <!-- Expanded beacon evolution chart — modal overlay for the
+           "view at natural ratio + export" affordance. Click ↗ on the
+           in-place chart to open. PNG/JPEG buttons inside export the
+           SVG at the displayed resolution via canvas. -->
+      <dialog id="beacon-evolution-modal">
+        <div id="beacon-evolution-modal-header">
+          <span id="beacon-evolution-modal-title">Score evolution</span>
+          <div id="beacon-evolution-modal-actions">
+            <button id="beacon-evolution-export-png" type="button">Export PNG</button>
+            <button id="beacon-evolution-export-jpg" type="button">Export JPEG</button>
+            <button id="beacon-evolution-modal-close" type="button" aria-label="Close">×</button>
+          </div>
+        </div>
+        <svg id="beacon-evolution-modal-svg" preserveAspectRatio="xMidYMid meet"></svg>
+        <div id="beacon-evolution-modal-legend"></div>
+      </dialog>
     </div>
 
     <!-- ── Campaigns tab ─────────────────────────────────────────── -->
@@ -389,6 +443,7 @@
   <li class="ctx-separator ctx-write-sep"></li>
   <li id="ctx-ack"      class="ctx-write">Acknowledge</li>
   <li id="ctx-escalate" class="ctx-write">Escalate</li>
+  <li id="ctx-dismiss"  class="ctx-write">Dismiss</li>
   <li id="ctx-suppress" class="ctx-submenu ctx-write">Suppress
     <ul class="ctx-submenu-panel" id="ctx-supp-sub">
       <li data-days="1">1 day</li>

@@ -12,6 +12,7 @@ const Detail = (() => {
   function _statusLabel(s) {
     if (s === 'acknowledged') return 'ACKNOWLEDGED';
     if (s === 'escalated')    return 'ESCALATED';
+    if (s === 'dismissed')    return 'DISMISSED';
     return 'OPEN';
   }
 
@@ -62,17 +63,24 @@ const Detail = (() => {
     rec.textContent = explain ? explain.split('.')[0] : '';
 
     // Action buttons
-    const ackBtn   = document.getElementById('ack-btn');
-    const escBtn   = document.getElementById('esc-btn');
-    const chartBtn = document.getElementById('chart-btn');
-    const pcapBtn  = document.getElementById('pcap-btn');
-    const rawBtn   = document.getElementById('raw-btn');
-    const suppBtn  = document.getElementById('supp-btn');
+    const ackBtn     = document.getElementById('ack-btn');
+    const escBtn     = document.getElementById('esc-btn');
+    const dismissBtn = document.getElementById('dismiss-btn');
+    const chartBtn   = document.getElementById('chart-btn');
+    const pcapBtn    = document.getElementById('pcap-btn');
+    const rawBtn     = document.getElementById('raw-btn');
+    const suppBtn    = document.getElementById('supp-btn');
 
-    ackBtn.disabled  = false;
-    escBtn.disabled  = f.status === 'escalated';
-    suppBtn.disabled = false;
-    pcapBtn.disabled = !(f.src_ip && f.dst_ip);
+    // Workflow-state buttons. A dismissed finding can be un-dismissed
+    // (Dismiss button label flips) but cannot be acknowledged or
+    // escalated without un-dismissing first — keeps the state
+    // transitions linear instead of letting a dismissed finding leak
+    // into the Ack/Esc tabs unintentionally.
+    ackBtn.disabled     = f.status === 'dismissed';
+    escBtn.disabled     = f.status === 'escalated' || f.status === 'dismissed';
+    dismissBtn.disabled = false;
+    suppBtn.disabled    = false;
+    pcapBtn.disabled    = !(f.src_ip && f.dst_ip);
     // Beacon Chart is meaningful only for the two finding types that
     // carry TSData. Gate on type instead of f.ts_data presence — list
     // responses are projected (no ts_data) and the row-click upgrade
@@ -84,9 +92,11 @@ const Detail = (() => {
       rawBtn.dataset.findingId = f.id;
     }
 
-    ackBtn.textContent = f.status === 'acknowledged' ? 'Acknowledged' : 'Acknowledge';
+    ackBtn.textContent     = f.status === 'acknowledged' ? 'Acknowledged' : 'Acknowledge';
+    dismissBtn.textContent = f.status === 'dismissed'    ? 'Un-dismiss'   : 'Dismiss';
 
-    // Notes
+    // Notes + TI Results — partitioned by note author so the two
+    // tabs surface focused content. Updates badges on each tab.
     _renderNotes(f);
 
     // Score evolution chart — Beaconing / HTTP Beaconing only.
@@ -96,16 +106,34 @@ const Detail = (() => {
     }
   }
 
+  // _renderNotes partitions a finding's notes between the Notes tab
+  // (analyst-authored) and the TI Results tab (machine-authored
+  // "TI Enrichment" notes from the escalation lookups). Tab badges
+  // show counts so the analyst can see at a glance which tabs have
+  // content without flipping through them.
   function _renderNotes(f) {
-    const section = document.getElementById('notes-section');
-    const list    = document.getElementById('notes-list');
-    section.style.display = 'block';
-    list.innerHTML = '';
+    const notesList = document.getElementById('notes-list');
+    const tiList    = document.getElementById('ti-results-list');
+    const notesBadge = document.getElementById('notes-badge');
+    const tiBadge    = document.getElementById('ti-badge');
+    if (!notesList || !tiList) return;
+    notesList.innerHTML = '';
+    tiList.innerHTML = '';
+
     const notes = f.notes || [];
-    if (notes.length === 0) {
-      list.innerHTML = '<div style="font-size:11px;color:var(--fg-dim);font-style:italic">No notes yet</div>';
-    } else {
-      notes.forEach(n => {
+    const analystNotes = [];
+    const tiNotes = [];
+    notes.forEach(n => {
+      if ((n.author || '') === 'TI Enrichment') tiNotes.push(n);
+      else analystNotes.push(n);
+    });
+
+    const renderInto = (list, items, emptyMsg) => {
+      if (items.length === 0) {
+        list.innerHTML = `<div style="font-size:11px;color:var(--fg-dim);font-style:italic">${emptyMsg}</div>`;
+        return;
+      }
+      items.forEach(n => {
         const div = document.createElement('div');
         div.className = 'note-item';
         div.innerHTML = `
@@ -113,6 +141,22 @@ const Detail = (() => {
           <div class="note-text">${_esc(n.text)}</div>`;
         list.appendChild(div);
       });
+    };
+    renderInto(notesList, analystNotes, 'No notes yet');
+    renderInto(tiList, tiNotes, 'No TI results yet — escalate the finding to run TI lookups');
+
+    _setBadge(notesBadge, analystNotes.length);
+    _setBadge(tiBadge,    tiNotes.length);
+  }
+
+  function _setBadge(el, n) {
+    if (!el) return;
+    if (n > 0) {
+      el.textContent = String(n);
+      el.classList.add('has-count');
+    } else {
+      el.textContent = '';
+      el.classList.remove('has-count');
     }
   }
 
@@ -128,10 +172,15 @@ const Detail = (() => {
     document.getElementById('detail-header').style.color = '';
     document.getElementById('detail-text').textContent = '';
     document.getElementById('analyst-rec').textContent = '';
-    document.getElementById('notes-section').style.display = 'none';
-    document.getElementById('notes-list').innerHTML = '';
-    ['ack-btn','esc-btn','chart-btn','pcap-btn','supp-btn'].forEach(id => {
-      document.getElementById(id).disabled = true;
+    const nl = document.getElementById('notes-list');
+    const tl = document.getElementById('ti-results-list');
+    if (nl) nl.innerHTML = '';
+    if (tl) tl.innerHTML = '';
+    _setBadge(document.getElementById('notes-badge'), 0);
+    _setBadge(document.getElementById('ti-badge'),    0);
+    ['ack-btn','esc-btn','dismiss-btn','chart-btn','pcap-btn','supp-btn'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = true;
     });
     if (typeof BeaconEvolution !== 'undefined') BeaconEvolution.clear();
   }
