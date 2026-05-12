@@ -724,16 +724,19 @@
                  can expand to fit content; mirrors the Audit Log
                  table so "fetching · 50k indicators" and 7-digit
                  indicator counts render in full. -->
-            <th style="min-width:160px">Name</th>
-            <th style="min-width:90px">Source</th>
-            <th style="min-width:170px">Status</th>
-            <th style="min-width:120px">Indicators</th>
-            <th style="min-width:180px">Last refresh</th>
-            <th style="min-width:80px">Aging</th>
+            <th style="min-width:140px">Name</th>
+            <th style="min-width:70px">Source</th>
+            <th style="min-width:160px">Status</th>
+            <th style="min-width:100px">Indicators</th>
+            <th style="min-width:160px">Last refresh</th>
+            <!-- Aging holds "30 d" / "90 d" — needs almost no width.
+                 Shrunk so the action column floor isn't competing
+                 with whitespace for visible dialog space. -->
+            <th style="min-width:50px">Aging</th>
             <!-- Action column floor — fits Refresh + Edit + Delete on
-                 one line without the rightmost button getting clipped
-                 when other columns expand to fit long content. -->
-            <th style="min-width:260px"></th>
+                 one line. Padded so the Delete button isn't right
+                 against the dialog's right edge. -->
+            <th style="min-width:280px"></th>
           </tr>
         </thead>
         <tbody id="feeds-tbody"></tbody>
