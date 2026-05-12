@@ -836,6 +836,23 @@ func (s *Store) GetNotifications() []model.Notification {
 	return out
 }
 
+// AddAlarm appends a non-finding notification (Kind=sensor or
+// Kind=feed) and returns it with the auto-assigned ID. Unlike the
+// finding-emit path inside SetFindings, this is for out-of-band
+// alarms that aren't anchored to a finding row — sensor staleness
+// and feed health, today. Caller is responsible for deciding when
+// to emit (e.g. transition detection in a heartbeat goroutine) so
+// the operator isn't re-alarmed every tick while the condition
+// persists.
+func (s *Store) AddAlarm(n model.Notification) model.Notification {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.notifCounter++
+	n.ID = s.notifCounter
+	s.notifications = append(s.notifications, n)
+	return n
+}
+
 func (s *Store) DismissNotification(id int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
