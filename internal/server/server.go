@@ -76,6 +76,7 @@ func New(st *store.Store, us *store.UserStore, broker *Broker, webDir, logsDir, 
 	s.startUnauthorizedPruneLoop()
 	s.startSuppressionsPruneLoop()
 	s.startBeaconHistoryPruneLoop()
+	s.startSensorHeartbeatLoop()
 	// Idle-bucket eviction so a long-running flood from many source
 	// IPs doesn't grow the rate-limit map without bound. v0.14.3
 	// NEW-39. The done channel is never closed — eviction runs for
@@ -302,6 +303,7 @@ func (s *Server) routes() {
 	// Sensors modal — read=any authenticated; admin-only writes enforced
 	// inside each handler.
 	s.mux.Handle("/api/sensors", any(s.handleSensorsList))
+	s.mux.Handle("/api/sensors/health", any(s.handleSensorsHealth))
 	s.mux.Handle("/api/sensors/info", any(s.handleSensorsInfo))
 	s.mux.Handle("/api/sensors/host", any(s.handleSensorsHost))
 	s.mux.Handle("/api/sensors/tokens", any(s.handleSensorsTokens))
