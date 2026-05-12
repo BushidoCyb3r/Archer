@@ -80,20 +80,24 @@ func (a *Analyzer) correlateFindings() {
 		maxScore   int
 		earliestTS string
 		// idsByFingerprint chooses one ID per unique fingerprint
-		// contributing to this pair. NEW-92 from the twenty-first
-		// audit round: pre-fix idsByID dedup keyed on f.ID, which
-		// is wrong because the same logical finding can appear once
+		// contributing to this pair. NEW-92 (twenty-first audit
+		// round): pre-fix idsByID dedup keyed on f.ID, which is
+		// wrong because the same logical finding can appear once
 		// as a fresh per-run ID (from a.findings) and once as the
 		// persisted ID (from findingsProvider.GetFindings) — two
-		// different ID values for the same fingerprint. The downstream
-		// Correlations slice would carry both, then SetFindings's
-		// translation would handle them inconsistently (fresh ID
-		// translated correctly; persisted ID dropped or mis-mapped,
-		// per NEW-91). Fingerprint-based dedup gives one
-		// representation per finding, and the historical pass
-		// overrides the fresh pass so the chosen ID is the
-		// already-persisted one — survives SetFindings unchanged
-		// via NEW-91's identity-map path.
+		// different ID values for the same fingerprint. The
+		// downstream Correlations slice would carry both, then
+		// SetFindings's translation would handle them inconsistently
+		// (fresh ID translated correctly; persisted ID dropped or
+		// mis-mapped, per NEW-91). Fingerprint-based dedup gives
+		// one representation per finding. First-seen wins (NEW-96,
+		// twenty-second audit round) — iteration order puts
+		// a.findings before findingsProvider, so when a fingerprint
+		// is in both, the fresh ID wins. This is required so the
+		// annotation apply pass below (keyed on a.findings[i].ID)
+		// can find its entry; the prior "historical overrides fresh"
+		// choice silently cleared Correlations on every this-run
+		// contributor that also had a historical sibling.
 		idsByFingerprint map[model.Fingerprint]int
 	}
 	pairs := make(map[pairKey]*pairData)
@@ -123,13 +127,19 @@ func (a *Analyzer) correlateFindings() {
 			pairs[key] = pd
 		}
 		pd.types[f.Type] = true
-		// Historical pass overrides fresh — historical IDs are
-		// already in persisted-ID space and survive SetFindings
-		// without translation, while fresh IDs depend on the
-		// freshToPersisted map. Preferring the historical ID makes
-		// the downstream Correlations slice more robust.
+		// First-seen wins; iteration order (a.findings before
+		// findingsProvider) means fresh IDs win when the same
+		// fingerprint appears in both passes. This is required
+		// because the annotation apply pass below keys lookups on
+		// a.findings[i].ID (the fresh ID for this-run findings) —
+		// if idsByFingerprint stored the historical ID, the
+		// annotation map's key wouldn't match this-run findings
+		// and their Correlations would be silently cleared.
+		// SetFindings's translation (NEW-91) handles either ID
+		// space correctly downstream, so preferring fresh costs
+		// nothing for correctness.
 		fp := f.Fingerprint()
-		if _, seen := pd.idsByFingerprint[fp]; !seen || isHistorical {
+		if _, seen := pd.idsByFingerprint[fp]; !seen {
 			pd.idsByFingerprint[fp] = f.ID
 		}
 		if f.Score > pd.maxScore {

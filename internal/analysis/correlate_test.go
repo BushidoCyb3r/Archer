@@ -290,6 +290,97 @@ func TestCorrelate_ClearsStaleCorrelations(t *testing.T) {
 	}
 }
 
+// TestCorrelate_ThisRunContributorRetainsCorrelationsWhenHistoricalTwinAlsoFires
+// codifies NEW-96 (twenty-second audit round). The invariant: for any
+// this-run finding that participates in a correlation, its Correlations
+// slice must list its sibling contributors after correlateFindings —
+// regardless of whether a historical finding of the SAME fingerprint
+// also contributed to the same pair.
+//
+// The failure mode pre-fix: idsByFingerprint dedup let the historical
+// pass override the fresh pass (so the persisted ID won), then the
+// annotation apply pass keyed lookups on a.findings[i].ID (the fresh
+// ID), found nothing, and silently cleared the this-run finding's
+// Correlations to nil. Asymmetric result: the Correlated Activity row
+// listed Beaconing as a contributor while the Beaconing finding
+// itself claimed no correlations.
+//
+// We articulate the invariant ("every this-run participant gets its
+// Correlations populated") rather than the narrow failure case ("the
+// specific fresh-vs-historical-Beaconing collision"). Multiple shapes
+// touch the same code path: this asserts the contract holds for the
+// shape that broke, and the non-collision shape continues to work.
+func TestCorrelate_ThisRunContributorRetainsCorrelationsWhenHistoricalTwinAlsoFires(t *testing.T) {
+	a := New(config.Default(), "", nil, nil)
+	// This-run Beaconing. Fresh ID assigned by a.add (will be 1).
+	a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", DstPort: "443", Score: 85, Timestamp: "2026-05-12 09:00:00 UTC"})
+	// Historical fingerprint-twin (same Type/Src/Dst/Port) at a
+	// persisted ID well above any fresh ID this run will assign.
+	// Plus a historical DNS Tunneling on the same pair so the pair
+	// has the >=2 distinct types it needs to correlate.
+	a.SetFindingsProvider(&stubFindingsProvider{findings: []model.Finding{
+		{ID: 47, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", DstPort: "443", Score: 70, Timestamp: "2026-05-11 09:00:00 UTC"},
+		{ID: 92, Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 60, Timestamp: "2026-05-11 14:00:00 UTC"},
+	}})
+
+	a.correlateFindings()
+
+	bcn := findOne(t, a.findings, "Beaconing")
+	if bcn.ID == 47 {
+		t.Fatalf("expected this-run Beaconing in a.findings, got the historical row (ID=47) — test setup wrong")
+	}
+	var corr *model.Finding
+	for i := range a.findings {
+		if a.findings[i].Type == model.TypeCorrelatedActivity {
+			corr = &a.findings[i]
+		}
+	}
+	if corr == nil {
+		t.Fatal("expected a Correlated Activity finding from the cross-run pair; got none")
+	}
+
+	// The invariant: this-run Beaconing's Correlations must contain at
+	// least the historical DNS Tunneling ID + the correlation row's
+	// ID. Pre-fix this slice was nil because the annotation map was
+	// keyed on the historical Beaconing ID and the apply pass looked
+	// up under the fresh ID.
+	if len(bcn.Correlations) == 0 {
+		t.Fatalf("invariant violated: this-run Beaconing has empty Correlations after correlateFindings — historical fingerprint-twin override silently cleared it")
+	}
+	hasDNS, hasCorr := false, false
+	for _, id := range bcn.Correlations {
+		if id == 92 {
+			hasDNS = true
+		}
+		if id == corr.ID {
+			hasCorr = true
+		}
+	}
+	if !hasDNS {
+		t.Errorf("Beaconing.Correlations = %v; missing historical DNS Tunneling ID (92)", bcn.Correlations)
+	}
+	if !hasCorr {
+		t.Errorf("Beaconing.Correlations = %v; missing the new Correlated Activity row ID (%d)", bcn.Correlations, corr.ID)
+	}
+
+	// The Correlated Activity row's Correlations list must include the
+	// THIS-RUN Beaconing's fresh ID (not the historical 47), because
+	// fingerprint dedup prefers first-seen and a.findings is iterated
+	// first. SetFindings's translation handles fresh→persisted later.
+	hasThisRun := false
+	for _, id := range corr.Correlations {
+		if id == bcn.ID {
+			hasThisRun = true
+		}
+		if id == 47 {
+			t.Errorf("Correlated Activity.Correlations = %v; contains historical Beaconing ID 47 — fingerprint dedup should have collapsed it onto fresh ID %d", corr.Correlations, bcn.ID)
+		}
+	}
+	if !hasThisRun {
+		t.Errorf("Correlated Activity.Correlations = %v; missing the this-run Beaconing ID (%d)", corr.Correlations, bcn.ID)
+	}
+}
+
 func findOne(t *testing.T, findings []model.Finding, typ string) *model.Finding {
 	t.Helper()
 	for i := range findings {

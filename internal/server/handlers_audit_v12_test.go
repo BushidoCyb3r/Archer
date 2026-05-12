@@ -101,6 +101,111 @@ func TestImport_RejectsCorruptJSON(t *testing.T) {
 	}
 }
 
+// TestImport_PreservesCorrelationsAcrossIDRemap codifies NEW-97
+// (twenty-second audit round). The invariant: when a JSON export is
+// re-imported, every Correlations reference inside the payload must
+// point at the same logical finding in the new store. The ID rewrite
+// at import time (i+1 sequential) breaks the reference unless the
+// import handler translates every Correlations slice through the
+// old→new map.
+//
+// We articulate the invariant ("any Correlations reference between
+// imported findings survives the rewrite") rather than the narrow
+// failure case ("Correlated Activity's contributor list specifically").
+// Multiple shapes touch the same code path: contributor rows pointing
+// at the correlation row, the correlation row pointing at
+// contributors, and chains where contributors reference other
+// contributors. The invariant covers all three.
+func TestImport_PreservesCorrelationsAcrossIDRemap(t *testing.T) {
+	// Export shape: Beaconing (old ID 47) and DNS Tunneling (old ID
+	// 92) both contribute to Correlated Activity (old ID 200). Each
+	// contributor lists the sibling + the correlation row. The
+	// correlation row lists both contributors. The old IDs are
+	// deliberately out of the 1..N range the import handler will
+	// assign so any failure to remap shows up as missing references
+	// (not as accidental collisions with the new IDs).
+	payload := struct {
+		Findings []model.Finding `json:"findings"`
+	}{
+		Findings: []model.Finding{
+			{ID: 47, Type: "Beaconing", Severity: model.SevHigh, Score: 85, SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Timestamp: "2026-05-10 09:00:00", Correlations: []int{92, 200}},
+			{ID: 92, Type: "DNS Tunneling", Severity: model.SevMedium, Score: 60, SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Timestamp: "2026-05-10 14:00:00", Correlations: []int{47, 200}},
+			{ID: 200, Type: model.TypeCorrelatedActivity, Severity: model.SevHigh, Score: 85, SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Timestamp: "2026-05-10 09:00:00", Correlations: []int{47, 92}},
+		},
+	}
+	body, _ := json.Marshal(payload)
+
+	s := newAuditTestServer(t)
+	req := withUser(
+		httptest.NewRequest(http.MethodPost, "/api/import", bytes.NewReader(body)),
+		model.RoleAdmin,
+	)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.handleImportJSON(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("import status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	stored := s.store.GetFindings()
+	if len(stored) != 3 {
+		t.Fatalf("expected 3 findings stored; got %d", len(stored))
+	}
+
+	byType := map[string]model.Finding{}
+	for _, f := range stored {
+		byType[f.Type] = f
+	}
+	bcn, ok := byType["Beaconing"]
+	if !ok {
+		t.Fatal("Beaconing missing from store")
+	}
+	dns, ok := byType["DNS Tunneling"]
+	if !ok {
+		t.Fatal("DNS Tunneling missing from store")
+	}
+	corr, ok := byType[model.TypeCorrelatedActivity]
+	if !ok {
+		t.Fatal("Correlated Activity missing from store")
+	}
+
+	// Invariant: every Correlations slice references the OTHER two
+	// findings' NEW IDs. Pre-fix this slice would be empty (all old
+	// IDs dropped by SetFindings's translation, no remap done at
+	// the import layer).
+	expect := func(name string, got []int, want ...int) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Errorf("%s.Correlations = %v; want %v", name, got, want)
+			return
+		}
+		seen := map[int]bool{}
+		for _, id := range got {
+			seen[id] = true
+		}
+		for _, w := range want {
+			if !seen[w] {
+				t.Errorf("%s.Correlations = %v; missing %d", name, got, w)
+			}
+		}
+	}
+	expect("Beaconing", bcn.Correlations, dns.ID, corr.ID)
+	expect("DNS Tunneling", dns.Correlations, bcn.ID, corr.ID)
+	expect("Correlated Activity", corr.Correlations, bcn.ID, dns.ID)
+
+	// Belt-and-suspenders: no Correlations entry should match an old
+	// ID that wasn't remapped. The old IDs (47, 92, 200) are above
+	// any new ID the import would assign (1..3), so any stale entry
+	// would be detectable.
+	for name, f := range byType {
+		for _, id := range f.Correlations {
+			if id == 47 || id == 92 || id == 200 {
+				t.Errorf("%s.Correlations = %v; contains un-remapped old ID %d", name, f.Correlations, id)
+			}
+		}
+	}
+}
+
 // TestRejectInternalFeedURL_LiteralIPs covers the NEW-18 SSRF guard's
 // config-time layer — a URL host that's a literal IP in the deny set
 // must be refused. DNS-resolved hostnames are checked at fetch time
