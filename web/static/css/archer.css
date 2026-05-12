@@ -1933,9 +1933,14 @@ dialog::backdrop {
    without it, `table-layout: fixed; width: 100%` scales the
    columns proportionally to fill the dialog and the layout drifts
    off the declared sizes. */
-#sensors-table        { max-width: 1250px; }   /* 1090 + 8 × 20 padding */
-#sensors-tokens-table { max-width: 1040px; }   /*  920 + 6 × 20 padding */
-#sensors-unauth-table { max-width:  850px; }   /*  730 + 6 × 20 padding */
+/* All three tables share the same outer width so the section
+   underlines stack uniformly. The sub-tables have an unwidth'd
+   spacer column (last <th>) that absorbs the difference between
+   their natural data width and 1250px; declared data columns
+   keep their fixed widths. */
+#sensors-table,
+#sensors-tokens-table,
+#sensors-unauth-table { max-width: 1250px; }
 #sensors-table th,
 #sensors-tokens-table th,
 #sensors-unauth-table th {

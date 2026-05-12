@@ -179,7 +179,7 @@ const Sensors = (() => {
     // list.
     const pending = (tokens || []).filter(t => !t.used_at);
     if (pending.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" style="font-style:italic;color:var(--fg-dim);text-align:center;padding:12px">No outstanding tokens.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="font-style:italic;color:var(--fg-dim);text-align:center;padding:12px">No outstanding tokens.</td></tr>';
       return;
     }
     const now = Math.floor(Date.now() / 1000);
@@ -197,6 +197,7 @@ const Sensors = (() => {
         <td style="font-size:11px" title="${_fmtTSFull(t.expires_at)}">${_fmtTS(t.expires_at)}</td>
         <td><span style="color:${color};font-size:11px">${status}</span></td>
         <td>${kebab}</td>
+        <td></td>
       </tr>`;
     }).join('');
   }
@@ -205,7 +206,7 @@ const Sensors = (() => {
     const tbody = document.getElementById('sensors-unauth-tbody');
     if (!tbody) return;
     if (!rows || rows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" style="font-style:italic;color:var(--fg-dim);text-align:center;padding:12px">No unauthorized attempts.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="font-style:italic;color:var(--fg-dim);text-align:center;padding:12px">No unauthorized attempts.</td></tr>';
       return;
     }
     tbody.innerHTML = rows.map(a => {
@@ -219,6 +220,7 @@ const Sensors = (() => {
         <td style="font-size:11px" title="${_fmtTSFull(a.last_seen)}">${_fmtTS(a.last_seen)}</td>
         <td>${a.attempt_count}</td>
         <td>${kebab}</td>
+        <td></td>
       </tr>`;
     }).join('');
   }
