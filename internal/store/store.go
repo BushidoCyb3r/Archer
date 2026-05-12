@@ -211,6 +211,73 @@ func (s *Store) InitDB(db *sql.DB) {
 	}
 
 	s.loadFindings()
+	s.loadNotifications()
+}
+
+// loadNotifications rehydrates the in-memory notification queue from
+// the persistent table. notifCounter is seeded from MAX(id) so the
+// next AddAlarm or SetFindings bell emission assigns an ID strictly
+// above every persisted row. Caller must hold s.mu (called from
+// InitDB which holds it).
+//
+// Pre-fix (NEW-98 in the twenty-third audit round) notifications
+// lived only in s.notifications + s.notifCounter, both in-memory.
+// A server restart wiped every active alarm — finding-based bell
+// alarms, sensor heartbeat alarms, feed health alarms. The
+// operator's last surface for "what alerted today" disappeared on
+// any redeploy. Persisting through SQLite matches the NEW-72
+// pattern for Correlations.
+func (s *Store) loadNotifications() {
+	if s.db == nil {
+		return
+	}
+	rows, err := s.db.Query(`SELECT id, kind, target, detail, finding_id,
+	                                severity, type, src_ip, dst_ip, dst_port,
+	                                dismissed
+	                         FROM notifications ORDER BY id`)
+	if err != nil {
+		log.Printf("store: cannot load notifications: %v", err)
+		return
+	}
+	defer rows.Close()
+	var maxID int
+	for rows.Next() {
+		var n model.Notification
+		var dismissed int
+		if err := rows.Scan(&n.ID, &n.Kind, &n.Target, &n.Detail, &n.FindingID,
+			&n.Severity, &n.Type, &n.SrcIP, &n.DstIP, &n.DstPort, &dismissed); err != nil {
+			continue
+		}
+		n.Dismissed = dismissed != 0
+		s.notifications = append(s.notifications, n)
+		if n.ID > maxID {
+			maxID = n.ID
+		}
+	}
+	s.notifCounter = maxID
+}
+
+// persistNotification writes a freshly-emitted notification row.
+// Caller must hold s.mu and have already assigned the ID via
+// notifCounter. Soft-failure (log + continue) matches the rest of
+// the store's persistence pattern: an in-memory state ahead of disk
+// is recoverable next time the table is touched; a hard failure on
+// every alarm would convert a small reliability issue into a hard
+// outage.
+func (s *Store) persistNotification(n model.Notification) {
+	if s.db == nil {
+		return
+	}
+	_, err := s.db.Exec(`INSERT INTO notifications
+		(id, kind, target, detail, finding_id, severity, type, src_ip, dst_ip, dst_port, dismissed, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+		n.ID, n.Kind, n.Target, n.Detail, n.FindingID,
+		n.Severity, n.Type, n.SrcIP, n.DstIP, n.DstPort,
+		time.Now().Unix(),
+	)
+	if err != nil {
+		log.Printf("store: persist notification %d: %v", n.ID, err)
+	}
 }
 
 // persistList replaces all rows in tbl with the current entries.
@@ -521,16 +588,22 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 		if f.Type == "Host Risk Score" {
 			continue
 		}
-		// Bell threshold: only score >= 99 findings notify. Pre-fix
-		// the gate was (Severity == CRITICAL || IsThreatIntelType),
-		// which fired for any score >= 80 plus every TI hit
-		// regardless of confidence — operators learned to ignore the
-		// bell because the false-positive rate buried the rare
-		// genuine alert. Score >= 99 captures only the top-tier
-		// confidence bucket the scoring formulas were calibrated
-		// to reach. Sensor and feed alarms (Kind != "finding") have
-		// their own emit paths and bypass this gate entirely.
-		if f.IsNew && f.Score >= 99 {
+		// Bell threshold: f.Score >= 95. v0.17.0 first cut this at
+		// `>= 99`, which over-corrected — the discrete-tier
+		// detectors (URLhaus 96, Malicious JA3 95, FeodoTracker 97)
+		// top out below 99 by design, so externally-validated
+		// high-confidence indicators stayed silent. NEW-99 in the
+		// twenty-third audit round: 95 captures the top of both the
+		// discrete-tier population AND the computed-score
+		// population (Beaconing/Correlated Activity hit 95+ when
+		// the underlying signal is strong) without arbitrary
+		// compression of either. See CHANGELOG v0.17.1 for the
+		// enumerated tier (which specific detectors ring vs don't);
+		// the enumeration locks the contract so a future detector
+		// score change can't silently shift bell semantics.
+		// Sensor and feed alarms (Kind != "finding") bypass this
+		// gate entirely via AddAlarm.
+		if f.IsNew && f.Score >= 95 {
 			s.notifCounter++
 			n := model.Notification{
 				ID:        s.notifCounter,
@@ -543,6 +616,7 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 				DstPort:   f.DstPort,
 			}
 			s.notifications = append(s.notifications, n)
+			s.persistNotification(n)
 			newNotifs = append(newNotifs, n)
 		}
 	}
@@ -850,6 +924,7 @@ func (s *Store) AddAlarm(n model.Notification) model.Notification {
 	s.notifCounter++
 	n.ID = s.notifCounter
 	s.notifications = append(s.notifications, n)
+	s.persistNotification(n)
 	return n
 }
 
@@ -859,6 +934,11 @@ func (s *Store) DismissNotification(id int) {
 	for i := range s.notifications {
 		if s.notifications[i].ID == id {
 			s.notifications[i].Dismissed = true
+			if s.db != nil {
+				if _, err := s.db.Exec(`UPDATE notifications SET dismissed = 1 WHERE id = ?`, id); err != nil {
+					log.Printf("store: persist dismiss notification %d: %v", id, err)
+				}
+			}
 			return
 		}
 	}
@@ -869,6 +949,11 @@ func (s *Store) DismissAllNotifications() {
 	defer s.mu.Unlock()
 	for i := range s.notifications {
 		s.notifications[i].Dismissed = true
+	}
+	if s.db != nil {
+		if _, err := s.db.Exec(`UPDATE notifications SET dismissed = 1 WHERE dismissed = 0`); err != nil {
+			log.Printf("store: persist dismiss all notifications: %v", err)
+		}
 	}
 }
 
