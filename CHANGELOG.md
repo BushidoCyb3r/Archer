@@ -30,6 +30,34 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.18.2] — 2026-05-12
+
+Two small operator-pulled changes. The DB backup button closes a
+"what if I want to reference this state later" gap that hadn't had
+a first-class affordance — previously the operator had to shell
+into the container and copy `/data/archer.db` by hand, with the WAL
+gotcha that the file alone misses unflushed data. The context-menu
+arrow color was a visibility complaint from dogfooding.
+
+### Added
+
+- **Admin DB backup.** Settings → Backup → Download DB backup
+  streams a consistent VACUUM INTO snapshot of the live SQLite
+  database. Admin-only via the existing role gate on the Settings
+  button. Filename is timestamped (UTC). The download covers
+  findings, notes, audit log, sensor enrollments, allowlist / IOC /
+  suppressions, and users — restoring means stopping Archer and
+  replacing `/data/archer.db`. Audit-logged as `db_backup` with
+  size and filename, so an exfil-via-backup attempt leaves a row.
+
+### Changed
+
+- **Context-menu click-anchor arrow brightened.** The right-click
+  menu's anchor glyph — the small arrow that points back at the
+  click point — was `var(--accent)` (blue) at 16px, hard to spot
+  against the dark menu chrome. Now `#ff2d2d` at 18px with
+  `font-weight: 700` so the operator can find it without hunting.
+
 ## [v0.18.1] — 2026-05-12
 
 Operator-pulled dock-UX refinements stacked on top of v0.18.0, plus
