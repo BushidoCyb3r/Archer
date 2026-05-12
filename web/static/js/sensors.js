@@ -425,6 +425,17 @@ const Sensors = (() => {
     dlg.showModal();
   }
 
+  // open is the public entry point used by both the Sensors button
+  // click handler and the bell-notification jump dispatch for
+  // Kind=sensor alarms. Refreshes the data sources the modal reads
+  // from, then shows the dialog.
+  async function open() {
+    await Promise.all([_loadInfo(), _loadWatchTZ(), _loadDiskUsage()]);
+    await refresh();
+    const dlg = document.getElementById('sensors-dialog');
+    if (dlg) dlg.showModal();
+  }
+
   // ── init ──────────────────────────────────────────────────────────────
 
   function init(isAdmin) {
@@ -439,11 +450,7 @@ const Sensors = (() => {
     }
 
     const dlg = document.getElementById('sensors-dialog');
-    btn.addEventListener('click', async () => {
-      await Promise.all([_loadInfo(), _loadWatchTZ(), _loadDiskUsage()]);
-      await refresh();
-      dlg.showModal();
-    });
+    btn.addEventListener('click', open);
     document.getElementById('sensors-close').addEventListener('click', () => dlg.close());
 
     const tokenDlg = document.getElementById('sensors-token-dlg');
@@ -487,5 +494,5 @@ const Sensors = (() => {
     }
   }
 
-  return { init, refresh };
+  return { init, refresh, open };
 })();

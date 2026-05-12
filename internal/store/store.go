@@ -521,10 +521,20 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 		if f.Type == "Host Risk Score" {
 			continue
 		}
-		if f.IsNew && (f.Severity == model.SevCritical || model.IsThreatIntelType(f.Type)) {
+		// Bell threshold: only score >= 99 findings notify. Pre-fix
+		// the gate was (Severity == CRITICAL || IsThreatIntelType),
+		// which fired for any score >= 80 plus every TI hit
+		// regardless of confidence — operators learned to ignore the
+		// bell because the false-positive rate buried the rare
+		// genuine alert. Score >= 99 captures only the top-tier
+		// confidence bucket the scoring formulas were calibrated
+		// to reach. Sensor and feed alarms (Kind != "finding") have
+		// their own emit paths and bypass this gate entirely.
+		if f.IsNew && f.Score >= 99 {
 			s.notifCounter++
 			n := model.Notification{
 				ID:        s.notifCounter,
+				Kind:      "finding",
 				FindingID: f.ID,
 				Severity:  string(f.Severity),
 				Type:      f.Type,

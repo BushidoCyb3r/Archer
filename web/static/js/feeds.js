@@ -214,6 +214,16 @@ const Feeds = (() => {
     }
   }
 
+  // open is the public entry point used by both the Feeds button
+  // click handler and the bell-notification jump dispatch for
+  // Kind=feed alarms.
+  async function open() {
+    await refresh();
+    const dlg = document.getElementById('feeds-dialog');
+    if (dlg) dlg.showModal();
+    _startPoll();
+  }
+
   // ── init ──────────────────────────────────────────────────────────────
 
   function init(isAdmin) {
@@ -228,11 +238,7 @@ const Feeds = (() => {
     }
 
     const dlg = document.getElementById('feeds-dialog');
-    btn.addEventListener('click', async () => {
-      await refresh();
-      dlg.showModal();
-      _startPoll();
-    });
+    btn.addEventListener('click', open);
     document.getElementById('feeds-close').addEventListener('click', () => {
       _stopPoll();
       dlg.close();
@@ -248,5 +254,5 @@ const Feeds = (() => {
     document.getElementById('feeds-tbody').addEventListener('click', _onRowClick);
   }
 
-  return { init, refresh };
+  return { init, refresh, open };
 })();

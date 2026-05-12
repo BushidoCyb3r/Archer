@@ -3376,7 +3376,22 @@
       document.getElementById('graph-export-scope-dlg').close();
     });
 
-    Notifications.init(async findingId => {
+    Notifications.init(async notif => {
+      // Dispatch by notification kind. Sensor and feed alarms open
+      // their respective modals; finding alarms run the existing
+      // jump-to-row logic. Empty kind reads as "finding" for
+      // backward compat with notifications persisted before the
+      // kind field existed.
+      const kind = notif.kind || 'finding';
+      if (kind === 'sensor') {
+        if (typeof Sensors !== 'undefined' && Sensors.open) Sensors.open();
+        return;
+      }
+      if (kind === 'feed') {
+        if (typeof Feeds !== 'undefined' && Feeds.open) Feeds.open();
+        return;
+      }
+      const findingId = notif.finding_id;
       // The finding may be filtered out of _allFindings or live on a
       // different page than the one currently loaded. Fetch it directly
       // so we always know its status (and therefore which tab to land

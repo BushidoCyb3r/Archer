@@ -815,3 +815,59 @@ func TestBeaconHistory_CapsAtRetentionWindow(t *testing.T) {
 		t.Errorf("returned row has day_utc=%q, want %q (the in-window day)", got[0].DayUTC, inside)
 	}
 }
+
+// TestSetFindings_BellGate_OnlyScoreAtLeast99Notifies codifies the
+// noise-reduction gate. The invariant: a finding emits a bell
+// notification iff it is new AND score >= 99. Score 99 and 100 ring
+// the bell; everything below (including CRITICAL severity at score
+// 80–98 and TI hits below 99) does not. Host Risk Score is excluded
+// regardless of score because it's a roll-up, not a discrete event.
+//
+// Articulating the invariant rather than the failure case: the
+// previous gate (CRITICAL || TI) had a wide input space; this
+// asserts the contract holds across multiple shapes inside that
+// space — high-but-sub-99 CRITICAL, TI under 99, score 99 exactly,
+// score 100, score 100 Host Risk Score.
+func TestSetFindings_BellGate_OnlyScoreAtLeast99Notifies(t *testing.T) {
+	s := New(config.Default())
+	findings := []model.Finding{
+		// Below threshold: should NOT notify even though severity is CRITICAL.
+		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+			Score: 85, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+		// Below threshold: TI Hit historically auto-notified regardless of
+		// score; under the new gate it must not.
+		{Type: "TI Hit", SrcIP: "10.0.0.2", DstIP: "1.1.1.2",
+			Score: 70, Severity: model.SevHigh, Timestamp: "2026-05-12 09:00:00"},
+		// Edge: exactly 99 — notifies.
+		{Type: "Beaconing", SrcIP: "10.0.0.3", DstIP: "1.1.1.3", DstPort: "443",
+			Score: 99, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+		// Edge: 100 — notifies.
+		{Type: "Cobalt Strike URI", SrcIP: "10.0.0.4", DstIP: "1.1.1.4",
+			Score: 100, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+		// Excluded by type even at max score — Host Risk Score is a roll-up.
+		{Type: "Host Risk Score", SrcIP: "10.0.0.5", DstIP: "(host)",
+			Score: 100, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
+	}
+	// All five are new on first SetFindings, so IsNew gets set inside.
+	notifs := s.SetFindings(findings)
+
+	if len(notifs) != 2 {
+		t.Fatalf("got %d notifications, want 2 (the two score>=99 non-rollup findings); notifs=%+v", len(notifs), notifs)
+	}
+	gotTypes := map[string]bool{}
+	for _, n := range notifs {
+		gotTypes[n.Type] = true
+		if n.Kind != "finding" {
+			t.Errorf("notification for %s has Kind=%q, want \"finding\"", n.Type, n.Kind)
+		}
+	}
+	if !gotTypes["Beaconing"] {
+		t.Errorf("score-99 Beaconing missing from notifications: %+v", notifs)
+	}
+	if !gotTypes["Cobalt Strike URI"] {
+		t.Errorf("score-100 Cobalt Strike URI missing from notifications: %+v", notifs)
+	}
+	if gotTypes["Host Risk Score"] {
+		t.Errorf("Host Risk Score (roll-up) should not notify even at score 100")
+	}
+}
