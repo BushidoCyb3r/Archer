@@ -589,13 +589,16 @@
       <table id="sensors-table">
         <thead>
           <tr>
-            <th style="width:140px">Name</th>
-            <th style="width:160px">Host</th>
-            <th style="width:100px">Status</th>
-            <th style="width:130px">Slot</th>
-            <th style="width:200px">Last seen</th>
-            <th style="width:90px">Health</th>
-            <th style="width:90px">Size</th>
+            <!-- min-width (not width) so columns can expand to fit
+                 content while keeping a floor. Mirrors the Feeds
+                 modal + Audit Log table behavior. -->
+            <th style="min-width:140px">Name</th>
+            <th style="min-width:170px">Host</th>
+            <th style="min-width:110px">Status</th>
+            <th style="min-width:140px">Slot</th>
+            <th style="min-width:200px">Last seen</th>
+            <th style="min-width:110px">Health</th>
+            <th style="min-width:100px">Size</th>
             <th></th>
           </tr>
         </thead>
@@ -714,12 +717,16 @@
       <table id="feeds-table">
         <thead>
           <tr>
-            <th style="width:160px">Name</th>
-            <th style="width:90px">Source</th>
-            <th style="width:90px">Status</th>
-            <th style="width:90px">Indicators</th>
-            <th style="width:170px">Last refresh</th>
-            <th style="width:80px">Aging</th>
+            <!-- min-width (not width) so each column has a floor but
+                 can expand to fit content; mirrors the Audit Log
+                 table so "fetching · 50k indicators" and 7-digit
+                 indicator counts render in full. -->
+            <th style="min-width:160px">Name</th>
+            <th style="min-width:90px">Source</th>
+            <th style="min-width:170px">Status</th>
+            <th style="min-width:120px">Indicators</th>
+            <th style="min-width:180px">Last refresh</th>
+            <th style="min-width:80px">Aging</th>
             <th></th>
           </tr>
         </thead>
