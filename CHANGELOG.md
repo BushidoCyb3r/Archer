@@ -30,6 +30,82 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.17.0] — 2026-05-12
+
+Notification hygiene + operator visibility slice. Four changes
+that together address the operator's pain point with the bell:
+firing on every CRITICAL/TI finding meant analysts learned to
+ignore it, and the conditions that genuinely demand attention —
+a sensor dying, a feed silently failing, the SSE pipe wedging —
+had no surface at all. The bell is now reserved for top-tier
+finding confidence (score >= 99) and the three operational
+alarms ride alongside it.
+
+### Breaking
+
+- **DB schema (minor bump pre-1.0).** Migration `0013` adds
+  `consecutive_failures INTEGER NOT NULL DEFAULT 0` to `feeds`.
+  Forward-only; existing rows pick up the default automatically.
+- **Bell semantics changed.** The previous gate
+  (`Severity == CRITICAL || IsThreatIntelType`) fired for any
+  score ≥ 80 and every TI hit. The new gate is `Score >= 99`.
+  Operators who relied on the bell as a HIGH-confidence flag
+  will see significantly fewer notifications; the existing
+  notification panel and `/api/notifications` endpoint shape
+  is unchanged (the `Notification` JSON gains `kind`, `target`,
+  and `detail` fields, all optional with documented defaults).
+
+### Added
+
+- **Bell threshold gated at score >= 99.** Detection findings
+  ring the bell only when they hit the top-tier confidence
+  bucket. Host Risk Score is still excluded as before (rollup,
+  not a discrete event).
+- **`Notification` model now carries `Kind`, `Target`, `Detail`.**
+  Kind disambiguates the bell entry (`"finding"`, `"sensor"`,
+  `"feed"`; empty reads as `"finding"` for backward compat).
+  Target is the sensor or feed name for non-finding alarms;
+  Detail is the human-readable description the panel renders
+  under the type/severity line.
+- **Sensor heartbeat alarm.** A new periodic loop watches every
+  enrolled sensor's `last_seen_at` (and on-disk rsync mtime,
+  the latest of the two). Crossing 2h without a signal emits
+  a `Kind=sensor` notification ("Sensor lab-1 hasn't checked
+  in for 2h 15m"). Transition-edge dedup: one alarm per
+  staleness episode, cleared automatically when the sensor
+  checks in again. Disenrolled sensors and never-reported
+  sensors are skipped.
+- **`GET /api/sensors/health`.** External-monitoring endpoint
+  returning per-sensor staleness state (`name`, `last_seen_at`,
+  `stale`, `stale_for_seconds`, `stale_threshold_sec`). Same
+  threshold the bell uses, so Prometheus/Nagios checks and the
+  operator's bell stay in sync.
+- **Feed reliability alarm.** Two unhealthy criteria emit a
+  `Kind=feed` notification: `consecutive_failures >= 3` (the
+  refresh worker bumps the counter on every "error" cycle and
+  resets it on every "ok" cycle via SQL CASE so concurrent
+  refreshes don't race) OR `last_refresh_at` > 24h ago
+  (catches the case where the refresh path itself isn't
+  running). Disabled feeds are skipped.
+- **Watch heartbeat SSE tick.** The server publishes
+  `watch.heartbeat` every 60s. A small dot in the top bar
+  flips green/red based on the most recent beat; 180s without
+  a tick flips red ("watch is dead and quiet" vs "watch is
+  healthy and quiet"). Ticks unconditionally — proves the SSE
+  pipeline is alive even when watch is configured off.
+- **Bell jump dispatches by `Kind`.** Sensor alarms open the
+  Sensors modal; feed alarms open the Feeds modal; finding
+  alarms run the existing jump-to-row logic. Both modules
+  expose a small `open()` helper.
+
+### Changed
+
+- `UpdateFeedRefreshState` writes `consecutive_failures` via
+  CASE on `status` ('ok' → 0, 'error' → +1, else unchanged).
+- `Notification` JSON payload gained `kind`/`target`/`detail`
+  fields; consumers that don't recognise them ignore them
+  harmlessly.
+
 ## [v0.16.5] — 2026-05-12
 
 Twenty-second external review round, first post-v0.16.4. Two
