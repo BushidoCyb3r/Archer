@@ -1854,12 +1854,15 @@ dialog::backdrop {
 #allowlist-dialog,
 #ioc-dialog                   { width: 480px; }
 #sensors-token-dlg            { width: min(95vw, 1250px); }
-/* Sensors + Feeds modals open wide so columns have room before they
-   need to truncate. Same shape the Audit Log dialog uses — let
-   max-width float to 95vw so the dialog grows with the analyst's
-   screen instead of getting clipped at 1100px on a 27" display. */
+/* Sensors modal still floats to 95vw — long sensor hostnames and
+   slot strings benefit from the room. The Feeds dialog opens at
+   the table's natural width (1000px = sum of column widths +
+   cell padding + small margin) so the action buttons are
+   visible right at default open, then the operator can drag the
+   bottom-right resize handle wider to add whitespace or
+   narrower to squish the columns. */
 #sensors-dialog               { width: 95vw; max-width: 1500px; }
-#feeds-dialog                 { width: 95vw; max-width: 1500px; }
+#feeds-dialog                 { width: 1000px; max-width: 95vw; }
 #feeds-edit-dlg               { width: 480px; }
 
 /* Feeds table — same scaffold as the Sensors table. The inline column
@@ -1876,7 +1879,13 @@ dialog::backdrop {
      same screen position. Shrinking the modal below 950px squishes
      the columns proportionally. */
   table-layout: fixed;
-  max-width: 950px;
+  /* Column widths sum to 840px (110 Name + 90 Source + 100 Status
+     + 110 Indicators + 130 Last refresh + 60 Aging + 240 Action).
+     Plus 7 cells × 20px horizontal padding = 980px. max-width
+     1000px gives a small breathing margin and matches the
+     dialog's default-open width so the modal frames the table
+     without empty whitespace on initial render. */
+  max-width: 1000px;
   border-collapse: collapse;
   font-size: 14px;
 }
