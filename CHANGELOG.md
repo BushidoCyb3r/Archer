@@ -30,6 +30,120 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.18.0] — 2026-05-12
+
+Analyst-workflow slice. Four user-visible surfaces shipped together
+because they pull on the same workflow: a new finding status, a
+restructured detail dock, a chart that can be exported, and the
+twenty-fourth external review round closing six findings against
+the slice itself.
+
+The motivating ask was a lightweight reversible bucket distinct
+from Acknowledge — analysts wanted to clear noise from their default
+view without committing to the heavier semantics of "I've reviewed
+this." The Dismissed status answers that, and the surrounding work
+(dedicated tab with Findings + Campaigns sub-tabs, bulk-dismiss on
+campaign aggregates, default-exclude from the other tabs) makes the
+new status useful in practice.
+
+The dock redesign and chart export are parallel tracks that landed
+in the same window — the dock turns the detail pane into a tabbed
+surface (Detail / Notes / TI Results) with collapse persistence and
+keyboard shortcuts; the chart gets an expand-to-modal button and
+client-side PNG/JPEG export. None of it requires a server roundtrip;
+the chart export is pure SVG → canvas → toDataURL.
+
+The audit on top closed six items. NEW-105 through NEW-110: var()
+fallback parsing in the chart export, dock auto-expand overwriting
+persisted preference, "Dismiss campaign" label being overwritten by
+a downstream pass, a missing contract test for the "TI Enrichment"
+author literal, a misleading aspect-ratio CSS rule on the modal SVG,
+and an HRS-vs-dismissed design question resolved in code comment.
+Pattern: integration points between independently-correct components.
+
+### Added
+
+- **Dismissed finding status.** Fourth status value alongside Open,
+  Acknowledged, Escalated. The store and PATCH validator accept it;
+  filterFindings excludes dismissed by default unless either the
+  request explicitly filters on status=dismissed or passes
+  include_dismissed=true. Reversible via the same Un-dismiss action
+  surfaced in the context menu when the row is currently dismissed.
+- **Dismissed tab with Findings + Campaigns sub-tabs.** Top-level tab
+  shows dismissed findings; the Campaigns sub-tab rolls them up by
+  (dst, port). Hosts is intentionally excluded — bulk-dismissing a
+  source IP's findings would erase the host's risk story.
+- **Bulk-dismiss on Campaigns rows.** Right-click on a Campaigns
+  aggregate offers "Dismiss campaign" — best-effort PATCH loop
+  across every open finding in the campaign with a shared note.
+  Status reports partial success when the loop returns mixed results.
+- **Tabbed findings dock.** Detail / Notes / TI Results tabs replace
+  the single-pane detail. Notes partition on the author literal
+  "TI Enrichment" so TI cross-annotation surfaces in its own tab.
+  Tab badges show counts; last-used tab persists; 1/2/3 keyboard
+  shortcuts flip tabs when focus isn't in an input.
+- **Dock collapse with persisted preference.** Toggle button hides
+  the dock body so the table claims the vertical space. Row clicks
+  auto-expand without overwriting the persisted "I want this
+  collapsed" preference.
+- **Beacon evolution chart expand-to-modal + image export.** Click
+  the chart to open in a modal at a larger size; export to PNG or
+  JPEG via the modal's action footer. Pure client-side serialize →
+  canvas → toDataURL; no new server endpoint.
+
+### Detection changes
+
+- **Host Risk Score continues to include dismissed findings.** This
+  is a deliberate semantic choice documented in `aggregateRisk`:
+  Dismiss is a lightweight reversible view-state bucket, not a
+  "false-positive, drop it" verdict. Excluding dismissed from HRS
+  would put load-bearing weight on a one-click reversible action.
+  Analysts who want a detection to stop influencing risk should add
+  it to the allowlist or suppression surfaces.
+
+### Fixed
+
+- **NEW-105: beacon chart export silently dropped the data-size
+  line.** The var() resolver in beacon_evolution.js parsed
+  `var(--accent-alt, #6bb6ff)` as the variable name
+  `--accent-alt, #6bb6ff` (looking at the first close-paren rather
+  than the var name boundary), couldn't resolve it, and left the
+  original var() reference in the serialized SVG where the off-DOM
+  canvas render strokes it as transparent. Parser now splits on the
+  first comma and falls back to the literal fallback value.
+- **NEW-106: dock auto-expand overwrote the operator's persisted
+  collapse preference.** Every row click called `_setDockCollapsed(false)`
+  which unconditionally wrote to localStorage. The operator's
+  explicit "collapse this dock" preference was destroyed by the
+  next row inspection. `_setDockCollapsed` grew a persist parameter
+  defaulting to true; the auto-expand passes false.
+- **NEW-107: "Dismiss campaign" context-menu label was overwritten
+  to "Dismiss".** A downstream status-aware label rewrite ran
+  unconditionally on every row, including Campaigns aggregates
+  (which have no status). The campaign-aware label set earlier in
+  the flow was destroyed. The rewrite now skips campaign aggregates.
+
+### Tests
+
+- **NEW-108: contract test for the "TI Enrichment" author literal.**
+  The SPA partitions notes into the TI Results tab by exact-match
+  on author === "TI Enrichment". The Go side hardcodes the same
+  string in three sites. Test scans all four locations to lock the
+  cross-language convention. Same shape as NEW-74's spectral-rescue
+  marker test.
+
+### Documentation
+
+- **NEW-109: dropped misleading aspect-ratio: 9/4 CSS on the modal
+  beacon chart.** The SVG's viewBox is 3:1; the CSS rule forced a
+  9:4 container that the chart letterboxed inside via the default
+  preserveAspectRatio. Cosmetic, but the rule advertised an
+  aspect ratio the chart wasn't using. With the CSS gone, the modal
+  renders the chart at its true ratio.
+- **NEW-110: aggregateRisk now documents the HRS-vs-dismissed
+  semantic.** Inline comment explains why Status filtering is
+  deliberately absent — see Detection changes section above.
+
 ## [v0.17.1] — 2026-05-12
 
 Twenty-third external review round, first post-v0.17.0. Seven
