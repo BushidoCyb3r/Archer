@@ -30,6 +30,23 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.18.7] — 2026-05-12
+
+### Fixed
+
+- **Indicators column in the Feeds modal is now left-aligned.**
+  Was inline-styled `text-align:right`, which read oddly against
+  the rest of the left-aligned table and pushed the truncated
+  badge to the opposite side of the cell from the number.
+- **Action columns in the Feeds and Sensors modals get an
+  explicit min-width.** When other columns expanded to fit long
+  content (wide feed name, full "fetching · 47k indicators · 12s"
+  status), the trailing action column collapsed and the
+  rightmost button (Delete on Feeds, Purge on Sensors) got
+  clipped. min-width: 260px on Feeds and 200px on Sensors gives
+  the row's admin buttons a guaranteed floor regardless of how
+  much room the other columns claim.
+
 ## [v0.18.6] — 2026-05-12
 
 ### Changed
