@@ -604,6 +604,18 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 		// Sensor and feed alarms (Kind != "finding") bypass this
 		// gate entirely via AddAlarm.
 		if f.IsNew && f.Score >= 95 {
+			// Don't fire the bell for findings the operator has chosen
+			// to hide. filterFindings (findings_filter.go) excludes
+			// allowlisted and currently-suppressed src/dst at read
+			// time, so a notification for such a finding rings the
+			// bell but the Jump button can't land on a row — every
+			// list endpoint hides it. The operator sees an alert they
+			// already told Archer not to surface. Same matcher used
+			// at filter time, evaluated under the existing write lock.
+			// NEW-111.
+			if s.isHiddenLocked(f.SrcIP, f.DstIP) {
+				continue
+			}
 			s.notifCounter++
 			n := model.Notification{
 				ID:        s.notifCounter,
@@ -711,6 +723,11 @@ func (s *Store) SetAllowlist(entries []string) {
 	s.allowlist = sanitizeListEntries(entries)
 	s.persistList("allowlist", s.allowlist)
 	s.allowlistM = match.Compile(s.allowlist)
+	// Stale-notification cleanup: any active bell row whose finding is
+	// now hidden by this allowlist would scroll-fail on Jump (the row
+	// is filtered out of every listing). Dismiss them in lockstep with
+	// the matcher update so the bell stays honest. NEW-111.
+	s.dismissHiddenFindingNotificationsLocked()
 }
 
 func (s *Store) GetIOCList() []string {
@@ -825,6 +842,9 @@ func (s *Store) AddSuppression(target string, expiry time.Time, detail string) {
 			log.Printf("store: persist suppression: %v", err)
 		}
 	}
+	// Stale-notification cleanup — see SetAllowlist for rationale.
+	// NEW-111.
+	s.dismissHiddenFindingNotificationsLocked()
 	s.mu.Unlock()
 }
 
@@ -876,6 +896,60 @@ func (s *Store) IsSuppressed(ip string) bool {
 		return false
 	}
 	return !time.Now().After(entry.Expiry)
+}
+
+// isHiddenLocked reports whether either of the two IPs is currently
+// hidden by the allowlist or the (unexpired) suppression set. Mirrors
+// the filterFindings exclusion check at findings_filter.go:107-112 so
+// SetFindings's bell-emit path and the dismiss-on-list-update path
+// share a single source of truth for "would the analyst see this in
+// the table?". Caller must hold s.mu (write or read). NEW-111.
+func (s *Store) isHiddenLocked(srcIP, dstIP string) bool {
+	if s.allowlistM != nil {
+		if s.allowlistM.Matches(srcIP) || s.allowlistM.Matches(dstIP) {
+			return true
+		}
+	}
+	now := time.Now()
+	if entry, ok := s.suppressions[srcIP]; ok && now.Before(entry.Expiry) {
+		return true
+	}
+	if entry, ok := s.suppressions[dstIP]; ok && now.Before(entry.Expiry) {
+		return true
+	}
+	return false
+}
+
+// dismissHiddenFindingNotificationsLocked walks active finding
+// notifications and dismisses any whose Src or Dst is now hidden by
+// the allowlist or suppression set. Called from SetAllowlist and
+// AddSuppression after the underlying matcher has been updated, so
+// existing bell entries don't outlive the row they reference. Sensor
+// and feed alarms have no Src/Dst IPs and pass through unchanged.
+// Caller must hold s.mu (write lock). NEW-111.
+func (s *Store) dismissHiddenFindingNotificationsLocked() {
+	var dismissedIDs []int
+	for i := range s.notifications {
+		n := &s.notifications[i]
+		if n.Dismissed {
+			continue
+		}
+		// Empty Kind reads as "finding" (pre-v0.17.0 persisted rows).
+		if n.Kind != "" && n.Kind != "finding" {
+			continue
+		}
+		if s.isHiddenLocked(n.SrcIP, n.DstIP) {
+			n.Dismissed = true
+			dismissedIDs = append(dismissedIDs, n.ID)
+		}
+	}
+	if s.db != nil && len(dismissedIDs) > 0 {
+		for _, id := range dismissedIDs {
+			if _, err := s.db.Exec(`UPDATE notifications SET dismissed = 1 WHERE id = ?`, id); err != nil {
+				log.Printf("store: persist dismiss-on-hidden notification %d: %v", id, err)
+			}
+		}
+	}
 }
 
 // PruneExpiredSuppressions deletes every expired suppression in one

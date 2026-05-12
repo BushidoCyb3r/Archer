@@ -3935,15 +3935,24 @@
       _loadFacets();
 
       // Look up the absolute position under the now-cleared filter,
-      // then fetch the page that contains it.
+      // then fetch the page that contains it. `positionFound` lets us
+      // tell "row exists in the filtered listing" from "row is hidden
+      // by allowlist/suppression" — the single-finding fetch above
+      // bypasses filterFindings, but every list endpoint runs through
+      // it, so a finding whose src/dst is now allowlisted or
+      // suppressed has Details we can render but no row to jump to.
       const params = _currentFilterParams();
       let pageOffset = 0;
+      let positionFound = true;
       try {
         const qs = new URLSearchParams(params).toString();
         const posRes = await fetch(`/api/findings/${findingId}/position` + (qs ? '?' + qs : ''));
         if (posRes.ok) {
           const pos = await posRes.json();
           if (pos.found) pageOffset = Math.floor(pos.offset / _pageSize) * _pageSize;
+          else positionFound = false;
+        } else if (posRes.status === 404) {
+          positionFound = false;
         }
       } catch (_) { /* fall through with offset=0 */ }
 
@@ -3954,7 +3963,18 @@
       }
       _selectedFinding = target;
       Detail.render(target);
-      Table.jumpTo(findingId);
+      if (positionFound) {
+        Table.jumpTo(findingId);
+      } else {
+        // The notification's row is filtered out of every listing
+        // (typical cause: src or dst was added to the allowlist or
+        // suppression list after the bell rang). The Details are
+        // rendered in the dock from the direct fetch, so the analyst
+        // can still inspect and take action via the footer buttons —
+        // but the table has no row to scroll to. Surface that
+        // explicitly so the click isn't a mysterious no-op.
+        setStatus('Finding is hidden from table view (allowlisted, suppressed, or filter mismatch). Details rendered in dock.');
+      }
     });
 
     // Fetch current user for display, note authorship, and role-gating
