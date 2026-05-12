@@ -289,6 +289,7 @@
            visible regardless of active tab so the analyst can take
            workflow action from any view. -->
       <div id="detail-pane">
+        <div id="dock-resize-handle" role="separator" aria-orientation="horizontal" aria-label="Resize details pane" title="Drag to resize"></div>
         <div id="dock-header-bar">
           <div id="detail-header">Select a finding</div>
           <button id="dock-collapse-btn" type="button" title="Collapse details pane" aria-label="Collapse details pane" aria-expanded="true">⌄</button>
@@ -297,6 +298,7 @@
           <button class="dock-tab-btn active" type="button" role="tab" data-dock-tab="detail" aria-selected="true">Detail</button>
           <button class="dock-tab-btn"        type="button" role="tab" data-dock-tab="notes"  aria-selected="false">Notes<span class="dock-tab-count" id="notes-badge"></span></button>
           <button class="dock-tab-btn"        type="button" role="tab" data-dock-tab="ti"     aria-selected="false">TI Results<span class="dock-tab-count" id="ti-badge"></span></button>
+          <button id="export-notes-btn" type="button" title="Download this finding's detail, TI results, and analyst notes as a .txt file" disabled>Export TXT</button>
         </div>
         <div id="dock-body">
           <!-- Detail tab: the finding's score/severity/IPs body + the
@@ -316,10 +318,6 @@
                machine-authored notes route to the TI Results tab so
                the analyst's read of "what I noted" stays focused). -->
           <div class="dock-tab-panel" id="dock-panel-notes" role="tabpanel" hidden>
-            <div id="notes-header">
-              <span>Analyst Notes</span>
-              <button id="export-notes-btn" type="button" title="Download all notes for this finding as a .txt file">Export TXT</button>
-            </div>
             <div id="notes-list"></div>
             <div id="add-note-row">
               <textarea id="inline-note-input" placeholder="Add a note…" rows="2"></textarea>
