@@ -410,6 +410,28 @@ gets a fresh HMAC secret. Old findings tagged with the previous
 enrollment stay attributed to the previous instance (suffixed
 `:disenrolled-<stamp>`).
 
+**Re-enrolling under the same name? Clear the old log directory
+first.** If a sensor is re-enrolled under a name that previously
+existed (the operator wiped the DB but didn't clean `/data/logs/`,
+or chose the same override name as a prior decommissioned sensor),
+the sensor heartbeat alarm reads `lastLogMTime` from the directory
+on first scan. The directory's mtime is whatever the last write
+was — often months stale. With the freshly-enrolled sensor's
+`last_seen_at=0`, `max(0, stale_mtime) = stale_mtime`, which is
+older than the 2h threshold. The bell fires a false-positive
+"sensor offline" alarm at the first 5-min tick after enrollment.
+NEW-104 in the twenty-third audit round. Mitigation is a single
+command before the re-enrollment install runs:
+
+```
+docker compose exec archer rm -rf /data/logs/<sensor-name>
+```
+
+Or, equivalently, use the **Purge** admin action in the Sensors
+modal *before* the re-enrollment — Purge deletes
+`/data/logs/<name>/` as part of its cleanup. Plain Disenroll does
+not (Disenroll preserves logs for forensic continuity).
+
 ---
 
 ## User offboarding
@@ -504,7 +526,7 @@ Use it to distinguish "watch is healthy and quiet" from "watch is
 dead and quiet." A wedged SSE pipe or a dead server will both
 surface within ~3.5 minutes.
 
-### External monitoring (`/api/sensors/health`)
+### Sensor health endpoint (`/api/sensors/health`)
 
 ```
 GET /api/sensors/health
@@ -527,17 +549,23 @@ returns:
 }
 ```
 
-Same staleness threshold and signal as the in-UI bell alarm, so a
-Prometheus textfile collector or Nagios check is in sync with what
-the operator sees. Disenrolled sensors are skipped from the
-response; never-reported sensors render with `stale=false` (the
-clock hasn't started).
+Same staleness threshold and signal as the in-UI bell alarm, so an
+analyst-facing script in the auth boundary (a hunt-team dashboard
+tile, an incident-response triage shell helper) sees what the
+operator sees. Disenrolled sensors are skipped from the response;
+never-reported sensors render with `stale=false` (the clock hasn't
+started).
 
-The endpoint requires an authenticated session (`any` role —
-analyst, admin, or viewer). For service-to-service monitoring,
-point your collector at a dedicated viewer-role user and store its
-session cookie alongside the scraper config; do not use admin
-credentials for a monitoring poll.
+**Auth scope.** The endpoint is session-cookie-gated through the
+`any` middleware (analyst / admin / viewer). It is *not* a
+Prometheus/Nagios scrape target today — external monitoring tools
+don't maintain session cookies, and Archer doesn't ship a service-
+account token surface as of v0.17.1. The endpoint was originally
+framed as "for external monitoring" in v0.17.0; that framing is
+retracted (NEW-100 in the twenty-third audit round). The endpoint
+is for in-auth-boundary consumers only. A first-class
+Prometheus/Nagios integration is a v0.18.x candidate pending
+operator pull — see MATURATION_PLAN §11.
 
 ---
 

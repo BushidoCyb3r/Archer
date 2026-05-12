@@ -1103,7 +1103,7 @@ Endpoints powering the Sensors modal. Read endpoints are open to admin + analyst
 | Method | Path | Role | Description |
 |---|---|---|---|
 | `GET` | `/api/sensors` | Analyst+ | List every sensor row (any status), most recent enrollment first |
-| `GET` | `/api/sensors/health` | Any | Per-sensor staleness state for external monitoring: `{"sensors":[{"name":"...","last_seen_at":N,"stale":bool,"stale_for_seconds":N,"stale_threshold_sec":7200}]}`. Same 2h threshold the bell heartbeat alarm uses. Skips disenrolled sensors; never-reported sensors render with `stale=false` (the clock hasn't started). |
+| `GET` | `/api/sensors/health` | Any | Per-sensor staleness state for analyst-facing scripts inside the auth boundary: `{"sensors":[{"name":"...","last_seen_at":N,"stale":bool,"stale_for_seconds":N,"stale_threshold_sec":7200}]}`. Same 2h threshold the bell heartbeat alarm uses. Skips disenrolled sensors; never-reported sensors render with `stale=false` (the clock hasn't started). Requires a session cookie — not directly consumable by Prometheus/Nagios-style scrape tooling; that use case is on the roadmap once a service-account token surface lands. |
 | `GET` | `/api/sensors/info` | Admin | `{"tls_fingerprint":"...","sensor_facing_host":"...","effective_host":"..."}` for rendering install one-liners |
 | `PUT` | `/api/sensors/host` | Admin | `{"host":"192.0.2.10"}` (or `"host:port"`); set the sensor-facing override that install one-liners target |
 | `GET` | `/api/sensors/tokens` | Admin | List enrollment tokens (used + unused) |

@@ -1466,6 +1466,18 @@
         lastBeat = Date.now();
         setHealthy();
       });
+      // SSE 'open' fires on initial connect AND on reconnect after a
+      // transient drop. Treat the connection itself as proof-of-life
+      // — without this, a brief drop-and-reconnect can leave the dot
+      // stale for up to one heartbeat interval (60s) after the SSE
+      // pipe is already alive again, because the next server-side
+      // tick hadn't yet fired. NEW-103 in the twenty-third audit
+      // round. Stale flips back to healthy here even if the actual
+      // heartbeat is still seconds away.
+      SSE.on('open', () => {
+        lastBeat = Date.now();
+        setHealthy();
+      });
       setInterval(evaluate, 30000);
     })();
 

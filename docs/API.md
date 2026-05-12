@@ -546,7 +546,7 @@ requires `admin` (enforced inside each handler).
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
 | `GET` | `/api/sensors` | any | List enrolled sensors + status. |
-| `GET` | `/api/sensors/health` | any | Per-sensor staleness state for external monitoring: `{sensors:[{name, last_seen_at, stale, stale_for_seconds, stale_threshold_sec}]}`. `stale=true` when `last_seen_at` is older than the 2h threshold; `stale_for_seconds` is how far past. Same threshold the bell heartbeat alarm uses. |
+| `GET` | `/api/sensors/health` | any | Per-sensor staleness state for analyst-facing scripts: `{sensors:[{name, last_seen_at, stale, stale_for_seconds, stale_threshold_sec}]}`. `stale=true` when `last_seen_at` is older than the 2h threshold; `stale_for_seconds` is how far past. Same threshold the bell heartbeat alarm uses. Session-cookie auth, so not a Prometheus/Nagios scrape target today. |
 | `GET` | `/api/sensors/info` | any | Server identity for the install script: TLS fingerprint, hostname, port. |
 | `GET` | `/api/sensors/host` | any | Reachable hostname/IP for sensor configuration. |
 | `GET` | `/api/sensors/tokens` | any (read) / admin (POST create) | Manage one-time enrollment tokens. |
