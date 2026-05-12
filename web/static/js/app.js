@@ -178,9 +178,17 @@
   // survives reload. `dock-tab` lives separately from the main tab
   // (Findings/Ack/Esc/Dismissed/...) so flipping main tabs doesn't
   // reset which dock tab the analyst was reading from.
-  let _dockTab = 'detail'; // 'detail' | 'notes' | 'ti'
+  let _dockTab = 'detail'; // 'detail' | 'notes' | 'ti' | 'evolution'
   function _setDockTab(name) {
-    if (name !== 'detail' && name !== 'notes' && name !== 'ti') name = 'detail';
+    if (name !== 'detail' && name !== 'notes' && name !== 'ti' && name !== 'evolution') name = 'detail';
+    // Evolution tab only exists for beacon-type findings — if the
+    // analyst stored 'evolution' as last-used and lands on a row
+    // that has no chart, fall back to Detail rather than activating
+    // a hidden tab button.
+    if (name === 'evolution') {
+      const btn = document.getElementById('evolution-tab-btn');
+      if (!btn || btn.style.display === 'none') name = 'detail';
+    }
     _dockTab = name;
     try { localStorage.setItem('archer:dock-tab', name); } catch (_) {}
     document.querySelectorAll('.dock-tab-btn').forEach(b => {
@@ -305,6 +313,7 @@
       if (e.key === '1') { _setDockTab('detail'); }
       else if (e.key === '2') { _setDockTab('notes'); }
       else if (e.key === '3') { _setDockTab('ti'); }
+      else if (e.key === '4') { _setDockTab('evolution'); }
     });
   }
 

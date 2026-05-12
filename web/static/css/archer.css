@@ -1111,7 +1111,9 @@ body.dock-resizing {
    Beacon evolution chart (inside detail pane)
 ============================================================================ */
 #beacon-evolution {
-  border-top: 1px solid var(--border);
+  /* No border-top — used to sit under #detail-text inside the
+     Detail panel and needed a separator; now lives in its own
+     Score Evolution tab where the panel border handles that role. */
   padding: 12px 18px;
 }
 #beacon-evolution-header {
