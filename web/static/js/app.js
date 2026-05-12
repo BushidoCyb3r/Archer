@@ -54,12 +54,14 @@
   }
   let _pageSize = 100;
 
-  // Aggregate cache: every finding within the current time range, no
-  // status / ioc_only filter. Powers Campaigns and Hosts views — those
-  // are roll-ups, so they need the full set to be accurate. Loaded
-  // lazily when either tab is first visited; invalidated alongside
-  // _tabState on every filter change.
-  let _aggregateState = { findings: [], loaded: false };
+  // Aggregate cache: findings within the current time range used to
+  // power roll-up views (Campaigns / Hosts top-level, plus
+  // Dismissed > Campaigns sub-tab). The `mode` field tracks which
+  // tab's filter the cache was built for — top-level Campaigns/Hosts
+  // fetch with no status filter; Dismissed > Campaigns fetches with
+  // status=dismissed. Switching between modes invalidates the cache
+  // so the next _ensureAggregate refetches with the right scope.
+  let _aggregateState = { findings: [], loaded: false, mode: null };
   // Per-tab render-pagination state for the aggregate tabs. offset is the
   // 0-based start index of the current page in the full _campaigns /
   // _hosts arrays; total is the full aggregated row count. Independent
@@ -68,8 +70,15 @@
     campaigns: { offset: 0, total: 0 },
     hosts:     { offset: 0, total: 0 },
   };
+  // _aggTabKey maps an aggregate tab mode to the offset/total record in
+  // _aggTabState. Dismissed > Campaigns shares the campaigns record since
+  // it renders into the same panel — the aggregate cache invalidates on
+  // mode switch, so the offset doesn't need to persist across modes.
+  function _aggTabKey(mode) {
+    return mode === 'dismissed-campaigns' ? 'campaigns' : mode;
+  }
   function _invalidateAggregate() {
-    _aggregateState = { findings: [], loaded: false };
+    _aggregateState = { findings: [], loaded: false, mode: null };
     _aggTabState.campaigns = { offset: 0, total: 0 };
     _aggTabState.hosts     = { offset: 0, total: 0 };
   }
@@ -82,12 +91,62 @@
   // Persisted in localStorage so the analyst's preference survives
   // reload — same pattern the dock collapse state uses.
   let _showDismissed = false;
+  // _dismissedSubTab tracks which sub-view of the Dismissed tab is
+  // active: 'findings' (flat list of dismissed findings) or
+  // 'campaigns' (campaigns rolled up over only dismissed findings).
+  // Persists in localStorage so the analyst's choice survives reload.
+  // Hosts is intentionally absent — bulk dismissal over a host's
+  // findings would erase the host's risk story.
+  let _dismissedSubTab = 'findings';
+  function _setDismissedSubTab(name) {
+    if (name !== 'findings' && name !== 'campaigns') name = 'findings';
+    _dismissedSubTab = name;
+    try { localStorage.setItem('archer:dismissed-subtab', name); } catch (_) {}
+    document.querySelectorAll('.sub-tab-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.dismissedSub === name);
+    });
+  }
+  function _initDismissedSubTabs() {
+    try {
+      const stored = localStorage.getItem('archer:dismissed-subtab');
+      if (stored) _dismissedSubTab = stored;
+    } catch (_) {}
+    document.querySelectorAll('.sub-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _setDismissedSubTab(btn.dataset.dismissedSub);
+        // If we're already on the Dismissed top-level tab, re-route
+        // immediately to the new sub-view.
+        if (_activeTab === 'dismissed') _routeDismissedSubTab();
+      });
+    });
+    _setDismissedSubTab(_dismissedSubTab);
+  }
+  // _routeDismissedSubTab swaps which panel is visible based on the
+  // active Dismissed sub-tab. findings sub-tab → #tab-findings with
+  // status=dismissed (existing flat-list behavior). campaigns sub-tab
+  // → #tab-campaigns rebuilt from dismissed-only aggregate.
+  async function _routeDismissedSubTab() {
+    if (_activeTab !== 'dismissed') return;
+    if (_dismissedSubTab === 'campaigns') {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      const panel = document.getElementById('tab-campaigns');
+      if (panel) panel.classList.add('active');
+      _tabMode = 'dismissed-campaigns';
+      await _ensureAggregate();
+    } else {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      const panel = document.getElementById('tab-findings');
+      if (panel) panel.classList.add('active');
+      _tabMode = 'dismissed';
+      _showCurrentTab();
+    }
+  }
   function _applyShowDismissed(on) {
     _showDismissed = !!on;
     const btn = document.getElementById('dismissed-tab-btn');
-    const toggle = document.getElementById('show-dismissed-toggle');
+    const cb  = document.getElementById('filter-show-dismissed');
     if (btn) btn.style.display = on ? '' : 'none';
-    if (toggle) toggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+    if (cb)  cb.checked = !!on;
     // If the analyst hides the Dismissed tab while it's the active
     // view, route them back to the Findings tab so they don't end up
     // staring at an invisible tab.
@@ -104,10 +163,10 @@
     } catch (_) {
       _applyShowDismissed(false);
     }
-    const toggle = document.getElementById('show-dismissed-toggle');
-    if (!toggle) return;
-    toggle.addEventListener('click', () => {
-      const next = !_showDismissed;
+    const cb = document.getElementById('filter-show-dismissed');
+    if (!cb) return;
+    cb.addEventListener('change', () => {
+      const next = !!cb.checked;
       try { localStorage.setItem('archer:show-dismissed', String(next)); } catch (_) {}
       _applyShowDismissed(next);
     });
@@ -275,8 +334,8 @@
   // set) by slicing the rendered output — see _renderCampaignsPage /
   // _renderHostsPage. _isPaginatedTab is true for both groups; the
   // pagination footer shows for every tab.
-  const _findingsTabs = new Set(['findings', 'ack', 'esc', 'ioc']);
-  const _aggregateTabs = new Set(['campaigns', 'hosts']);
+  const _findingsTabs = new Set(['findings', 'ack', 'esc', 'ioc', 'dismissed']);
+  const _aggregateTabs = new Set(['campaigns', 'hosts', 'dismissed-campaigns']);
   function _isPaginatedTab(tab) { return _findingsTabs.has(tab) || _aggregateTabs.has(tab); }
   function _isFindingsTab(tab)  { return _findingsTabs.has(tab); }
   function _isAggregateTab(tab) { return _aggregateTabs.has(tab); }
@@ -340,13 +399,19 @@
   // build() renders the current page slice for both tables, and the
   // first/back/next/last buttons drive _renderAggregatePage to advance.
   async function _ensureAggregate() {
-    if (!_aggregateState.loaded) {
+    const mode = _tabMode; // 'campaigns' | 'hosts' | 'dismissed-campaigns'
+    if (!_aggregateState.loaded || _aggregateState.mode !== mode) {
       const params = _currentFilterParams();
       delete params.status;
       delete params.ioc_only;
       delete params.delta;
       params.limit = String(_FULL_FETCH_LIMIT);
       params.offset = '0';
+      // Top-level Campaigns/Hosts: no status filter (existing
+      // behavior — dismissed findings are excluded by the backend's
+      // default-exclude rule). Dismissed > Campaigns: status=dismissed
+      // so the roll-up covers only the dismissed bucket.
+      if (mode === 'dismissed-campaigns') params.status = 'dismissed';
       const qs = new URLSearchParams(params).toString();
       try {
         const r = await fetch('/api/findings' + (qs ? '?' + qs : ''));
@@ -354,6 +419,7 @@
         const all = await r.json();
         _aggregateState.findings = Array.isArray(all) ? all : [];
         _aggregateState.loaded = true;
+        _aggregateState.mode = mode;
       } catch (e) { /* swallow — stale cache is OK */ return; }
     }
     Campaigns.build(_aggregateState.findings, {
@@ -383,7 +449,7 @@
   // the cached _campaigns / _hosts arrays. Used by the page-nav buttons
   // so navigation doesn't recompute the aggregation.
   function _renderAggregatePage() {
-    if (_tabMode === 'campaigns') {
+    if (_tabMode === 'campaigns' || _tabMode === 'dismissed-campaigns') {
       Campaigns.renderCampaignsPage(_aggTabState.campaigns.offset, _pageSize);
     } else if (_tabMode === 'hosts') {
       Campaigns.renderHostsPage(_aggTabState.hosts.offset, _pageSize);
@@ -499,7 +565,7 @@
 
     let offset, total, sliceLen;
     if (_isAggregateTab(_tabMode)) {
-      const a = _aggTabState[_tabMode];
+      const a = _aggTabState[_aggTabKey(_tabMode)];
       offset = a.offset;
       total  = a.total;
       sliceLen = Math.min(_pageSize, Math.max(0, total - offset));
@@ -542,7 +608,7 @@
   // _aggTabState for aggregate tabs.
   function _currentPageNumber() {
     if (_isAggregateTab(_tabMode)) {
-      const a = _aggTabState[_tabMode];
+      const a = _aggTabState[_aggTabKey(_tabMode)];
       return a.total === 0 ? 1 : Math.floor(a.offset / _pageSize) + 1;
     }
     const ts = _curTab();
@@ -550,7 +616,7 @@
   }
   function _totalPagesForActiveTab() {
     if (_isAggregateTab(_tabMode)) {
-      return Math.max(1, Math.ceil(_aggTabState[_tabMode].total / _pageSize));
+      return Math.max(1, Math.ceil(_aggTabState[_aggTabKey(_tabMode)].total / _pageSize));
     }
     const ts = _curTab();
     return Math.max(1, Math.ceil(ts.total / _pageSize));
@@ -561,7 +627,7 @@
   // the cached slice. Out-of-range pages clamp to the valid window.
   async function _gotoPage(page) {
     if (_isAggregateTab(_tabMode)) {
-      const a = _aggTabState[_tabMode];
+      const a = _aggTabState[_aggTabKey(_tabMode)];
       const totalPages = Math.max(1, Math.ceil(a.total / _pageSize));
       const p = Math.min(Math.max(1, page | 0), totalPages);
       a.offset = (p - 1) * _pageSize;
@@ -645,7 +711,13 @@
         btn.classList.add('active');
         _activeTab = tab;
 
-        const findingsTab = tab === 'findings' || tab === 'ack' || tab === 'esc' || tab === 'ioc' || tab === 'dismissed';
+        // Dismissed sub-tabs are only visible on the Dismissed top-
+        // level tab. Switching to any other tab hides them; switching
+        // to Dismissed shows them and applies the saved sub-tab.
+        const subTabs = document.getElementById('dismissed-subtabs');
+        if (subTabs) subTabs.style.display = tab === 'dismissed' ? 'flex' : 'none';
+
+        const findingsTab = tab === 'findings' || tab === 'ack' || tab === 'esc' || tab === 'ioc';
         if (findingsTab) {
           // All four share #tab-findings panel; just change the cache slot.
           // Cached tabs render instantly; first-visit tabs fetch their
@@ -654,6 +726,11 @@
           document.getElementById('tab-findings').classList.add('active');
           _tabMode = tab;
           _showCurrentTab();
+        } else if (tab === 'dismissed') {
+          // Dismissed routes through the sub-tab dispatch so the
+          // analyst lands on Findings or Campaigns view as they
+          // last chose.
+          _routeDismissedSubTab();
         } else {
           document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
           const panel = document.getElementById('tab-' + tab);
@@ -1954,6 +2031,57 @@
     } catch (e) { setStatus('Error: ' + e); }
   }
 
+  // _bulkDismissCampaign dismisses every finding whose (dst_ip, dst_port)
+  // matches the campaign's key. Driven from the Campaigns context menu;
+  // the campaign object only carries the aggregation (srcs / maxScore /
+  // types) so member findings are resolved against the cached aggregate.
+  // The PATCH loop is best-effort: a single failure doesn't abort the
+  // batch — the operator gets a partial-success status line instead so
+  // they can tell whether to re-try.
+  async function _bulkDismissCampaign(camp) {
+    if (!camp) return;
+    const dst  = camp.dst || '';
+    const port = camp.port || '';
+    // Resolve member findings from the aggregate cache. The Dismissed >
+    // Campaigns view is built over a status=dismissed cache, so on that
+    // sub-tab we'd be un-dismissing the bucket. Keep semantics simple
+    // and only offer this from the top-level Campaigns view for now.
+    const findings = (_aggregateState.findings || []).filter(f =>
+      (f.dst_ip || f.domain || '') === dst &&
+      String(f.dst_port || '') === String(port) &&
+      f.status !== 'dismissed'
+    );
+    if (findings.length === 0) {
+      setStatus('No open findings in this campaign to dismiss');
+      return;
+    }
+    const label = `Dismiss ${findings.length} finding${findings.length === 1 ? '' : 's'} (${dst}${port ? ':' + port : ''})`;
+    const note = await promptNote(label);
+    if (note === null) return; // cancelled
+    let ok = 0, fail = 0;
+    setStatus(`Dismissing ${findings.length} findings…`);
+    for (const f of findings) {
+      try {
+        await api(`/api/findings/${f.id}`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({status: 'dismissed', note}),
+        });
+        ok++;
+      } catch (_) { fail++; }
+    }
+    _invalidateAggregate();
+    _invalidateAllTabs();
+    _loadCounts();
+    if (_isAggregateTab(_tabMode)) {
+      await _ensureAggregate();
+    } else {
+      _applyTabFilter();
+    }
+    if (fail === 0) setStatus(`Dismissed ${ok} finding${ok === 1 ? '' : 's'} in campaign`);
+    else            setStatus(`Dismissed ${ok}, failed ${fail} — re-try to clear remaining`);
+  }
+
   function initDetailActions() {
     const rawBtn = document.getElementById('raw-btn');
     if (rawBtn) {
@@ -3079,13 +3207,32 @@
       const role = (_currentUser && _currentUser.role) || 'viewer';
       const isViewer = role === 'viewer';
       const onAggregateTab = _isAggregateTab(_tabMode);
+      // Bulk-Dismiss is offered on the top-level Campaigns view only.
+      // On Dismissed > Campaigns everything is already dismissed, so the
+      // item would be a confusing no-op; on Hosts a bulk dismiss across
+      // a source IP would erase that host's risk story, so it's exempt.
+      const onCampaignsTab = _tabMode === 'campaigns';
       document.querySelectorAll('.ctx-write').forEach(el => {
         if (isViewer || onAggregateTab) el.style.display = 'none';
         else if (!el.classList.contains('ctx-target-aware') || showColAware) el.style.display = '';
       });
       document.querySelectorAll('.ctx-write-sep').forEach(el => {
-        el.style.display = (isViewer || onAggregateTab) ? 'none' : '';
+        // Show the separator on Campaigns so the bulk-Dismiss item below
+        // it doesn't float against the column-aware section.
+        const show = !isViewer && (!onAggregateTab || onCampaignsTab);
+        el.style.display = show ? '' : 'none';
       });
+      // Dismiss on Campaigns rows performs a bulk dismiss across every
+      // finding in that campaign. Hosts is intentionally exempt — bulk
+      // dismissing every finding for a source IP would erase the host's
+      // risk story, so the Dismiss item stays hidden there.
+      const dismissEl = document.getElementById('ctx-dismiss');
+      if (dismissEl && !isViewer && onCampaignsTab) {
+        dismissEl.style.display = '';
+        dismissEl.classList.remove('ctx-disabled');
+        dismissEl.removeAttribute('title');
+        dismissEl.firstChild.nodeValue = 'Dismiss campaign';
+      }
 
       // State-aware: don't offer actions that no longer apply.
       const status = (f && f.status) || 'open';
@@ -3201,7 +3348,11 @@
       if (_ctxFinding) document.getElementById('esc-btn').click();
     });
     document.getElementById('ctx-dismiss').addEventListener('click', () => {
-      if (_ctxFinding) _toggleDismiss(_ctxFinding);
+      if (!_ctxFinding) return;
+      // Campaign rows carry _campaign with the aggregation; route to the
+      // bulk path. Single-finding rows go through _toggleDismiss.
+      if (_ctxFinding._campaign) _bulkDismissCampaign(_ctxFinding._campaign);
+      else _toggleDismiss(_ctxFinding);
     });
     document.getElementById('ctx-source-records').addEventListener('click', () => {
       if (_ctxFinding) document.getElementById('raw-btn').click();
@@ -3685,6 +3836,12 @@
       if (findingsPanel) findingsPanel.classList.add('active');
       _activeTab = targetTab;
       _tabMode   = targetTab;
+      // The jump always lands on a single finding, so route Dismissed
+      // to the Findings sub-tab regardless of last-used preference —
+      // Campaigns sub-view doesn't have a row to jump to.
+      const subTabs = document.getElementById('dismissed-subtabs');
+      if (subTabs) subTabs.style.display = targetTab === 'dismissed' ? 'flex' : 'none';
+      if (targetTab === 'dismissed') _setDismissedSubTab('findings');
       _invalidateAllTabs();
       _loadCounts();
       _loadFacets();
@@ -3757,10 +3914,14 @@
     _initExportDropdown('chart-export-btn', 'chart-export-menu', BeaconChart.exportImage);
     initTabs();
     _initShowDismissedToggle();
+    _initDismissedSubTabs();
     _initDockTabs();
     _initDockCollapse();
     _initDockKeyboardShortcuts();
-    if (typeof BeaconEvolution !== 'undefined' && BeaconEvolution.init) BeaconEvolution.init();
+    if (typeof BeaconEvolution !== 'undefined' && BeaconEvolution.init) {
+      BeaconEvolution.init();
+      _initExportDropdown('beacon-evolution-export-btn', 'beacon-evolution-export-menu', BeaconEvolution.exportImage);
+    }
     initFilterBar();
     initDeltaBar();
     initLogsPanel();

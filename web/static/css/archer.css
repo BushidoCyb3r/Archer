@@ -743,32 +743,36 @@ button, input, select, textarea {
 }
 .tab-btn.active::after { background: var(--accent); }
 
-/* Show-Dismissed toggle — sits at the end of the tab strip, styled
-   compact and pill-shaped so it's clearly not a tab. When the
-   Dismissed tab is visible (aria-pressed="true") the toggle gets the
-   accent border + text colour to match the active-state convention. */
-.tab-toggle {
-  margin-left: auto;
-  margin-right: 12px;
-  padding: 3px 10px;
+/* Dismissed sub-tabs — secondary tab strip that appears only when
+   the Dismissed top-level tab is active. Visually subordinate to
+   the main tabs (smaller, tighter, no underline indicator) so the
+   analyst reads the hierarchy at a glance. */
+#dismissed-subtabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 22px 0;
+  background: var(--bg-elev-1);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.sub-tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
   font-size: 11px;
   font-weight: 500;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 99px;
-  color: var(--fg-dim);
+  letter-spacing: 0.04em;
+  padding: 5px 12px;
   cursor: pointer;
-  letter-spacing: 0.02em;
-  transition: color .12s, border-color .12s, background .12s;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: color .12s, background .12s;
 }
-.tab-toggle:hover {
-  color: var(--fg-secondary);
-  border-color: var(--fg-dim);
-}
-.tab-toggle[aria-pressed="true"] {
+.sub-tab-btn:hover { color: var(--fg-secondary); background: var(--bg-elev-2); }
+.sub-tab-btn.active {
   color: var(--accent);
-  border-color: var(--accent);
+  font-weight: 600;
+  background: var(--bg-elev-2);
 }
+
 
 /* ============================================================================
    Tab panels
