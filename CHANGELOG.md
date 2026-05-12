@@ -30,6 +30,22 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.18.6] — 2026-05-12
+
+### Changed
+
+- **Feeds + Sensors modal columns expand to fit content.** Pre-fix
+  the Feeds modal truncated Status ("fetching · 47k indicators …")
+  and Indicators (7-digit counts cut to "1,234,5…") because the
+  columns had fixed `width:` values plus `overflow:hidden;
+  text-overflow:ellipsis` on the cells. The Sensors modal had no
+  specific table CSS and relied on browser defaults that wrapped
+  long hostnames onto two lines. Both modals now match the Audit
+  Log dialog: `min-width` on `<th>`s (a floor, not a cap), no
+  cell truncation, and the dialog floats to `95vw` (capped at
+  `1500px`) instead of `1100px`. Long status strings and large
+  indicator counts surface in full.
+
 ## [v0.18.5] — 2026-05-12
 
 Operator-pulled. The NEW-18 SSRF guard from the audit arc refused
