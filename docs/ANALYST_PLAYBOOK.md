@@ -198,14 +198,25 @@ move. For beacon hunting specifically:
 **Step 3 — Open the first finding.** Click the row. The detail
 pane shows:
 
-- The beacon-cadence chart (interactive zoom — drag to select
-  a time range, click the gear to toggle bucket granularity).
 - The score breakdown (Time-Stats / Data-Stats / Histogram /
   Duration sub-scores).
-- The raw conn samples (pivot via "View raw").
+- The raw conn samples (pivot via the **Source Records** button
+  in the detail-pane action footer).
 - Cross-references (other findings touching the same IPs, TI
   cross-annotations).
 - Notes and status history.
+
+Two diagnostic charts open from the action footer:
+
+- **Beacon Chart** — three views (Timeline / Interval
+  histogram / Bytes) of the within-window cadence. Timeline
+  supports click-drag brush-select to zoom into a slice;
+  right-click or **Reset zoom** returns to auto-fit. PNG /
+  JPEG export per view.
+- **Score Evolution** (its own dock tab next to TI Results,
+  keyboard `4`, gated on Beaconing / HTTP Beaconing) — 30-day
+  trajectory of the composite score plus the four sub-axes,
+  updated once per UTC day on the first full pass.
 
 **Step 4 — Read the chart, not the score.** The cadence chart
 is the most diagnostic thing in the UI. You're looking for:
@@ -215,7 +226,7 @@ is the most diagnostic thing in the UI. You're looking for:
   not bursty human activity.
 - **Continuation past business hours** = not a user.
 - **Dot count high enough to trust the math** = at least
-  `BeaconMinConnections` (default 20). The chart shows this.
+  `BeaconMinConnections` (default 10). The chart shows this.
 
 A score of 75 with a *visually clean* beacon pattern is more
 trustworthy than a score of 88 with a chart that looks
@@ -245,7 +256,7 @@ risk-scoring verdict.
 | **Dismiss** | You looked, this isn't worth keeping in your default view, but you don't want to commit to Acknowledge's "I've reviewed and judged this" semantic. Use cases: noise findings during a high-volume incident triage pass; a beacon you'll come back to next week; a bulk-cleanup of a campaign that's clearly known-low-value. | Status → `dismissed`. Hidden from every standard tab; visible in the dedicated Dismissed tab (Findings + Campaigns sub-tabs). Reversible — right-click → Un-dismiss. **Right-click a Campaigns row → "Dismiss campaign"** to bulk-dismiss every open finding in that campaign with a shared note. Doesn't affect HRS; use suppression / allowlist if you want a detection to stop influencing risk. |
 | **Leave open** | You need to come back to it — wait another day for more data, ask a colleague, check a logfile | No status change. Add a note saying what you're waiting on. |
 
-The status transitions land in the audit log (v0.14.1) so a
+The status transitions land in the audit log (v0.14.0) so a
 later reviewer can reconstruct the decision trail.
 
 **Dismiss vs Acknowledge in one sentence:** Acknowledge says
@@ -279,7 +290,7 @@ resolution.
 
 **Connection count.** How many flows the detector saw to this
 pair in the analysis window. Below `BeaconMinConnections`
-(20 default) the finding doesn't fire; just above the
+(10 default) the finding doesn't fire; just above the
 threshold means borderline confidence, deep above means
 strong sample.
 
@@ -319,11 +330,14 @@ them. If someone's already acknowledged this exact pattern
 last quarter and the note explains why, your job is over.
 
 **Score evolution chart.** Beaconing / HTTP Beaconing findings
-carry an SVG sparkline below the action buttons showing up to
-30 daily snapshots of the composite score plus the four
-sub-axes (ts, ds, hist, dur). The chart updates once per UTC
-day, on the first full pass — so it's a *trend* view, not a
-real-time stream.
+get a dedicated **Score Evolution** dock tab (next to TI
+Results, keyboard `4`) showing up to 30 daily snapshots of
+the composite score plus the four sub-axes (ts, ds, hist,
+dur). Promoted to its own tab at v0.18.4 — previously a
+sparkline inside the Detail pane. The chart updates once per
+UTC day, on the first full pass — so it's a *trend* view, not
+a real-time stream. The tab button only renders when the
+selected finding's type is Beaconing or HTTP Beaconing.
 
 Read it for trajectory rather than absolute value:
 
@@ -456,9 +470,10 @@ occasionally pulls a file or POSTs a large body is "implant
 fetched a task" — that's the shape of a C2 channel, not a
 benign heartbeat.
 
-Use the "Raw" pivot on the finding (`/api/findings/{id}/raw`)
-to correlate quickly. The pivot returns the actual log
-records for matching pairs in the same time window.
+Use the **Source Records** button on the finding (backed by
+`GET /api/findings/{id}/raw`) to correlate quickly. The pivot
+returns the actual log records for matching pairs in the same
+time window.
 
 ### 7. The certificate is anomalous
 
@@ -720,9 +735,10 @@ because feed X flagged this destination on date Y." Read the
 TI hit's evidence — what feed, what type, when first seen —
 to assess credibility.
 
-**Pivot 4: raw log pivot.** Click "View raw" on the finding.
-Shows the raw Zeek records (conn.log, http.log, ssl.log,
-x509.log) the finding was built from. Inspect:
+**Pivot 4: raw log pivot.** Click **Source Records** on the
+finding (action-footer button, or right-click → Source
+Records). Shows the raw Zeek records (conn.log, http.log,
+ssl.log, x509.log) the finding was built from. Inspect:
 
 - The TLS SNI on each connection. Same SNI repeated = single
   destination behind a CDN. SNI varying within a beacon =
@@ -823,7 +839,7 @@ destinations.
 - Record the reason in the suppression detail. Future-you
   will want to know whether the rule still applies.
 
-The audit log (v0.14.1) records every allowlist and IOC
+The audit log (v0.14.0) records every allowlist and IOC
 edit with the diff. If a future analyst questions why a
 suppression exists, the audit trail names the analyst, the
 time, and the entries added — see OPERATIONS.md → Audit
@@ -837,7 +853,7 @@ The note is the artifact that survives the finding. A future
 analyst (possibly you, possibly someone who's never seen this
 network) reads it to understand what you concluded and why.
 Notes are forever — they survive analysis re-runs
-(fingerprint merge), they go in the audit log (v0.14.1),
+(fingerprint merge), they go in the audit log (v0.14.0),
 they're what the next analyst reads when they hit a similar
 finding. Write them like you're writing for a colleague six
 months from now.
@@ -958,7 +974,7 @@ different analyst doesn't have to redo your work.
 - Sensitive operational specifics that don't belong in a
   log most analysts can read. The note text is preserved
   on the finding *and* recorded in the audit log as
-  length-only (v0.14.1) — content sensitivity is your
+  length-only (v0.14.0) — content sensitivity is your
   responsibility, not the log's.
 
 ---
@@ -1170,8 +1186,11 @@ thought about it" doesn't.
 
 ## Glossary — Archer-specific terms
 
-- **Beacon score.** 0-100. >75 = critical, >50 = high. See
-  DETECTION_METHODS.md §2.2 for the formula.
+- **Beacon score.** 0-100. ≥80 = critical, ≥60 = high, ≥40 =
+  medium, below that = low (see `sevFromScore` in
+  `internal/analysis/types.go`). The same severity ladder
+  applies to every detector that uses score-derived severity.
+  See DETECTION_METHODS.md §2.2 for the beacon-score formula.
 - **CoV (coefficient of variation).** Stddev / mean of
   inter-arrival times. Low CoV = regular beacon. Reported
   in the finding detail.
@@ -1185,8 +1204,10 @@ thought about it" doesn't.
   still produces a high roll-up. Investigate the underlying
   detections, not the roll-up score alone.
 - **Off-hours.** Time window defined in Settings (default
-  18:00-06:00 in the configured timezone). The detector
-  scores larger outbound transfers in this window higher.
+  22:00-06:00 in the configured timezone, per
+  `OffHoursStart` / `OffHoursEnd` in `config.Default()`).
+  The detector scores larger outbound transfers in this
+  window higher.
 - **Suppression.** Per-target (IP / domain / regex / host)
   mute on the *finding generation* side. Time-bound.
   Stored separately from allowlist (which prevents source
