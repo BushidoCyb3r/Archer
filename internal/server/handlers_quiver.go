@@ -70,6 +70,19 @@ func (s *Server) handleQuiverInstallScript(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	// {{ARCHER_HOST}} is substituted into a shell double-quoted
+	// assignment in install.sh; NewReplacer does literal substitution
+	// with no quoting. Reject any value carrying characters that could
+	// close the quote, run a subshell, or chain a command. Legitimate
+	// hosts (FQDNs, IPv4, bracketed IPv6) trivially pass; only a
+	// crafted Host header or a malformed SensorFacingHost override
+	// trips this gate. Defense in depth — the realistic abuse path
+	// already requires a privileged attacker position.
+	if strings.ContainsAny(host, "\"'`$;\\\n\r<>|&") {
+		http.Error(w, "invalid sensor-facing host", http.StatusBadRequest)
+		return
+	}
+
 	body := strings.NewReplacer(
 		"{{ARCHER_HOST}}", host,
 		"{{HTTPS_PORT}}", "8443",
