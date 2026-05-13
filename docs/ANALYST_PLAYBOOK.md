@@ -417,7 +417,7 @@ Pay particular attention to:
   should)
 - Plain HTTP on non-80 ports
 - Anything on the **C2-port watchlist** Archer already flags
-  (`KnownC2Ports` in `internal/model/finding.go` — Metasploit
+  (`KnownC2Ports` in `internal/analysis/heuristics.go` — Metasploit
   4444, Cobalt Strike defaults, etc.)
 
 ### 3. The source host doesn't normally reach the internet

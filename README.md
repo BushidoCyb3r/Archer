@@ -183,6 +183,7 @@ archer/
 │   │   ├── spectral.go         # Lomb-Scargle periodogram beacon rescue (v0.15.0); see docs/SPECTRAL_TUNING.md
 │   │   ├── dga.go              # DGA hostname augmentation (Shannon entropy + English-bigram log-likelihood)
 │   │   ├── feedprovider.go     # Indicator-cache snapshot consumed by phase 0 prefetch
+│   │   ├── heuristics.go       # Detection-knowledge tables — KnownC2Ports, KnownBadJA3, SuspiciousTLDs, DoHIPs, etc.
 │   │   ├── risk.go             # Host Risk Score composite (Phase 4) — unions historical findings
 │   │   ├── stats.go            # Math helpers (Bowley skew, MAD, coefficient-of-variation)
 │   │   └── types.go            # Internal pipeline types (sslEntry, httpEntry, ProgressEvent)
@@ -649,7 +650,7 @@ port 2222). Same `Analyze logs` button picks them up.
 
 Archer's runtime has no hard internet dependencies — once installed, the analyzer reads logs from disk, the analyst UI is local, sensors push over LAN, and findings are stored in SQLite on the host. The only outbound traffic at runtime is **threat-intel feed prefetching** (FeodoTracker, URLhaus) and **manual escalation lookups** (OTX / AbuseIPDB / VirusTotal / CrowdSec / GreyNoise / Censys); both fail gracefully when offline, and every other detector — Beaconing, Cobalt Strike URI, JA3, Lateral Movement, Suspicious URL via local IOC list, etc. — works fine without network.
 
-**The catch is the build.** A fresh `git clone` + `docker compose build` reaches out to three places: Docker Hub for the `golang:1.25-alpine` and `alpine:3.20` base images, the Alpine package mirror for `apk add` (rsync, openssh-server, tini, ca-certificates, tzdata, rrsync), and the Go module proxy for ~11 module dependencies in `go.sum`. None of those resolve in an air-gapped environment without preparation.
+**The catch is the build.** A fresh `git clone` + `docker compose build` reaches out to three places: Docker Hub for the `golang:1.25.10-alpine` and `alpine:3.20` base images, the Alpine package mirror for `apk add` (rsync, openssh-server, tini, ca-certificates, tzdata, rrsync), and the Go module proxy for ~11 module dependencies in `go.sum`. None of those resolve in an air-gapped environment without preparation.
 
 The cleanest pattern is to **build on a connected box, ship the resulting Docker image as a tarball, load it on the air-gapped target.** The image is the artifact; you stop trying to rebuild on the isolated side.
 
@@ -700,7 +701,7 @@ The escalation services (OTX, AbuseIPDB, VirusTotal, CrowdSec, GreyNoise, Censys
 
 If your operational model requires building from source on the isolated host (e.g. you're patching analyzer code in the field), the path is heavier:
 
-1. Pre-pull both base images on a connected box, save as tarballs, sneakernet over: `docker pull golang:1.25-alpine && docker pull alpine:3.20 && docker save golang:1.25-alpine alpine:3.20 -o base-images.tar`
+1. Pre-pull both base images on a connected box, save as tarballs, sneakernet over: `docker pull golang:1.25.10-alpine && docker pull alpine:3.20 && docker save golang:1.25.10-alpine alpine:3.20 -o base-images.tar`
 2. Vendor Go modules into the repo before transit: `cd Archer && go mod vendor` — this drops all module sources into `./vendor/` so the build doesn't need the Go module proxy. You'll also need to add `-mod=vendor` to the `go build` line in the Dockerfile.
 3. Solve the `apk add` problem — Alpine doesn't ship a self-contained "all-packages" snapshot. The realistic options are: (a) host an internal Alpine package mirror, (b) bake the needed packages into a custom base image built on the connected side and shipped as a tarball alongside the source, or (c) skip the Alpine package step and embed the binaries directly into a `FROM scratch` image.
 
