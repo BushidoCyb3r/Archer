@@ -162,62 +162,98 @@ For the analyst-side workflow — how to actually hunt with these findings, what
 
 ```
 archer/
-├── entrypoint.sh               # Derives GOMEMLIMIT from cgroup before exec
-├── cmd/archer/main.go          # Entry point — flags, wiring, HTTP server, signal handler
+├── entrypoint.sh               # sshd host-key bootstrap, /home/quiver/.ssh perms, GOMEMLIMIT, exec archer
+├── sshd_config                 # Sensor-facing sshd — pubkey-only, AllowUsers quiver
+├── start.sh                    # Resource-sizes the container (80% CPU / 70% RAM), derives version, runs compose
+├── reset.sh                    # Operator-confirmed wipe of archer-data / archer-sshd / archer-quiver volumes
+├── cmd/archer/main.go          # Entry point — flags, signal handler, TLS bootstrap, HTTP listener
 ├── internal/
-│   ├── analysis/               # Detection engines (one file per log type)
-│   │   ├── conn.go             # Beaconing, strobe, exfil, lateral, long-conn, C2 port (streaming + reservoir)
-│   │   ├── dns.go              # Tunneling, DGA, suspicious TLDs, DoH bypass
-│   │   ├── http_analysis.go    # HTTP beaconing (reservoir-sampled), Cobalt Strike, domain fronting
-│   │   ├── ssl.go              # JA3, no-SNI, weak TLS
+│   ├── analysis/               # Detection engines
+│   │   ├── analyzer.go         # Pipeline orchestration (5 phases, memory-bounded worker pool, pause/cancel)
+│   │   ├── conn.go             # Beaconing, strobe, exfil, lateral, long-conn (streaming + reservoir)
+│   │   ├── dns.go              # Tunneling, NXDOMAIN floods, suspicious TLDs, DoH bypass
+│   │   ├── http_analysis.go    # HTTP beaconing, Cobalt Strike, domain fronting, suspicious downloads
+│   │   ├── ssl.go              # JA3, no-SNI, weak TLS; populates sslUIDIndex consumed by HTTP
 │   │   ├── x509.go             # Certificate anomalies
-│   │   ├── files.go            # Suspicious file downloads
-│   │   ├── weird.go            # Protocol anomalies
-│   │   ├── notice.go           # Zeek notice alerts
-│   │   ├── ti.go               # Threat intelligence feed lookups
-│   │   ├── risk.go             # Host risk composite scoring
-│   │   └── analyzer.go         # Pipeline orchestration (pause/cancel/progress, memory-bounded worker pool)
+│   │   ├── files.go            # Suspicious file downloads + MIME-mismatch
+│   │   ├── weird.go            # Zeek weirds passthrough with score
+│   │   ├── notice.go           # Zeek notices passthrough with score
+│   │   ├── ti.go               # Two-phase TI scan — Phase A dst-only sets per file, Phase B targeted collection
+│   │   ├── correlate.go        # Cross-detector correlation roll-up — Correlated Activity (v0.15.0)
+│   │   ├── spectral.go         # Lomb-Scargle periodogram beacon rescue (v0.15.0); see docs/SPECTRAL_TUNING.md
+│   │   ├── dga.go              # DGA hostname augmentation (Shannon entropy + English-bigram log-likelihood)
+│   │   ├── feedprovider.go     # Indicator-cache snapshot consumed by phase 0 prefetch
+│   │   ├── risk.go             # Host Risk Score composite (Phase 4) — unions historical findings
+│   │   ├── stats.go            # Math helpers (Bowley skew, MAD, coefficient-of-variation)
+│   │   └── types.go            # Internal pipeline types (sslEntry, httpEntry, ProgressEvent)
 │   ├── config/config.go        # Tunable thresholds + watch + archive settings with defaults
-│   ├── model/                  # Finding, Severity, Status, User, Note types
+│   ├── feeds/                  # MISP / OpenCTI adapters — types.go, misp.go, opencti.go
+│   ├── model/                  # Finding, Severity, Status, User, Notification, Note types
+│   ├── parser/zeeklog.go       # Zeek log reader — TSV + JSON/NDJSON, gzipped or not
+│   ├── version/version.go      # Build identifier — Version / Commit / BuildTime via -ldflags -X
 │   ├── server/
-│   │   ├── server.go           # Route registration
-│   │   ├── handlers_api.go     # All REST API handlers
+│   │   ├── server.go           # Route registration + role middleware (any / write / admin)
+│   │   ├── auth.go             # Session management, login timing pad
+│   │   ├── middleware.go       # requireRole(...)
+│   │   ├── handlers_api.go     # Findings list/detail/raw, exports, escalation, analyze kickoff
 │   │   ├── handlers_ui.go      # Index template renderer (no-store)
-│   │   ├── handlers_quiver.go  # Sensor-facing endpoints: install.sh, enroll, checkin
-│   │   ├── handlers_sensors.go # Admin Sensors modal endpoints (list, tokens, disenroll, purge, schedule)
-│   │   ├── authorized_keys.go  # Per-sensor authorized_keys management with parent-owner chown
-│   │   ├── tls.go              # Self-signed ed25519 cert bootstrap + pinned-pubkey fingerprint
-│   │   ├── findings_filter.go  # Shared query-param filter used by list + exports
-│   │   ├── findings_raw.go     # Raw-log pivot: finds source records for a finding
+│   │   ├── handlers_sse.go     # /events SSE stream handler
+│   │   ├── handlers_quiver.go  # /quiver/install.sh, /api/quiver/enroll, /api/quiver/checkin
+│   │   ├── handlers_sensors.go # Sensors-modal endpoints (enroll, disenroll, purge, tokens, schedule)
+│   │   ├── handlers_feeds.go   # Feeds CRUD + /api/feeds/{id}/refresh (10-min cap, detached context)
+│   │   ├── handlers_audit_log.go # /api/audit endpoints
+│   │   ├── handlers_backup.go  # /api/admin/backup — VACUUM INTO snapshot stream
+│   │   ├── handlers_beacon_history.go # /api/findings/{id}/history → SVG evolution chart data
+│   │   ├── findings_filter.go  # Shared query-param filter for list + exports
+│   │   ├── findings_raw.go     # Raw-log pivot — finds source records for a finding
+│   │   ├── exports_xlsx.go     # XLSX export path
 │   │   ├── archive.go          # Aged-log archive worker + finding prune
-│   │   ├── watch.go            # Watch mode scheduler, dataset fingerprint skip, preflight check, launchAnalysis
-│   │   ├── auth.go             # Session management, role middleware
-│   │   ├── upload.go           # Log file ingestion
-│   │   ├── sse_broker.go       # Server-Sent Events fan-out
+│   │   ├── disk_usage.go       # /api/disk-usage with 5-minute server-side cache
+│   │   ├── watch.go            # Watch scheduler — two-tier cadence, dataset fingerprint skip
+│   │   ├── watch_heartbeat.go  # watch.heartbeat SSE tick (60s) for the top-bar dot
+│   │   ├── sensor_heartbeat.go # Sensor staleness scan, /api/sensors/health, 2h alarm
+│   │   ├── feed_health.go      # Feed reliability alarm — ≥3 consecutive failures or 24h staleness
+│   │   ├── ti_crossnote.go     # TI cross-annotation — pointer-notes onto sibling findings
+│   │   ├── audit.go            # Audit emission helpers; audit_log writes
+│   │   ├── audit_actions.go    # Canonical audit-action vocabulary
+│   │   ├── tls.go              # Auto-gen self-signed cert (ECDSA P-256; Ed25519 auto-upgrade for pre-v0.14.6)
+│   │   ├── authorized_keys.go  # Per-sensor authorized_keys rewrite with rrsync command-forcing
+│   │   ├── rate_limit.go       # IPv6 /64-aware token-bucket limiter on login + register
+│   │   ├── quiver_protocol.go  # Quiver protocol version negotiation
+│   │   ├── quiver_hmac.go      # Quiver enrollment HMAC
+│   │   ├── json_decode.go      # Strict-JSON decoder helpers (unknown-field rejection)
+│   │   ├── sse_broker.go       # Pub/sub broker — Publish(SSEEvent) fans out to subscribers
 │   │   └── quiver_assets/      # Embedded sensor scripts (install.sh, quiver.sh, quiver-uninstall.sh)
 │   └── store/
-│       ├── store.go            # Findings, allowlist, IOC list, suppressions, config — SQLite persistence
-│       ├── sensors.go          # Sensors, enrollment_tokens, unauthorized_attempts — SQLite persistence
-│       └── userstore.go        # User accounts, sessions — SQLite persistence
-├── entrypoint.sh               # sshd host-key bootstrap, /home/quiver/.ssh perms, GOMEMLIMIT, exec archer
-├── sshd_config                 # Sensor-facing sshd config — pubkey-only, AllowUsers quiver
+│       ├── store.go            # Findings (fingerprint-merge), allowlist, IOC, suppressions, config, watch state
+│       ├── sensors.go          # sensors, enrollment_tokens, unauthorized_attempts
+│       ├── feeds.go            # feeds, feed_indicators, consecutive_failures
+│       ├── audit_log.go        # audit_log table with structured before/after JSON
+│       ├── beacon_history.go   # beacon_history table (UPSERT) for the 30-day evolution chart
+│       ├── userstore.go        # User accounts, sessions
+│       ├── migrate.go          # Forward-only migration runner; tracks schema_migrations
+│       └── migrations/         # NNNN_*.sql migrations (0001 → 0015)
 └── web/
     ├── templates/index.html    # Single-page application shell
     └── static/
         ├── css/archer.css
         └── js/
             ├── app.js          # Main application state machine
-            ├── sse.js          # SSE connection manager with auto-reconnect
-            ├── detail.js       # Finding detail pane renderer
+            ├── sse.js          # SSE client with auto-reconnect
+            ├── notifications.js # Bell UI + SSE-driven updates
+            ├── detail.js       # Finding detail pane renderer (Detail / Notes / TI Results / Evolution tabs)
             ├── table.js        # Findings table — virtual scrolling, sort
             ├── chart.js        # Beacon inter-arrival time chart
+            ├── beacon_evolution.js # 30-day SVG evolution chart + PNG/JPEG export modal
             ├── campaigns.js    # Campaign aggregation view
             ├── sensors.js      # Sensors modal — enrolled, tokens, unauthorized, health
+            ├── feeds.js        # Feeds modal — MISP/OpenCTI feed config + status
+            ├── rowmenu.js      # Shared kebab (⋮) popover for Feeds + Sensors row actions (v0.19.0)
+            ├── audit_log.js    # Audit log table
             ├── graph.js        # In-app campaign graph (Cytoscape wrapper)
             ├── cytoscape.min.js # Vendored Cytoscape.js (MIT, lazy-loaded)
-            ├── notifications.js
-            ├── dialog.js       # Modal dialog helpers
-            └── resize.js       # Pane resize drag handle
+            ├── dialog.js       # DlgManager — drag + drag-resize for every <dialog>
+            └── resize.js       # Detail-dock drag-to-resize
 ```
 
 All state is persisted in a single SQLite database at `/data/archer.db`. There are no external service dependencies at runtime beyond optional TI API keys.
@@ -227,7 +263,7 @@ All state is persisted in a single SQLite database at `/data/archer.db`. There a
 ## Requirements
 
 - **Docker** and **Docker Compose** (recommended deployment method)
-- OR **Go 1.21+** for building and running from source without Docker
+- OR **Go 1.25+** for building and running from source without Docker
 
 ---
 
@@ -443,11 +479,11 @@ Go is only required if you want to build and run Archer directly on the host wit
 
 ```bash
 # Download the latest Go release (check https://go.dev/dl/ for the current version)
-curl -LO https://go.dev/dl/go1.23.0.linux-amd64.tar.gz
+curl -LO https://go.dev/dl/go1.25.0.linux-amd64.tar.gz
 
 # Remove any previous Go installation and extract the new one
 sudo rm -rf /usr/local/go
-sudo tar -C /usr/local -xzf go1.23.0.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.25.0.linux-amd64.tar.gz
 
 # Add Go to your PATH
 echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.profile
@@ -492,7 +528,7 @@ go version
 Expected output:
 
 ```
-go version go1.23.0 linux/amd64
+go version go1.25.0 linux/amd64
 ```
 
 ---
@@ -966,7 +1002,7 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/api/version` | None | `{"version":"v0.1.0","commit":"<short-sha>","build_time":"<iso-8601>"}`. Unauthenticated — same diagnostic tier as a future `/api/health`. The values come from `internal/version` and are populated at build time via `-ldflags` from the git checkout (see `start.sh`). The web UI reads this on init to populate the statusbar version pill and the About dialog. |
+| `GET` | `/api/version` | None | `{"version":"v0.19.0","commit":"<short-sha>","build_time":"<iso-8601>"}`. Unauthenticated — same diagnostic tier as a future `/api/health`. The values come from `internal/version` and are populated at build time via `-ldflags` from the git checkout (see `start.sh`). The web UI reads this on init to populate the statusbar version pill and the About dialog. |
 
 ### Authentication
 
@@ -1064,7 +1100,7 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 ### Notifications
 
-The bell fires for new findings with **`score >= 99`** — only the top-tier confidence bucket the scoring formulas were calibrated to reach. Previous behaviour (CRITICAL severity or any TI type, regardless of score) fired often enough that operators learned to ignore the bell. `Host Risk Score` is still excluded — it's a per-host roll-up, not a discrete event, and the underlying network detections have already generated their own notifications.
+The bell fires for new findings with **`score >= 95`** — the top-tier confidence bucket the scoring formulas were calibrated to reach. The initial v0.17.0 cut at `>= 99` over-corrected (excluded most CRITICAL TI hits); v0.17.1 lowered the floor to 95 after operator feedback. Previous behaviour (CRITICAL severity or any TI type, regardless of score) fired often enough that operators learned to ignore the bell. `Host Risk Score` is still excluded — it's a per-host roll-up, not a discrete event, and the underlying network detections have already generated their own notifications. The bell also gates on the active allowlist + suppressions (v0.18.1 NEW-111): findings whose src or dst is hidden from the table at emit time skip the bell entirely, and adding an IP to the allowlist / suppression dismisses any active notification whose row would now be invisible.
 
 Beyond detection findings, the bell also surfaces two operational alarms (each `Notification` carries a `kind` field — `finding`, `sensor`, or `feed`; empty reads as `finding` for backward compat):
 
@@ -1084,7 +1120,7 @@ A small green/red dot in the top bar tracks the `watch.heartbeat` SSE event (60s
 
 Watch ticks run in two tiers, automatic from the configured cadence:
 
-- **First tick of each UTC calendar day → full analysis.** All phases (Beaconing, HTTP analysis, DNS, SSL, X.509, Files, Weird, Notices, TI, Host Risk Score). Statistical detectors need the long temporal window to spot patterns, so they get refreshed daily. Before the full pass launches, every enabled MISP / OpenCTI feed is refreshed in parallel under a two-minute global cap — this is the only path that fetches feeds (the auto-cadence worker is disabled, and there is no manual refresh endpoint).
+- **First tick of each UTC calendar day → full analysis.** All phases (Beaconing, HTTP analysis, DNS, SSL, X.509, Files, Weird, Notices, TI, Host Risk Score). Statistical detectors need the long temporal window to spot patterns, so they get refreshed daily. Before the full pass launches, every enabled MISP / OpenCTI feed is refreshed in parallel under a 10-minute global cap. Admins can also trigger a one-off refresh per feed via the Feeds modal's per-row kebab → **Refresh** (`POST /api/feeds/{id}/refresh`) — same 10-minute cap, detached from the inbound request context so a browser disconnect doesn't kill the fetch.
 - **Subsequent same-day ticks → incremental TI pass.** Only Phase 0 (feed prefetch — built-in Feodo Tracker / URLhaus only, no MISP/OpenCTI fetch) + Phase 3 (TI matching over the file subset modified since the last run). MISP / OpenCTI matching uses the indicator cache populated by the most recent full pass, so fresh hits from configured feeds surface within one tick interval without paying the upstream fetch cost. Stateless per-record, fast — typically seconds instead of the full-window minutes-to-hours.
 
 The decision is automatic and persisted: `LastFullAnalysisUnix` (most recent full run) gates the full/incremental switch, `LastAnalysisUnix` (most recent run of either kind) is the mtime cutoff for the incremental file filter (with a 5-minute overlap so a log rotated at the boundary gets re-checked instead of missed). Manual "Discard findings & re-analyze" runs as a full pass and resets both timestamps, so the cycle restarts cleanly.
@@ -1101,6 +1137,18 @@ The `done` SSE event for incremental ticks includes `"incremental": true` so the
 | Method | Path | Role | Description |
 |---|---|---|---|
 | `GET` | `/api/ti/services` | Any | `{"vt":bool,"crowdsec":bool,"otx":bool,"abuseipdb":bool,"greynoise":bool,"censys":bool}` — true means API key is configured. `greynoise` is always `true` (Community API works unauthenticated; supplying a key only raises the rate limit). `censys` is true only when both API ID and Secret are configured. |
+
+### Feeds (Admin UI)
+
+Endpoints powering the Feeds modal. Listing is open to any authenticated user; create / update / delete / refresh are admin-only and enforce the role inside the handler. Full request / response shapes are in [`docs/API.md`](docs/API.md); operator-facing setup, indicator types, and troubleshooting are in [`docs/FEEDS.md`](docs/FEEDS.md).
+
+| Method | Path | Role | Description |
+|---|---|---|---|
+| `GET` | `/api/feeds` | Any | List configured feeds. `api_key` is redacted; the response carries `has_api_key` instead. Each row also carries `last_fetch_truncated` (bool) — `true` when the most recent fetch hit the adapter's page-walk cap with the upstream still indicating more data. |
+| `POST` | `/api/feeds` | Admin | Create a feed. Required: `source_type` (`misp` / `opencti`), `name`, `url`, `api_key`, `indicator_aging_days`. Optional: `enabled`, `tls_skip_verify`, `allow_internal` (per-feed SSRF opt-out for internal MISP / OpenCTI at RFC1918 addresses; v0.18.5+). Audit-logged. |
+| `PUT` | `/api/feeds/{id}` | Admin | Update a feed. Empty `api_key` keeps the existing value. `allow_internal` is captured in the `feed_update` before/after audit map. |
+| `DELETE` | `/api/feeds/{id}` | Admin | Delete a feed. FK cascade drops its `feed_indicators`. |
+| `POST` | `/api/feeds/{id}/refresh` | Admin | One-shot fetch + upsert + prune (10-minute hard cap, v0.19.0+). Detached from the request context so a browser disconnect doesn't kill the fetch. Backed by the **Refresh** item in the Feeds dialog's per-row kebab. |
 
 ### Sensors (Admin UI)
 
@@ -1184,7 +1232,7 @@ The script prompts for confirmation before taking any action. After reset, navig
 ## Running Without Docker
 
 ```bash
-# Install Go 1.21+
+# Install Go 1.25+
 go build -o archer ./cmd/archer
 
 # Run (requires a writable data directory and a logs directory)
