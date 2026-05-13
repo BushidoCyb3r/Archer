@@ -187,8 +187,15 @@ archer/
 │   │   ├── stats.go            # Math helpers (Bowley skew, MAD, coefficient-of-variation)
 │   │   └── types.go            # Internal pipeline types (sslEntry, httpEntry, ProgressEvent)
 │   ├── config/config.go        # Tunable thresholds + watch + archive settings with defaults
-│   ├── feeds/                  # MISP / OpenCTI adapters — types.go, misp.go, opencti.go
-│   ├── model/                  # Finding, Severity, Status, User, Notification, Note types
+│   ├── feeds/                  # MISP / OpenCTI subsystem
+│   │   ├── types.go            # Feed, Indicator, Adapter interface
+│   │   ├── misp.go             # MISP attribute restSearch client + normalizer
+│   │   ├── opencti.go          # OpenCTI indicator search client + normalizer
+│   │   ├── validate.go         # Indicator-shape validation at the ingest boundary (NEW-28 SSRF/XSS gate)
+│   │   ├── sourced.go          # Per-feed typed indicator snapshot consumed by the analyzer hot path
+│   │   └── worker.go           # Per-feed scheduler scaffolding (currently dormant — watch tick drives refresh)
+│   ├── match/match.go          # Compiled exact + CIDR matcher reused by allowlist, IOC list, feed union
+│   ├── model/                  # Finding, Severity, Status, Notification, Note, User, Role types
 │   ├── parser/zeeklog.go       # Zeek log reader — TSV + JSON/NDJSON, gzipped or not
 │   ├── version/version.go      # Build identifier — Version / Commit / BuildTime via -ldflags -X
 │   ├── server/
@@ -234,7 +241,10 @@ archer/
 │       ├── migrate.go          # Forward-only migration runner; tracks schema_migrations
 │       └── migrations/         # NNNN_*.sql migrations (0001 → 0015)
 └── web/
-    ├── templates/index.html    # Single-page application shell
+    ├── templates/
+    │   ├── index.html          # Single-page application shell
+    │   ├── login.html          # Standalone sign-in page
+    │   └── register.html       # Standalone first-user / new-user registration page
     └── static/
         ├── css/archer.css
         └── js/
