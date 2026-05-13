@@ -325,8 +325,9 @@ reads, so both run safely against the live database.
 5. Start the container: `docker compose start archer`.
 6. **Verify** the schema version matches the build:
    `docker compose exec archer sqlite3 /data/archer.db
-   'SELECT max(version) FROM schema_migrations;'` — should be 9
-   on v0.14.0.
+   'SELECT max(version) FROM schema_migrations;'` — should be 15
+   on v0.19.0 (was 9 on v0.14.0; migrations 0010–0015 added across
+   v0.14.x → v0.18.x).
 7. **Verify** the UI loads and the version pill matches the build.
 8. **Verify** sensor checkins succeed — wait for the next hourly
    tick, then check `/api/sensors` for fresh `last_seen_at`.
@@ -517,10 +518,17 @@ bell + SSE pipe as detection findings; the `kind` field on each
 ### Bell (in-UI)
 
 - **Finding alarms.** `kind=finding`. Fire on new findings with
-  `score >= 99`. Before v0.17.0 the gate was "CRITICAL severity or
+  `score >= 95`. Before v0.17.0 the gate was "CRITICAL severity or
   any TI type, regardless of score" — that fired often enough that
-  operators learned to ignore the bell. Tighter gate restores the
-  bell as a high-signal alert.
+  operators learned to ignore the bell. v0.17.0 first cut the
+  threshold at `>= 99`, but that over-corrected — discrete-tier
+  detectors that score below 99 by design (URLhaus 96, Malicious
+  JA3 95) stayed silent. v0.17.1 NEW-99 lowered the floor to 95
+  so high-confidence TI hits ring through. v0.18.1 NEW-111 added
+  an allowlist/suppression gate on top: notifications whose src
+  or dst would be hidden from the table at emit time skip the
+  bell entirely, and dismiss in-place when an admin later adds
+  the matching entry.
 - **Sensor heartbeat alarm.** `kind=sensor`, `target=<sensor name>`.
   Fires when an enrolled sensor's `last_seen_at` (or rsync log
   mtime, whichever is later) is more than **2h** old. One alarm per

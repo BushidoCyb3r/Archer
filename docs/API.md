@@ -593,15 +593,17 @@ do not require a session — sensors are authenticated by the
 enrollment token (one-time) and TLS fingerprint pinning thereafter.
 
 The protocol is versioned by the integer constant `QuiverProtocolVersion`
-in `internal/server/quiver_protocol.go` (currently `1`). Sensors that
-omit `protocol_version` are treated as v1 for one cycle; future minor
-bumps may remove that compat.
+in `internal/server/quiver_protocol.go` (currently `2`). Sensors that
+omit `protocol_version` are resolved as v1, which is **no longer
+supported** as of v0.12.0 (NEW-16) — the protocol introduced a
+per-sensor checkin secret that has no in-band path to retrofit, so
+v1 sensors must re-enroll against the v0.12.0+ server to acquire one.
 
 | Method | Path | Notes |
 |--------|------|-------|
 | `GET` | `/quiver/install.sh` | The Bash installer body. Sensors `curl` this; the response embeds the TLS fingerprint, host, ports, and base64-encoded daily + uninstall scripts so the install runs without a second network hop. |
-| `POST` | `/api/quiver/enroll` | First-contact enrollment. Body: `{"protocol_version":1, "token":"…", "name":"sensor1", "host":"<fqdn>", "pubkey":"<ssh-ed25519 …>"}`. Response on success: `{"name":"sensor1", "schedule_hour":0, "schedule_minute":N, "protocol_version":1, "checkin_secret":"…"}` — `checkin_secret` is a one-shot value the sensor stores at mode 0600 and HMACs into every subsequent checkin; the server never echoes it on any other endpoint (NEW-16). Rate-limited per source IP. |
-| `POST` | `/api/quiver/checkin` | Periodic check-in. Body: `{"protocol_version":1, "name":"sensor1", "hmac":"…"}`. One of four shapes back, each carrying `"protocol_version":1`: `{"status":"enrolled","schedule":{"hour":0,"minute":N}}`, `{"status":"disenrolled"}`, `{"status":"unknown"}`, or `{"status":"protocol_unsupported","sensor_version":N,"server_version":1,"supported_versions":[1]}`. Unknown checkins create `unauthorized_attempts` rows and push an SSE event. |
+| `POST` | `/api/quiver/enroll` | First-contact enrollment. Body: `{"protocol_version":2, "token":"…", "name":"sensor1", "host":"<fqdn>", "pubkey":"<ssh-ed25519 …>"}`. Response on success: `{"name":"sensor1", "schedule_hour":0, "schedule_minute":N, "protocol_version":2, "checkin_secret":"…"}` — `checkin_secret` is a one-shot value the sensor stores at `/etc/quiver/secret` (mode `0600`) and HMACs into every subsequent checkin; the server never echoes it on any other endpoint (NEW-16). Rate-limited per source IP. |
+| `POST` | `/api/quiver/checkin` | Periodic check-in. Body: `{"protocol_version":2, "name":"sensor1"}` plus an **`X-Quiver-Sig`** header carrying `hex(HMAC-SHA256(body, checkin_secret))`. One of four shapes back, each carrying `"protocol_version":2`: `{"status":"enrolled","schedule":{"hour":0,"minute":N}}`, `{"status":"disenrolled"}`, `{"status":"unknown"}`, or `{"status":"protocol_unsupported","sensor_version":N,"server_version":2,"supported_versions":[2]}`. Missing / invalid signatures fall through to the `unknown` bucket and push an SSE `unauthorized_attempt` event. |
 
 **Protocol version mismatch** returns `400 Bad Request` with body:
 
