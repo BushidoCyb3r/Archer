@@ -64,6 +64,14 @@ func main() {
 	cfg := config.Default()
 	st := store.New(cfg)
 	us := store.NewUserStore(*dataDir)
+	// Store and UserStore share one *sql.DB by design. NewUserStore
+	// opens the connection, runs the schema migrations, and sets
+	// SetMaxOpenConns(1) — SQLite's single-writer guard that covers
+	// both halves. InitDB receives that same handle so Store sees the
+	// post-migration schema. Tests that construct a Store with a
+	// fresh DB independently of a UserStore must replicate the
+	// migration + connection-cap setup or schema-mismatch / WAL
+	// double-writer bugs become possible.
 	st.InitDB(us.DB())
 	broker := server.NewBroker()
 	srv := server.New(st, us, broker, *webDir, *logsDir, *authKeys)

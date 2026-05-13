@@ -7,7 +7,7 @@ logging.
 ## Inputs
 
 - `dns.log` — one record from `192.168.2.10` → `8.8.8.8:443` (Google
-  Public DNS, in `model.DoHIPs`). The query field is non-empty so the
+  Public DNS, in `analysis.DoHIPs`). The query field is non-empty so the
   parser doesn't early-skip the record; the actual query string
   (`example.com`) is benign and trips no other detectors.
 

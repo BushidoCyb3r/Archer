@@ -1,7 +1,7 @@
 # ssl_malicious_ja3
 
 Exercises the **Malicious JA3** detector — TLS client fingerprint
-matches a known C2-framework JA3 from `model.KnownBadJA3`.
+matches a known C2-framework JA3 from `analysis.KnownBadJA3`.
 
 ## Inputs
 

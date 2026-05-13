@@ -67,7 +67,7 @@ func (a *Analyzer) analyzeX509(files []string) {
 			}
 
 			// Default/generic subject strings
-			for _, def := range model.DefaultCertSubjects {
+			for _, def := range DefaultCertSubjects {
 				if strings.Contains(subjectLow, def) {
 					reasons = append(reasons, fmt.Sprintf("default subject (%q)", def))
 					break

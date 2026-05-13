@@ -1,7 +1,7 @@
 # dns_suspicious_tld
 
 Exercises the **Suspicious TLD** detector — DNS query for a domain in
-one of the free/abused TLD zones (`model.SuspiciousTLDs`).
+one of the free/abused TLD zones (`analysis.SuspiciousTLDs`).
 
 ## Inputs
 

@@ -136,7 +136,7 @@ func (a *Analyzer) analyzeFiles(files []string) {
 			isSusp := false
 			reason := ""
 
-			for m := range model.SuspiciousMIMETypes {
+			for m := range SuspiciousMIMETypes {
 				if strings.Contains(mime, m) {
 					isSusp = true
 					reason = fmt.Sprintf("MIME: %s", mime)
@@ -145,7 +145,7 @@ func (a *Analyzer) analyzeFiles(files []string) {
 			}
 
 			if !isSusp && filename != "" {
-				for ext := range model.SuspiciousFileExts {
+				for ext := range SuspiciousFileExts {
 					if strings.HasSuffix(strings.ToLower(filename), ext) {
 						isSusp = true
 						reason = fmt.Sprintf("filename: %s", filename)

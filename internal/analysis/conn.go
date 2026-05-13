@@ -234,7 +234,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 				})
 			}
 
-			if isPrivateIP(src) && isPrivateIP(dst) && model.LateralMovementPorts[dstPort] {
+			if isPrivateIP(src) && isPrivateIP(dst) && LateralMovementPorts[dstPort] {
 				// sensor prefix mirrors the strobe/exfil/off-hours
 				// keying — overlapping sensor captures stop firing two
 				// findings for the same (src, dst, port) seen twice.
@@ -256,7 +256,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 			}
 
 			if !isPrivateIP(dst) {
-				if label, ok := model.KnownC2Ports[dstPort]; ok {
+				if label, ok := KnownC2Ports[dstPort]; ok {
 					ck := fmt.Sprintf("%s|%s→%s:%d", sensor, src, dst, dstPort)
 					if _, ok2 := c2Seen[ck]; !ok2 {
 						c2Seen[ck] = struct{}{}

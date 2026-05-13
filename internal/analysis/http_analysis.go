@@ -93,7 +93,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 			portStr := fmt.Sprint(dstPort)
 
 			// Suspicious UA
-			for _, pat := range model.SuspiciousUAPatterns {
+			for _, pat := range SuspiciousUAPatterns {
 				if strings.Contains(ua, strings.ToLower(pat)) {
 					key := [2]string{src, pat}
 					if !seenUA[key] {
@@ -138,7 +138,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 						})
 					}
 				} else {
-					for _, pat := range model.C2URIPatterns {
+					for _, pat := range C2URIPatterns {
 						if pat.Re.MatchString(uri) {
 							key := [3]string{src, dst, uri}
 							if !seenCS[key] {
@@ -189,7 +189,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 			isSuspicious := false
 			suspReason := ""
 			if respMime != "" {
-				for mime := range model.SuspiciousMIMETypes {
+				for mime := range SuspiciousMIMETypes {
 					if strings.Contains(respMime, mime) {
 						isSuspicious = true
 						suspReason = fmt.Sprintf("MIME: %s", respMime)
@@ -198,7 +198,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 				}
 			}
 			if !isSuspicious && uri != "" {
-				for ext := range model.SuspiciousFileExts {
+				for ext := range SuspiciousFileExts {
 					if strings.HasSuffix(strings.ToLower(uri), ext) {
 						isSuspicious = true
 						suspReason = fmt.Sprintf("extension: %s", ext)
