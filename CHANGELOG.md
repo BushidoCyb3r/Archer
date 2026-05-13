@@ -30,6 +30,38 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.20.1] — 2026-05-13
+
+### Security
+
+- **Go toolchain bumped from 1.25.0 to 1.25.10** in `go.mod`; Dockerfile
+  builder image pinned to `golang:1.25.10-alpine` so what the container
+  actually runs matches what the module declares (the floating `1.25`
+  tag would have drifted silently with each Alpine refresh). Closes the
+  bulk of OSV-scanner stdlib findings against 1.25.0 — TLS, HTTP/2,
+  `html/template`, `crypto/x509`, `net/url` patches landed across
+  1.25.1 → 1.25.10. Full test suite, including the 42 detection golden
+  scenarios, passes under the new toolchain unchanged.
+- **`golang.org/x/net` bumped from 0.50.0 to 0.54.0.** Closes
+  GO-2026-4559 (HTTP/2 server panic on crafted frames) and GO-2026-4918
+  (HTTP/2 infinite loop on bad `SETTINGS_MAX_FRAME_SIZE`). Archer only
+  imports `golang.org/x/net/publicsuffix` directly; the vulnerable
+  HTTP/2 paths reach us transitively through stdlib `net/http`'s
+  default HTTP/2 negotiation on the TLS listener.
+- **Quiver install-template host validation.** The `/quiver/install.sh`
+  handler substitutes `{{ARCHER_HOST}}` into a shell double-quoted
+  assignment via `strings.NewReplacer`, which doesn't quote. A host
+  value carrying `"`, `` ` ``, `;`, `$`, or a redirect/pipe metachar
+  could close the quote and execute arbitrary shell when the sensor
+  admin ran the install one-liner. Realistic exploitation is narrow —
+  the admin-set `SensorFacingHost` override is admin-gated and the
+  `r.Host` fallback would need a privileged proxy/MITM with a valid
+  cert — but the defense is a one-line `strings.ContainsAny` check
+  before substitution. Legitimate hosts (FQDNs, IPv4, bracketed IPv6)
+  pass trivially. Already-enrolled sensors are unaffected: install.sh
+  is only fetched at initial enrollment, never re-fetched on checkin
+  or rsync.
+
 ## [v0.19.0] — 2026-05-12
 
 ### Added
@@ -5041,7 +5073,9 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.20.1...HEAD
+[v0.20.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.20.0...v0.20.1
+[v0.20.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.19.0...v0.20.0
 [v0.19.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.18.10...v0.19.0
 [v0.14.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.13.0...v0.14.0
 [v0.13.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.12.0...v0.13.0
