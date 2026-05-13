@@ -2,7 +2,7 @@
 
 Exercises the **Suspicious File Download** detector — HTTP requests
 ending with an executable/script extension (`.exe`, `.dll`, `.ps1`,
-etc.) or returning a MIME type in `model.SuspiciousMIMETypes`.
+etc.) or returning a MIME type in `analysis.SuspiciousMIMETypes`.
 
 ## Inputs
 

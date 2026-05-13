@@ -2,7 +2,7 @@
 
 Exercises the **SSL No-SNI on C2 Port** variant — same trigger as
 SSL No-SNI but elevated severity because the destination port is in
-`model.KnownC2Ports`. The combination is a strong C2-tunnel signal.
+`analysis.KnownC2Ports`. The combination is a strong C2-tunnel signal.
 
 ## Inputs
 

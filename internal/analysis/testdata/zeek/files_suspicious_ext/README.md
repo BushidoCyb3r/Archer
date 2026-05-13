@@ -8,7 +8,7 @@ first; if it doesn't fire, the extension fallback kicks in.
 
 - `files.log` — one record with `mime_type = text/plain` (not
   suspicious) and `filename = loader.ps1`. PowerShell scripts are in
-  `model.SuspiciousFileExts` so the extension branch fires.
+  `analysis.SuspiciousFileExts` so the extension branch fires.
 
 ## Findings produced
 

@@ -6,7 +6,7 @@ historically associated with C2 frameworks or malware.
 ## Inputs
 
 - `conn.log` — one record from `192.168.1.60` → `203.0.113.60:4444`.
-  Port 4444 is the Metasploit default in `model.KnownC2Ports`.
+  Port 4444 is the Metasploit default in `analysis.KnownC2Ports`.
 
 ## Findings produced
 

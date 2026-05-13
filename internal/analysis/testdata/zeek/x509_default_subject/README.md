@@ -2,7 +2,7 @@
 
 Exercises the **Suspicious Certificate** detector via the
 default-subject indicator — `subject` substring-matches one of
-`model.DefaultCertSubjects` (`internet widgits`, `localhost`, `test`,
+`analysis.DefaultCertSubjects` (`internet widgits`, `localhost`, `test`,
 `openssl`, `self-signed`, etc.).
 
 ## Inputs

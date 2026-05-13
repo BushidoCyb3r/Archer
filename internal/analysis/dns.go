@@ -82,7 +82,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 
 			// DoH Bypass: TLS to known resolver on port 443
 			dstPort := parser.GetInt(rec, "id.resp_p")
-			if dstPort == 443 && model.DoHIPs[dst] {
+			if dstPort == 443 && DoHIPs[dst] {
 				key := [2]string{src, dst}
 				if !seenDoH[key] {
 					seenDoH[key] = true
@@ -127,7 +127,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 
 			// Suspicious TLD
 			tld := "." + labels[len(labels)-1]
-			if model.SuspiciousTLDs[tld] {
+			if SuspiciousTLDs[tld] {
 				key := [2]string{src, apex}
 				if !seenTLD[key] {
 					seenTLD[key] = true

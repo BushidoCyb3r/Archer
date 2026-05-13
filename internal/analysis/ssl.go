@@ -49,7 +49,7 @@ func (a *Analyzer) analyzeSSL(files []string) {
 
 			// Malicious JA3
 			if ja3 != "" {
-				if label, bad := model.KnownBadJA3[ja3]; bad {
+				if label, bad := KnownBadJA3[ja3]; bad {
 					key := [3]string{src, dst, ja3}
 					if !seenJA3[key] {
 						seenJA3[key] = true
@@ -73,7 +73,7 @@ func (a *Analyzer) analyzeSSL(files []string) {
 			}
 
 			// Weak TLS version
-			if model.WeakTLSVersions[version] {
+			if WeakTLSVersions[version] {
 				key := [3]string{src, dst, version}
 				if !seenWeakTLS[key] {
 					seenWeakTLS[key] = true
@@ -93,7 +93,7 @@ func (a *Analyzer) analyzeSSL(files []string) {
 
 			// No-SNI detections (established TLS, no server_name)
 			if established && sni == "" {
-				isC2Port := model.KnownC2Ports[dstPort] != ""
+				isC2Port := KnownC2Ports[dstPort] != ""
 				key := [3]string{src, dst, portStr}
 				if !seenNoSNI[key] {
 					seenNoSNI[key] = true
@@ -105,7 +105,7 @@ func (a *Analyzer) analyzeSSL(files []string) {
 							SrcIP:      src,
 							DstIP:      dst,
 							DstPort:    portStr,
-							Detail:     fmt.Sprintf("Established TLS with no SNI on C2 port %d (%s)", dstPort, model.KnownC2Ports[dstPort]),
+							Detail:     fmt.Sprintf("Established TLS with no SNI on C2 port %d (%s)", dstPort, KnownC2Ports[dstPort]),
 							Timestamp:  fmtTS(ts),
 							SourceFile: f,
 						})
