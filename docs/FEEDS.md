@@ -66,9 +66,9 @@ Three independent stages, loosely coupled through SQLite:
      watch tick of each UTC calendar day (or every tick if
      `WatchAlwaysFull` is on) calls `refreshFeedsBeforeFullPass`
      synchronously before launching analysis: every enabled feed is
-     fetched in parallel under a 2-minute cap, indicators are upserted
-     into `feed_indicators`, and stale rows are aged out. Failures log
-     but do not block the analysis.
+     fetched in parallel under a 10-minute global cap, indicators
+     are upserted into `feed_indicators`, and stale rows are aged
+     out. Failures log but do not block the analysis.
    - **Per-feed manual refresh** (`POST /api/feeds/{id}/refresh`,
      admin-only, 10-minute hard cap, detached from the request context
      so a browser disconnect doesn't kill the fetch) is the on-demand
@@ -129,7 +129,7 @@ fetch/upsert/prune cycles:
 **Automatic** — watch full-pass tick. The first watch tick of each UTC
 calendar day (or every tick if `WatchAlwaysFull` is on) calls
 `refreshFeedsBeforeFullPass` before launching analysis. Every enabled
-feed is fetched in parallel under a 2-minute global cap; per-feed
+feed is fetched in parallel under a 10-minute global cap; per-feed
 status flips through `idle → fetching → ok`/`error` and the
 `last_refresh_at` timestamp updates so the dialog reflects what
 happened. This is the steady-state path — the indicator set stays

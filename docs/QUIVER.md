@@ -79,11 +79,11 @@ All timestamps in this modal render as UTC `YYYY-MM-DD HH:MM` (full `YYYY-MM-DD 
 
 ### 3. Reassign a sensor's push minute
 
-Click **Slot** on an enrolled row and pick a minute (0–59). Sensors push every hour at the assigned minute-of-hour; randomization at enroll time prevents 20 sensors from synchronizing at HH:00. The new minute takes effect on the sensor's next hourly checkin (it rewrites its own `/etc/cron.d/quiver` from the checkin response).
+Open the row's kebab (⋮) and pick **Reassign slot**, then enter a minute (0–59). Sensors push every hour at the assigned minute-of-hour; randomization at enroll time prevents 20 sensors from synchronizing at HH:00. The new minute takes effect on the sensor's next hourly checkin (it rewrites its own `/etc/cron.d/quiver` from the checkin response).
 
 ### 4. Disenroll a sensor
 
-Click **Disenroll** (red button). Archer:
+Open the row's kebab (⋮) and pick **Disenroll** (red). Archer:
 - Flips the sensor row to `disenrolling`
 - Removes the sensor's `authorized_keys` line on the server (push channel closed immediately)
 - Leaves the sensor's `/logs/<name>/` tree in place
@@ -92,7 +92,7 @@ The sensor itself doesn't know yet. The next time its hourly cron fires, the HTT
 
 ### 5. Purge
 
-Once a row is in `disenrolled` state, the **Purge data** button appears. Purging:
+Once a row is in `disenrolled` state, the kebab menu surfaces **Purge data** (red). Purging:
 - Moves `/logs/<name>/` to `/logs/_archived/<name>-<timestamp>/` (logs aren't deleted; analysts can still review them)
 - Re-tags any existing findings from that sensor's logs to the `_archived` namespace
 - Drops the sensor row from the database
