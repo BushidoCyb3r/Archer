@@ -69,11 +69,13 @@ All steps below assume you're an Archer admin (only admins can enroll, disenroll
 
 The Sensors modal has three tables:
 
-- **Enrolled Sensors** — name, host, status, slot, last seen, health (`✓ on time` / `pending` / `⚠ missed` / `never`), and admin actions (Slot, Disenroll, or Purge after disenroll).
-- **Pending Tokens** — outstanding enrollment tokens that haven't been used yet. Used tokens are filtered out automatically (they show up as Enrolled Sensors instead). Click **Revoke** on any row to invalidate a token before it's used.
-- **Unauthorized Attempts** — checkins from sensor names Archer doesn't recognize, with source IP, attempt count, and first/last-seen timestamps. Old rows auto-prune after 30 days unless pinned. From here you can **Enroll this** (pre-fills the override name in the new-token dialog) or **Dismiss** the row.
+Each row carries a kebab (⋮) at the right edge that opens a popover with the row's actions:
 
-The **Slot** and **Last seen** columns render in whatever timezone you've configured for watch mode (the `Timezone` field in the sidebar's **Watch Mode** section). The timezone field auto-saves on change — no need to enable watch mode for it to stick. Findings timestamps stay in UTC throughout the rest of the UI.
+- **Enrolled Sensors** — name, host, status, slot, last seen, health (`✓ on time` / `pending` / `⚠ missed` / `never`). Kebab: **Reassign slot**, **Disenroll**, or **Purge data** (after disenroll).
+- **Pending Tokens** — outstanding enrollment tokens that haven't been used yet. Used tokens are filtered out automatically (they show up as Enrolled Sensors instead). Kebab on a fresh token: **Show enrollment command** (replays the curl one-liner with the same pulse-dot → green ✓ confirmation flow as the fresh-generate path) and **Revoke**. Expired tokens: just **Revoke**.
+- **Unauthorized Attempts** — checkins from sensor names Archer doesn't recognize, with source IP, attempt count, and first/last-seen timestamps. Old rows auto-prune after 30 days unless pinned. Kebab: **Enroll this sensor** (pre-fills the override name in the new-token dialog) or **Dismiss attempt**.
+
+All timestamps in this modal render as UTC `YYYY-MM-DD HH:MM` (full `YYYY-MM-DD HH:MM:SS UTC` on hover), matching the Feeds modal and the rest of the UI's UTC convention (v0.19.0). The **Slot** column is timezone-independent — sensors push every hour at the assigned minute-of-hour, so it shows as `:MM hourly`.
 
 ### 3. Reassign a sensor's push minute
 

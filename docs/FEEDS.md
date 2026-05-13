@@ -70,12 +70,13 @@ Three independent stages, loosely coupled through SQLite:
      into `feed_indicators`, and stale rows are aged out. Failures log
      but do not block the analysis.
    - **Per-feed manual refresh** (`POST /api/feeds/{id}/refresh`,
-     admin-only, 60-second cap) is the on-demand path admins use right
-     after configuring or editing a feed to verify connectivity. The
-     **Refresh** button on each row of the Feeds dialog calls this.
-     The dashboard sidebar's all-feeds button is intentionally absent
-     — operators who want "refresh everything now" trigger a full
-     analysis instead.
+     admin-only, 10-minute hard cap, detached from the request context
+     so a browser disconnect doesn't kill the fetch) is the on-demand
+     path admins use right after configuring or editing a feed to
+     verify connectivity. The **Refresh** item in the per-row kebab
+     menu of the Feeds dialog calls this. The dashboard sidebar's
+     all-feeds button is intentionally absent — operators who want
+     "refresh everything now" trigger a full analysis instead.
 3. **Analyzer** reads `feed_indicators` once per analysis run during
    phase-0 prefetch, snapshots indicators into typed buckets per feed,
    and tests dst-IP / DNS-query / HTTP-host candidates against them.
@@ -135,11 +136,14 @@ happened. This is the steady-state path — the indicator set stays
 current without any manual operator action.
 
 **Manual per-feed** — `POST /api/feeds/{id}/refresh`, admin-only,
-60-second cap, reachable through the **Refresh** button on each row of
-the Feeds dialog. Use this right after configuring or editing a feed
-to verify connectivity without waiting for the next watch tick. The
-button reports the indicator add / refresh count inline (e.g.
-`+147 / ~98253`) and rolls back the label after a few seconds.
+10-minute hard cap, reachable through the **Refresh** item in the
+per-row kebab (⋮) menu of the Feeds dialog. The handler detaches
+the fetch's context from the inbound HTTP request, so closing the
+modal or losing the browser connection mid-fetch doesn't abort
+the sync — the goroutine runs to completion and the row's
+`status` / `last_refresh_at` / `last_error` update when it's done.
+Use this right after configuring or editing a feed to verify
+connectivity without waiting for the next watch tick.
 
 There is intentionally no all-feeds dashboard button. If you want to
 force a refresh of every configured feed at once, the supported
@@ -534,6 +538,6 @@ matches feeds against the logs centrally.
 | `/api/feeds` | POST | admin | Create a feed |
 | `/api/feeds/{id}` | PUT | admin | Update a feed (empty api_key keeps existing) |
 | `/api/feeds/{id}` | DELETE | admin | Delete a feed (cascades to indicators) |
-| `/api/feeds/{id}/refresh` | POST | admin | One-shot fetch + upsert + prune for one feed (60-second cap). |
+| `/api/feeds/{id}/refresh` | POST | admin | One-shot fetch + upsert + prune for one feed (10-minute hard cap; fetch runs detached from the request context so a browser disconnect doesn't cancel it). |
 
 Full request/response shapes are in `docs/API.md`.
