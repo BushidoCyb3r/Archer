@@ -9,9 +9,11 @@ see *Breaking-change surfaces* and *Deprecation policy* below.
 
 > Phase 6 deliverable. Phase 7 (TI feed integration) shipped in
 > v0.5.0 and added the CRUD endpoints under `/api/feeds/*`; their
-> shapes and roles are documented in `docs/FEEDS.md`. There is no
-> manual-fetch endpoint — feed refreshes are driven by the watch
-> scheduler's pre-full-pass refresh.
+> shapes and roles are documented in `docs/FEEDS.md`. The per-feed
+> manual-fetch endpoint `POST /api/feeds/{id}/refresh` (10-minute
+> hard cap, v0.19.0+) lives alongside the watch-tick pre-full-pass
+> refresh so admins can verify a freshly-configured feed without
+> waiting for the next watch tick.
 
 ---
 
@@ -113,7 +115,7 @@ arrive as `data: {...}\n\n` frames. Reconnect on close — the broker
 doesn't replay missed events. Event types are listed in
 `internal/server/sse_broker.go`; the principal ones are `progress`,
 `status`, `done`, `notification`, `ti_result`, `ti_done`,
-`sensor_enrolled`, and `unauthorized_attempt`.
+`sensor_enrolled`, `unauthorized_attempt`, and `watch.heartbeat`.
 
 ---
 
@@ -184,9 +186,9 @@ the contract — pointers are given.
 
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
-| `POST` | `/login` | (public) | Sets session cookie. Body: `{"email","password"}`. |
-| `POST` | `/register` | (public) | First user becomes admin; subsequent users land in `pending` state. Body: `{"email","first_name","last_name","password"}`. |
-| `POST` | `/logout` | any | Invalidates current session. |
+| `POST` | `/login` | (public) | Sets session cookie. **Form-encoded** body (the HTML form on `/login` submits this directly): `email`, `password`. Both routes serve `text/html` for `GET` and process the form on `POST`. |
+| `POST` | `/register` | (public) | First user becomes admin and is signed in; subsequent users land in `pending` and need admin approval before login works. **Form-encoded** body: `first_name`, `last_name`, `email`, `password`, `confirm`. |
+| `POST` | `/logout` | any | Invalidates current session and clears the cookie. |
 
 See `internal/server/auth.go` for the exact bcrypt cost, session TTL,
 and rate-limit details.
@@ -200,9 +202,9 @@ and rate-limit details.
 **Response** (`200 OK`):
 ```json
 {
-  "version":    "v0.4.0",
+  "version":    "v0.19.0",
   "commit":     "2b61c7a",
-  "build_time": "2026-05-08T18:30:00Z"
+  "build_time": "2026-05-12T18:30:00Z"
 }
 ```
 
@@ -221,7 +223,7 @@ The most-used surface. Findings are detector outputs, persisted in
 | `GET` | `/api/findings/counts` | any | `{open, ack, esc, ioc, total}` aggregate counts honoring the active filter set (`status` and `ioc_only` are stripped — the counts span all status buckets). Drives the dashboard's info-line counters without forcing a full-set scan from the client. |
 | `GET` | `/api/findings/facets` | any | `{types, sensors}` — distinct values across the filter set. `status`, `ioc_only`, `delta`, `type`, `sensor`, `limit`, `offset` are stripped so the dropdowns reflect every available type/sensor regardless of what's currently selected. Powers the Type and Sensor filter dropdowns. |
 | `GET` | `/api/findings/{id}` | any | Single finding (full shape including `ts_data`/`intervals`/`notes`). |
-| `PUT` | `/api/findings/{id}` | analyst+ | Update status/analyst-note. |
+| `PATCH` | `/api/findings/{id}` | analyst+ | Update status / append analyst-attributed note. |
 | `POST` | `/api/findings/{id}/escalate` | analyst+ | Run TI escalation; emits `ti_result` SSE events. |
 | `POST` | `/api/findings/{id}/notes` | analyst+ | Append a note to the finding. |
 | `GET` | `/api/findings/{id}/raw` | any | Raw-log pivot — the Zeek lines that produced this finding. |
@@ -323,25 +325,35 @@ footer. Findings, Acknowledged, Escalated, and IOC tabs paginate
 server-side via this endpoint; Campaigns and Hosts paginate client-
 side over a separate full-set fetch.
 
-**`PUT /api/findings/{id}` body**:
+**`PATCH /api/findings/{id}` body**:
 
 ```json
 {
-  "status":       "acknowledged",
-  "analyst_note": "Confirmed legit — internal monitoring tool."
+  "status": "acknowledged",
+  "note":   "Confirmed legit — internal monitoring tool."
 }
 ```
 
 Either field optional. The handler stamps `analyst` and `status_ts`
-from the session.
+from the session. `status` is validated against the enum — `""`
+(open), `acknowledged`, `escalated`, `dismissed` — anything else
+gets `400 Bad Request` (v0.14.3 NEW-37).
 
 **`POST /api/findings/{id}/escalate` body**:
 
 ```json
 {
+  "note":     "Suspected C2 to no-reputation IP from finance workstation.",
+  "ips":      ["192.0.2.10"],
   "services": ["vt", "otx", "abuseipdb", "greynoise", "censys", "crowdsec"]
 }
 ```
+
+All three fields optional; `services` must be non-empty for any TI
+lookup to fire. The handler escalates the finding (status →
+`escalated`) regardless of whether services are queried. Each
+`service` runs as a background goroutine and streams a `ti_result`
+SSE event when done; a final `ti_done` event closes the burst.
 
 Returns `202 Accepted` and streams results over SSE as `ti_result`
 events terminated by a `ti_done`. Service availability depends on
@@ -429,13 +441,13 @@ preserve insertion order, support `# comment` lines.
 
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
-| `GET` | `/api/allowlist` | any | Returns `{"entries": ["1.2.3.4", "# infrastructure", "10.0.0.0/8", …]}`. |
-| `PUT` | `/api/allowlist` | analyst+ | Body `{"entries": [...]}`. Replaces the full list. |
-| `GET` | `/api/ioc` | any | Same shape as allowlist. |
-| `PUT` | `/api/ioc` | analyst+ | Same shape. |
-| `GET` | `/api/suppressions` | any | List active suppressions (per-finding-fingerprint mutes). |
-| `POST` | `/api/suppressions` | analyst+ | Suppress a finding fingerprint. |
-| `DELETE` | `/api/suppressions/{id}` | analyst+ | Lift a suppression. |
+| `GET` | `/api/allowlist` | any | Returns a bare JSON array of strings — `["1.2.3.4", "# infrastructure", "10.0.0.0/8", …]`. |
+| `PUT` | `/api/allowlist` | analyst+ | Bare JSON array body `["1.2.3.4", ...]`. Replaces the full list. |
+| `GET` | `/api/ioc` | any | Same shape as allowlist (bare string array). |
+| `PUT` | `/api/ioc` | analyst+ | Same shape (bare string array). |
+| `GET` | `/api/suppressions` | any | Returns an array of `{target, expiry, detail}` objects. |
+| `POST` | `/api/suppressions` | analyst+ | Add a suppression. Body: `{"target":"<ip/domain/regex>","days":N,"detail":"<reason>"}`. `days` must be in `(0, 365]`. |
+| `DELETE` | `/api/suppressions/{target}` | analyst+ | Lift a suppression. The `{target}` segment is the URL-encoded target string from the GET response (host / IP / regex / sensor) — not a numeric id. |
 
 `#` lines are preserved verbatim through the round-trip. Inline
 `value # tail` comments have their tail stripped. See
@@ -510,10 +522,10 @@ operator-initiated invocations, not scheduler ticks.
 
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
-| `GET` | `/api/me` | any | Current session user (id, email, role, status). |
-| `GET` | `/api/users` | any | List users. Non-admin sees only public fields. |
-| `GET` | `/api/users/{id}` | admin | Full user record. |
-| `PUT` | `/api/users/{id}` | admin | Update role, status (activate pending users). |
+| `GET` | `/api/me` | any | Current session user — `{id, email, first_name, last_name, role, status}`. |
+| `GET` | `/api/users` | any | Admin gets the full user list; any other role gets a one-entry list containing only themselves. |
+| `POST` | `/api/users` | admin | Create a user. Body: `{"email","first_name","last_name","password","role"}`. Returns the created user (with `password_hash` blanked). `password` must be ≥ 8 chars; `role` defaults to `analyst` if missing/invalid. |
+| `PATCH` | `/api/users/{id}` | admin | Update role / status (activate pending users). |
 | `DELETE` | `/api/users/{id}` | admin | Remove user. |
 
 ### Admin
@@ -521,6 +533,7 @@ operator-initiated invocations, not scheduler ticks.
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
 | `GET` | `/api/admin/backup` | admin | Streams a consistent `VACUUM INTO` snapshot of `/data/archer.db` as a downloadable file. Response: `Content-Type: application/octet-stream`; `Content-Disposition: attachment; filename="archer-backup-YYYYMMDD-HHMMSS.db"` (UTC). The temp snapshot is removed after the stream completes. Audit-logged as `db_backup` with `size_bytes` and `filename` in Details. v0.18.2+. |
+| `GET` | `/api/audit-log` | admin | Cursor-paginated audit-log feed (v0.14.0). Query params: `cursor` (id-exclusive, default `0` = most-recent page) and `count` (default `100`, server-capped at `500`). Response: `{"entries":[…], "total":N, "next":<cursor or 0 if no more>}`. Each entry is one audit row from the `audit_log` table — `id`, `ts`, `actor_id`, `actor_email`, `action`, `target_type`, `target_id`, `target_name`, plus structured `before_value` / `after_value` / `details` JSON blobs. |
 
 ### Threat intel
 
@@ -531,10 +544,12 @@ operator-initiated invocations, not scheduler ticks.
 ### Threat-intel feeds (MISP / OpenCTI)
 
 CRUD over operator-curated MISP / OpenCTI feed configurations. Read
-is open to any authenticated user; mutation is admin-only and
-enforced inside each handler. There is intentionally no manual-fetch
-endpoint — refreshes are driven by the watch scheduler's pre-full-pass
-refresh (`refreshFeedsBeforeFullPass` in `internal/server/watch.go`).
+is open to any authenticated user; mutation and the per-feed manual
+refresh are admin-only (enforced inside each handler). Steady-state
+refresh is driven by the watch scheduler's pre-full-pass refresh
+(`refreshFeedsBeforeFullPass` in `internal/server/watch.go`); the
+`POST /api/feeds/{id}/refresh` route is the on-demand verifier
+admins use right after configuring a feed.
 
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
@@ -550,22 +565,26 @@ OpenCTI, what indicator types match, troubleshooting) live in
 
 ### Sensors (analyst-facing)
 
-These endpoints back the Sensors modal. Read access is `any`; mutation
-requires `admin` (enforced inside each handler).
+These endpoints back the Sensors modal. Read of the sensor list +
+unauthorized-attempt list + heartbeat state is open to any
+authenticated user; everything else (enrollment-token management,
+install-script identity, sensor-facing-host override, sensor
+mutations) is admin-only (enforced inside each handler).
 
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
-| `GET` | `/api/sensors` | any | List enrolled sensors + status. |
-| `GET` | `/api/sensors/health` | any | Per-sensor staleness state for analyst-facing scripts: `{sensors:[{name, last_seen_at, stale, stale_for_seconds, stale_threshold_sec}]}`. `stale=true` when `last_seen_at` is older than the 2h threshold; `stale_for_seconds` is how far past. Same threshold the bell heartbeat alarm uses. Session-cookie auth, so not a Prometheus/Nagios scrape target today. |
-| `GET` | `/api/sensors/info` | any | Server identity for the install script: TLS fingerprint, hostname, port. |
-| `GET` | `/api/sensors/host` | any | Reachable hostname/IP for sensor configuration. |
-| `GET` | `/api/sensors/tokens` | any (read) / admin (POST create) | Manage one-time enrollment tokens. |
-| `POST` | `/api/sensors/tokens/revoke` | admin | Revoke a token before it's used. |
-| `POST` | `/api/sensors/disenroll` | admin | Remove a sensor from `authorized_keys`. |
-| `POST` | `/api/sensors/purge` | admin | Disenroll + delete `/logs/<sensor>/`. |
-| `POST` | `/api/sensors/schedule` | admin | Set the per-sensor `quiver.sh` cadence (returned to the sensor on next checkin). |
-| `GET` | `/api/sensors/unauthorized` | any | List blocked enrollment attempts. |
-| `POST` | `/api/sensors/unauthorized/dismiss` | admin | Dismiss an unauthorized-attempt notification. |
+| `GET` | `/api/sensors` | any | List sensor rows (any status), most recent enrollment first. |
+| `GET` | `/api/sensors/health` | any | Per-sensor staleness state: `{sensors:[{name, last_seen_at, stale, stale_for_seconds, stale_threshold_sec}]}`. `stale=true` when `last_seen_at` is older than the 2h threshold; `stale_for_seconds` is how far past. Same threshold the bell heartbeat alarm uses. Session-cookie auth, so not a Prometheus/Nagios scrape target today. |
+| `GET` | `/api/sensors/info` | admin | Server identity for the install one-liner — `{tls_fingerprint, sensor_facing_host, effective_host}`. |
+| `PUT` | `/api/sensors/host` | admin | Set the sensor-facing host override. Body: `{"host":"<host>"}` (with optional `:port`). |
+| `GET` | `/api/sensors/tokens` | admin | List outstanding enrollment tokens. |
+| `POST` | `/api/sensors/tokens` | admin | Mint a one-time 24h token. Body: `{"override_name":"<optional>"}`. Returns the full token row including the bearer string. |
+| `POST` | `/api/sensors/tokens/revoke` | admin | Revoke a token before it's used. Body: `{"id":N}`. |
+| `POST` | `/api/sensors/disenroll` | admin | Flip the sensor row to `disenrolling` and remove its `authorized_keys` line. Body: `{"id":N}`. Sensor self-cleans on next checkin. |
+| `POST` | `/api/sensors/purge` | admin | Move `/logs/<sensor>/` to `/_archived/`, retag the sensor's findings, drop the sensor row (only allowed once status is `disenrolled`). Body: `{"id":N}`. |
+| `POST` | `/api/sensors/schedule` | admin | Reassign the per-sensor push minute. Body: `{"id":N,"hour":0,"minute":N}`. (Hour is unused under hourly mode but accepted for backward compat.) |
+| `GET` | `/api/sensors/unauthorized` | any | List recent unrecognized checkin attempts. |
+| `POST` | `/api/sensors/unauthorized/dismiss` | admin | Remove an unauthorized-attempt row. Body: `{"id":N}`. |
 
 ### Quiver sensor protocol (sensor-facing)
 
@@ -580,9 +599,9 @@ bumps may remove that compat.
 
 | Method | Path | Notes |
 |--------|------|-------|
-| `GET` | `/quiver/install.sh` | The Bash installer body. Sensors `curl` this. |
-| `POST` | `/api/quiver/enroll` | First-contact enrollment. Body: `{"protocol_version":1, "name":"sensor1", "token":"…", "ssh_pubkey":"…"}`. Response: `{"ok":true, "ssh_port":2222, "tls_fingerprint":"…", "schedule":"…"}`. |
-| `POST` | `/api/quiver/checkin` | Periodic check-in (every quiver.sh tick). Body: `{"protocol_version":1, "name":"sensor1"}`. Response: `{"ok":true, "schedule":"…"}` (so cadence changes propagate) or `{"ok":false, "error":"…"}` on rejection. |
+| `GET` | `/quiver/install.sh` | The Bash installer body. Sensors `curl` this; the response embeds the TLS fingerprint, host, ports, and base64-encoded daily + uninstall scripts so the install runs without a second network hop. |
+| `POST` | `/api/quiver/enroll` | First-contact enrollment. Body: `{"protocol_version":1, "token":"…", "name":"sensor1", "host":"<fqdn>", "pubkey":"<ssh-ed25519 …>"}`. Response on success: `{"name":"sensor1", "schedule_hour":0, "schedule_minute":N, "protocol_version":1, "checkin_secret":"…"}` — `checkin_secret` is a one-shot value the sensor stores at mode 0600 and HMACs into every subsequent checkin; the server never echoes it on any other endpoint (NEW-16). Rate-limited per source IP. |
+| `POST` | `/api/quiver/checkin` | Periodic check-in. Body: `{"protocol_version":1, "name":"sensor1", "hmac":"…"}`. One of four shapes back, each carrying `"protocol_version":1`: `{"status":"enrolled","schedule":{"hour":0,"minute":N}}`, `{"status":"disenrolled"}`, `{"status":"unknown"}`, or `{"status":"protocol_unsupported","sensor_version":N,"server_version":1,"supported_versions":[1]}`. Unknown checkins create `unauthorized_attempts` rows and push an SSE event. |
 
 **Protocol version mismatch** returns `400 Bad Request` with body:
 
@@ -607,7 +626,7 @@ to update sensors before the server.
 | `GET` | `/api/export/json` | any | Full findings dump. Same query params as `/api/findings`. Includes `archer_version` field at the top of the JSON object. |
 | `GET` | `/api/export/csv` | any | CSV variant — flattened columns, no `intervals`/`ts_data`/`notes`. |
 | `GET` | `/api/export/xlsx` | any | Multi-sheet workbook (xlsx). Six sheets — `Findings` (open), `Acknowledged`, `Escalated`, `IOC Hits`, `Campaigns`, `Hosts` — all driven from the full database, ignoring filters and tab state. Used by the **Export all** button's XLSX option. |
-| `POST` | `/api/import` | analyst+ | Restore from a `/api/export/json` dump. Fingerprint-merges with existing findings: existing-by-fingerprint findings keep their analyst data, new ones land as `is_new=true`. |
+| `POST` | `/api/import` | admin | Restore from a `/api/export/json` dump. Fingerprint-merges with existing findings: existing-by-fingerprint findings keep their analyst data, new ones land as `is_new=true`. Re-assigns IDs in a fresh sequence and translates every `correlations[]` slice through an old→new map so cross-finding references survive the round-trip. |
 
 ### Server-Sent Events
 
