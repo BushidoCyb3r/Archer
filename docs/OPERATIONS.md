@@ -409,7 +409,8 @@ keep pinning" promise. v0.14.7 NEW-59.
 
 ### Disenrollment (clean removal)
 
-1. Admin clicks Sensors → Disenroll on the row.
+1. Admin opens the row's kebab (⋮) in the Sensors modal and picks
+   **Disenroll**.
 2. Server marks the row `disenrolling`, removes the
    authorized_keys entry, rotates the sensor's logs to
    `/_archived/<name>/<stamp>/`, retags the sensor's findings
@@ -418,14 +419,16 @@ keep pinning" promise. v0.14.7 NEW-59.
    self-cleans by running quiver-uninstall.sh.
 
 If step 2 crashes midway, the row sits in `disenrolling`. v0.12.0
-made the admin handler resumable — clicking Disenroll again
-re-runs the (idempotent) steps from where it stopped.
+made the admin handler resumable — reopening the kebab and picking
+Disenroll again re-runs the (idempotent) steps from where it
+stopped.
 
 ### Purge (irreversible)
 
-The Purge action wipes the sensor's archived logs and findings.
-Run it only after you're sure the operational history can be
-discarded.
+Once a row is in `disenrolled` state, the kebab menu surfaces
+**Purge data** (red). It wipes the sensor's archived logs and
+findings. Run it only after you're sure the operational history
+can be discarded.
 
 ### Re-enrollment (cert rotation, secret loss, sensor host reinstall)
 
