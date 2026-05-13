@@ -15,8 +15,9 @@
 
 1. **Where will sensors reach the server?** Hostname or IP +
    port 8443 (HTTPS) and port 2222 (rsync over SSH). If the
-   admin URL differs from the sensor-facing URL, set it in
-   Sensors → "Sensor-facing host" after first login.
+   admin URL differs from the sensor-facing URL, set the
+   override via `PUT /api/sensors/host` (admin-only) — see
+   `docs/API.md` for the body shape.
 2. **Who registers first?** The first registered user is auto-
    promoted to admin. Register from a trusted browser session.
 3. **Is the host backed up?** Backup is a single SQLite file
@@ -41,7 +42,7 @@ docker compose ps                               # confirm 'archer' is Up
 # Register the first user (becomes admin automatically)
 # Sign in
 
-# 8-10: enroll one sensor (Sensors modal → New token)
+# 8-10: enroll one sensor (Sensors modal → + Enroll new sensor)
 # Copy the install one-liner shown in the UI
 # Run it on the sensor host as root
 # Verify: Sensors modal should show the new sensor "fresh" within 60s

@@ -93,7 +93,7 @@ The sensor itself doesn't know yet. The next time its hourly cron fires, the HTT
 ### 5. Purge
 
 Once a row is in `disenrolled` state, the kebab menu surfaces **Purge data** (red). Purging:
-- Moves `/logs/<name>/` to `/logs/_archived/<name>-<timestamp>/` (logs aren't deleted; analysts can still review them)
+- Moves `/logs/<name>/` to `/logs/_archived/<name>/<timestamp>/` — nested under the sensor name, not hyphen-delimited (v0.12.0 NEW-21 layout: the hyphen-prefix form collided when one sensor's name was a prefix of another's, e.g. `abc` vs `abc-east`). Logs aren't deleted; analysts can still review them.
 - Re-tags any existing findings from that sensor's logs to the `_archived` namespace
 - Drops the sensor row from the database
 
@@ -126,6 +126,7 @@ What `install.sh` drops on a sensor host:
 | `/usr/local/bin/quiver.sh` | root | 755 | Daily runner: HTTPS checkin → rsync push |
 | `/usr/local/bin/quiver-uninstall.sh` | root | 755 | Self-cleanup, called via the sudoers fragment when Archer reports `disenrolled` |
 | `/etc/quiver/config` | root | 644 | Server host, ports, TLS fingerprint, sensor name, schedule, key paths |
+| `/etc/quiver/secret` | quiver | 600 | Per-sensor `checkin_secret` returned once at enrollment; HMAC-SHA256 key for every checkin (v0.12.0+ protocol v2, NEW-16). |
 | `/etc/quiver/keys/id_ed25519` | quiver | 600 | Per-sensor ed25519 keypair generated at enroll |
 | `/etc/quiver/known_hosts` | quiver | 644 | Pinned Archer sshd host key |
 | `/etc/cron.d/quiver` | root | 644 | `${MINUTE} * * * * quiver /usr/local/bin/quiver.sh` |
@@ -154,7 +155,7 @@ The first push (run during install) is special: `FIRST_SYNC=1` is set in the env
 
 Why this knob matters: a freshly enrolled sensor with 6 months of local Zeek history would otherwise ship every byte of it on first push — over a slow link or against a busy Archer that's churning through analysis, that's a multi-hour rsync. The backfill cap lets the operator say "I only need the last 30 days from this sensor" and skip the rest.
 
-**rsync copies, never moves.** Quiver invokes `rsync -avRq` with no `--remove-source-files` flag, so every `.gz` Archer ingests is a copy — the original stays in place under the sensor's local Zeek log directory. Whatever retention policy Zeek (or the sensor's filesystem) enforces is unaffected by Quiver. If a sensor disk fills up, that's a sensor-side rotation/retention issue, not an Archer-side one. The only data Archer ever deletes from a sensor is via its own admin-triggered `Purge data` action against `/logs/<name>/` on the Archer host — and even that just moves the tree to `/logs/_archived/<name>-<timestamp>/`, never reaches back to the sensor.
+**rsync copies, never moves.** Quiver invokes `rsync -avRq` with no `--remove-source-files` flag, so every `.gz` Archer ingests is a copy — the original stays in place under the sensor's local Zeek log directory. Whatever retention policy Zeek (or the sensor's filesystem) enforces is unaffected by Quiver. If a sensor disk fills up, that's a sensor-side rotation/retention issue, not an Archer-side one. The only data Archer ever deletes from a sensor is via its own admin-triggered `Purge data` action against `/logs/<name>/` on the Archer host — and even that just moves the tree to `/logs/_archived/<name>/<timestamp>/`, never reaches back to the sensor.
 
 ---
 
@@ -229,24 +230,26 @@ These are served on the TLS listener (`:8443`) and the rsync sshd (`:22` → hos
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/quiver/install.sh` | Renders the install bash for the requesting host. The TLS fingerprint, host, and ports get substituted into the embedded template; the daily and uninstall scripts are inlined as base64 so the install runs without a second network hop. |
-| `POST` | `/api/quiver/enroll` | Body `{token, name, host, pubkey, protocol_version}`. Validates the token (single-use, 24h TTL) and protocol version, writes the `authorized_keys` line, creates `/logs/<name>/`, persists the sensor row, returns `{name, schedule_hour:0, schedule_minute, protocol_version}`. |
-| `POST` | `/api/quiver/checkin` | Body `{name, protocol_version}`. Returns `{"status":"enrolled","schedule":{"hour":0,"minute":N},"protocol_version":1}`, `{"status":"disenrolled","protocol_version":1}`, `{"status":"unknown","protocol_version":1}` (and records an `unauthorized_attempts` row, plus pushes an SSE event), or `{"status":"protocol_unsupported","sensor_version":N,"server_version":1,"supported_versions":[1]}` when the sensor's protocol version isn't in the server's supported set. |
+| `POST` | `/api/quiver/enroll` | Body `{token, name, host, pubkey, protocol_version}` (current `protocol_version` is `2`). Validates the token (single-use, 24h TTL) and protocol version, writes the `authorized_keys` line, creates `/logs/<name>/`, persists the sensor row, returns `{name, schedule_hour:0, schedule_minute, protocol_version, checkin_secret}`. **`checkin_secret` is returned exactly once at enrollment** — `quiver.sh` persists it at `/etc/quiver/secret` (mode `0600`) and uses it to HMAC-SHA256-sign every subsequent checkin (NEW-16). The server never echoes the secret on any other endpoint. |
+| `POST` | `/api/quiver/checkin` | Body `{name, protocol_version}` plus an `X-Quiver-Sig` header carrying the hex-encoded HMAC-SHA256 of the request body keyed by the sensor's `checkin_secret`. Missing or invalid signatures land in the unauthenticated-attempts bucket. Returns `{"status":"enrolled","schedule":{"hour":0,"minute":N},"protocol_version":2}`, `{"status":"disenrolled","protocol_version":2}`, `{"status":"unknown","protocol_version":2}` (and records an `unauthorized_attempts` row, plus pushes an SSE event), or `{"status":"protocol_unsupported","sensor_version":N,"server_version":2,"supported_versions":[2]}` when the sensor's protocol version isn't in the server's supported set. |
 
 `schedule_hour` is always `0` under hourly mode (the cron line uses `*` for the hour); the field is kept on the response for backward compatibility with daily-mode sensors that haven't been re-enrolled yet.
 
 ## Protocol versioning
 
-Quiver speaks a versioned wire protocol between the sensor and the Archer server. Every enrollment and checkin carries a `protocol_version` integer; the server validates it against an internal `supportedQuiverProtocols` set and rejects mismatches with a structured error. Without this handshake, an old sensor talking to a newer server would silently rsync to a stale path or fail enrollment with an opaque token error — the version field turns "weird unexplained breakage" into "your sensor is on v1, server requires v2+; please reinstall from `<archer>/quiver/install.sh`."
+Quiver speaks a versioned wire protocol between the sensor and the Archer server. Every enrollment and checkin carries a `protocol_version` integer; the server validates it against an internal `supportedQuiverProtocols` set and rejects mismatches with a structured error. Without this handshake, an old sensor talking to a newer server would silently rsync to a stale path or fail enrollment with an opaque token error — the version field turns "weird unexplained breakage" into "your sensor is on v1, server requires v2; please reinstall from `<archer>/quiver/install.sh`."
 
-### What the current version (`v1`) covers
+`QuiverProtocolVersion` is currently **`2`** (constant in `internal/server/quiver_protocol.go`). v1 was dropped at v0.12.0 NEW-16 when the per-sensor HMAC checkin-secret was introduced — there's no in-band path to retroactively issue a checkin secret to a v1 sensor, so the operator's upgrade is to re-enroll every sensor against the v0.12.0+ server. A missing `protocol_version` field resolves to v1 (and therefore unsupported), so install scripts must explicitly send `2`.
 
-The protocol contract pinned at v1 is everything the sensor and server agree on out-of-band today. Anything in this list changing in a way old clients can't muddle through is what triggers a v2 bump.
+### What the current version (`v2`) covers
+
+The protocol contract pinned at v2 is everything the sensor and server agree on out-of-band today. Anything in this list changing in a way old clients can't muddle through is what triggers a v3 bump.
 
 **Wire shapes**
 
 - **Enrollment payload**: `{token, name, host, pubkey, protocol_version}`. Token is single-use; pubkey is an OpenSSH-format ed25519 line.
-- **Enrollment response**: `{name, schedule_hour, schedule_minute, protocol_version}`.
-- **Checkin payload**: `{name, protocol_version}`.
+- **Enrollment response**: `{name, schedule_hour, schedule_minute, protocol_version, checkin_secret}`. `checkin_secret` is returned exactly once and stored at `/etc/quiver/secret` (mode `0600`) on the sensor; the server never echoes it on any other endpoint (audit/export/SSE) per NEW-16.
+- **Checkin payload**: `{name, protocol_version}` body **plus** an `X-Quiver-Sig` header carrying `hex(HMAC-SHA256(body, checkin_secret))`. Missing or invalid signatures bucket as unauthorized checkin attempts.
 - **Checkin response**: status discriminator (`enrolled` / `disenrolled` / `unknown` / `protocol_unsupported`) plus version echo.
 
 **Identity and crypto**

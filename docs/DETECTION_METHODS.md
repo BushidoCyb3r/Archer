@@ -624,7 +624,7 @@ if **any** of the following are true:
 If any condition fires, deduplicate per `(src, apex)` and emit:
 
 ```
-score = clamp( min(55 + 6·entropy, 88), 1, 95 )
+score = clamp( min(55 + 6·entropy, 88), 1, 88 )
 severity = High
 ```
 
@@ -634,7 +634,7 @@ A second-pass aggregate. For each `(src, apex)` we collect the set of unique
 subdomains. If `|set| ≥ DNSUniqueSubdomainMin` (default 50):
 
 - Sample up to 200 subdomains, compute Shannon entropy of each, average.
-- `score = clamp( min(55 + 6·avg_entropy, 90), 1, 95 )`
+- `score = clamp( min(55 + 6·avg_entropy, 90), 1, 90 )`
 - Severity is High if `avg_entropy > 3.0`, else Medium.
 
 ### 9.4 Suspicious TLD

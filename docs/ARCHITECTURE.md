@@ -481,7 +481,7 @@ Two-tier decision (`triggerWatchAnalysis`):
 
 ```go
 if config.WatchAlwaysFull {
-    refreshFeedsBeforeFullPass()           // synchronous, 2-min cap
+    refreshFeedsBeforeFullPass()           // synchronous, 10-min cap
     return launchAnalysisWithOptions(...)  // every tick is a full analysis
 }
 now := time.Now().UTC()
@@ -489,7 +489,7 @@ needFull := lastFull.IsZero() ||
             lastFull.Year()    != now.Year() ||
             lastFull.YearDay() != now.YearDay()
 if needFull {
-    refreshFeedsBeforeFullPass()           // synchronous, 2-min cap
+    refreshFeedsBeforeFullPass()           // synchronous, 10-min cap
     return launchAnalysisWithOptions(...)  // sets LastFullAnalysisUnix + LastAnalysisUnix
 }
 // Otherwise: incremental. Filter files by mtime > LastAnalysisUnix - 5min,
@@ -498,14 +498,16 @@ if needFull {
 return launchIncrementalAnalysis(filteredFiles)
 ```
 
-`refreshFeedsBeforeFullPass` is the only path that fetches MISP /
-OpenCTI feeds — every enabled feed is refreshed in parallel under a
-two-minute cap, status updates per-feed, failures log without
-blocking analysis. The auto-cadence feed worker is intentionally
-disabled (see `server.go`'s `New` comment) and there is no manual
-refresh endpoint, so a full pass is the *only* way to bring feed
-indicators current. Incremental ticks consult whatever's already in
-`feed_indicators`.
+`refreshFeedsBeforeFullPass` is the **steady-state** path that fetches
+MISP / OpenCTI feeds — every enabled feed is refreshed in parallel
+under a 10-minute cap, status updates per-feed, failures log without
+blocking analysis. The auto-cadence feed worker (`internal/feeds/worker.go`)
+is intentionally not started (see `server.go`'s `New` comment); the
+watch tick drives refresh. Admins can also trigger an on-demand
+single-feed fetch via `POST /api/feeds/{id}/refresh` (10-minute hard
+cap, detached from the request context so a browser disconnect
+doesn't cancel an in-flight pull — v0.19.0). Incremental ticks
+consult whatever's already in `feed_indicators` without re-fetching.
 
 Manual "Discard findings & re-analyze" runs as a full pass and resets
 both timestamps so the cycle restarts cleanly.
@@ -564,6 +566,6 @@ CI is also pending (Phase 5) — currently `go vet`, `go test`, and
 
 ---
 
-*Last updated: 2026-05 alongside the v0.1.0 versioning work. Update
+*Last updated: 2026-05 alongside the v0.19.0 release. Update
 this doc whenever the dataflow, schema, SSE catalog, or process model
 materially changes.*
