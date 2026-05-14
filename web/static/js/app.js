@@ -4174,8 +4174,6 @@
       ColResize.init('hosts-table');
     });
 
-    DlgManager.init();
-
     _loadIOCList();
     _loadAllowSet();
     _loadOrgCIDRs(); // populate the Hosts-tab filter list before findings render
