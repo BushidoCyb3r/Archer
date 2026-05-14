@@ -67,6 +67,17 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 	srcMatcher := parseIPMatcher(q.Get("src_ip"))
 	dstMatcher := parseIPMatcher(q.Get("dst_ip"))
 	portSet := parsePortSet(q.Get("dst_port"))
+	// ids: explicit set of finding IDs to match. When set, only findings
+	// whose ID appears in the set are returned. Used by the "Show
+	// contributing activity" action on Correlated Activity rows — the
+	// client clears every other filter input and submits ids=<csv> with
+	// the CA's ID + its contributor IDs from Finding.Correlations. The
+	// server treats it like any other filter: allowlist / suppression /
+	// dismissed-default still apply (admin decisions outrank navigation
+	// actions, same shape as every other filter in this function). An
+	// empty or all-malformed ids= is treated as "filter not present" so
+	// a stray "?ids=" doesn't accidentally hide every finding.
+	idsFilter := parseIDFilter(q.Get("ids"))
 
 	// User-supplied datetime-local strings are parsed in the operator's
 	// configured timezone; the analyzer's own Timestamp field stays UTC.
@@ -95,6 +106,9 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 	result := make([]model.Finding, 0, len(findings))
 	for i := range findings {
 		f := &findings[i]
+		if idsFilter != nil && !idsFilter[f.ID] {
+			continue
+		}
 		if typeF != "" && typeF != "All" && f.Type != typeF {
 			continue
 		}
@@ -212,6 +226,33 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 		result = append(result, *f)
 	}
 	return result
+}
+
+// parseIDFilter accepts a comma-separated list of finding IDs
+// ("12,47,128") and returns a lookup set, or nil when the input is
+// empty / parses to nothing usable. Non-positive or non-numeric tokens
+// are silently skipped — same pattern as parsePortSet — so a stray
+// comma doesn't accidentally yield an empty set that would hide every
+// finding. Backs the `ids` query parameter on /api/findings.
+func parseIDFilter(s string) map[int]bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	out := map[int]bool{}
+	for _, tok := range strings.Split(s, ",") {
+		tok = strings.TrimSpace(tok)
+		if tok == "" {
+			continue
+		}
+		if n, err := strconv.Atoi(tok); err == nil && n > 0 {
+			out[n] = true
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // parsePortSet accepts a single port ("443") or a comma-separated list
