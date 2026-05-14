@@ -1649,7 +1649,18 @@ dialog::backdrop {
 .dlg-body {
   padding: 16px 22px;
   overflow: auto;
-  flex: 1;
+  /* `flex: 1 1 auto` + `min-height: 0` is the canonical Safari fix
+     for a flex column's overflow:auto child collapsing or squashing
+     the parent. The shorthand `flex: 1` resolves to `flex: 1 1 0%`
+     which Safari combines with the inner content's min-content size
+     (a `table-layout: fixed` child's natural width / row count's
+     natural height) and over- or under-sizes the dialog. Chrome and
+     Firefox tolerate the shorthand; Safari does not. min-height:0
+     and min-width:0 release the flex item from min-content height
+     and width so the scroll wins. */
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
 }
 .dlg-body label {
   display: block;
