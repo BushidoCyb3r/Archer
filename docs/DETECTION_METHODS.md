@@ -812,10 +812,40 @@ OTX/AbuseIPDB are rate-capped per analysis run because both have free-tier
 quotas an analyst's box can chew through quickly on a busy day. Feodo,
 URLhaus, MISP, and OpenCTI are bulk fetches, so cap doesn't apply.
 
-### 12.4 Per-source fan-out
+### 12.4 Emit shape — one TI Hit per (src, dst, port)
 
-A single feed match emits **one TI Hit finding per distinct internal
-source** that contacted the bad dst:
+A feed match emits **one TI Hit finding per distinct `(src, dst, port)`
+triple** that contacted the bad dst. The emit step has two passes: a
+per-dst merge that collapses overlapping TI sources (multiple feeds
+flagging the same destination), then a per-src fan-out across every
+internal host that contacted the merged dst.
+
+**Pass 1 — per-dst merge.** When the same destination is flagged by
+more than one TI source (e.g. a MISP indicator that's also in
+FeodoTracker, or an IP in both OTX and AbuseIPDB), the merge collapses
+the matching `tiHit` records to one entry per dst:
+
+- Score / Severity = the highest of any matching source (Feodo's 99
+  Critical wins over a feed's 90 High)
+- Detail = every source's verdict joined with `" | "` so the analyst
+  still sees full provenance (`URLhaus malware distribution IP: 1.2.3.4 |
+  MISP indicator match: 1.2.3.4`)
+- Source label = source names joined with `" + "` (`URLhaus + MISP`)
+
+This merge landed in v0.21.0. Pre-fix the per-src fan-out below ran
+once per (dst, source) pair × once per contacting src, producing N×M
+findings with identical `Fingerprint(Type, SrcIP, DstIP, DstPort)`.
+`SetFindings`'s carry-forward branch returned the same `old.ID` for
+all the duplicates, the second `INSERT` collided on the UNIQUE
+primary key, and the entire `saveFindings` transaction rolled back —
+leaving the DB stuck in its pre-Analyze state while the in-memory
+`s.findings` reflected the new findings (visible as "rollups
+disappear after rebuild"). Per-host TI signal is unchanged; only the
+raw row count drops.
+
+**Pass 2 — per-src fan-out.** For each merged dst, the emit step
+walks every distinct internal source that contacted it and emits one
+TI Hit finding per src:
 
 - `SrcIP` = the real internal host (`id.orig_h` from conn/dns/http)
 - `DstIP` = the matched IP or domain
@@ -823,8 +853,11 @@ source** that contacted the bad dst:
   domain hits; `80` for HTTP-sourced domain hits
 - `Timestamp` = first observed contact time (Zeek `ts`), not analyzer
   wall-clock — so the row sorts naturally next to the actual traffic
-- `SourceFile` = feed name (`FeodoTracker` / `URLhaus` / `OTX` / `AbuseIPDB`)
-- `Detail` = the feed's verdict line plus an evidence suffix:
+- `SourceFile` = the merged source label from Pass 1 — a single feed
+  name (`FeodoTracker` / `URLhaus` / `OTX` / `AbuseIPDB`) when only
+  one source matched, or sources joined with `" + "` (`URLhaus + MISP`)
+  when multiple matched
+- `Detail` = the merged Pass 1 Detail plus an evidence suffix:
   - `… — observed via conn on port 443 (12 session(s))`
   - `… — observed via HTTP on port 80 (3 request(s))`
   - `… — DNS A query (5 lookup(s))`
@@ -915,6 +948,21 @@ Two persisted timestamps in the settings table drive the decision:
 Manual full-pipeline runs (the analyze button or "Discard &
 re-analyze") flow through the same code path and reset both timestamps,
 so the two-tier cycle restarts cleanly from a manual baseline.
+
+**Rollup preservation across incrementals (v0.21.0).** `Store` exposes
+two persistence entry points so the watch loop can be honest about
+what's been re-evaluated. Full passes call `SetFindings` (the
+"authoritative" path), which carries analyst state forward by
+fingerprint AND purges historical roll-up findings — Correlated
+Activity, Host Risk Score — whose fingerprints aren't in the fresh
+emission set. Incremental TI-only passes call `SetFindingsIncremental`
+(the partial-pipeline path), which carries state forward identically
+but **does not** purge roll-ups. Without that split, every incremental
+tick (5 between UTC-midnight full passes) would drop every CA / HRS
+the prior full pass had emitted, since `correlateFindings` and
+`aggregateRisk` don't run in incrementals — the absence in the new
+emission set would be interpreted as "no longer valid" rather than
+"not re-evaluated this pass."
 
 Watch ticks emit a `done` SSE event with `incremental: true` for the
 short-pass case so the UI can distinguish them from full-pipeline

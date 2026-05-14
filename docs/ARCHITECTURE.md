@@ -304,6 +304,35 @@ analysis. It does NOT replace findings wholesale — it merges by
 fingerprint (currently a hash of `type + src_ip + dst_ip + dst_port +
 source_file`).
 
+There are two public entry points sharing one implementation
+(`setFindingsImpl`):
+
+- **`SetFindings(findings)`** — full-pass path. Purges historical
+  roll-up findings (Correlated Activity, Host Risk Score) whose
+  fingerprints aren't in the fresh emission set. Full analyses re-run
+  `correlateFindings` and `aggregateRisk`, so absence = "no longer
+  valid."
+- **`SetFindingsIncremental(findings)`** — incremental TI-only path.
+  Preserves roll-ups untouched. Incrementals don't run correlate or
+  aggregate, so absence means "not re-evaluated this pass" — purging
+  would drop every CA / HRS the next-most-recent full pass had
+  emitted. v0.21.0 added this split after the prior `SetFindings`-only
+  behavior was found to be silently dropping rollups across the five
+  incremental ticks between UTC-midnight full passes.
+
+A defensive in-batch fingerprint dedup runs at the top of
+`setFindingsImpl` (also v0.21.0): when two findings emitted in the
+same batch share `Fingerprint(Type, SrcIP, DstIP, DstPort)`, the
+highest-scored row wins and the duplicate is dropped before
+ID assignment. Without this guard, a multi-source TI Hit emit would
+hand two findings the same carry-forward `old.ID`, the second
+`INSERT` would collide on the UNIQUE primary key, and the entire
+`saveFindings` transaction would roll back — losing every finding,
+rollup, and analyst-state change from that run while the in-memory
+`s.findings` still reflected the new state. See
+`DETECTION_METHODS.md` §12.4 for the original (now-resolved) emit
+shape.
+
 On a fingerprint match, the existing row's analyst-state fields are
 preserved:
 - `Status`
