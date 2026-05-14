@@ -16,15 +16,6 @@
   let _logsDir         = '/logs';
   let _currentUser     = null;
   let _orgCIDRs        = []; // admin-supplied CIDRs that augment the built-in private ranges for the Hosts tab
-  // Latched ID-set filter set by "Show contributing activity" on a
-  // Correlated Activity row. When non-null, _currentFilterParams short-
-  // circuits to {ids: csv} — bypassing severity / status / delta /
-  // every other input — so the analyst sees the CA roll-up and all of
-  // its contributing findings in one view regardless of what filter
-  // state they were in before invoking the action. Cleared by
-  // applyFilter (any explicit filter form interaction exits this view)
-  // and by the Reset Filters button.
-  let _idsFilter       = null;
 
   // Per-tab state. Each findings-style tab (findings / ack / esc / ioc)
   // keeps its own loaded findings, pagination position, and total count.
@@ -786,15 +777,6 @@
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const tab = btn.dataset.tab;
-        // Explicit tab navigation exits the latched ids-filter view
-        // set by "Show contributing activity". The analyst chose to
-        // leave Findings (or to navigate elsewhere within the
-        // findings-family tabs); the Ack/Esc/IOC tabs presenting an
-        // ids-filtered subset would lie about what they normally
-        // show. showContributingActivity itself does its tab switch
-        // via direct DOM mutation, bypassing this handler, so the
-        // initial entry into the ids-filter view isn't affected.
-        _idsFilter = null;
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         _activeTab = tab;
@@ -855,11 +837,6 @@
     document.getElementById('apply-filter-btn').addEventListener('click', applyFilter);
     document.getElementById('reset-filter-btn').addEventListener('click', () => {
       _resetFilterUI();
-      // Reset goes through the same path as applyFilter so the active
-      // tab refetches and the info-line counts repopulate (instead of
-      // sticking on the dashes left by _invalidateAllTabs). applyFilter
-      // also clears _idsFilter, so a reset from inside ids-filter view
-      // exits cleanly.
       applyFilter();
     });
     ['filter-search','filter-src','filter-dst','filter-port'].forEach(id => {
@@ -980,24 +957,6 @@
   // applyFilter (for /api/findings) and the export buttons so the exported
   // file matches the on-screen view exactly.
   function _currentFilterParams() {
-    // Latched ids filter wins outright. Returning ONLY {ids: csv,
-    // include_dismissed: true} means severity, type, min_score,
-    // src/dst, port, sensor, time range, delta mode, AND the tab-
-    // aware status/ioc_only gate are all bypassed. That's the
-    // contract the "Show contributing activity" action depends on —
-    // the contributors of a CA can be in any state (a dismissed
-    // Beaconing, an escalated DNS Tunnel, a fresh Strobe) and the
-    // analyst needs to see all of them. include_dismissed=true
-    // specifically counters the server's default-exclude-dismissed
-    // rule for status-less queries, which would otherwise hide a
-    // contributor the analyst dismissed individually and produce a
-    // confusing "CA lists 5 contributing IDs but I only see 4" gap.
-    // Allowlist / suppression still apply at the server (admin
-    // decisions outrank navigation actions); a contributor on the
-    // allowlist will be invisible here too, by design.
-    if (_idsFilter && _idsFilter.length > 0) {
-      return { ids: _idsFilter.join(','), include_dismissed: 'true' };
-    }
     const g = id => (document.getElementById(id) || {}).value || '';
     const params = {};
     const search = g('filter-search').trim();
@@ -1430,11 +1389,9 @@
 
   // _resetFilterUI clears every filter form input back to its
   // empty/default state without triggering a re-fetch. The
-  // reset-filter-btn click handler pairs it with an applyFilter()
-  // call; showContributingActivity uses it to wipe stale form values
-  // before latching the ids filter so the form reads as "no normal
-  // filters active, ids filter latched" rather than "ids filter
-  // latched on top of whatever was here before."
+  // reset-filter-btn click handler pairs it with applyFilter();
+  // showContributingActivity pairs it with a src/dst write so the
+  // form reads cleanly as "filtered on this pair only."
   function _resetFilterUI() {
     ['filter-search','filter-src','filter-dst','filter-port'].forEach(id => {
       const el = document.getElementById(id); if (el) el.value = '';
@@ -1449,33 +1406,22 @@
     if (rs) rs.value = '1mo';
   }
 
-  // showContributingActivity latches the ids filter to the CA's own
-  // ID plus every contributor ID in f.correlations, then forces a
-  // refresh on the Findings tab. The CA roll-up is included in the
-  // set so the analyst sees both the roll-up they came from and its
-  // contributing rows together (the user explicitly asked for this
-  // — the alternative of contributors-only requires them to navigate
-  // back to find the CA again). All other filters are blown away so
-  // the contributor set is exhaustive regardless of status / severity
-  // / delta. Wired from the ctx-show-contributing right-click item.
+  // showContributingActivity filters the Findings tab on the CA's
+  // (src, dst) pair via the existing search form. Reading the values
+  // straight into filter-src / filter-dst means the analyst sees the
+  // filter state in the UI and can edit it; the (src, dst) shape also
+  // surfaces newer activity on the same pair that wasn't part of the
+  // original CA emission. Wired from the ctx-show-contributing
+  // right-click item; visible only on Correlated Activity rows.
   function showContributingActivity(f) {
     if (!f || f.type !== 'Correlated Activity') return;
-    const corr = Array.isArray(f.correlations) ? f.correlations : [];
-    const ids = [f.id, ...corr].filter(x => Number.isFinite(x));
-    if (ids.length === 0) return;
+    const src = f.src_ip || '';
+    const dst = f.dst_ip || '';
+    if (!src && !dst) return;
     _resetFilterUI();
-    _idsFilter = ids;
-    _invalidateAllTabs();
-    _loadCounts();
-    if (_tabMode === 'findings') {
-      loadFindings(_currentFilterParams());
-    } else {
-      // Switch panels manually instead of clicking the tab button —
-      // the tab-button handler invokes _showCurrentTab which would
-      // refetch on its own, but we want the fetch to happen AFTER
-      // _idsFilter is set so _currentFilterParams returns {ids: csv}.
-      // The DOM updates here mirror what the tab-btn click handler
-      // does for the findings/ack/esc/ioc panel set.
+    const srcEl = document.getElementById('filter-src'); if (srcEl) srcEl.value = src;
+    const dstEl = document.getElementById('filter-dst'); if (dstEl) dstEl.value = dst;
+    if (_tabMode !== 'findings') {
       document.querySelectorAll('.tab-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.tab === 'findings');
       });
@@ -1486,16 +1432,11 @@
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       const panel = document.getElementById('tab-findings');
       if (panel) panel.classList.add('active');
-      loadFindings(_currentFilterParams());
     }
+    applyFilter();
   }
 
   function applyFilter() {
-    // Any explicit filter-form action exits the latched ids-filter
-    // view set by "Show contributing activity". The analyst's act of
-    // touching the form is the signal that they're done with the
-    // contributing-activity drill-down and want normal filtering back.
-    _idsFilter = null;
     // A filter change can affect every tab's result set, so invalidate
     // all caches. Other tabs will re-fetch lazily when the analyst
     // visits them. The active tab refetches now. _loadCounts always
