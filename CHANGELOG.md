@@ -30,6 +30,121 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.21.0] — 2026-05-14
+
+### Breaking
+
+- **TI Hit multiplicity changed.** When a single destination is flagged by
+  multiple TI sources (e.g. MISP indicator overlap with FeodoTracker or
+  AbuseIPDB), the analyzer now emits **one** `TI Hit (IP)` /
+  `TI Hit (Domain)` finding per `(src, dst, port)` tuple regardless of
+  how many sources matched. Pre-fix, the inner emit loop produced one
+  finding per `(dst, source)` pair × one per contacting src, so a dst
+  flagged by N sources with M sources contacting it produced N×M findings
+  with identical `Fingerprint(Type, SrcIP, DstIP, DstPort)`. The merged
+  finding keeps the highest score and most severe severity across
+  sources; the Detail line lists every matching source's evidence with
+  `" | "` separators; SourceFile joins source labels with `" + "`.
+  Dashboards and exports counting raw TI Hit rows will see a drop in
+  cardinality; per-host TI signal is unchanged.
+
+### Detection changes
+
+- TI Hit per-source-fan-out collapsed to one finding per `(src, dst,
+  port)`. The bell-eligibility band, severity ranges, and per-host risk
+  weights are unchanged — this is purely a row-multiplicity fix.
+
+### Fixed
+
+- **`saveFindings` UNIQUE-constraint rollback that silently dropped
+  every full Analyze.** The multi-source TI Hit emit produced in-batch
+  duplicate fingerprints; `SetFindings`'s carry-forward branch returned
+  the same `old.ID` for all duplicates; the second `INSERT` collided
+  on the primary key, rolling back the entire transaction. The
+  in-memory `s.findings` was updated before the save (so the UI showed
+  CAs / HRS until restart), but disk stayed frozen — visible as
+  "rollups disappear after rebuild." `SetFindings` now does a
+  defensive in-batch fingerprint dedup before the ID-assignment loop
+  (highest-scored row wins, first-seen order preserved) as a safety
+  net so any detector that emits duplicates can no longer take down
+  the pipeline.
+- **Correlated Activity + Host Risk Score lost across TI-only
+  incremental watch ticks.** `SetFindings`'s `IsRollupType` purge fired
+  on every call, including the 5 incremental ticks between UTC-midnight
+  full passes. Since incrementals don't run `correlateFindings()` or
+  `aggregateRisk()`, the purge dropped every rollup the next-most-
+  recent full pass had emitted. Split into `SetFindings` (full-pass:
+  purges stale rollups) and `SetFindingsIncremental` (incremental:
+  preserves rollups untouched). The watch loop's incremental path and
+  the archive-scan path now call `SetFindingsIncremental`.
+- **HTTP-derived TI Hits emitted with empty Sensor.** Two `ti.go` emit
+  sites for URLhaus and feed-domain matches don't track `SourceFile`,
+  so `sensorOf` returned `""` and findings persisted unattributed.
+  `watch.go`'s incremental path and `handlers_api.go`'s archive scan
+  now call `Analyzer.SetDefaultSensor` before `AnalyzeTIOnly`, so
+  SourceFile-less emits fall through to the deployment's default
+  sensor for single-sensor installs.
+- **Modal dialogs squashed in macOS Safari.** Nested
+  `table-layout: fixed` inside a flex `.dlg-body` with the default
+  `flex: 1` (which expands to `flex: 1 1 0%`) inherited the table's
+  min-content size and either over- or under-sized the dialog. The
+  fix gives `.dlg-body` `flex: 1 1 auto; min-height: 0; min-width: 0`
+  — the canonical Safari fix releasing the flex item from min-content
+  sizing so its own `overflow: auto` wins.
+- **Row-kebab menus rendered in the wrong spot once made visible.**
+  Dialog centring used `transform: translate(-50%, -50%)`, which made
+  the dialog a containing block for `position: fixed` descendants.
+  Row menus computed viewport coords from `getBoundingClientRect()`
+  and applied them as `position: fixed`, expecting viewport
+  positioning. Switched centring to `inset: 0; margin: auto` — same
+  visual result, but no transform on the dialog and the viewport
+  stays the containing block for the menu.
+
+### Added
+
+- **Right-click "Show contributing activity" on Correlated Activity
+  rows.** Filters the Findings tab on the CA's `(src, dst)` pair via
+  the existing search form (`filter-src` + `filter-dst`). Visible only
+  on CA rows. Shows the CA itself, its contributors, and any newer
+  activity on the same pair — not limited to the exact contributor IDs
+  the CA was emitted with, so dismissed contributors stay visible and
+  new findings on the same pair surface naturally.
+- **Heartbeat pulse dot during Source Records scan.** Reuses the
+  `.pulse-dot` class from the sensor-enrollment "awaiting join"
+  indicator. Renders left of the "Scanning logs…" status line so
+  analysts see live feedback that the scan is in progress.
+- **Drag for the Score Evolution expanded chart modal.** Its custom
+  header now carries `.dlg-drag-handle`, which `dialog.js` honours
+  alongside `.dlg-header`. Brings drag parity with every other dialog.
+
+### Changed
+
+- **Hosts-tab right-click context menu.** "Lookup …" hidden — Hosts
+  rows always show internal RFC1918 IPs (built from the operator's
+  org-CIDR set), so VT/Shodan/AbuseIPDB lookups have nothing to
+  contribute. "Pivot to …" now switches to the Findings tab and
+  filters on that IP rather than opening the IP in a graph view.
+- **Dialog system overhaul.**
+  - Corner resize removed across all dialogs. Drag-by-header preserved
+    for moving a dialog out of the way; declared widths win.
+  - Score Evolution modal: top-right `×` button replaced with a
+    bottom-right `Close` button in a `.dlg-footer`, matching the
+    secondary-Cancel pattern used by every other dialog.
+  - Base `dialog { overflow }` switched from `hidden` to `visible`
+    so row-kebab popovers can extend past the dialog edge when the
+    kebab sits near it; `.dlg-header` and `.dlg-footer` got matching
+    `border-radius` so the rounded corners still look clean.
+- **Users modal**: widened to 960px (was 720px). Joined column now
+  shows full UTC date+time (`YYYY-MM-DD HH:MM`) in monospace instead
+  of just the date. Far-right Actions column right-aligned to free
+  visual space for the wider Joined field.
+- **Beacon Visualization modal**: 720px-wide canvas centered inside
+  the 880px dialog (was left-aligned with a visible gap on the right).
+- **Detail dock**: `Export TXT` button hidden when the Score Evolution
+  tab is active. It covers Detail / Notes / TI Results; the Score
+  Evolution tab has its own PNG/JPEG export inside the expanded chart
+  modal, and showing both implied the TXT button exported the chart.
+
 ## [v0.20.2] — 2026-05-14
 
 ### Fixed
