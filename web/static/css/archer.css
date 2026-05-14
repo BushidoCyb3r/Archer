@@ -1231,6 +1231,10 @@ body.dock-resizing {
   margin-bottom: 14px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border);
+  /* dialog.js picks up `.dlg-drag-handle` and wires the drag behaviour;
+     these properties give it the same drag affordance as `.dlg-header`. */
+  cursor: move;
+  user-select: none;
 }
 #beacon-evolution-modal-title {
   font-size: 14px;
@@ -1591,43 +1595,22 @@ dialog[open] {
   display: flex;
   flex-direction: column;
   position: fixed;
-  top: 50%;
-  right: auto;
-  bottom: auto;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  margin: 0;
+  /* `inset: 0; margin: auto` centres the dialog without a `transform`.
+     A `transform` on a dialog makes it the containing block for
+     `position: fixed` descendants, which breaks row-kebab popovers
+     (rowmenu.js): they compute coordinates from `getBoundingClientRect`
+     (viewport coords) and apply them as `position: fixed`, expecting
+     viewport positioning — `transform` redirects that to dialog-local
+     coords and the menu lands in the wrong spot. inset+margin:auto
+     centres equivalently, leaves the containing block as the viewport,
+     and lets drag override via inline `left`/`top`. */
+  inset: 0;
+  margin: auto;
 }
 dialog::backdrop {
   background: rgba(5, 8, 13, 0.7);
   backdrop-filter: blur(2px);
 }
-
-/* Custom corner resize handle. Native CSS `resize: both` collapses auto-fit
-   dialogs to a tiny initial frame in Safari, so we render and drive our own. */
-.dlg-resize-handle {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 18px;
-  height: 18px;
-  cursor: nwse-resize;
-  z-index: 5;
-  background:
-    linear-gradient(135deg,
-      transparent 0%,
-      transparent 45%,
-      var(--fg-muted) 45%,
-      var(--fg-muted) 55%,
-      transparent 55%,
-      transparent 70%,
-      var(--fg-muted) 70%,
-      var(--fg-muted) 80%,
-      transparent 80%);
-  opacity: 0.7;
-  border-bottom-right-radius: var(--radius-lg);
-}
-.dlg-resize-handle:hover { opacity: 1; }
 
 /* ============================================================================
    Graph dialog (Cytoscape.js)

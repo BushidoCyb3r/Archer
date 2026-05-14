@@ -1,69 +1,31 @@
-// dialog.js — centred, draggable, resizable modal dialogs
+// dialog.js — centred, draggable modal dialogs (fixed size at declared widths)
 'use strict';
 
 const DlgManager = (() => {
 
-  // Clear any inline position/size so the CSS transform-centering and
-  // declared widths take over again on the next open.
+  // Clear any inline position so the CSS centering takes over on the
+  // next open. Width/height aren't touched — there's no resize handle,
+  // so they stay at their declared values.
   function _resetPos(dlg) {
     dlg.style.left      = '';
     dlg.style.top       = '';
-    dlg.style.transform = '';
-    dlg.style.width     = '';
-    dlg.style.height    = '';
+    dlg.style.margin    = '';
   }
 
   // Commit the current CSS-computed position to inline px values so we can
-  // drag freely without fighting the transform centering.
+  // drag freely without fighting the `margin: auto` centering.
   function _snapToPixel(dlg) {
     const r = dlg.getBoundingClientRect();
-    dlg.style.transform = 'none';
+    dlg.style.margin = '0';
     dlg.style.left = r.left + 'px';
     dlg.style.top  = r.top  + 'px';
   }
 
-  function _attachResize(dlg) {
-    if (dlg.querySelector(':scope > .dlg-resize-handle')) return;
-    const grip = document.createElement('div');
-    grip.className = 'dlg-resize-handle';
-    grip.title = 'Drag to resize';
-    dlg.appendChild(grip);
-
-    grip.addEventListener('mousedown', e => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      _snapToPixel(dlg);
-
-      const r = dlg.getBoundingClientRect();
-      const startX = e.clientX;
-      const startY = e.clientY;
-      const startW = r.width;
-      const startH = r.height;
-      const left   = r.left;
-      const top    = r.top;
-
-      function onMove(ev) {
-        const maxW = window.innerWidth  - left - 4;
-        const maxH = window.innerHeight - top  - 4;
-        const w = Math.max(280, Math.min(maxW, startW + (ev.clientX - startX)));
-        const h = Math.max(160, Math.min(maxH, startH + (ev.clientY - startY)));
-        dlg.style.width  = w + 'px';
-        dlg.style.height = h + 'px';
-      }
-
-      function onUp() {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup',   onUp);
-      }
-
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup',   onUp);
-    });
-  }
-
   function _attach(dlg) {
-    const header = dlg.querySelector('.dlg-header');
+    // Standard dialogs mark their header with `.dlg-header`. The score-
+    // evolution modal carries its own custom header structure and opts
+    // into drag by adding `.dlg-drag-handle` instead — either qualifies.
+    const header = dlg.querySelector('.dlg-header, .dlg-drag-handle');
     if (!header) return;
 
     header.addEventListener('mousedown', e => {
@@ -94,8 +56,6 @@ const DlgManager = (() => {
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup',   onUp);
     });
-
-    _attachResize(dlg);
 
     const origShow = dlg.showModal.bind(dlg);
     dlg.showModal = () => { _resetPos(dlg); origShow(); };
