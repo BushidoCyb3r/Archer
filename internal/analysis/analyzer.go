@@ -98,6 +98,17 @@ type Analyzer struct {
 	// the built-in CDN suffix list inside dgaHostnameScore.
 	allowlistMatches func(string) bool
 
+	// Fallback sensor name applied at emit time when a finding has
+	// no SourceFile to infer from (aggregate detectors: Beaconing,
+	// Strobe, HTTP Beaconing, Off-Hours Transfer, Host Risk Score,
+	// Correlated Activity). Single-sensor deployments set this to
+	// the lone sensor name so correlateFindings — which partitions
+	// pairs by Sensor — sees a consistent value across fresh and
+	// historical contributors. Empty = no fallback; aggregates ship
+	// with Sensor="" the same way pre-fix watch.go would have left
+	// them in multi-sensor deployments.
+	defaultSensor string
+
 	// Cancellation and pause
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -176,6 +187,18 @@ func (a *Analyzer) SetFindingsProvider(p FindingsProvider) { a.findingsProvider 
 // legitimate" exemption suppresses the score bump without disabling
 // the feature globally. Pass nil to detach.
 func (a *Analyzer) SetAllowlistMatcher(fn func(string) bool) { a.allowlistMatches = fn }
+
+// SetDefaultSensor sets the Sensor value applied to findings whose
+// SourceFile doesn't resolve to a sensor name — aggregate detectors
+// span many files and intentionally leave SourceFile empty. Must be
+// called BEFORE Analyze so correlateFindings sees the populated
+// Sensor on this-run contributors and partitions pairs consistently
+// with historical contributors (which carry their persisted Sensor).
+//
+// Setting this after Analyze has run has no effect on findings
+// already emitted. Pass "" to detach (the multi-sensor default —
+// aggregates ship without a single attributable sensor).
+func (a *Analyzer) SetDefaultSensor(name string) { a.defaultSensor = name }
 
 // Cancel stops the analysis as soon as possible.
 func (a *Analyzer) Cancel() { a.cancel() }
@@ -416,6 +439,32 @@ func (a *Analyzer) add(f model.Finding) {
 	// honestly have no single source file — leaving the field empty is
 	// truthful, where the old behaviour of defaulting to f.Type produced
 	// misleading values like "Beaconing" or "URLhaus" in CSV/JSON exports.
+	//
+	// Sensor is resolved at emit time so downstream phases — specifically
+	// correlateFindings, which partitions (src, dst) pairs by Sensor — see
+	// the final value rather than empty. Pre-fix the watch loop assigned
+	// Sensor AFTER Analyze returned, so fresh contributors went into
+	// correlate with Sensor="" while historical contributors (loaded from
+	// store) carried their persisted Sensor. The same (src, dst) observed
+	// by both populations produced TWO pairKeys, TWO Correlated Activity
+	// emissions with identical Fingerprint (Sensor isn't part of it), and
+	// SetFindings had no in-batch fingerprint dedup so both persisted as
+	// distinct rows. Resolving here closes that gap.
+	//
+	// Resolution order:
+	//   1. Caller-set Sensor wins (correlate.go sets key.sensor explicitly).
+	//   2. SourceFile-derived sensor via sensorOf (per-record detectors).
+	//   3. defaultSensor fallback (single-sensor deployments populate this).
+	if f.Sensor == "" {
+		if f.SourceFile != "" {
+			if s := a.sensorOf(f.SourceFile); s != "" {
+				f.Sensor = s
+			}
+		}
+		if f.Sensor == "" {
+			f.Sensor = a.defaultSensor
+		}
+	}
 	a.findings = append(a.findings, f)
 	a.mu.Unlock()
 }

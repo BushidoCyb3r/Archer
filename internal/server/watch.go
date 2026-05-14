@@ -611,6 +611,37 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) bool {
 			return s.store.AllowlistMatcher().Matches(c)
 		})
 
+		// Pre-compute the deployment's sensor set from the file list
+		// and pin the analyzer's default Sensor BEFORE Analyze runs.
+		// Single-sensor deployments get every emitted finding tagged
+		// with that one sensor at a.add() time, including aggregates
+		// whose empty SourceFile would otherwise leave Sensor blank.
+		// This matters specifically for correlateFindings: it
+		// partitions (src, dst) pairs on Sensor, and historical
+		// contributors arrive from store with their persisted Sensor
+		// already populated. Pre-fix the watch loop assigned Sensor
+		// AFTER Analyze returned, so fresh contributors went into
+		// correlate with Sensor="" and historical with "deathstar" —
+		// two pairKeys, two duplicate Correlated Activity rows.
+		// Multi-sensor deployments leave defaultSensor unset; the
+		// per-finding a.sensorOf(SourceFile) path inside add() still
+		// attributes per-record findings correctly, and aggregates
+		// with no clear sensor ship with Sensor="" the same way the
+		// post-loop's multi-branch behaved.
+		if logsDir != "" {
+			sensorSet := make(map[string]struct{})
+			for _, fp := range files {
+				if s := sensorFromPath(logsDir, fp); s != "" {
+					sensorSet[s] = struct{}{}
+				}
+			}
+			if len(sensorSet) == 1 {
+				for s := range sensorSet {
+					az.SetDefaultSensor(s)
+				}
+			}
+		}
+
 		s.analyzerMu.Lock()
 		s.activeAnalyzer = az
 		s.analyzerMu.Unlock()
@@ -624,28 +655,6 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) bool {
 		}()
 
 		findings := az.Analyze(files)
-
-		if logsDir != "" {
-			sensorSet := make(map[string]struct{})
-			for _, fp := range files {
-				if s := sensorFromPath(logsDir, fp); s != "" {
-					sensorSet[s] = struct{}{}
-				}
-			}
-			if len(sensorSet) == 1 {
-				var single string
-				for s := range sensorSet {
-					single = s
-				}
-				for i := range findings {
-					findings[i].Sensor = single
-				}
-			} else {
-				for i := range findings {
-					findings[i].Sensor = sensorFromPath(logsDir, findings[i].SourceFile)
-				}
-			}
-		}
 
 		newNotifs := s.store.SetFindings(findings)
 		s.crossAnnotateNewTIHits(findings)
