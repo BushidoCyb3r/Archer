@@ -191,6 +191,12 @@
     }
     _dockTab = name;
     try { localStorage.setItem('archer:dock-tab', name); } catch (_) {}
+    // Export TXT covers Detail + Notes + TI Results. The Score
+    // Evolution tab has its own PNG/JPEG export inside the expanded
+    // chart modal; showing Export TXT alongside it would imply it
+    // exports the chart, which it doesn't.
+    const exportBtn = document.getElementById('export-notes-btn');
+    if (exportBtn) exportBtn.style.display = name === 'evolution' ? 'none' : '';
     document.querySelectorAll('.dock-tab-btn').forEach(b => {
       const on = b.dataset.dockTab === name;
       b.classList.toggle('active', on);
