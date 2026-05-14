@@ -1573,10 +1573,16 @@ dialog {
   color: var(--fg-primary);
   padding: 0;
   box-shadow: var(--shadow-lg);
-  /* Auto-size to content so every field is visible by default.
-     overflow:hidden keeps the rounded corners clean; .dlg-body has its own
-     overflow:auto for the rare case content exceeds 95vh. */
-  overflow: hidden;
+  /* overflow:visible lets row-kebab popovers (rowmenu.js) escape the
+     dialog rectangle and remain visible when the kebab sits near the
+     dialog edge. `dialog[open]` carries `transform: translate(...)`
+     for centering, which makes the dialog a containing block for
+     position:fixed children; the menu's `position: fixed` is then
+     relative to the dialog itself and `overflow:hidden` would clip
+     it. Rounded-corner cleanliness is preserved by giving .dlg-header
+     and .dlg-footer matching corner radii below. The dialog's body
+     keeps `overflow: auto` to scroll its own content. */
+  overflow: visible;
   min-width: 280px;
   max-width: 95vw;
   max-height: 95vh;
@@ -1596,6 +1602,32 @@ dialog::backdrop {
   background: rgba(5, 8, 13, 0.7);
   backdrop-filter: blur(2px);
 }
+
+/* Custom corner resize handle. Native CSS `resize: both` collapses auto-fit
+   dialogs to a tiny initial frame in Safari, so we render and drive our own. */
+.dlg-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  z-index: 5;
+  background:
+    linear-gradient(135deg,
+      transparent 0%,
+      transparent 45%,
+      var(--fg-muted) 45%,
+      var(--fg-muted) 55%,
+      transparent 55%,
+      transparent 70%,
+      var(--fg-muted) 70%,
+      var(--fg-muted) 80%,
+      transparent 80%);
+  opacity: 0.7;
+  border-bottom-right-radius: var(--radius-lg);
+}
+.dlg-resize-handle:hover { opacity: 1; }
 
 /* ============================================================================
    Graph dialog (Cytoscape.js)
@@ -1642,9 +1674,17 @@ dialog::backdrop {
   letter-spacing: 0.02em;
   padding: 14px 22px 12px;
   border-bottom: 1px solid var(--border);
+  cursor: move;
+  user-select: none;
   flex-shrink: 0;
   color: var(--fg-primary);
   background: var(--bg-elev-1);
+  /* Round the top corners so the header's rectangular background
+     doesn't paint outside the dialog's rounded corners now that
+     the dialog itself uses `overflow: visible` (see comment on
+     the base `dialog` rule). */
+  border-top-left-radius: var(--radius-lg);
+  border-top-right-radius: var(--radius-lg);
 }
 .dlg-body {
   padding: 16px 22px;
@@ -1760,6 +1800,11 @@ dialog::backdrop {
   border-top: 1px solid var(--border);
   background: var(--bg-elev-1);
   flex-shrink: 0;
+  /* Pair with .dlg-header — round the bottom corners so the footer's
+     rectangular background doesn't paint outside the dialog's rounded
+     corners under `overflow: visible`. */
+  border-bottom-left-radius: var(--radius-lg);
+  border-bottom-right-radius: var(--radius-lg);
 }
 .dlg-btn {
   padding: 7px 18px;
@@ -2092,10 +2137,18 @@ dialog::backdrop {
 .severity-pill.sev-info     { color: var(--sev-info); }
 
 #settings-dialog              { width: 600px; }
-#users-dialog                 { width: 720px; }
+#users-dialog                 { width: 820px; }
 #chart-dialog                 { width: 880px; }
 
-#chart-canvas { background: var(--bg-elev-1); border-radius: var(--radius); }
+#chart-canvas {
+  background: var(--bg-elev-1);
+  border-radius: var(--radius);
+  /* Canvas is a fixed 720px wide; the dialog body is wider. Centre
+     it inside its container so the chart sits visually balanced
+     instead of left-aligned with a gap on the right. */
+  display: block;
+  margin: 0 auto;
+}
 .chart-views { display: flex; align-items: center; gap: 6px; padding: 0 22px 10px; flex-wrap: wrap; }
 .chart-view-btn {
   background: transparent;
