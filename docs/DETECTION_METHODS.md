@@ -1011,6 +1011,26 @@ correlates as long as the historical findings are still in the store
 — removes the "yesterday's DNS Tunneling + today's Beaconing don't
 correlate because we only see today's findings" gap.
 
+**Sensor resolution timing (v0.20.2).** `correlateFindings` partitions
+pairs on `(Sensor, SrcIP, DstIP)` so multi-sensor overlapping captures
+don't conflate findings emitted by different Quiver collectors
+observing the same flow. The Fingerprint used by `SetFindings` for
+merge/dedup is `(Type, SrcIP, DstIP, DstPort)` and intentionally
+excludes Sensor (carrying it would split otherwise-equivalent
+findings into per-sensor rows). The invariant that keeps these two
+keys consistent: every contributor's `Sensor` field must be populated
+*before* it enters `correlateFindings`. The analyzer enforces this in
+`Analyzer.add` — caller-set Sensor wins, then `sensorOf(SourceFile)`
+for per-record detectors, then the `defaultSensor` fallback set via
+`SetDefaultSensor` for aggregate findings whose SourceFile is empty.
+Pre-fix the watch loop assigned Sensor in a post-`Analyze` pass, so
+fresh aggregate contributors entered correlate with `Sensor=""` while
+historical contributors carried their persisted Sensor — two pair
+keys for the same (src, dst), two Correlated Activity emissions with
+identical Fingerprint, and no in-batch fingerprint dedup in
+`SetFindings` to collapse them. Any future refactor that relocates
+Sensor assignment must keep it ahead of the correlation phase.
+
 **Stale-row handling.** `Store.SetFindings` purges historical
 `Correlated Activity` (and `Host Risk Score`) rows whose fingerprints
 aren't regenerated this run. Without that, a pair that dropped below

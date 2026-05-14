@@ -30,6 +30,42 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.20.2] — 2026-05-14
+
+### Fixed
+
+- **Duplicate Correlated Activity rows on the same (src, dst) pair.**
+  The fix resolves Sensor at finding-emit time inside `Analyzer.add`
+  instead of after `Analyze()` returns. Pre-fix, `watch.go` assigned
+  Sensor in a post-Analyze loop — so the cross-detector correlation
+  phase (which runs *inside* `Analyze` and partitions pairs on
+  Sensor) saw fresh contributors with `Sensor=""` while historical
+  contributors loaded from the store carried their persisted Sensor
+  (`"deathstar"` in single-sensor deployments). The same `(src, dst)`
+  produced two distinct pair keys, two `Correlated Activity` findings
+  with identical Fingerprints (Sensor isn't part of the fingerprint),
+  and `SetFindings` had no in-batch fingerprint dedup so both
+  persisted as separate rows. The watch loop then squashed both to
+  the same Sensor in its post-loop, producing the symptom: two
+  visually-identical CA rows both flagged `IsNew=true`. Resolving
+  Sensor at emit time — via the new `Analyzer.SetDefaultSensor` API
+  for aggregate findings, or the existing `sensorOf(SourceFile)`
+  path for per-record findings — restores the pair-key invariant
+  that correlate assumes. Existing duplicates in the store collapse
+  on the next full pass via the existing `IsRollupType` purge plus
+  the fingerprint-merge map collision.
+  - New `Analyzer.SetDefaultSensor(name)` API; `watch.go` calls it
+    before `Analyze()` for single-sensor deployments so aggregate
+    findings (Beaconing, Strobe, HTTP Beaconing, Off-Hours Transfer,
+    Host Risk Score, Correlated Activity) carry a populated Sensor
+    when correlate sees them.
+  - Three new regression tests in `correlate_test.go` codify the
+    invariant: exactly one Correlated Activity per `(src, dst,
+    sensor)` triple, SourceFile-driven sensor resolution wins for
+    per-record detectors, and caller-set Sensor (correlate's own
+    `Sensor: key.sensor`) is preserved against both resolution
+    paths.
+
 ## [v0.20.1] — 2026-05-13
 
 ### Security
@@ -5073,7 +5109,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.20.1...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.20.2...HEAD
+[v0.20.2]: https://github.com/BushidoCyb3r/Archer/compare/v0.20.1...v0.20.2
 [v0.20.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.20.0...v0.20.1
 [v0.20.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.19.0...v0.20.0
 [v0.19.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.18.10...v0.19.0
