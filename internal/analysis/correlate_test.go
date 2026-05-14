@@ -381,6 +381,96 @@ func TestCorrelate_ThisRunContributorRetainsCorrelationsWhenHistoricalTwinAlsoFi
 	}
 }
 
+// TestCorrelate_NoDuplicateWhenFreshSensorResolvedAtEmit codifies the
+// fix for the duplicate-Correlated-Activity bug: when the watch loop
+// assigns Sensor AFTER Analyze returns, fresh contributors enter
+// correlateFindings with Sensor="" while historical contributors
+// arrive from the FindingsProvider with their persisted Sensor.
+// pairKey is (sensor, src, dst); Fingerprint is (Type, src, dst,
+// port) and excludes Sensor. The asymmetry produced TWO pairKeys
+// for the same (src, dst), two Correlated Activity emissions with
+// identical Fingerprint, and SetFindings (no in-batch fingerprint
+// dedup) persisted both as IsNew=true with different IDs.
+//
+// The invariant tested here: when defaultSensor is set (single-sensor
+// deployment) BEFORE Analyze runs, a.add resolves Sensor at emit
+// time, fresh contributors carry the same Sensor as their historical
+// fingerprint twins, correlate produces ONE pairKey, and ONE
+// Correlated Activity row appears for the (src, dst).
+//
+// Testing the invariant rather than the narrow failure: the assertion
+// is "exactly one CA row for this pair" — same shape as
+// TestCorrelate_PartitionsBySensor's "exactly N correlations" check.
+// Any future regression that re-introduces a sensor-disagreement path
+// (different field, different code path) will surface here.
+func TestCorrelate_NoDuplicateWhenFreshSensorResolvedAtEmit(t *testing.T) {
+	a := New(config.Default(), "", nil, nil)
+	a.SetDefaultSensor("sensor01")
+
+	// Fresh contributor — Sensor left empty so a.add must resolve it
+	// from defaultSensor. This mimics what aggregate detectors emit
+	// (empty SourceFile, no caller-set Sensor).
+	a.add(model.Finding{Type: "Beaconing", SrcIP: "10.18.61.48", DstIP: "35.163.162.183", Score: 88, Timestamp: "2026-05-10 00:03:31 UTC"})
+
+	// Historical contributor for the SAME pair, persisted with Sensor
+	// already populated — the shape findingsProvider returns from
+	// store. Pre-fix this would have split into a separate pairKey
+	// because the fresh contributor's Sensor was still "".
+	a.SetFindingsProvider(&stubFindingsProvider{findings: []model.Finding{
+		{ID: 187626, Type: "Off-Hours Transfer", SrcIP: "10.18.61.48", DstIP: "35.163.162.183", Score: 52, Sensor: "sensor01", Timestamp: "2026-05-10 02:03:34 UTC"},
+	}})
+
+	a.correlateFindings()
+
+	count := 0
+	for _, f := range a.findings {
+		if f.Type == model.TypeCorrelatedActivity &&
+			f.SrcIP == "10.18.61.48" && f.DstIP == "35.163.162.183" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly 1 Correlated Activity for the (src, dst); got %d — fresh contributor's Sensor was not resolved before correlateFindings, splitting pairKey from the historical contributor", count)
+	}
+}
+
+// TestAnalyzerAdd_ResolvesSensorFromSourceFile codifies the second
+// resolution path: per-record detectors emit findings with SourceFile
+// set to the originating Zeek log. a.add must derive Sensor from
+// that path so correlateFindings sees the same Sensor that a
+// historical fingerprint twin would carry, even in multi-sensor
+// deployments where defaultSensor is intentionally unset.
+func TestAnalyzerAdd_ResolvesSensorFromSourceFile(t *testing.T) {
+	a := New(config.Default(), "/logs", nil, nil)
+	a.add(model.Finding{
+		Type:       "TI Hit (IP)",
+		SrcIP:      "10.0.0.1",
+		DstIP:      "1.2.3.4",
+		SourceFile: "/logs/sensor01/2026-05-10/conn.log",
+	})
+	if got := a.findings[0].Sensor; got != "sensor01" {
+		t.Errorf("Sensor = %q; want \"sensor01\" resolved from SourceFile", got)
+	}
+}
+
+// TestAnalyzerAdd_PreservesExplicitSensor guards against the resolve
+// path overwriting a caller-set Sensor. correlate.go emits Correlated
+// Activity findings with Sensor: key.sensor — that value must win.
+func TestAnalyzerAdd_PreservesExplicitSensor(t *testing.T) {
+	a := New(config.Default(), "/logs", nil, nil)
+	a.SetDefaultSensor("default-name")
+	a.add(model.Finding{
+		Type:       "Beaconing",
+		SrcIP:      "10.0.0.1",
+		DstIP:      "1.2.3.4",
+		Sensor:     "explicit-name",
+		SourceFile: "/logs/different/2026-05-10/conn.log",
+	})
+	if got := a.findings[0].Sensor; got != "explicit-name" {
+		t.Errorf("Sensor = %q; want \"explicit-name\" (caller-set value must not be overwritten by SourceFile resolution or defaultSensor)", got)
+	}
+}
+
 func findOne(t *testing.T, findings []model.Finding, typ string) *model.Finding {
 	t.Helper()
 	for i := range findings {
