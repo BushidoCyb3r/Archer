@@ -468,6 +468,43 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Defensive in-batch fingerprint dedup. Two findings emitted with
+	// identical Fingerprint(Type, SrcIP, DstIP, DstPort) in a single
+	// run represent the same logical detection — keeping both would
+	// either persist as visually-duplicate rows (fp-not-in-DB case) or
+	// blow up saveFindings with a UNIQUE primary-key collision
+	// (fp-in-DB case, because the assignment loop below returns the
+	// same old.ID for both). The TI Hit emit path is the documented
+	// offender (multiple TI sources can flag the same dst), but this
+	// guard catches any future detector that emits the same logical
+	// finding twice without crashing the entire pipeline. Highest-
+	// scored row wins; the first-seen index is preserved to keep
+	// downstream ID assignment stable across re-runs on identical
+	// input.
+	if len(findings) > 1 {
+		bestByFP := make(map[model.Fingerprint]int, len(findings))
+		for i := range findings {
+			fp := findings[i].Fingerprint()
+			if j, ok := bestByFP[fp]; ok && findings[j].Score >= findings[i].Score {
+				continue
+			}
+			bestByFP[fp] = i
+		}
+		if len(bestByFP) < len(findings) {
+			keep := make([]bool, len(findings))
+			for _, i := range bestByFP {
+				keep[i] = true
+			}
+			deduped := make([]model.Finding, 0, len(bestByFP))
+			for i := range findings {
+				if keep[i] {
+					deduped = append(deduped, findings[i])
+				}
+			}
+			findings = deduped
+		}
+	}
+
 	// Index existing findings by fingerprint so we can carry over analyst work,
 	// and track the highest existing ID so newly-fingerprinted findings can be
 	// numbered above it. Without this guard, the analyzer's per-run sequential

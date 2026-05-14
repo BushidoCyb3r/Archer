@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -558,6 +559,49 @@ func (a *Analyzer) checkTI(files []string) {
 	}
 	a.mu.RUnlock()
 
+	// Dedup hits by destination. Multiple TI sources can flag the same
+	// dst — MISP + FeodoTracker + OTX commonly overlap on well-known
+	// botnet IPs. Pre-fix the emit loop below ran once per (dst, source)
+	// pair AND once per src contacting that dst, producing N findings
+	// with identical Fingerprint (Type, SrcIP, DstIP, DstPort) for one
+	// real detection. SetFindings's carry-forward branch returned the
+	// same old.ID for all N, the second INSERT collided on the UNIQUE
+	// primary key, and the entire saveFindings transaction rolled back —
+	// leaving the DB stuck in its pre-Analyze state (visible as
+	// "rollups disappear after rebuild" because the in-memory s.findings
+	// did get updated but never reached disk).
+	//
+	// Merge keeps the highest-scored row's score and severity (Feodo's
+	// 99/Critical beats a generic feed's 90/High). Detail concatenates
+	// every source's evidence so the analyst still sees provenance from
+	// all matching sources. SourceFile (the TI source label, repurposed
+	// for /api/findings provenance) joins source labels with " + ".
+	mergedDsts := make(map[string]tiHit, len(hits))
+	for _, h := range hits {
+		e, ok := mergedDsts[h.dst]
+		if !ok {
+			mergedDsts[h.dst] = h
+			continue
+		}
+		if h.score > e.score {
+			e.score = h.score
+			e.sev = h.sev
+		}
+		e.source = e.source + " + " + h.source
+		e.detail = e.detail + " | " + h.detail
+		mergedDsts[h.dst] = e
+	}
+
+	// Sort dsts for deterministic emit order — a.add assigns sequential
+	// IDs in call order, so a stable iteration order keeps fresh IDs
+	// stable across re-runs on identical input. Mirrors the srcKeys
+	// pattern in risk.go (NEW-68).
+	dsts := make([]string, 0, len(mergedDsts))
+	for d := range mergedDsts {
+		dsts = append(dsts, d)
+	}
+	sort.Strings(dsts)
+
 	// ── Per-source fan-out emit ────────────────────────────────────────────
 	// Emit one Threat Intel Hit per distinct src that contacted the bad
 	// dst, with real port/timestamp/URI/qtype context in the Detail. Only
@@ -566,7 +610,8 @@ func (a *Analyzer) checkTI(files []string) {
 	// can't tell you who talked to it" case (e.g. dst pulled from a
 	// synthetic finding with no per-host scope).
 	nowTS := time.Now().UTC().Format("2006-01-02 15:04:05")
-	for _, h := range hits {
+	for _, dst := range dsts {
+		h := mergedDsts[dst]
 		isIP := isIPAddr(h.dst)
 		var srcCount int
 		if isIP {
