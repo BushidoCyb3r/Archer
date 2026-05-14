@@ -1642,8 +1642,6 @@ dialog::backdrop {
   letter-spacing: 0.02em;
   padding: 14px 22px 12px;
   border-bottom: 1px solid var(--border);
-  cursor: move;
-  user-select: none;
   flex-shrink: 0;
   color: var(--fg-primary);
   background: var(--bg-elev-1);
@@ -1820,9 +1818,9 @@ dialog::backdrop {
 #sensors-token-dlg            { width: min(95vw, 1250px); }
 /* Both modals default to the natural width of their widest table
    (Enrolled Sensors for #sensors-dialog at 1250px; Feeds table
-   for #feeds-dialog at 1000px) so every column is visible without
-   the operator having to drag-resize. max-width: 95vw lets the
-   dialog still shrink gracefully on narrower displays. */
+   for #feeds-dialog at 1000px) so every column is visible at open.
+   max-width: 95vw lets the dialog still shrink gracefully on
+   narrower displays. */
 #sensors-dialog               { width: 1250px; max-width: 95vw; }
 #feeds-dialog                 { width: 1000px; max-width: 95vw; }
 #feeds-edit-dlg               { width: 480px; }
@@ -1834,12 +1832,10 @@ dialog::backdrop {
   width: 100%;
   /* Fixed-layout + max-width: columns honor their declared widths
      rather than auto-distributing the dialog's extra space. The
-     modal's drag-resize handle (see dialog.js) still works, but
-     enlarging the modal just adds whitespace around the table —
-     the columns themselves don't grow, so the action column with
-     the Refresh / Edit / Delete buttons stays visible at the
-     same screen position. Shrinking the modal below 950px squishes
-     the columns proportionally. */
+     dialog opens at its declared width (1000px), so this mostly
+     matters only when max-width: 95vw clips it on small viewports —
+     shrinking the modal below 950px squishes the columns
+     proportionally. */
   table-layout: fixed;
   /* Column widths sum to 840px (110 Name + 90 Source + 100 Status
      + 110 Indicators + 130 Last refresh + 60 Aging + 240 Action).
@@ -1880,9 +1876,9 @@ dialog::backdrop {
 
 /* Sensors tables — same fixed-layout treatment as the Feeds table:
    declared column widths win over auto-distribution, the kebab cell
-   stays the same width regardless of modal drag-resize, and long
-   content (hostnames, IPs, timestamps) truncates with an ellipsis
-   instead of wrapping onto two lines. */
+   stays at its declared width, and long content (hostnames, IPs,
+   timestamps) truncates with an ellipsis instead of wrapping onto
+   two lines. */
 #sensors-table,
 #sensors-tokens-table,
 #sensors-unauth-table {
