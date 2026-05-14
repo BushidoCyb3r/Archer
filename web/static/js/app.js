@@ -1961,7 +1961,10 @@
     const winSel = document.getElementById('raw-dlg-window');
     const exportBtn = document.getElementById('raw-dlg-export');
     const window_hours = winSel ? winSel.value : '6';
-    status.textContent = 'Scanning logs…';
+    // Pulse dot mirrors the enrollment dialog's "awaiting sensor join"
+    // indicator. Subsequent success/error paths set textContent, which
+    // wipes the dot — no explicit cleanup needed.
+    status.innerHTML = '<span class="pulse-dot"></span>Scanning logs…';
     body.innerHTML = '';
     _lastRawRecords = [];
     _lastRawFindingId = findingId;
@@ -3761,8 +3764,8 @@
               : `<select class="user-role-select" data-uid="${u.id}">${roleOpts}</select>`}
           </td>
           <td><span class="status-badge ${status}">${status}</span></td>
-          <td style="font-size:11px;color:var(--fg-dim)">${(u.created_at||'').split(' ')[0]}</td>
-          <td style="white-space:nowrap">${actions.join(' ')}</td>`;
+          <td style="font-size:11px;color:var(--fg-dim);font-family:ui-monospace,'SF Mono',Menlo,Monaco,Consolas,monospace">${_esc((u.created_at||'').slice(0, 16))}</td>
+          <td style="white-space:nowrap;text-align:right">${actions.join(' ')}</td>`;
         tbody.appendChild(tr);
       });
 

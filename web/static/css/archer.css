@@ -2120,7 +2120,7 @@ dialog::backdrop {
 .severity-pill.sev-info     { color: var(--sev-info); }
 
 #settings-dialog              { width: 600px; }
-#users-dialog                 { width: 820px; }
+#users-dialog                 { width: 960px; }
 #chart-dialog                 { width: 880px; }
 
 #chart-canvas {
