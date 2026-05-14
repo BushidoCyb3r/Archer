@@ -1259,16 +1259,6 @@ body.dock-resizing {
   color: var(--fg-primary);
   border-color: var(--border-strong);
 }
-#beacon-evolution-modal-close {
-  font-size: 18px !important;
-  line-height: 1;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 !important;
-}
 #beacon-evolution-modal-svg {
   display: block;
   background: var(--bg-elev-2);
@@ -1606,32 +1596,6 @@ dialog::backdrop {
   background: rgba(5, 8, 13, 0.7);
   backdrop-filter: blur(2px);
 }
-
-/* Custom corner resize handle. Native CSS `resize: both` collapses auto-fit
-   dialogs to a tiny initial frame in Safari, so we render and drive our own. */
-.dlg-resize-handle {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 18px;
-  height: 18px;
-  cursor: nwse-resize;
-  z-index: 5;
-  background:
-    linear-gradient(135deg,
-      transparent 0%,
-      transparent 45%,
-      var(--fg-muted) 45%,
-      var(--fg-muted) 55%,
-      transparent 55%,
-      transparent 70%,
-      var(--fg-muted) 70%,
-      var(--fg-muted) 80%,
-      transparent 80%);
-  opacity: 0.7;
-  border-bottom-right-radius: var(--radius-lg);
-}
-.dlg-resize-handle:hover { opacity: 1; }
 
 /* ============================================================================
    Graph dialog (Cytoscape.js)
