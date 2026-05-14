@@ -365,6 +365,29 @@ func (s *Server) launchIncrementalAnalysis(files []string) {
 		// prefetchFeeds inside AnalyzeTIOnly.
 		az.SetFeedProvider(s.store)
 
+		// Pin defaultSensor BEFORE AnalyzeTIOnly for the same reason
+		// the full pass does. AnalyzeTIOnly's HTTP-derived TI matches
+		// (URLhaus and MISP/OpenCTI feed domains hit in url.log) emit
+		// findings without a SourceFile because http_analysis.go
+		// doesn't track which conn.log path the URI came from — so
+		// Analyzer.add's sensorOf() resolution returns empty for them.
+		// In a single-sensor deployment that left those TI Hits with
+		// Sensor="" in the Sensors column, which read as a bug even
+		// though the data was correct. defaultSensor closes the gap.
+		if logsDir != "" {
+			sensorSet := make(map[string]struct{})
+			for _, fp := range files {
+				if s := sensorFromPath(logsDir, fp); s != "" {
+					sensorSet[s] = struct{}{}
+				}
+			}
+			if len(sensorSet) == 1 {
+				for s := range sensorSet {
+					az.SetDefaultSensor(s)
+				}
+			}
+		}
+
 		s.analyzerMu.Lock()
 		s.activeAnalyzer = az
 		s.analyzerMu.Unlock()
@@ -379,13 +402,14 @@ func (s *Server) launchIncrementalAnalysis(files []string) {
 
 		findings := az.AnalyzeTIOnly(files)
 
-		if logsDir != "" {
-			for i := range findings {
-				findings[i].Sensor = sensorFromPath(logsDir, findings[i].SourceFile)
-			}
-		}
-
-		newNotifs := s.store.SetFindings(findings)
+		// SetFindingsIncremental (rather than SetFindings) so the
+		// rollup-purge branch in setFindingsImpl is skipped — this
+		// pass didn't run correlateFindings or aggregateRisk, so
+		// every existing Correlated Activity and Host Risk Score
+		// row's fingerprint is absent from newFPSet by definition.
+		// Calling SetFindings here used to silently drop them all
+		// every 6 hours, leaving a rollup hole between full passes.
+		newNotifs := s.store.SetFindingsIncremental(findings)
 		s.crossAnnotateNewTIHits(findings)
 		for _, n := range newNotifs {
 			nData, _ := json.Marshal(n)

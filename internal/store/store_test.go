@@ -202,6 +202,77 @@ func TestFindingsIdx_StaysConsistentAcrossMutations(t *testing.T) {
 // below the roll-up's threshold. Closes the narrow case left open by
 // NEW-67 (HRS) and the same shape introduced alongside Correlated
 // Activity.
+// TestSetFindingsIncremental_PreservesRollups codifies the invariant
+// that distinguishes the two SetFindings entry points: a TI-only
+// incremental pass (no aggregateRisk, no correlateFindings) must NOT
+// drop existing Correlated Activity / Host Risk Score rows just
+// because their fingerprints are absent from this run's input.
+//
+// The failure mode pre-fix: SetFindings's IsRollupType purge ran
+// unconditionally, treating "rollup fp not in newFPSet" as "rollup
+// is stale, drop it." That's correct for full passes but wrong for
+// incrementals — the rollup phases didn't run, so absence means
+// "not evaluated" rather than "no longer valid." Operators saw all
+// CAs vanish every watch_interval_hours (default 6h) and reappear
+// only after the next midnight UTC full pass regenerated them.
+//
+// Testing the invariant rather than one shape: the assertion is
+// "rollups in the store before SetFindingsIncremental remain in the
+// store after." A future refactor that re-introduces an unconditional
+// purge — or that conditionally purges via a different field — will
+// trip this test.
+func TestSetFindingsIncremental_PreservesRollups(t *testing.T) {
+	s := New(config.Default())
+
+	// Seed via the full-pass path: contributors + rollups for the same
+	// (src, dst). This mirrors the steady state after a midnight full
+	// pass has run.
+	s.SetFindings([]model.Finding{
+		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
+		{Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 60, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
+		{Type: "Host Risk Score", SrcIP: "10.0.0.1", DstIP: "(network)", Score: 50, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
+		{Type: "Correlated Activity", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 85, Severity: model.SevCritical, Timestamp: "2026-05-10 12:00:00"},
+	})
+
+	// Sanity: the seed call established both rollups + both contributors.
+	if got := countByType(s, "Correlated Activity"); got != 1 {
+		t.Fatalf("seed: Correlated Activity count = %d, want 1", got)
+	}
+	if got := countByType(s, "Host Risk Score"); got != 1 {
+		t.Fatalf("seed: Host Risk Score count = %d, want 1", got)
+	}
+
+	// Now an incremental pass — emits only a fresh TI Hit, the kind of
+	// shape AnalyzeTIOnly produces between full passes. The contributors
+	// and the two rollups are absent from the input set.
+	s.SetFindingsIncremental([]model.Finding{
+		{Type: "TI Hit (IP)", SrcIP: "10.0.0.2", DstIP: "8.8.8.8", Score: 90, Severity: model.SevHigh, Timestamp: "2026-05-10 15:00:00"},
+	})
+
+	if got := countByType(s, "Correlated Activity"); got != 1 {
+		t.Errorf("Correlated Activity count after incremental = %d, want 1 (rollup must survive a TI-only pass)", got)
+	}
+	if got := countByType(s, "Host Risk Score"); got != 1 {
+		t.Errorf("Host Risk Score count after incremental = %d, want 1 (rollup must survive a TI-only pass)", got)
+	}
+	if got := countByType(s, "TI Hit (IP)"); got != 1 {
+		t.Errorf("TI Hit (IP) count after incremental = %d, want 1", got)
+	}
+	if got := countByType(s, "Beaconing"); got != 1 {
+		t.Errorf("Beaconing contributor count = %d, want 1 (non-rollup historical must persist regardless of which entry point)", got)
+	}
+}
+
+func countByType(s *Store, typ string) int {
+	n := 0
+	for _, f := range s.findings {
+		if f.Type == typ {
+			n++
+		}
+	}
+	return n
+}
+
 func TestSetFindings_PurgesStaleRollups(t *testing.T) {
 	s := New(config.Default())
 

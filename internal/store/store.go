@@ -424,8 +424,47 @@ func (s *Store) GetFindings() []model.Finding {
 
 // SetFindings merges new analysis results with existing findings, carries over
 // analyst annotations for re-detected fingerprints, persists to SQLite, and
-// returns any new notifications generated.
+// returns any new notifications generated. Use this for full-pipeline
+// analyses — the manual Analyze button, watch's daily full pass, JSON
+// import — where the rollup-regeneration phases (aggregateRisk,
+// correlateFindings) have run and any preserved-but-not-regenerated
+// rollup row is genuinely stale.
+//
+// For TI-only incrementals (watch's between-full ticks, the archive
+// admin scan) use SetFindingsIncremental instead. Calling SetFindings
+// on a TI-only input would silently purge every Correlated Activity
+// and Host Risk Score row in the store, because the rollup phases
+// didn't run this pass and their fingerprints are absent from the new
+// set — the IsRollupType purge below treats absence as "the rollup is
+// stale" rather than "the rollup wasn't re-evaluated."
 func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
+	return s.setFindingsImpl(findings, true)
+}
+
+// SetFindingsIncremental is the partial-pipeline form of SetFindings.
+// Same merge / ID / Correlations-translation semantics, but skips the
+// IsRollupType purge — existing Correlated Activity and Host Risk
+// Score findings are preserved through the call instead of dropped.
+//
+// Callers are paths that don't run the rollup-regeneration phases:
+//   - watch's incremental TI tick (AnalyzeTIOnly between full passes)
+//   - the admin archive scan endpoint (AnalyzeTIOnly over /data/archive)
+//
+// The rollup data may be stale relative to the just-emitted TI Hits
+// (e.g., a CA's score reflects yesterday's contributor scores, not
+// today's). That's acceptable: rollups refresh on the next full pass,
+// and the analyst gets continuity between full passes instead of a
+// rollup hole every 6 hours.
+func (s *Store) SetFindingsIncremental(findings []model.Finding) []model.Notification {
+	return s.setFindingsImpl(findings, false)
+}
+
+// setFindingsImpl is the shared body for both public entry points.
+// purgeStaleRollups gates the IsRollupType branch in the historical-
+// preserve loop — true for full passes (the original behavior), false
+// for TI-only incrementals where rollup absence means "not evaluated
+// this pass" rather than "no longer valid."
+func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool) []model.Notification {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -564,7 +603,8 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 		if newFPSet[fp] {
 			continue
 		}
-		if model.IsRollupType(old.Type) {
+		if purgeStaleRollups && model.IsRollupType(old.Type) {
+			// Full pass that didn't regenerate this rollup — drop it.
 			continue
 		}
 		old.IsNew = false
