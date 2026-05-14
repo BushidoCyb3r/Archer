@@ -1649,6 +1649,27 @@ func (s *Server) launchTIOnly(files []string) bool {
 		az := analysis.New(cfg, archiveDir, progressCh, statusCh)
 		az.SetFeedProvider(s.store)
 
+		// Pin defaultSensor before AnalyzeTIOnly so HTTP-derived TI
+		// matches (URLhaus + MISP/OpenCTI feed-domain hits in url.log)
+		// — which emit findings without a SourceFile — pick up the
+		// deployment's lone sensor name instead of landing empty in
+		// the Sensors column. Multi-sensor archives leave default
+		// unset; per-file sensorOf in Analyzer.add still attributes
+		// the SourceFile-bearing TI Hits correctly.
+		if archiveDir != "" {
+			sensorSet := make(map[string]struct{})
+			for _, fp := range files {
+				if s := sensorFromPath(archiveDir, fp); s != "" {
+					sensorSet[s] = struct{}{}
+				}
+			}
+			if len(sensorSet) == 1 {
+				for s := range sensorSet {
+					az.SetDefaultSensor(s)
+				}
+			}
+		}
+
 		s.analyzerMu.Lock()
 		s.activeAnalyzer = az
 		s.analyzerMu.Unlock()
@@ -1663,14 +1684,12 @@ func (s *Server) launchTIOnly(files []string) bool {
 
 		findings := az.AnalyzeTIOnly(files)
 
-		// Sensor attribution. Archive preserves the /logs/<sensor>/...
-		// layout, so resolving against archiveDir yields the same sensor
-		// name that the live tree would have used for these files.
-		for i := range findings {
-			findings[i].Sensor = sensorFromPath(archiveDir, findings[i].SourceFile)
-		}
-
-		newNotifs := s.store.SetFindings(findings)
+		// SetFindingsIncremental (not SetFindings) so the rollup
+		// purge inside setFindingsImpl is skipped. The archive scan
+		// is a TI-only pass — running it shouldn't drop the live
+		// store's Correlated Activity / Host Risk Score rows just
+		// because this run didn't regenerate them.
+		newNotifs := s.store.SetFindingsIncremental(findings)
 		s.crossAnnotateNewTIHits(findings)
 		for _, n := range newNotifs {
 			nData, _ := json.Marshal(n)
