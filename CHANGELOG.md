@@ -30,6 +30,33 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.23.0] — 2026-05-16
+
+### Added
+
+- **Self-service password change.** Any logged-in user can rotate their
+  own password from the new account menu (click your name in the top
+  bar → Change password). `POST /api/me/password` takes
+  `current_password` / `new_password` / `confirm`; the current password
+  is re-verified through the same timing-pad-equalised `Authenticate`
+  path `/login` uses, so a hijacked session that can't prove knowledge
+  of the credential can't silently rotate it. On success every session
+  for that user is dropped (killing any other live session) and a fresh
+  cookie is minted so the actor stays logged in where they made the
+  change. Minimum length 8, matching registration.
+- **Admin password reset.** Admins get a per-row **Reset PW** action in
+  the Users modal. `PATCH /api/users/{id}` now accepts an optional
+  `password` field (additive — `role` / `status` behaviour unchanged);
+  no target-current-password is required since the admin is the
+  authority, self-reset via this path is refused (use self-service),
+  and the target's sessions are dropped so they re-authenticate on the
+  new credential — the same session-invalidation discipline the
+  role/status/delete paths use. The Users dialog widened to 1080px so
+  Approve + Reset PW + Delete stay on one row.
+- Audit vocabulary gained `user_password_change` (self) and
+  `user_password_reset` (admin). No password material is written to any
+  audit field (before/after/details are empty for both).
+
 ## [v0.22.0] — 2026-05-16
 
 ### Breaking
@@ -5283,7 +5310,10 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.20.2...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.23.0...HEAD
+[v0.23.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.22.0...v0.23.0
+[v0.22.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.21.0...v0.22.0
+[v0.21.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.20.2...v0.21.0
 [v0.20.2]: https://github.com/BushidoCyb3r/Archer/compare/v0.20.1...v0.20.2
 [v0.20.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.20.0...v0.20.1
 [v0.20.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.19.0...v0.20.0

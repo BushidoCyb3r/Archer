@@ -524,6 +524,37 @@ cycle (single-digit milliseconds in practice — the auth
 middleware re-checks the session map every request, by design,
 NEW-8). There is no "TTL until logout" window to wait out.
 
+### Password reset and rotation
+
+Two paths, by who is acting (v0.23.0):
+
+- **Self-service.** Any user rotates their own password from the
+  account menu (click the display name in the top bar → **Change
+  password**). The current password is re-verified, so a hijacked
+  session that can't prove knowledge of the credential can't
+  silently change it. On success every session for that account is
+  dropped and a fresh cookie is issued to the client that made the
+  change — the operator's other devices/sessions log out, but they
+  are not locked out of the browser they changed it from. Emits
+  `user_password_change`.
+- **Admin reset.** For a locked-out or suspected-compromised
+  account, an admin opens **Users**, clicks **Reset PW** on the
+  row, and sets a new password. No knowledge of the old password is
+  needed (the admin is the authority). The target's sessions are
+  dropped immediately (same `DeleteSessionsForUser` path as
+  offboarding) so any cookie they hold dies on the next request and
+  they must sign in with the new credential. Emits
+  `user_password_reset`. The admin cannot reset their *own*
+  password this way — the API refuses self-targets; use
+  self-service.
+
+Neither path writes password material to the audit log
+(before/after/details are empty for both actions). For a
+suspected-compromise response, admin-reset is the fast lever: it
+both rotates the credential and kills live sessions in one action.
+There are no password-complexity rules beyond the 8-character
+minimum — see the scope note in the hardening section.
+
 ---
 
 ## Health monitoring
