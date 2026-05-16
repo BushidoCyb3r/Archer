@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -45,6 +46,8 @@ type Store struct {
 	iocM          *match.Matcher           // cached compile of iocList; rebuilt on Set
 	feedMatchers  map[int64]*match.Matcher // per-feed cached compile; rebuilt on indicator write
 	suppressions  map[string]suppressionEntry
+	pairAllow     []model.PairAllowEntry
+	pairAllowIdx  map[string][]string // src\x00dst\x00port -> finding_types ("" = all)
 	notifications []model.Notification
 	notifCounter  int
 	config        config.Config
@@ -76,6 +79,7 @@ type suppressionEntry struct {
 func New(cfg config.Config) *Store {
 	return &Store{
 		suppressions: make(map[string]suppressionEntry),
+		pairAllowIdx: make(map[string][]string),
 		feedMatchers: make(map[int64]*match.Matcher),
 		findingsIdx:  make(map[int]int),
 		config:       cfg,
@@ -209,6 +213,17 @@ func (s *Store) InitDB(db *sql.DB) {
 			}
 		}
 	}
+
+	if rows, err := db.Query(`SELECT id, src, dst, port, finding_type, detail, created_by, created_at FROM pair_allowlist ORDER BY id`); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var e model.PairAllowEntry
+			if rows.Scan(&e.ID, &e.Src, &e.Dst, &e.Port, &e.FindingType, &e.Detail, &e.CreatedBy, &e.CreatedAt) == nil {
+				s.pairAllow = append(s.pairAllow, e)
+			}
+		}
+	}
+	s.rebuildPairAllowIdxLocked()
 
 	s.loadFindings()
 	s.loadNotifications()
@@ -690,7 +705,7 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 			// already told Archer not to surface. Same matcher used
 			// at filter time, evaluated under the existing write lock.
 			// NEW-111.
-			if s.isHiddenLocked(f.SrcIP, f.DstIP) {
+			if s.isHiddenLocked(f.SrcIP, f.DstIP) || s.isPairAllowedLocked(f.SrcIP, f.DstIP, f.DstPort, f.Type) {
 				continue
 			}
 			s.notifCounter++
@@ -975,6 +990,117 @@ func (s *Store) IsSuppressed(ip string) bool {
 	return !time.Now().After(entry.Expiry)
 }
 
+// ── Pair allowlist (tuple-scoped view filter) ─────────────────────────────
+
+func pairAllowKey(src, dst, port string) string {
+	return src + "\x00" + dst + "\x00" + port
+}
+
+// rebuildPairAllowIdxLocked recomputes the (src,dst,port) → finding-type
+// index from the rule slice. Mirrors the allowlistM-rebuild-on-Set
+// pattern so the hot read path (IsPairAllowed, once per finding per
+// /api/findings request) is an O(1) map probe, not a slice scan.
+// Caller serialises access (write lock, or startup before goroutines).
+func (s *Store) rebuildPairAllowIdxLocked() {
+	idx := make(map[string][]string, len(s.pairAllow))
+	for _, e := range s.pairAllow {
+		k := pairAllowKey(e.Src, e.Dst, e.Port)
+		idx[k] = append(idx[k], e.FindingType)
+	}
+	s.pairAllowIdx = idx
+}
+
+// isPairAllowedLocked reports whether a pair rule hides a finding with
+// this (src,dst,port,type). An empty rule FindingType matches every
+// type on the tuple; a set one matches only that type. Caller holds
+// s.mu (read or write).
+func (s *Store) isPairAllowedLocked(src, dst, port, ftype string) bool {
+	types, ok := s.pairAllowIdx[pairAllowKey(src, dst, port)]
+	if !ok {
+		return false
+	}
+	for _, t := range types {
+		if t == "" || t == ftype {
+			return true
+		}
+	}
+	return false
+}
+
+// IsPairAllowed is the read-path entry used by findings_filter.go.
+func (s *Store) IsPairAllowed(src, dst, port, ftype string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.isPairAllowedLocked(src, dst, port, ftype)
+}
+
+// ListPairAllowlist returns every rule, id-ordered, for the manager UI.
+func (s *Store) ListPairAllowlist() []model.PairAllowEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]model.PairAllowEntry, len(s.pairAllow))
+	copy(out, s.pairAllow)
+	return out
+}
+
+// AddPairAllow inserts a rule and returns its id. Idempotent on the
+// (src,dst,port,finding_type) unique index: re-adding an identical
+// rule returns the existing id without creating a duplicate or
+// re-running the notification sweep.
+func (s *Store) AddPairAllow(e model.PairAllowEntry) (int64, error) {
+	if s.db == nil {
+		return 0, fmt.Errorf("store: db not initialized")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.Exec(
+		`INSERT OR IGNORE INTO pair_allowlist (src, dst, port, finding_type, detail, created_by, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		e.Src, e.Dst, e.Port, e.FindingType, e.Detail, e.CreatedBy, e.CreatedAt,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("store: add pair allow: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		// Duplicate — rule already present. Return the existing id.
+		var id int64
+		_ = s.db.QueryRow(
+			`SELECT id FROM pair_allowlist WHERE src=? AND dst=? AND port=? AND finding_type=?`,
+			e.Src, e.Dst, e.Port, e.FindingType,
+		).Scan(&id)
+		return id, nil
+	}
+	id, _ := res.LastInsertId()
+	e.ID = id
+	s.pairAllow = append(s.pairAllow, e)
+	s.rebuildPairAllowIdxLocked()
+	// A just-allowlisted pair shouldn't keep ringing the bell — same
+	// stale-notification cleanup AddSuppression / SetAllowlist run.
+	s.dismissHiddenFindingNotificationsLocked()
+	return id, nil
+}
+
+// RemovePairAllow deletes a rule by id. The matching findings were
+// never dropped from the store, so they reappear on the next
+// /api/findings fetch with no re-analysis.
+func (s *Store) RemovePairAllow(id int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db != nil {
+		if _, err := s.db.Exec(`DELETE FROM pair_allowlist WHERE id = ?`, id); err != nil {
+			log.Printf("store: remove pair allow %d: %v", id, err)
+			return
+		}
+	}
+	for i := range s.pairAllow {
+		if s.pairAllow[i].ID == id {
+			s.pairAllow = append(s.pairAllow[:i], s.pairAllow[i+1:]...)
+			break
+		}
+	}
+	s.rebuildPairAllowIdxLocked()
+}
+
 // isHiddenLocked reports whether either of the two IPs is currently
 // hidden by the allowlist or the (unexpired) suppression set. Mirrors
 // the filterFindings exclusion check at findings_filter.go:107-112 so
@@ -1015,7 +1141,7 @@ func (s *Store) dismissHiddenFindingNotificationsLocked() {
 		if n.Kind != "" && n.Kind != "finding" {
 			continue
 		}
-		if s.isHiddenLocked(n.SrcIP, n.DstIP) {
+		if s.isHiddenLocked(n.SrcIP, n.DstIP) || s.isPairAllowedLocked(n.SrcIP, n.DstIP, n.DstPort, n.Type) {
 			n.Dismissed = true
 			dismissedIDs = append(dismissedIDs, n.ID)
 		}

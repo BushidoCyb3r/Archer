@@ -1331,6 +1331,100 @@ func (s *Server) handleDeleteSuppression(w http.ResponseWriter, r *http.Request)
 	jsonOK(w)
 }
 
+// handlePairAllowlist serves GET (list, any role) and POST (create,
+// write roles) for the tuple-scoped finding filter. It is a pure view
+// filter — see store.AddPairAllow / migrations/0017.
+func (s *Server) handlePairAllowlist(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		rules := s.store.ListPairAllowlist()
+		if rules == nil {
+			rules = []model.PairAllowEntry{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rules)
+
+	case http.MethodPost:
+		me := userFromCtx(r)
+		if me.Role == model.RoleViewer {
+			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			return
+		}
+		var req struct {
+			Src         string `json:"src"`
+			Dst         string `json:"dst"`
+			Port        string `json:"port"`
+			FindingType string `json:"finding_type"`
+			Detail      string `json:"detail"`
+		}
+		if err := decodeJSONBody(w, r, &req, suppressBodyMaxBytes); err != nil {
+			return
+		}
+		req.Src = strings.TrimSpace(req.Src)
+		req.Dst = strings.TrimSpace(req.Dst)
+		req.Port = strings.TrimSpace(req.Port)
+		req.FindingType = strings.TrimSpace(req.FindingType)
+		if req.Src == "" || req.Dst == "" {
+			jsonError(w, "src and dst are required", http.StatusBadRequest)
+			return
+		}
+		id, err := s.store.AddPairAllow(model.PairAllowEntry{
+			Src:         req.Src,
+			Dst:         req.Dst,
+			Port:        req.Port,
+			FindingType: req.FindingType,
+			Detail:      req.Detail,
+			CreatedBy:   me.Email,
+			CreatedAt:   time.Now().Unix(),
+		})
+		if err != nil {
+			jsonError(w, "failed to add pair allow rule", http.StatusInternalServerError)
+			return
+		}
+		s.recordAudit(r, "pair_allowlist_add", auditEvent{
+			TargetType: "pair_allowlist",
+			TargetID:   strconv.FormatInt(id, 10),
+			TargetName: req.Src + "→" + req.Dst + ":" + req.Port,
+			AfterValue: map[string]any{
+				"src": req.Src, "dst": req.Dst, "port": req.Port,
+				"finding_type": req.FindingType, "detail": req.Detail,
+			},
+		})
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": id})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleDeletePairAllow serves DELETE /api/pair-allowlist/{id} (write
+// roles). Removing a rule unhides its matching findings on the next
+// /api/findings fetch — they were never dropped from the store.
+func (s *Server) handleDeletePairAllow(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if u := userFromCtx(r); u.Role == model.RoleViewer {
+		jsonError(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/pair-allowlist/")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonError(w, "invalid rule id", http.StatusBadRequest)
+		return
+	}
+	s.store.RemovePairAllow(id)
+	s.recordAudit(r, "pair_allowlist_remove", auditEvent{
+		TargetType: "pair_allowlist",
+		TargetID:   idStr,
+		TargetName: idStr,
+	})
+	jsonOK(w)
+}
+
 func (s *Server) handleNotifications(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
