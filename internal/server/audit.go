@@ -34,6 +34,7 @@ type auditEvent struct {
 //
 //	login_success / login_failure
 //	user_create / user_role_change / user_status_change / user_delete
+//	user_password_change / user_password_reset
 //	enrollment_token_create / enrollment_token_revoke
 //	sensor_disenroll / sensor_purge / sensor_schedule_change
 //	feed_create / feed_update / feed_delete / feed_refresh

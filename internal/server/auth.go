@@ -251,6 +251,67 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleMePassword processes POST /api/me/password — a logged-in user
+// changing their own password. The current password is required and
+// re-verified so a hijacked session that hasn't proven knowledge of
+// the credential can't silently rotate it and lock the owner out.
+func (s *Server) handleMePassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	me := userFromCtx(r)
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+		Confirm         string `json:"confirm"`
+	}
+	if err := decodeJSONBody(w, r, &req, 4<<10); err != nil {
+		return
+	}
+	// Authenticate runs the same timing-pad-equalized bcrypt path the
+	// login handler uses; reusing it keeps the re-auth latency profile
+	// consistent with /login.
+	if _, ok := s.users.Authenticate(me.Email, req.CurrentPassword); !ok {
+		jsonError(w, "current password is incorrect", http.StatusForbidden)
+		return
+	}
+	if len(req.NewPassword) < 8 {
+		jsonError(w, "new password must be at least 8 characters", http.StatusBadRequest)
+		return
+	}
+	if req.NewPassword != req.Confirm {
+		jsonError(w, "passwords do not match", http.StatusBadRequest)
+		return
+	}
+	if err := s.users.SetPassword(me.ID, req.NewPassword); err != nil {
+		jsonError(w, "failed to update password", http.StatusInternalServerError)
+		return
+	}
+	// Drop every session for this user (including this request's) so
+	// any other live session is invalidated, then mint a fresh cookie
+	// so the actor stays logged in here. Same NEW-8 discipline the
+	// role/approve paths use, adapted so a self-service change doesn't
+	// self-lock-out the browser that made it.
+	s.users.DeleteSessionsForUser(me.ID)
+	token := s.users.CreateSession(me.ID)
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookie,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   86400,
+	})
+	s.recordAudit(r, "user_password_change", auditEvent{
+		TargetType: "user",
+		TargetID:   strconv.Itoa(me.ID),
+		TargetName: me.Email,
+	})
+	jsonOK(w)
+}
+
 // handleUsersCollection handles GET /api/users and POST /api/users.
 // GET  — admin: all users; others: only themselves.
 // POST — admin only: create a user.
@@ -343,8 +404,9 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPatch:
 		var req struct {
-			Role   string `json:"role,omitempty"`
-			Status string `json:"status,omitempty"`
+			Role     string `json:"role,omitempty"`
+			Status   string `json:"status,omitempty"`
+			Password string `json:"password,omitempty"`
 		}
 		if err := decodeJSONBody(w, r, &req, 1<<10); err != nil {
 			return
@@ -373,6 +435,41 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 				TargetName:  before.Email,
 				BeforeValue: map[string]any{"status": before.Status},
 				AfterValue:  map[string]any{"status": model.StatusActive},
+			})
+			jsonOK(w)
+			return
+		}
+		if req.Password != "" {
+			// Admin reset of someone else's password. No target-current-
+			// password needed — the admin is the authority. Self-reset
+			// goes through /api/me/password (which re-auths) so the two
+			// paths stay distinct in the audit trail.
+			if id == me.ID {
+				jsonError(w, "use Change password to change your own password", http.StatusBadRequest)
+				return
+			}
+			if len(req.Password) < 8 {
+				jsonError(w, "password must be at least 8 characters", http.StatusBadRequest)
+				return
+			}
+			before, ok := s.users.GetUserByID(id)
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			if err := s.users.SetPassword(id, req.Password); err != nil {
+				jsonError(w, "failed to reset password", http.StatusInternalServerError)
+				return
+			}
+			// Force the target onto the new credential immediately —
+			// same NEW-8 session-invalidation discipline as the
+			// role/status/delete paths. No password material in the
+			// audit row.
+			s.users.DeleteSessionsForUser(id)
+			s.recordAudit(r, "user_password_reset", auditEvent{
+				TargetType: "user",
+				TargetID:   strconv.Itoa(id),
+				TargetName: before.Email,
 			})
 			jsonOK(w)
 			return
