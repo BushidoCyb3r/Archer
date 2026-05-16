@@ -448,6 +448,9 @@ preserve insertion order, support `# comment` lines.
 | `GET` | `/api/suppressions` | any | Returns an array of `{target, expiry, detail}` objects. |
 | `POST` | `/api/suppressions` | analyst+ | Add a suppression. Body: `{"target":"<ip/domain/regex>","days":N,"detail":"<reason>"}`. `days` must be in `(0, 365]`. |
 | `DELETE` | `/api/suppressions/{target}` | analyst+ | Lift a suppression. The `{target}` segment is the URL-encoded target string from the GET response (host / IP / regex / sensor) — not a numeric id. |
+| `GET` | `/api/pair-allowlist` | any | Returns an array of `{id, src, dst, port, finding_type, detail, created_by, created_at}` rules. |
+| `POST` | `/api/pair-allowlist` | analyst+ | Add a tuple-scoped permanent finding filter. Body: `{"src","dst","port","finding_type","detail"}`. `src` and `dst` required; empty `finding_type` = every type on the tuple, set = only that type. Idempotent on the `(src,dst,port,finding_type)` tuple (re-adding returns the existing id). Pure view filter — matching findings are hidden from the table and bell, never dropped from the store. |
+| `DELETE` | `/api/pair-allowlist/{id}` | analyst+ | Remove a rule by numeric id. Its matching findings reappear on the next `/api/findings` fetch — no re-analysis. |
 
 `#` lines are preserved verbatim through the round-trip. Inline
 `value # tail` comments have their tail stripped. See
