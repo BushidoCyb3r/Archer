@@ -2532,6 +2532,102 @@
     });
   }
 
+  // ── Pair allowlist (tuple-scoped permanent view filter) ───────────────────
+  // _openPairAllowAdd pre-fills the add dialog from the right-clicked
+  // finding. Scope defaults to that finding's own type — muting
+  // "Beaconing" on a known-good DNS pair must not also blind the DNS
+  // Tunneling detector on the same pair. "All finding types" is the
+  // deliberate broaden.
+  function _openPairAllowAdd(f) {
+    const dlg = document.getElementById('pair-allow-add-dialog');
+    document.getElementById('pa-src').value  = f.src_ip || '';
+    document.getElementById('pa-dst').value  = f.dst_ip || '';
+    document.getElementById('pa-port').value = f.dst_port || '';
+    const scope = document.getElementById('pa-scope');
+    const ftype = f.type || '';
+    scope.options[0].value = ftype;
+    scope.options[0].textContent = ftype ? `Only "${ftype}" findings` : 'This finding type';
+    scope.selectedIndex = 0;
+    document.getElementById('pa-detail').value = '';
+    const err = document.getElementById('pa-error');
+    err.style.display = 'none';
+    dlg.showModal();
+  }
+
+  async function _renderPairAllow() {
+    const listEl = document.getElementById('pair-allow-list');
+    listEl.textContent = 'Loading…';
+    let data;
+    try { data = await api('/api/pair-allowlist'); }
+    catch (e) { listEl.textContent = 'Error loading pair allowlist.'; return; }
+    if (!Array.isArray(data) || data.length === 0) {
+      listEl.innerHTML = '<div style="color:var(--fg-dim);font-size:13px">No pair allowlist rules.</div>';
+      return;
+    }
+    listEl.innerHTML = '';
+    data.forEach(p => {
+      const when  = p.created_at ? new Date(p.created_at * 1000).toUTCString().replace(' GMT', ' UTC') : '';
+      const scope = p.finding_type ? _esc(p.finding_type) : 'all finding types';
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)';
+      row.innerHTML = `
+        <div style="flex:1;min-width:0">
+          <div style="font-family:monospace;font-size:13px">${_esc(p.src)} → ${_esc(p.dst)} : ${_esc(p.port || '·')}</div>
+          <div style="font-size:11px;color:var(--fg-dim);margin-top:2px">Scope: ${scope}</div>
+          ${p.detail ? `<div style="font-size:11px;color:var(--fg-dim);margin-top:2px">${_esc(p.detail)}</div>` : ''}
+          <div style="font-size:11px;color:var(--fg-dim);margin-top:2px">Added ${_esc(p.created_by || 'unknown')}${when ? ' · ' + when : ''}</div>
+        </div>
+        <button class="dlg-btn secondary" style="padding:3px 10px;font-size:12px;flex-shrink:0">Remove</button>`;
+      row.querySelector('button').addEventListener('click', async () => {
+        await api(`/api/pair-allowlist/${p.id}`, {method: 'DELETE'}).catch(() => {});
+        setStatus(`Removed pair rule ${p.src} → ${p.dst}:${p.port || ''}`);
+        await _renderPairAllow();
+        loadFindings(_currentFilterParams());
+      });
+      listEl.appendChild(row);
+    });
+  }
+
+  function initPairAllowlist() {
+    const addDlg = document.getElementById('pair-allow-add-dialog');
+    document.getElementById('pa-cancel').addEventListener('click', () => addDlg.close());
+    document.getElementById('pa-ok').addEventListener('click', async () => {
+      const src  = document.getElementById('pa-src').value.trim();
+      const dst  = document.getElementById('pa-dst').value.trim();
+      const port = document.getElementById('pa-port').value.trim();
+      const finding_type = document.getElementById('pa-scope').value;
+      const detail = document.getElementById('pa-detail').value.trim();
+      const err = document.getElementById('pa-error');
+      if (!src || !dst) {
+        err.textContent = 'Source and destination are required.';
+        err.style.display = 'block';
+        return;
+      }
+      try {
+        await api('/api/pair-allowlist', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({src, dst, port, finding_type, detail}),
+        });
+        addDlg.close();
+        setStatus(`Pair allowlisted ${src} → ${dst}:${port || ''}`);
+        loadFindings(_currentFilterParams());
+        const mgr = document.getElementById('pair-allow-dialog');
+        if (mgr.open) _renderPairAllow();
+      } catch (e) {
+        err.textContent = e || 'Failed to add rule.';
+        err.style.display = 'block';
+      }
+    });
+
+    const mgr = document.getElementById('pair-allow-dialog');
+    document.getElementById('pair-allow-close').addEventListener('click', () => mgr.close());
+    document.getElementById('pair-allow-btn').addEventListener('click', async () => {
+      await _renderPairAllow();
+      mgr.showModal();
+    });
+  }
+
   // ── Allowlist / IOC dialogs ────────────────────────────────────────────────
   function initListDialogs() {
     const alDlg = document.getElementById('allowlist-dialog');
@@ -3597,6 +3693,10 @@
       });
     });
 
+    document.getElementById('ctx-pair-allow').addEventListener('click', () => {
+      if (_ctxFinding) _openPairAllowAdd(_ctxFinding);
+    });
+
     // Add to Allowlist / IOC List — single click each, target derived from
     // the column under the cursor. The cache refresh keeps state-awareness
     // current so a second right-click on the same IP reflects the change.
@@ -4234,7 +4334,7 @@
       }
       // Hide write-only controls for viewers
       if (u.role === 'viewer') {
-        ['analyze-btn','allowlist-btn','ioc-btn','suppressions-btn',
+        ['analyze-btn','allowlist-btn','ioc-btn','suppressions-btn','pair-allow-btn',
          'ack-btn','esc-btn','supp-btn','add-note-btn'].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.style.display = 'none';
@@ -4270,6 +4370,7 @@
     initDetailActions();
     initSuppressDialog();
     initSuppressionsManager();
+    initPairAllowlist();
     initListDialogs();
     initSettings();
     initWatch();

@@ -267,6 +267,8 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/ioc", any(s.handleIOC))                   // PUT enforced inside handler
 	s.mux.Handle("/api/suppressions", any(s.handleSuppressions)) // POST enforced inside handler
 	s.mux.Handle("/api/suppressions/", any(s.handleDeleteSuppression))
+	s.mux.Handle("/api/pair-allowlist", any(s.handlePairAllowlist))    // POST enforced inside handler
+	s.mux.Handle("/api/pair-allowlist/", any(s.handleDeletePairAllow)) // DELETE enforced inside handler
 	s.mux.Handle("/api/notifications", any(s.handleNotifications))
 	s.mux.Handle("/api/watch", any(s.handleWatch))     // GET=any; POST enforced as admin inside handler
 	s.mux.Handle("/api/archive", any(s.handleArchive)) // GET=any; POST enforced as admin inside handler

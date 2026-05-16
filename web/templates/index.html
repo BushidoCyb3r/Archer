@@ -88,6 +88,10 @@
       <button class="sb-btn dim full" id="allowlist-btn">Edit Allowlist</button>
 
       <div class="sidebar-divider"></div>
+      <div class="sidebar-section-title">Pair Allowlist</div>
+      <button class="sb-btn dim full" id="pair-allow-btn">Manage Pair Allowlist</button>
+
+      <div class="sidebar-divider"></div>
       <div class="sidebar-section-title">IOC List</div>
       <button class="sb-btn dim full" id="ioc-btn">Edit IOC List</button>
 
@@ -495,6 +499,7 @@
       <li data-days="30">30 days</li>
     </ul>
   </li>
+  <li id="ctx-pair-allow" class="ctx-write">Allow this pair permanently</li>
 
   <!-- Campaign-only items: revealed when the right-clicked row carries a _campaign payload. -->
   <li class="ctx-separator ctx-campaign-only" style="display:none"></li>
@@ -1047,6 +1052,54 @@
   </div>
   <div class="dlg-footer">
     <button class="dlg-btn secondary" id="suppressions-close">Close</button>
+  </div>
+</dialog>
+
+<!-- Pair-allowlist add: opened from the finding context menu, pre-filled
+     with that finding's tuple. Permanent view filter — no expiry. Scope
+     defaults to the finding's own type (safer: muting "Beaconing" on a
+     known-good DNS pair still lets DNS Tunneling on the same pair fire).
+     "All types on this pair" is the deliberate broaden. -->
+<dialog id="pair-allow-add-dialog">
+  <div class="dlg-header">Allow this pair permanently</div>
+  <div class="dlg-body">
+    <div style="color:var(--fg-dim);font-size:11px;margin-bottom:10px">
+      Permanently hides findings on this exact source → destination : port
+      from the table and the alert bell. Pure view filter — removing the
+      rule later brings the findings straight back, no re-analysis.
+    </div>
+    <label>Source</label>
+    <input class="dlg-input" id="pa-src" type="text" style="width:100%">
+    <label>Destination</label>
+    <input class="dlg-input" id="pa-dst" type="text" style="width:100%">
+    <label>Port</label>
+    <input class="dlg-input" id="pa-port" type="text" style="width:120px">
+    <label>Scope</label>
+    <select class="dlg-input" id="pa-scope" style="width:100%">
+      <option value="__type__"></option>
+      <option value="">All finding types on this pair</option>
+    </select>
+    <label>Note (optional)</label>
+    <input class="dlg-input" id="pa-detail" type="text" style="width:100%" placeholder="why this pair is known-good">
+    <div id="pa-error" style="color:var(--sev-critical);font-size:12px;margin-top:8px;display:none"></div>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="pa-cancel">Cancel</button>
+    <button class="dlg-btn primary" id="pa-ok">Allow permanently</button>
+  </div>
+</dialog>
+
+<dialog id="pair-allow-dialog">
+  <div class="dlg-header">Pair Allowlist</div>
+  <div class="dlg-body">
+    <div style="color:var(--fg-dim);font-size:11px;margin-bottom:8px">
+      Permanent tuple-scoped view filters. Remove a rule and its findings
+      reappear on the next refresh — they were never deleted.
+    </div>
+    <div id="pair-allow-list" style="min-height:60px"></div>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="pair-allow-close">Close</button>
   </div>
 </dialog>
 

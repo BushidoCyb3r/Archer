@@ -51,13 +51,15 @@ const (
 	ActionFindingNoteAdd      = "finding_note_add"
 
 	// Config + global lists
-	ActionConfigChange      = "config_change"
-	ActionAllowlistEdit     = "allowlist_edit"
-	ActionIOCEdit           = "ioc_edit"
-	ActionSuppressionAdd    = "suppression_add"
-	ActionSuppressionDelete = "suppression_delete"
-	ActionWatchChange       = "watch_change"
-	ActionFindingImport     = "finding_import"
+	ActionConfigChange        = "config_change"
+	ActionAllowlistEdit       = "allowlist_edit"
+	ActionIOCEdit             = "ioc_edit"
+	ActionSuppressionAdd      = "suppression_add"
+	ActionSuppressionDelete   = "suppression_delete"
+	ActionPairAllowlistAdd    = "pair_allowlist_add"
+	ActionPairAllowlistRemove = "pair_allowlist_remove"
+	ActionWatchChange         = "watch_change"
+	ActionFindingImport       = "finding_import"
 
 	// Analyze pipeline lifecycle (v0.14.9 NEW-65). Watch-driven
 	// runs are unattributed and don't pass through these handlers;
@@ -114,6 +116,8 @@ var knownAuditActions = map[string]struct{}{
 	ActionIOCEdit:                   {},
 	ActionSuppressionAdd:            {},
 	ActionSuppressionDelete:         {},
+	ActionPairAllowlistAdd:          {},
+	ActionPairAllowlistRemove:       {},
 	ActionWatchChange:               {},
 	ActionFindingImport:             {},
 	ActionAnalyzeStart:              {},

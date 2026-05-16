@@ -86,6 +86,77 @@ func TestFilterFindings_DismissedHiddenByDefault(t *testing.T) {
 	}
 }
 
+// TestFilterFindings_PairAllowlist codifies the pair-allowlist
+// invariant end-to-end through the real filter path:
+//
+//  1. A rule scoped to (src,dst,port,type) hides exactly the findings
+//     matching all four — not a different port, not a different dst,
+//     not a different type on the same pair.
+//  2. The type-scope is the beacon-hunter safety property: muting
+//     "Beaconing" on a known-good DNS pair must leave "DNS Tunneling"
+//     on that same pair visible (real tradecraft to a legit resolver
+//     still surfaces). An empty FindingType is the deliberate broaden
+//     that hides every type on the tuple.
+//  3. It is a pure view filter: removing the rule restores the
+//     finding on the very next filter pass over the same unchanged
+//     finding slice — no re-analysis, nothing regenerated.
+//
+// Asserting the invariant (precision + type-scope safety + reversible)
+// rather than a single failure case: a future refactor of the tuple
+// key or the type-scope check can't silently regress any one axis
+// without a wantIDs mismatch here.
+func TestFilterFindings_PairAllowlist(t *testing.T) {
+	s := newAuditTestServer(t)
+	findings := []model.Finding{
+		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "53", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-16 09:00:00"},
+		{ID: 2, Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "53", Score: 90, Status: model.StatusOpen, Timestamp: "2026-05-16 09:01:00"},
+		{ID: 3, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-16 09:02:00"},
+		{ID: 4, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "9.9.9.9", DstPort: "53", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-16 09:03:00"},
+		{ID: 5, Type: "Beaconing", SrcIP: "10.0.0.9", DstIP: "8.8.8.8", DstPort: "53", Score: 75, Status: model.StatusOpen, Timestamp: "2026-05-16 09:04:00"},
+		{ID: 6, Type: "TI Hit (IP)", SrcIP: "10.0.0.9", DstIP: "8.8.8.8", DstPort: "53", Score: 96, Status: model.StatusOpen, Timestamp: "2026-05-16 09:05:00"},
+	}
+	filterIDs := func() []int {
+		got := s.filterFindings(append([]model.Finding{}, findings...), url.Values{})
+		ids := []int{}
+		for _, f := range got {
+			ids = append(ids, f.ID)
+		}
+		return ids
+	}
+
+	if got := filterIDs(); !sameIntSlice(got, []int{1, 2, 3, 4, 5, 6}) {
+		t.Fatalf("baseline: got %v, want all 6 visible", got)
+	}
+
+	// Scoped rule: only "Beaconing" on the exact DNS tuple.
+	scopedID, err := s.store.AddPairAllow(model.PairAllowEntry{
+		Src: "10.0.0.1", Dst: "1.1.1.1", Port: "53", FindingType: "Beaconing",
+	})
+	if err != nil {
+		t.Fatalf("AddPairAllow scoped: %v", err)
+	}
+	if got := filterIDs(); !sameIntSlice(got, []int{2, 3, 4, 5, 6}) {
+		t.Errorf("scoped rule: got %v, want {2,3,4,5,6} (only ID 1 hidden; DNS Tunneling on the same pair must stay visible)", got)
+	}
+
+	// All-types rule on a second pair.
+	if _, err := s.store.AddPairAllow(model.PairAllowEntry{
+		Src: "10.0.0.9", Dst: "8.8.8.8", Port: "53", FindingType: "",
+	}); err != nil {
+		t.Fatalf("AddPairAllow all-types: %v", err)
+	}
+	if got := filterIDs(); !sameIntSlice(got, []int{2, 3, 4}) {
+		t.Errorf("all-types rule: got %v, want {2,3,4} (both types on the 2nd pair hidden)", got)
+	}
+
+	// Remove the scoped rule — ID 1 must come straight back on the
+	// same finding slice; the all-types rule still hides 5 and 6.
+	s.store.RemovePairAllow(scopedID)
+	if got := filterIDs(); !sameIntSlice(got, []int{1, 2, 3, 4}) {
+		t.Errorf("after remove: got %v, want {1,2,3,4} (ID 1 restored with no re-analysis)", got)
+	}
+}
+
 func sameIntSlice(a, b []int) bool {
 	if len(a) != len(b) {
 		return false

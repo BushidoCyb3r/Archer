@@ -39,6 +39,7 @@ type auditEvent struct {
 //	sensor_disenroll / sensor_purge / sensor_schedule_change
 //	feed_create / feed_update / feed_delete / feed_refresh
 //	suppression_add / suppression_delete
+//	pair_allowlist_add / pair_allowlist_remove
 //	allowlist_edit / ioc_edit
 //	config_change / watch_change
 //	finding_import
