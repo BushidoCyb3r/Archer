@@ -276,6 +276,16 @@ ALTER TABLE feeds ADD COLUMN consecutive_failures INTEGER DEFAULT 0;
 -- guidance. feed_create / feed_update audit rows carry the flag.
 ALTER TABLE feeds ADD COLUMN allow_internal INTEGER NOT NULL DEFAULT 0;
 
+-- v0.22.0 / migration 0016. Indicator-aging visibility. How many
+-- indicators the most recent full refresh aged out. Refresh-owned
+-- like last_indicator_count (NEW-22 ownership): written only by the
+-- prune step via the targeted SetFeedPrunedCount, never by an admin
+-- UpdateFeed. last_indicator_count is the post-prune survivor count,
+-- so pre-prune population = last_pruned_count + last_indicator_count;
+-- the Feeds dialog renders the ratio as a per-feed "% aged out".
+-- See docs/FEEDS.md "Calibrating the window".
+ALTER TABLE feeds ADD COLUMN last_pruned_count INTEGER NOT NULL DEFAULT 0;
+
 -- Users live in a separate file (/data/users.db, sometimes co-located):
 CREATE TABLE users (...);
 CREATE TABLE sessions (...);

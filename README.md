@@ -61,9 +61,10 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 - **Allowlist-aware bell** — adding an IP to the allowlist (or applying a suppression) dismisses any active bell notification whose src/dst is now hidden, in lockstep with the matcher update. New notifications skip the bell entirely when src/dst is allowlisted or suppressed — the bell only rings for findings whose row will actually appear in the table.
 - **Beacon evolution chart with expand-to-modal** — click the in-place chart to open a larger modal view with PNG / JPEG export. Pure client-side serialization (SVG → canvas → toDataURL); no extra round trip.
 - **Findings export (TXT)** — Export TXT button on the tab strip bundles a finding's metadata header, the detector's Detail body, every TI Enrichment result, and every analyst note into a single self-contained `.txt` file. Reachable from any dock tab; filename is `archer-finding-{id}.txt`.
-- **Admin DB backup** — Settings → Backup → Download DB backup streams a consistent `VACUUM INTO` snapshot of the live SQLite database with a timestamped filename. The snapshot covers findings, notes, audit log, sensor enrollments, allowlist / IOC / suppressions, and users. Audit-logged as `db_backup`. Restore by stopping Archer and replacing `/data/archer.db`.
+- **Admin DB backup** — Settings → Backup → Download DB backup streams a consistent `VACUUM INTO` snapshot of the live SQLite database with a timestamped filename. The snapshot covers findings, notes, audit log, sensor enrollments, allowlist / IOC / suppressions, and users. Audit-logged as `db_backup`. For scripted rotation use `./backup.sh` (drives the same endpoint, writes timestamped snapshots, optional retention + rsync off-box); `./restore.sh <snapshot.db>` swaps a snapshot back in with the container stopped.
 - **Automatic free TI feeds** — Feodo Tracker C2 IPs and URLhaus malware hosts are fetched and cross-referenced during every analysis run without requiring API keys
 - **Internal MISP / OpenCTI support** — per-feed `Allow internal address` opt-out lets operators point Archer at an internal MISP at e.g. `https://10.0.0.17/` without falling foul of the SSRF guard. Per-feed scope; other feeds keep the guard. Both the config-time check and the fetch-time redirect guard honor the flag for the same feed. Audit-logged on every toggle.
+- **Feed aging visibility** — the Feeds dialog shows a per-feed `X% aged` line under the aging-days knob: the share of the pre-prune population the last full refresh removed (hover for absolute counts). Makes the per-feed `indicator_aging_days` window calibratable — too tight discards still-live upstream indicators every cycle; never pruning means it's looser than upstream churn.
 - **Role-based access control** — admin, analyst, and viewer roles with per-endpoint enforcement
 - **Analyst workbench** — acknowledge, escalate, suppress, add notes, and copy tcpdump/Suricata filter strings directly from the UI
 - **Watch mode** — admin-configurable scheduled analysis. Cadence dropdown (Daily / Every 12h / Every 6h / Every 4h / Hourly) lets you tighten the loop to match Quiver's hourly shipping rather than waiting for a once-a-day window. Anchor time + IANA timezone persist independently of the enable/disable toggle. **Two-tier execution:** the first watch tick of each UTC day runs the full analysis pipeline (statistical detectors need the long temporal window for beaconing, HTTP analysis, etc.); subsequent same-day ticks run an incremental TI/IOC pass over only the log files modified since the last run — typically seconds instead of the full-window minutes-to-hours.
@@ -166,6 +167,8 @@ archer/
 ├── sshd_config                 # Sensor-facing sshd — pubkey-only, AllowUsers quiver
 ├── start.sh                    # Resource-sizes the container (80% CPU / 70% RAM), derives version, runs compose
 ├── reset.sh                    # Operator-confirmed wipe of archer-data / archer-sshd / archer-quiver volumes
+├── backup.sh                   # Auth'd VACUUM INTO snapshot via the admin endpoint; optional retention + rsync off-box
+├── restore.sh                  # Confirmed swap of a snapshot into archer-data (container down; TLS + other volumes untouched)
 ├── cmd/archer/main.go          # Entry point — flags, signal handler, TLS bootstrap, HTTP listener
 ├── internal/
 │   ├── analysis/               # Detection engines
@@ -240,7 +243,7 @@ archer/
 │       ├── beacon_history.go   # beacon_history table (UPSERT) for the 30-day evolution chart
 │       ├── userstore.go        # User accounts, sessions
 │       ├── migrate.go          # Forward-only migration runner; tracks schema_migrations
-│       └── migrations/         # NNNN_*.sql migrations (0001 → 0015)
+│       └── migrations/         # NNNN_*.sql migrations (0001 → 0016)
 └── web/
     ├── templates/
     │   ├── index.html          # Single-page application shell
@@ -1118,7 +1121,7 @@ Beyond detection findings, the bell also surfaces two operational alarms (each `
 - **`kind=sensor`** — sensor heartbeat alarm. Emitted when an enrolled sensor's `last_seen_at` (or rsync log mtime, whichever is later) is more than 2h old. Transition-edge dedup: one alarm per staleness episode, cleared when the sensor checks in again. The **Jump** button opens the Sensors modal. External monitoring can read the same staleness state from [`GET /api/sensors/health`](#sensors).
 - **`kind=feed`** — feed reliability alarm. Emitted when an enabled feed has either `consecutive_failures >= 3` or has gone 24h without a successful refresh. Same transition-edge dedup. The **Jump** button opens the Feeds modal.
 
-Each notification has a **Jump** button. For `kind=finding` it lands the analyst on the page containing that finding, regardless of the active tab's filter, sort, pagination, or delta-mode state — clears every filter input (search, src/dst/port, severity, type, sensor, score floor, time range → All time, delta off), switches to the tab matching the finding's status, queries `/api/findings/{id}/position` to find the absolute offset under the cleared filter, fetches the page that contains it, and scrolls the row into view. Filters that the analyst had set are intentionally lost — the Jump is a "show me this finding now" action; rebuilding the filter is the cost of guaranteed visibility. For `kind=sensor` / `kind=feed` the Jump opens the corresponding modal so the operator can investigate the offending sensor or feed.
+Each notification has a **Jump** button. For `kind=finding` it lands the analyst on the page containing that finding, regardless of the active tab's filter, sort, pagination, or delta-mode state — clears every filter input (search, src/dst/port, severity, type, sensor, score floor, spectral-only, time range → All time, delta off), switches to the tab matching the finding's status, queries `/api/findings/{id}/position` to find the absolute offset under the cleared filter, fetches the page that contains it, and scrolls the row into view. Filters that the analyst had set are intentionally lost — the Jump is a "show me this finding now" action; rebuilding the filter is the cost of guaranteed visibility. For `kind=sensor` / `kind=feed` the Jump opens the corresponding modal so the operator can investigate the offending sensor or feed.
 
 A small green/red dot in the top bar tracks the `watch.heartbeat` SSE event (60s tick, unconditional). After 180s without a beat the dot flips red — proves the SSE pipeline is alive vs wedged.
 

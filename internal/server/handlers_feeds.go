@@ -35,6 +35,13 @@ type feedResponse struct {
 	// incrementals vs the periodic deep sync.
 	LastFullRefreshAt  int64 `json:"last_full_refresh_at"`
 	LastIndicatorCount int   `json:"last_indicator_count"`
+	// LastPrunedCount is how many indicators the most recent full
+	// refresh aged out. Pre-prune population is LastPrunedCount +
+	// LastIndicatorCount; the Feeds dialog renders the ratio as a
+	// per-feed "% aged out" so the aging-window knob is calibratable.
+	// Stale on incrementals / aging-disabled feeds — the UI gates the
+	// line on indicator_aging_days > 0 && last_full_refresh_at > 0.
+	LastPrunedCount int `json:"last_pruned_count"`
 	// LiveIndicatorCount is the current row count in feed_indicators
 	// for this feed, computed at request time. Equals LastIndicatorCount
 	// when a fetch has settled; climbs visibly during a fetch while
@@ -62,6 +69,7 @@ func toFeedResponse(f feeds.Feed) feedResponse {
 		LastRefreshAt:      f.LastRefreshAt,
 		LastFullRefreshAt:  f.LastFullRefreshAt,
 		LastIndicatorCount: f.LastIndicatorCount,
+		LastPrunedCount:    f.LastPrunedCount,
 		LastFetchTruncated: f.LastFetchTruncated,
 		LastError:          f.LastError,
 		Status:             f.Status,
@@ -404,7 +412,15 @@ func (s *Server) runFeedFetch(ctx context.Context, feed feeds.Feed, forceFull bo
 	}
 	if full && feed.IndicatorAgingDays > 0 {
 		cutoff := now - int64(feed.IndicatorAgingDays)*86400
-		_, _ = s.store.RemoveStaleIndicators(feed.ID, cutoff)
+		// Record what the aging window actually removed so the Feeds
+		// dialog can show a per-feed "% aged out" instead of leaving
+		// the knob blind. Only persisted when the prune itself
+		// succeeded — a delete error must not overwrite the last
+		// good count with a bogus 0. A clean run that aged out
+		// nothing legitimately writes 0 ("window is loose enough").
+		if pruned, perr := s.store.RemoveStaleIndicators(feed.ID, cutoff); perr == nil {
+			_ = s.store.SetFeedPrunedCount(feed.ID, pruned)
+		}
 	}
 
 	totals := s.store.CountIndicatorsByFeed()

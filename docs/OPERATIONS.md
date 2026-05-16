@@ -273,45 +273,65 @@ Skip:
 
 ### Backup procedure
 
-**UI path (v0.18.2+, recommended for ad-hoc backups).** Sign in as an
-admin, open Settings → Backup → **Download DB backup**. Archer runs
-`VACUUM INTO` on the live SQLite database to produce a consistent
-snapshot, streams it to the browser with a timestamped filename
-(`archer-backup-YYYYMMDD-HHMMSS.db`), and removes the server-side
-temp file as the stream completes. The download is audit-logged as
-`db_backup` with size + filename so an exfil-via-backup attempt leaves
-a row in `audit_log`. The button works while analysis is running.
-
-Caveats:
-- Only the database is backed up via this path. TLS material and
-  `/logs/` still need to be backed up separately (see the shell
-  procedure below).
-- The file contains every credential hash, sensor secret, and audit
-  row — handle with the same care as the live DB.
-
-**Shell path (scriptable, full set).** For a running container,
-backing up DB + TLS + logs in one pass:
+**Script path (recommended for rotation / cron).** `./backup.sh`
+authenticates as an admin, hits the backup endpoint (which runs
+`VACUUM INTO` inside the live process), and writes a timestamped
+`archer-backup-YYYYMMDD-HHMMSS.db` to `./backups/` (or `$1` /
+`BACKUP_DIR`). It verifies the downloaded file's SQLite magic before
+keeping it, so a stale session or error page never lands as a
+"backup". Credentials come from `ARCHER_BACKUP_USER` /
+`ARCHER_BACKUP_PASS` (prompted on a TTY if unset; required for cron).
 
 ```sh
-docker compose exec archer sh -c '
-  sqlite3 /data/archer.db ".backup /data/archer.db.backup"
-'
-docker compose cp archer:/data/archer.db.backup ./backup-archer-db-$(date -u +%Y%m%dT%H%M%SZ).sqlite
-docker compose exec archer rm /data/archer.db.backup
-docker compose cp archer:/data/tls/ ./backup-tls-$(date -u +%Y%m%dT%H%M%SZ)/
-tar czf ./backup-logs-$(date -u +%Y%m%dT%H%M%SZ).tgz -C /var/lib/docker/volumes/archer_archer-data/_data logs
+./backup.sh                                  # → ./backups/archer-backup-*.db
+BACKUP_RETAIN=14 ./backup.sh /srv/archer-bk  # keep newest 14
+BACKUP_RSYNC_DEST=archive:/srv/archer/ \
+  BACKUP_RSYNC_SSH="ssh -i ~/.ssh/bk -p 2222" ./backup.sh
 ```
 
-(Adjust the host-side volume path to match your docker setup.)
+The snapshot is consistent (includes un-checkpointed WAL data) and
+never blocks analysis. The download is audit-logged server-side as
+`db_backup` with size + filename, so an exfil-via-backup attempt
+leaves a row in `audit_log`.
 
-Either path produces an equivalent SQLite file — `VACUUM INTO`
-(UI) and `.backup` (shell) both yield clean, consistent snapshots
-that include any in-flight WAL data. WAL mode tolerates concurrent
-reads, so both run safely against the live database.
+**UI path (v0.18.2+, good for ad-hoc).** Sign in as an admin, open
+Settings → Backup → **Download DB backup**. Same `VACUUM INTO`
+snapshot, streamed to the browser with the same timestamped filename
+and the same audit row. Works while analysis is running.
+
+Both paths back up **the database only**. The DB file contains every
+credential hash, sensor secret, and audit row — handle it with the
+same care as the live DB.
+
+**TLS + logs (full set).** The container ships no `sqlite3` CLI, so
+the DB must come via one of the paths above. TLS material and logs
+are plain files — copy them directly:
+
+```sh
+docker compose cp archer:/data/tls/ ./backup-tls-$(date -u +%Y%m%dT%H%M%SZ)/
+tar czf ./backup-logs-$(date -u +%Y%m%dT%H%M%SZ).tgz ./logs
+```
+
+(`./logs` is a host bind-mount, not a Docker volume — back it up
+where it lives. TLS material is tiny but is what preserves sensor
+pinning across a different-host restore; see below.)
 
 ### Restore procedure
 
-**Tested restore on a fresh host:**
+**Script path (same-host DB restore — the rotation case).**
+`./restore.sh <snapshot.db>` validates the snapshot's SQLite magic,
+prompts for confirmation, stops the container, swaps the file into
+the `archer-data` volume (clearing any stale WAL/SHM sidecars), and
+restarts. TLS material and all other volumes are left untouched, so
+sensor pinning survives in place. Schema migrations run idempotently
+on startup, so a snapshot from an older build migrates forward when
+the newer binary opens it.
+
+```sh
+./restore.sh ./backups/archer-backup-20260516-031500.db
+```
+
+**Manual restore on a fresh host (DB + TLS):**
 
 1. Stop any running container: `docker compose down`.
 2. Wipe the data volume: `docker volume rm archer_archer-data`.
@@ -319,17 +339,15 @@ reads, so both run safely against the live database.
    `docker compose up --no-start`.
 4. Copy backed-up files into the volume:
    ```sh
-   docker compose cp ./backup-archer-db-*.sqlite archer:/data/archer.db
+   docker compose cp ./backups/archer-backup-*.db archer:/data/archer.db
    docker compose cp ./backup-tls-*/ archer:/data/tls/
    ```
 5. Start the container: `docker compose start archer`.
-6. **Verify** the schema version matches the build:
-   `docker compose exec archer sqlite3 /data/archer.db
-   'SELECT max(version) FROM schema_migrations;'` — should be 15
-   on v0.19.0 (was 9 on v0.14.0; migrations 0010–0015 added across
-   v0.14.x → v0.18.x).
-7. **Verify** the UI loads and the version pill matches the build.
-8. **Verify** sensor checkins succeed — wait for the next hourly
+6. **Verify** the UI loads and the version pill matches the build.
+   (The container has no `sqlite3` to query `schema_migrations`
+   directly; startup migrations bring an older snapshot forward
+   and the version pill is the externally observable check.)
+7. **Verify** sensor checkins succeed — wait for the next hourly
    tick, then check `/api/sensors` for fresh `last_seen_at`.
 
 **Cert continuity preserves sensor pinning.** As long as you

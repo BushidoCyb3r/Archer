@@ -1,0 +1,23 @@
+-- Feed indicator-aging visibility.
+--
+-- Phase 7 added the per-feed aging cutoff (indicator_aging_days):
+-- on each full refresh, indicators whose last_seen is older than
+-- now - aging_days*86400 are deleted. The cutoff worked but was
+-- blind — RemoveStaleIndicators already returned the deletion count,
+-- yet every call site discarded it, so an operator had no way to
+-- tell whether a feed's aging window was pruning 0.1% or 60% of the
+-- feed each cycle. That makes the knob impossible to calibrate.
+--
+-- last_pruned_count records how many indicators the most recent
+-- full refresh aged out. last_indicator_count already holds the
+-- post-prune survivor count, so the pre-prune population is
+-- (last_pruned_count + last_indicator_count) and the Feeds dialog
+-- can render an "aged out" percentage per feed without storing a
+-- second total.
+--
+-- Refresh-owned column (same ownership model as last_refresh_at /
+-- last_indicator_count, NEW-22): written only by the live refresh
+-- path's prune step via SetFeedPrunedCount, never by an admin
+-- /api/feeds PUT. Default 0 = no full refresh has pruned yet.
+
+ALTER TABLE feeds ADD COLUMN last_pruned_count INTEGER NOT NULL DEFAULT 0;

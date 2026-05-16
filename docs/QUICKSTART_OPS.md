@@ -111,8 +111,9 @@ OPERATIONS.md → Backup and restore.
 ```sh
 docker compose logs --tail=200 archer          # most recent server logs
 docker compose exec archer ls -la /data        # is the DB there, is the TLS dir populated
-docker compose exec archer sqlite3 /data/archer.db 'SELECT max(version) FROM schema_migrations;'
-                                                # current schema version, should match the release
+docker compose logs archer | grep 'applied schema migration' | tail -1
+                                                # highest migration applied this boot, should match the release
+curl -sk https://localhost:8443/api/version    # running build (no sqlite3 in the container to query schema_migrations directly)
 ```
 
 If the UI won't load and the logs show TLS validation failure,
