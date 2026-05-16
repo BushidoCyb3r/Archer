@@ -872,6 +872,8 @@ For the full operator guide — architecture diagrams, sensor-side artifact layo
 
 The first user to register automatically becomes an **admin** and is signed in immediately. Subsequent registrations create a **pending** account with the **viewer** role; the new user cannot sign in until an administrator approves them from the **Users** dialog. Approved viewers can be promoted to **analyst** or **admin** by an admin via the same dialog.
 
+Every user can change their own password from the account menu (click your name in the top bar → **Change password**); the current password is re-verified and all other live sessions for that account are invalidated. Admins can reset any other user's password from the per-row **Reset PW** action in the **Users** dialog — the target's sessions are dropped so they sign in again on the new credential.
+
 | Capability | Admin | Analyst | Viewer |
 |---|:---:|:---:|:---:|
 | View findings, campaigns, hosts | ✓ | ✓ | ✓ |
@@ -896,6 +898,8 @@ The first user to register automatically becomes an **admin** and is signed in i
 | Set sensor-facing host override | ✓ | — | — |
 | Create / delete users | ✓ | — | — |
 | Promote / demote user roles | ✓ | — | — |
+| Change own password | ✓ | ✓ | ✓ |
+| Reset another user's password | ✓ | — | — |
 
 Sessions are stored in SQLite with a 24-hour expiry, httpOnly cookies, and `SameSite=Strict` enforcement.
 
@@ -1031,9 +1035,10 @@ All API endpoints require authentication. Role requirements are noted where appl
 | Method | Path | Role | Description |
 |---|---|---|---|
 | `GET` | `/api/me` | Any | Current user profile |
+| `POST` | `/api/me/password` | Any | Change own password (re-verifies current password) |
 | `GET` | `/api/users` | Admin | List all users |
 | `POST` | `/api/users` | Admin | Create user |
-| `PATCH` | `/api/users/{id}` | Admin | Update user role |
+| `PATCH` | `/api/users/{id}` | Admin | Update user role/status, or reset the user's password |
 | `DELETE` | `/api/users/{id}` | Admin | Delete user |
 
 ### Log Files
