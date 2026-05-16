@@ -276,6 +276,7 @@ func (s *Server) routes() {
 
 	// User / auth API
 	s.mux.Handle("/api/me", any(s.handleMe))
+	s.mux.Handle("/api/me/password", any(s.handleMePassword))
 	s.mux.Handle("/api/users", any(s.handleUsersCollection))
 	s.mux.Handle("/api/users/", admin(s.handleUserItem))
 

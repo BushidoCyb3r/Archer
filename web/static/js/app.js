@@ -3741,6 +3741,91 @@
     });
   }
 
+  // ── Account menu + change/reset password ───────────────────────────────────
+  // One dialog drives two flows. Self-service ('self') requires the
+  // current password and posts to /api/me/password; admin reset
+  // ('admin') sets another user's password via PATCH /api/users/{id}
+  // and hides the current-password row.
+  let _cpwMode = 'self';
+  let _cpwTarget = null;
+
+  function initAccountMenu() {
+    const btn  = document.getElementById('user-menu-btn');
+    const menu = document.getElementById('user-menu');
+    if (!btn || !menu) return;
+    const close = () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const opening = menu.hidden;
+      menu.hidden = !opening;
+      btn.setAttribute('aria-expanded', opening ? 'true' : 'false');
+    });
+    document.addEventListener('click', (e) => {
+      if (!menu.hidden && !menu.contains(e.target) && e.target !== btn) close();
+    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+    document.getElementById('change-pw-menu-item').addEventListener('click', () => {
+      close();
+      _openChangePassword('self', _currentUser);
+    });
+    const dlg = document.getElementById('change-password-dialog');
+    document.getElementById('cpw-cancel').addEventListener('click', () => dlg.close());
+    document.getElementById('cpw-submit').addEventListener('click', _submitChangePassword);
+  }
+
+  function _openChangePassword(mode, user) {
+    _cpwMode = mode;
+    _cpwTarget = user || null;
+    const dlg    = document.getElementById('change-password-dialog');
+    const curRow = document.getElementById('cpw-current-row');
+    const err    = document.getElementById('cpw-error');
+    ['cpw-current','cpw-new','cpw-confirm'].forEach(id => { document.getElementById(id).value = ''; });
+    err.style.display = 'none';
+    if (mode === 'admin') {
+      document.getElementById('cpw-title').textContent = `Reset password — ${user.email}`;
+      curRow.style.display = 'none';
+    } else {
+      document.getElementById('cpw-title').textContent = 'Change Password';
+      curRow.style.display = '';
+    }
+    dlg.showModal();
+    document.getElementById(mode === 'admin' ? 'cpw-new' : 'cpw-current').focus();
+  }
+
+  async function _submitChangePassword() {
+    const dlg  = document.getElementById('change-password-dialog');
+    const err  = document.getElementById('cpw-error');
+    const cur  = document.getElementById('cpw-current').value;
+    const npw  = document.getElementById('cpw-new').value;
+    const conf = document.getElementById('cpw-confirm').value;
+    const fail = (m) => { err.textContent = m; err.style.display = 'block'; };
+    err.style.display = 'none';
+    if (npw.length < 8) { fail('New password must be at least 8 characters.'); return; }
+    if (npw !== conf)   { fail('Passwords do not match.'); return; }
+    try {
+      if (_cpwMode === 'admin') {
+        await api(`/api/users/${_cpwTarget.id}`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({password: npw}),
+        });
+        dlg.close();
+        setStatus(`Password reset for ${_cpwTarget.email}`);
+        _loadUsers();
+      } else {
+        await api('/api/me/password', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({current_password: cur, new_password: npw, confirm: conf}),
+        });
+        dlg.close();
+        setStatus('Password changed.');
+      }
+    } catch (e) {
+      fail(e || 'Failed to change password.');
+    }
+  }
+
   async function _loadUsers() {
     const tbody = document.getElementById('users-tbody');
     tbody.innerHTML = '<tr><td colspan="6" style="color:var(--fg-dim);padding:10px">Loading…</td></tr>';
@@ -3758,6 +3843,7 @@
         const status = u.status || 'active';
         const actions = [];
         if (pending) actions.push(`<button class="user-approve-btn" data-uid="${u.id}">Approve</button>`);
+        if (!isSelf) actions.push(`<button class="user-resetpw-btn" data-uid="${u.id}">Reset PW</button>`);
         if (!isSelf) actions.push(`<button class="user-delete-btn" data-uid="${u.id}">Delete</button>`);
         tr.innerHTML = `
           <td style="font-weight:600">${_esc(u.first_name)} ${_esc(u.last_name)}</td>
@@ -3799,6 +3885,15 @@
             });
             _loadUsers();
           } catch (e) { setStatus('Approval failed: ' + e); }
+        });
+      });
+
+      // Reset-password handlers (admin reset of another user)
+      tbody.querySelectorAll('.user-resetpw-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const uid = parseInt(btn.dataset.uid);
+          const u = users.find(x => x.id === uid);
+          if (u) _openChangePassword('admin', u);
         });
       });
 
@@ -4153,6 +4248,7 @@
     }).catch(() => {});
 
     initUserManagement();
+    initAccountMenu();
 
     BeaconChart.init();
     _initExportDropdown('chart-export-btn', 'chart-export-menu', BeaconChart.exportImage);

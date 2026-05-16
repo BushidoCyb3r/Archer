@@ -24,10 +24,12 @@ const (
 	ActionRequestRateLimited = "request_rate_limited"
 
 	// User management (admin API)
-	ActionUserCreate       = "user_create"
-	ActionUserRoleChange   = "user_role_change"
-	ActionUserStatusChange = "user_status_change"
-	ActionUserDelete       = "user_delete"
+	ActionUserCreate         = "user_create"
+	ActionUserRoleChange     = "user_role_change"
+	ActionUserStatusChange   = "user_status_change"
+	ActionUserDelete         = "user_delete"
+	ActionUserPasswordChange = "user_password_change"
+	ActionUserPasswordReset  = "user_password_reset"
 
 	// Sensor lifecycle + auth surface
 	ActionEnrollmentTokenCreate     = "enrollment_token_create"
@@ -92,6 +94,8 @@ var knownAuditActions = map[string]struct{}{
 	ActionUserRoleChange:            {},
 	ActionUserStatusChange:          {},
 	ActionUserDelete:                {},
+	ActionUserPasswordChange:        {},
+	ActionUserPasswordReset:         {},
 	ActionEnrollmentTokenCreate:     {},
 	ActionEnrollmentTokenRevoke:     {},
 	ActionSensorDisenroll:           {},

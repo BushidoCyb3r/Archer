@@ -290,6 +290,57 @@ button, input, select, textarea {
   color: var(--fg-muted);
 }
 #user-display { color: var(--fg-primary); font-weight: 500; }
+#user-menu-wrap { position: relative; }
+#user-menu-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+#user-menu-btn .caret { color: var(--fg-muted); transition: color .12s; }
+#user-menu-btn:hover .caret { color: var(--fg-primary); }
+.user-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 160px;
+  background: var(--bg-panel, var(--bg-input));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 24px rgba(0,0,0,.4);
+  padding: 4px;
+  z-index: 50;
+}
+.user-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--fg-primary);
+  font-size: 13px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+.user-menu-item:hover { background: var(--bg-hover, var(--border)); }
+.cpw-row { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+.cpw-row label { color: var(--fg-muted); font-size: 13px; }
+.cpw-row input {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg-primary);
+  font-size: 14px;
+  padding: 7px 9px;
+}
+.cpw-row input:focus { outline: none; border-color: var(--accent); }
 #logout-link {
   color: var(--fg-muted);
   text-decoration: none;
@@ -2130,7 +2181,7 @@ dialog::backdrop {
 .severity-pill.sev-info     { color: var(--sev-info); }
 
 #settings-dialog              { width: 600px; }
-#users-dialog                 { width: 960px; }
+#users-dialog                 { width: 1080px; max-width: 95vw; }
 #chart-dialog                 { width: 880px; }
 
 #chart-canvas {
@@ -2270,7 +2321,8 @@ dialog::backdrop {
 .user-role-select:focus { outline: none; border-color: var(--accent); }
 
 .user-delete-btn,
-.user-approve-btn {
+.user-approve-btn,
+.user-resetpw-btn {
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -2283,6 +2335,12 @@ dialog::backdrop {
 }
 .user-delete-btn  { color: var(--sev-critical); }
 .user-approve-btn { color: var(--sev-low); }
+.user-resetpw-btn { color: var(--fg-muted); }
+.user-resetpw-btn:hover {
+  background: var(--bg-hover, var(--border));
+  color: var(--fg-primary);
+  border-color: var(--border-strong);
+}
 .user-delete-btn:hover {
   background: var(--sev-critical);
   color: #fff;

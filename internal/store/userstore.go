@@ -215,6 +215,19 @@ func (us *UserStore) Authenticate(email, password string) (model.User, bool) {
 	return u, true
 }
 
+// SetPassword bcrypt-hashes newPassword and replaces the stored hash
+// for the given user. Callers (self-service change, admin reset) have
+// already resolved the user, so a missing row can't happen here — the
+// only error surfaces are bcrypt and the SQL write.
+func (us *UserStore) SetPassword(id int, newPassword string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	_, err = us.db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, string(hash), id)
+	return err
+}
+
 // UpdateUserRole changes a user's role.
 func (us *UserStore) UpdateUserRole(id int, role string) bool {
 	res, err := us.db.Exec(`UPDATE users SET role = ? WHERE id = ?`, role, id)

@@ -130,7 +130,17 @@
   <button id="audit-btn" style="display:none">Audit</button>
   <button id="settings-btn">Settings</button>
   <div id="user-badge">
-    <span id="user-display"></span>
+    <div id="user-menu-wrap">
+      <button id="user-menu-btn" type="button" aria-haspopup="true" aria-expanded="false">
+        <span id="user-display"></span>
+        <svg class="caret" width="9" height="9" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+          <path d="M2 3.5 L5 6.5 L8 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <div id="user-menu" class="user-menu" hidden>
+        <button type="button" class="user-menu-item" id="change-pw-menu-item">Change password</button>
+      </div>
+    </div>
     <a href="/logout" id="logout-link" title="Sign out" aria-label="Sign out">
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
         <path d="M5.5 2 H2 V12 H5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
@@ -513,7 +523,7 @@
             <th style="width:100px">Role</th>
             <th style="width:90px">Status</th>
             <th style="width:160px">Joined</th>
-            <th style="width:130px;text-align:right"></th>
+            <th style="width:240px;text-align:right"></th>
           </tr>
         </thead>
         <tbody id="users-tbody"></tbody>
@@ -541,6 +551,33 @@
   </div>
   <div class="dlg-footer">
     <button class="dlg-btn secondary" id="users-close">Close</button>
+  </div>
+</dialog>
+
+<!-- Change Password: serves self-service (current + new + confirm) and
+     admin reset of another user (current-password row hidden, set via
+     the Reset PW action in the Users modal). One dialog, mode flag in
+     app.js. -->
+<dialog id="change-password-dialog">
+  <div class="dlg-header" id="cpw-title">Change Password</div>
+  <div class="dlg-body">
+    <div class="cpw-row" id="cpw-current-row">
+      <label for="cpw-current">Current password</label>
+      <input id="cpw-current" type="password" autocomplete="current-password">
+    </div>
+    <div class="cpw-row">
+      <label for="cpw-new">New password</label>
+      <input id="cpw-new" type="password" autocomplete="new-password" placeholder="min 8 characters">
+    </div>
+    <div class="cpw-row">
+      <label for="cpw-confirm">Confirm new password</label>
+      <input id="cpw-confirm" type="password" autocomplete="new-password">
+    </div>
+    <div id="cpw-error" style="color:var(--sev-critical);font-size:12px;margin-top:8px;display:none"></div>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="cpw-cancel">Cancel</button>
+    <button class="dlg-btn primary" id="cpw-submit">Save</button>
   </div>
 </dialog>
 
