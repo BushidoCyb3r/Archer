@@ -885,6 +885,7 @@ Every user can change their own password from the account menu (click your name 
 | Scan and clear log files | ✓ | ✓ | — |
 | Edit allowlist and IOC list | ✓ | ✓ | — |
 | Manage suppressions | ✓ | ✓ | — |
+| Manage pair allowlist | ✓ | ✓ | — |
 | Update analysis thresholds | ✓ | — | — |
 | Manage API keys | ✓ | — | — |
 | Configure watch mode (anchor time / timezone / cadence) | ✓ | — | — |
@@ -918,6 +919,7 @@ Sessions are stored in SQLite with a 24-hour expiry, httpOnly cookies, and `Same
 | **Allowlist** | Edit the list of IPs and domains to exclude from all findings. One entry per line. Findings matching an allowlisted IP are hidden across all tabs immediately after saving. |
 | **IOC List** | Edit the list of known-bad IPs and domains. Findings with a src/dst IP matching this list are tagged and appear in the IOC Hits tab. |
 | **Suppressions** | View all active suppressions with their target, context, and expiry time. Individual suppressions can be removed here; expired suppressions are pruned automatically. |
+| **Pair Allowlist** | Tuple-scoped permanent finding filter for known-good `src → dst : port` pairs (e.g. a host beaconing to the corp DNS). Created from a finding's right-click menu (pre-filled; scope defaults to that finding's type so DNS Tunneling on the same pair still surfaces). A pure view filter — matching findings are hidden from the table and bell, never deleted; removing a rule brings them straight back with no re-analysis. Manage and remove rules from the Pair Allowlist dialog. |
 
 ### Finding Tabs
 
@@ -1116,6 +1118,14 @@ All API endpoints require authentication. Role requirements are noted where appl
 | `GET` | `/api/suppressions` | Any | `[{"target":"1.2.3.4","expiry":1234567890,"detail":"..."},...]` |
 | `POST` | `/api/suppressions` | Analyst+ | Add suppression: `{"target":"1.2.3.4","days":7,"detail":"..."}` |
 | `DELETE` | `/api/suppressions/{target}` | Analyst+ | Remove suppression immediately |
+
+### Pair Allowlist
+
+| Method | Path | Role | Description |
+|---|---|---|---|
+| `GET` | `/api/pair-allowlist` | Any | `[{"id":1,"src":"10.0.0.1","dst":"1.1.1.1","port":"53","finding_type":"Beaconing","detail":"...","created_by":"...","created_at":1234567890},...]` |
+| `POST` | `/api/pair-allowlist` | Analyst+ | Add tuple-scoped permanent filter: `{"src","dst","port","finding_type","detail"}` (empty `finding_type` = all types on the tuple) |
+| `DELETE` | `/api/pair-allowlist/{id}` | Analyst+ | Remove rule by id; matching findings reappear next fetch, no re-analysis |
 
 ### Notifications
 

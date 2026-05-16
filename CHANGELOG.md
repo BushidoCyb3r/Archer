@@ -30,6 +30,44 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.24.0] — 2026-05-16
+
+### Breaking
+
+- **DB schema: `pair_allowlist` table added (migration 0017).** New
+  table `pair_allowlist(id, src, dst, port, finding_type, detail,
+  created_by, created_at)` with a unique index on the
+  `(src, dst, port, finding_type)` tuple. Created idempotently and
+  transactionally on startup — no operator action — but it is a schema
+  change, called out here per the pre-1.0 contract.
+
+### Added
+
+- **Pair allowlist — tuple-scoped permanent finding filter.** The flat
+  IP allowlist is too blunt for the canonical beacon false-positive: an
+  internal host on a regular interval to known infrastructure (DNS /
+  NTP / AD). Allowlisting the server IP blinds you to real C2 to it;
+  allowlisting the source host blinds you to its other beacons. A pair
+  rule scopes the exclusion to one `(src, dst, port)` tuple, optionally
+  narrowed to a single finding type — so muting `Beaconing` on a
+  known-good DNS pair leaves `DNS Tunneling` on that same pair live
+  (real tradecraft to a legitimate resolver still surfaces). An empty
+  finding-type is the deliberate broaden that hides every type on the
+  tuple. Right-click a finding → **Allow this pair permanently**
+  (pre-filled, scope defaults to that finding's own type); manage and
+  remove rules from the **Pair Allowlist** sidebar dialog.
+
+  It is a **pure view filter**, mirroring IP-allowlist semantics:
+  consulted only in the findings filter and the bell-suppression path,
+  never at finding-emit time. Findings are never dropped from the
+  store, so adding a rule hides matching rows on the next
+  `/api/findings` fetch and removing it brings them back immediately
+  with no re-analysis. New endpoints: `GET` / `POST`
+  `/api/pair-allowlist` and `DELETE /api/pair-allowlist/{id}` (write
+  roles for mutations, same gating as suppressions). Audit vocabulary
+  gained `pair_allowlist_add` / `pair_allowlist_remove` (tuple / id
+  only, no finding data).
+
 ## [v0.23.0] — 2026-05-16
 
 ### Added
@@ -5310,7 +5348,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.23.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.24.0...HEAD
+[v0.24.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.23.0...v0.24.0
 [v0.23.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.22.0...v0.23.0
 [v0.22.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.21.0...v0.22.0
 [v0.21.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.20.2...v0.21.0
