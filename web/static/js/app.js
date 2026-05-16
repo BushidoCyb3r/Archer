@@ -1398,6 +1398,12 @@
   // reset-filter-btn click handler pairs it with applyFilter();
   // showContributingActivity pairs it with a src/dst write so the
   // form reads cleanly as "filtered on this pair only."
+  //
+  // filter-range is deliberately NOT reset here. The time range is
+  // the analyst's working scope, not a filter predicate — once they
+  // pick a window it stays until they change it explicitly, so a
+  // Reset clears the query without yanking them back to a default
+  // window and re-fetching a different span than they were reading.
   function _resetFilterUI() {
     ['filter-search','filter-src','filter-dst','filter-port'].forEach(id => {
       const el = document.getElementById(id); if (el) el.value = '';
@@ -1408,8 +1414,6 @@
     const sc  = document.getElementById('filter-score');     if (sc)  sc.value = '0';
     const sOnly = document.getElementById('filter-spectral-only');
     if (sOnly) sOnly.checked = false;
-    const rs = document.getElementById('filter-range');
-    if (rs) rs.value = '1mo';
   }
 
   // showContributingActivity filters the Findings tab on the CA's
@@ -4008,8 +4012,12 @@
       // Reset every filter that could exclude the target. Operator
       // intent: "regardless of other filtering or pagination, jump to
       // that finding." That means clearing search, type/sensor/severity
-      // dropdowns, score floor, time-range (to All time), and delta
-      // mode. The active tab is then chosen by the finding's status.
+      // dropdowns, score floor, the spectral-only checkbox, time-range
+      // (to All time), and delta mode. Every predicate _currentFilterParams
+      // can emit is neutralised here; missing one means the position
+      // query 404s and the jump silently falls back to the "hidden from
+      // table view" path instead of scrolling+highlighting. The active
+      // tab is then chosen by the finding's status.
       ['filter-search','filter-src','filter-dst','filter-port'].forEach(id => {
         const el = document.getElementById(id); if (el) el.value = '';
       });
@@ -4019,6 +4027,8 @@
       setVal('filter-sensor', '');
       setVal('filter-score', '0');
       setVal('filter-range', 'all');
+      const specOnly = document.getElementById('filter-spectral-only');
+      if (specOnly) specOnly.checked = false;
       _deltaMode = false;
       const showAllBtn = document.getElementById('show-all-btn');
       const deltaBtn   = document.getElementById('delta-btn');

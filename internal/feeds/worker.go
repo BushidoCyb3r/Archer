@@ -213,6 +213,11 @@ func (w *Worker) tick(ctx context.Context, feedID int64) {
 	// Aging: remove anything not seen in this cycle and older than the
 	// configured window. Indicators present in this fetch had their
 	// last_seen bumped to `now` above, so they survive the cutoff.
+	// The prune count feeds the Feeds-dialog "% aged out" line, but
+	// only the live refresh path (server.runFeedFetch) records it via
+	// SetFeedPrunedCount. This worker is vestigial — disabled by
+	// default, the watch scheduler owns refresh — so it deliberately
+	// doesn't write that refresh-owned column.
 	if f.IndicatorAgingDays > 0 {
 		cutoff := now - int64(f.IndicatorAgingDays)*86400
 		_, _ = w.store.RemoveStaleIndicators(f.ID, cutoff)

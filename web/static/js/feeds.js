@@ -92,13 +92,36 @@ const Feeds = (() => {
       const lastFull = _fmtTSFull(f.last_full_refresh_at);
       const lastAnyFull = _fmtTSFull(f.last_refresh_at);
       const refreshTip = `Last refresh: ${lastAnyFull}\nLast full sync: ${lastFull}\nIncrementals between fulls only fetch attributes modified since the previous run.`;
+      // Aging cell: "<N> d" plus a per-feed "% aged out" line so the
+      // window is calibratable instead of blind. last_indicator_count
+      // is the post-prune survivor count, so the pre-prune population
+      // is pruned + survivors. Gated on aging enabled AND a full
+      // refresh having happened — last_pruned_count is stale after an
+      // incremental or with aging off, so showing it then would lie.
+      const aging = f.indicator_aging_days || 0;
+      let agingCell = `${_esc(aging)} d`;
+      if (aging > 0 && f.last_full_refresh_at > 0) {
+        const pruned = f.last_pruned_count || 0;
+        const pre = pruned + (f.last_indicator_count || 0);
+        let pctTxt;
+        if (pre === 0) {
+          pctTxt = '0% aged';
+        } else {
+          const pct = pruned / pre * 100;
+          pctTxt = (pruned > 0 && pct < 0.1)
+            ? '<0.1% aged'
+            : `${pct.toFixed(pct < 10 ? 1 : 0)}% aged`;
+        }
+        const agingTip = `${pruned.toLocaleString()} of ${pre.toLocaleString()} indicators aged out at the last full refresh (last_seen older than ${aging} d). Widen the window if this is pruning indicators you still want; tighten it if it never prunes and the feed only grows.`;
+        agingCell = `${_esc(aging)} d<div class="feed-aging-pct" title="${_esc(agingTip)}">${pctTxt}</div>`;
+      }
       return `<tr${lastErrTitle}>
         <td title="${_esc(f.name)}">${_esc(f.name)}${enabledMark}</td>
         <td>${_esc(f.source_type.toUpperCase())}</td>
         <td>${statusCol}</td>
         <td>${count}${truncBadge}</td>
         <td title="${_esc(refreshTip)}">${_fmtTS(f.last_refresh_at)}</td>
-        <td>${_esc(f.indicator_aging_days)} d</td>
+        <td>${agingCell}</td>
         <td>${adminCtrls}</td>
       </tr>`;
     }).join('');

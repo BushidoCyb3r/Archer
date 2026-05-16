@@ -30,6 +30,65 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.22.0] — 2026-05-16
+
+### Breaking
+
+- **DB schema: `feeds.last_pruned_count` added (migration 0016).** Records
+  how many indicators the most recent full refresh aged out. Additive
+  column, `DEFAULT 0`, applied transactionally on startup — no operator
+  action — but it is a schema change, so it is called out here per the
+  pre-1.0 contract. Refresh-owned per the NEW-22 ownership model: written
+  only by the prune step via the new targeted `SetFeedPrunedCount`, never
+  by an admin feed edit (so a config change can't reset the stat).
+
+### Added
+
+- **Backup / restore tooling.** `./backup.sh` authenticates as an admin
+  and drives `GET /api/admin/backup` (the `VACUUM INTO` snapshot — the
+  only consistent online path, since the container ships no `sqlite3`),
+  writes a timestamped `archer-backup-*.db`, verifies its SQLite magic
+  before keeping it, and optionally prunes old snapshots (`BACKUP_RETAIN`)
+  and replicates off-box (`BACKUP_RSYNC_DEST` / `BACKUP_RSYNC_SSH`).
+  `./restore.sh <snapshot>` validates the file, confirms, stops the
+  container, swaps it into the `archer-data` volume (clearing stale
+  WAL/SHM, leaving `/data/tls/` and the other volumes untouched so sensor
+  pinning survives an in-place restore), and restarts.
+- **Feed indicator-aging visibility.** The Feeds dialog shows a per-feed
+  `X% aged` line under the aging-days knob — the share of the pre-prune
+  population the last full refresh removed (hover for absolute counts) —
+  so the per-feed `indicator_aging_days` window is calibratable instead
+  of blind. Exposed on `GET /api/feeds` as `last_pruned_count`; the
+  pre-prune total is `last_pruned_count + last_indicator_count`. The line
+  is gated on aging enabled and a full refresh having run (the count is
+  stale after an incremental or with aging off).
+
+### Changed
+
+- **Time range is no longer reset by Reset filter.** The time-range
+  selection is the analyst's working scope, not a filter predicate — it
+  now persists across a Reset, which still clears search / src / dst /
+  port / severity / type / sensor / score / spectral-only but leaves the
+  window as the analyst set it.
+- **Bell Jump also clears the spectral-only filter.** Jump neutralises
+  every predicate `/api/findings` can emit so the target finding is
+  always shown and highlighted. The spectral-only checkbox was the one
+  predicate it missed: a Jump to a non-spectral finding while "spectral
+  only" was checked silently fell back to "hidden from table view"
+  instead of scrolling to the row.
+
+### Fixed
+
+- **Broken `sqlite3`-in-container backup / restore / verify docs.**
+  OPERATIONS.md and QUICKSTART_OPS.md told operators to run
+  `docker compose exec archer sqlite3 …` for backups and schema-version
+  checks, but the image has no `sqlite3` (pure-Go, no-CGO). The
+  Backup-and-restore section was rewritten around the new scripts, the
+  non-functional commands removed, and the schema-version check now reads
+  the startup migration log / `/api/version`. (The audit-log IR-query
+  examples still carry the same broken pattern — tracked for a separate
+  pass.)
+
 ## [v0.21.0] — 2026-05-14
 
 ### Breaking

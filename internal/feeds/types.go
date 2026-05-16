@@ -55,6 +55,14 @@ type Feed struct {
 	// "never had a full pull" — the next fetch is forced full.
 	LastFullRefreshAt  int64
 	LastIndicatorCount int
+	// LastPrunedCount is how many indicators the most recent full
+	// refresh aged out (deleted because last_seen fell behind the
+	// aging cutoff). Pre-prune population is LastPrunedCount +
+	// LastIndicatorCount, so the UI derives the "% aged out" without
+	// storing a second total. Refresh-owned (NEW-22): written only by
+	// the prune step, never by an admin /api/feeds PUT. Stale on
+	// incrementals/aging-off — read it as "at last full refresh."
+	LastPrunedCount    int
 	LastFetchTruncated bool // last fetch hit the adapter's page-walk cap
 	LastError          string
 	Status             string // "idle" | "fetching" | "ok" | "error"

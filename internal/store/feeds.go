@@ -54,7 +54,7 @@ func (s *Store) GetFeed(id int64) (feeds.Feed, error) {
 			last_refresh_at, last_full_refresh_at,
 			last_indicator_count, last_fetch_truncated, last_error,
 			status, enabled, tls_skip_verify, allow_internal, created_at, updated_at,
-			consecutive_failures
+			consecutive_failures, last_pruned_count
 		FROM feeds WHERE id = ?`, id)
 	return scanFeed(row)
 }
@@ -71,7 +71,7 @@ func (s *Store) ListFeeds() []feeds.Feed {
 			last_refresh_at, last_full_refresh_at,
 			last_indicator_count, last_fetch_truncated, last_error,
 			status, enabled, tls_skip_verify, allow_internal, created_at, updated_at,
-			consecutive_failures
+			consecutive_failures, last_pruned_count
 		FROM feeds ORDER BY id`)
 	if err != nil {
 		return nil
@@ -160,6 +160,30 @@ func (s *Store) UpdateFeedRefreshState(id int64, status string, lastRefreshAt, l
 	)
 	if err != nil {
 		return fmt.Errorf("store: update feed refresh state %d: %w", id, err)
+	}
+	s.invalidateFeedBuckets()
+	return nil
+}
+
+// SetFeedPrunedCount records how many indicators the most recent
+// full refresh aged out. Refresh-owned column written only by the
+// prune step in runFeedFetch, so it follows the NEW-22 ownership
+// model (a separate targeted UPDATE rather than a column on
+// UpdateFeed, which an admin edit would clobber). It's a plain
+// assignment, not a read-modify-write, so it carries none of the
+// concurrent-refresh race that made UpdateFeedRefreshState encode
+// its streak toggle in SQL — last-writer-wins is the same semantics
+// it would have inside the combined refresh-state UPDATE.
+func (s *Store) SetFeedPrunedCount(id int64, pruned int) error {
+	if s.db == nil {
+		return fmt.Errorf("store: db not initialized")
+	}
+	_, err := s.db.Exec(
+		`UPDATE feeds SET last_pruned_count = ?, updated_at = ? WHERE id = ?`,
+		pruned, time.Now().Unix(), id,
+	)
+	if err != nil {
+		return fmt.Errorf("store: set feed pruned count %d: %w", id, err)
 	}
 	s.invalidateFeedBuckets()
 	return nil
@@ -498,7 +522,7 @@ func scanFeed(r rowScanner) (feeds.Feed, error) {
 		&f.LastRefreshAt, &f.LastFullRefreshAt,
 		&f.LastIndicatorCount, &lastFetchTruncated, &f.LastError,
 		&f.Status, &enabled, &tlsSkipVerify, &allowInternal, &f.CreatedAt, &f.UpdatedAt,
-		&f.ConsecutiveFailures,
+		&f.ConsecutiveFailures, &f.LastPrunedCount,
 	); err != nil {
 		return feeds.Feed{}, err
 	}

@@ -268,9 +268,12 @@ badge separately from the SourceFile.
 ## Aging
 
 Each feed has its own `indicator_aging_days`. After every successful
-fetch, the worker calls `RemoveStaleIndicators(feed_id, now − aging·86400)`
-to drop indicators not seen in the latest snapshot for longer than the
-window. Aging matters because:
+full refresh, the refresh path calls
+`RemoveStaleIndicators(feed_id, now − aging·86400)` to drop indicators
+not seen in the latest snapshot for longer than the window
+(incrementals skip the prune — they don't re-observe stable
+indicators, so pruning by `last_seen` after one would delete
+still-current data). Aging matters because:
 
 - Operators frequently subscribe to feeds that prune entries themselves
   upstream (e.g., URLhaus drops malware-distribution URLs after takedown).
@@ -281,6 +284,21 @@ window. Aging matters because:
 Set aging to `0` to disable — every indicator that's ever been fetched
 stays forever. Useful only if you're treating MISP as a permanent IOC
 archive rather than a current-state snapshot.
+
+**Calibrating the window.** The Feeds dialog shows a per-feed
+`X% aged` line under the aging-days value: the share of the pre-prune
+population the last full refresh removed (hover for the absolute
+counts). It's stored as `last_pruned_count` and computed against the
+post-prune `last_indicator_count`, so the pre-prune total is
+`pruned + survivors`. Read it as a calibration signal: a feed that
+ages out a large fraction every cycle has a window tighter than the
+upstream's own churn (you're discarding indicators that are still
+live upstream and will be re-fetched next pull — wasted churn, and a
+brief matcher gap); a feed that never prunes either has a window
+looser than upstream churn or is a permanent archive. The line is
+only shown once a full refresh with aging enabled has run — it's
+blank after an incremental or with aging off, where the stored count
+would be stale.
 
 ---
 

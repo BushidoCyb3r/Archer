@@ -1912,6 +1912,16 @@ dialog::backdrop {
 }
 #feeds-table tr:hover td { background: var(--bg-elev-3); }
 #feeds-table .dlg-btn { padding: 3px 9px; font-size: 13px; margin-left: 4px; }
+/* Secondary "% aged out" line under the aging-days value. Dim and
+   small so the "N d" knob stays the primary read; the title carries
+   the absolute counts. Stays inside the 80px Aging column — clips
+   with ellipsis rather than widening the fixed-layout table. */
+#feeds-table .feed-aging-pct {
+  font-size: 11px;
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Sensors tables — same fixed-layout treatment as the Feeds table:
    declared column widths win over auto-distribution, the kebab cell
