@@ -374,6 +374,119 @@ func TestSetFindings_CorrelationsPersistAcrossReload(t *testing.T) {
 	}
 }
 
+// TestSetFindings_BeaconDetailFieldsPersistAcrossReload codifies the
+// NEW-89 closure (migration 0018). Pre-fix the four beacon sub-scores
+// and the mean/median/jitter/sample_size triage fields were in-memory
+// only (json:"-", no columns): a server restart, or SetFindings's
+// preserve-historical carry-forward for a beacon that didn't re-fire,
+// zeroed them — so the triage header showed a real beacon as
+// "ts 0.00 ds 0.00 ... n=0".
+//
+// Invariant, not failure case: the test asserts the full lifecycle the
+// columns have to guarantee — (1) the fields survive a save→reopen→
+// reload round trip (restart survival), and (2) a subsequent
+// SetFindings that does NOT re-emit the beacon preserves the fields on
+// the carried-forward historical row and re-persists them (the
+// carry-forward path that actually motivated the columns). A
+// regression in either the load scan, the save insert, or the
+// preserve loop fails here.
+func TestSetFindings_BeaconDetailFieldsPersistAcrossReload(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db1, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db1.SetMaxOpenConns(1)
+	if err := RunMigrations(db1); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	s1 := New(config.Default())
+	s1.InitDB(db1)
+	beacon := model.Finding{
+		ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		Score: 88, Severity: model.SevCritical, Timestamp: "2026-05-17 09:00:00",
+		TSScore: 0.92, DSScore: 0.81, HistScore: 0.75, DurScore: 0.88,
+		MeanInterval: 47.0, MedianInterval: 46.0, Jitter: 0.064, SampleSize: 312,
+	}
+	s1.SetFindings([]model.Finding{beacon})
+	_ = db1.Close()
+
+	assertBeacon := func(tag string, f model.Finding) {
+		t.Helper()
+		const eps = 1e-9
+		if f.TSScore != 0.92 || f.DSScore != 0.81 || f.HistScore != 0.75 || f.DurScore != 0.88 {
+			t.Errorf("%s: sub-scores = ts %v ds %v hist %v dur %v; want 0.92/0.81/0.75/0.88",
+				tag, f.TSScore, f.DSScore, f.HistScore, f.DurScore)
+		}
+		if d := f.MeanInterval - 47.0; d > eps || d < -eps {
+			t.Errorf("%s: MeanInterval = %v; want 47", tag, f.MeanInterval)
+		}
+		if d := f.MedianInterval - 46.0; d > eps || d < -eps {
+			t.Errorf("%s: MedianInterval = %v; want 46", tag, f.MedianInterval)
+		}
+		if d := f.Jitter - 0.064; d > eps || d < -eps {
+			t.Errorf("%s: Jitter = %v; want 0.064", tag, f.Jitter)
+		}
+		if f.SampleSize != 312 {
+			t.Errorf("%s: SampleSize = %d; want 312", tag, f.SampleSize)
+		}
+	}
+
+	// (1) Restart survival: reload from the same on-disk DB.
+	db2, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("reopen db: %v", err)
+	}
+	db2.SetMaxOpenConns(1)
+	s2 := New(config.Default())
+	s2.InitDB(db2)
+	if len(s2.findings) != 1 {
+		t.Fatalf("reload: %d findings, want 1", len(s2.findings))
+	}
+	assertBeacon("after reload", s2.findings[0])
+
+	// (2) Carry-forward survival: a later SetFindings that does not
+	// re-emit the beacon must preserve it (different fingerprint) with
+	// its fields intact, and re-persist them.
+	s2.SetFindings([]model.Finding{
+		{ID: 99, Type: "DNS Tunneling", SrcIP: "10.0.0.2", DstIP: "9.9.9.9", DstPort: "53",
+			Score: 60, Severity: model.SevMedium, Timestamp: "2026-05-17 10:00:00"},
+	})
+	var carried *model.Finding
+	for i := range s2.findings {
+		if s2.findings[i].Type == "Beaconing" {
+			carried = &s2.findings[i]
+		}
+	}
+	if carried == nil {
+		t.Fatal("carry-forward: Beaconing finding was not preserved")
+	}
+	assertBeacon("after carry-forward", *carried)
+	_ = db2.Close()
+
+	// Reload once more to prove the carry-forward re-persisted, not
+	// just kept it in memory.
+	db3, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("reopen db3: %v", err)
+	}
+	db3.SetMaxOpenConns(1)
+	defer db3.Close()
+	s3 := New(config.Default())
+	s3.InitDB(db3)
+	var reloaded *model.Finding
+	for i := range s3.findings {
+		if s3.findings[i].Type == "Beaconing" {
+			reloaded = &s3.findings[i]
+		}
+	}
+	if reloaded == nil {
+		t.Fatal("after carry-forward reload: Beaconing finding missing")
+	}
+	assertBeacon("after carry-forward reload", *reloaded)
+}
+
 // TestSetFindings_TranslatesCorrelationIDs codifies NEW-71. correlate.go
 // populates Finding.Correlations with the per-run fresh a.nextID++ IDs
 // at emit time; SetFindings then rewrites each finding's ID via

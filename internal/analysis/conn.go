@@ -464,15 +464,8 @@ func (a *Analyzer) analyzeConn(files []string) {
 		}
 
 		ivMean := fmean(ivs)
-		ivCV := 0.0
-		if ivMean > 0 {
-			variance := 0.0
-			for _, v := range ivs {
-				d := v - ivMean
-				variance += d * d
-			}
-			ivCV = math.Sqrt(variance/float64(len(ivs))) / ivMean
-		}
+		ivMedian := fmedian(ivs)
+		ivCV := intervalCV(ivs, ivMean)
 
 		tsData := make([][3]float64, len(st.tsData))
 		copy(tsData, st.tsData)
@@ -513,20 +506,24 @@ func (a *Analyzer) analyzeConn(files []string) {
 			a.mu.RUnlock()
 		}
 		a.add(model.Finding{
-			Type:      "Beaconing",
-			Severity:  sev,
-			Score:     score,
-			SrcIP:     pk.src,
-			DstIP:     pk.dst,
-			DstPort:   fmt.Sprint(st.firstPort),
-			Detail:    detail,
-			Timestamp: fmtTS(st.firstTs),
-			TSData:    tsData,
-			Hostname:  hostname,
-			TSScore:   tsScore,
-			DSScore:   dsScore,
-			HistScore: hScore,
-			DurScore:  durScore,
+			Type:           "Beaconing",
+			Severity:       sev,
+			Score:          score,
+			SrcIP:          pk.src,
+			DstIP:          pk.dst,
+			DstPort:        fmt.Sprint(st.firstPort),
+			Detail:         detail,
+			Timestamp:      fmtTS(st.firstTs),
+			TSData:         tsData,
+			Hostname:       hostname,
+			TSScore:        tsScore,
+			DSScore:        dsScore,
+			HistScore:      hScore,
+			DurScore:       durScore,
+			MeanInterval:   ivMean,
+			MedianInterval: ivMedian,
+			Jitter:         ivCV,
+			SampleSize:     totalObserved,
 		})
 	}
 

@@ -1,0 +1,21 @@
+[
+  {
+    "type": "DNS Beaconing",
+    "severity": "CRITICAL",
+    "score": 87,
+    "src_ip": "192.168.2.60",
+    "dst_ip": "update-svc.net",
+    "dst_port": "53",
+    "detail": "DNS queries: 60 | Unique subdomains: 1 | Mean interval: 300.0s | CV: 0.00 | Score: ts=1.00 div=0.98 cov=0.50",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Host Risk Score",
+    "severity": "MEDIUM",
+    "score": 30,
+    "src_ip": "192.168.2.60",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 30 | Detections: [DNS Beaconing]",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

@@ -30,6 +30,93 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.25.0] — 2026-05-17
+
+### Breaking
+
+- **DB schema: eight columns added to `findings` (migration 0018).**
+  `ts_score`, `ds_score`, `hist_score`, `dur_score`, `mean_interval`,
+  `median_interval`, `jitter` (all `REAL`) and `sample_size`
+  (`INTEGER`), every one `NOT NULL DEFAULT 0`. Applied idempotently
+  and transactionally on startup — no operator action — but it is a
+  schema change, called out here per the pre-1.0 contract. This
+  closes the deferred **NEW-89** sub-score-persistence debt: the four
+  beacon sub-scores (previously in-memory only, `json:"-"`, zeroed on
+  every restart and on the preserve-historical carry-forward) now
+  survive both.
+
+### Added
+
+- **DNS Beaconing — DNS-cadence beacon detection on `(src, apex)`.**
+  A regular-cadence, low-entropy, low-diversity DNS heartbeat to a
+  single FQDN — the Cobalt-Strike DNS-C2 shape — slipped *both* DNS
+  Tunneling (labels too short/low-entropy, diversity too low) and
+  conn-level Beaconing (IP-pair keyed, never consumes DNS query
+  timing; a DoH-free DNS beacon may produce no conn-level beacon at
+  all). The new detector keys on `(src, apex)` (eTLD+1 via the Public
+  Suffix List), reuses the conn-level timing+spectral machinery
+  (Algorithm-R reservoir → statistical → multimodal → entropy →
+  Lomb-Scargle rescue), and scores
+  `timing·0.5 + inverse-subdomain-diversity·0.25 + window-coverage·0.25`.
+  A new `DNS Beaconing` finding type, contributing to Host Risk Score
+  (weight 30) and Correlated Activity. New **DNS Beacon Min Queries**
+  Settings knob (`dns_beacon_min_queries`, default 20) — a
+  sample-size floor analogous to the conn/HTTP beacon minimums. See
+  `docs/DETECTION_METHODS.md` §9.6.
+- **Structured beacon triage header.** Opening a Beaconing / HTTP
+  Beaconing finding now shows jitter %, "every 47s ± 3s", median
+  interval, and sample size in the first line of the detail pane,
+  plus the per-axis sub-score breakdown — surfaced from data the
+  analyzer already computed but buried in a pipe-delimited string.
+  The four sub-scores and the timing-summary fields are now
+  serialized on the findings JSON API and persisted (migration
+  0018).
+- **Per-host beacon density.** The Hosts tab gains a sortable
+  **Beacons** column — the count of Beaconing / HTTP Beaconing
+  findings per host — so a staging host that accounts for many of
+  the active beacons stands out instead of being buried in a flat
+  list.
+- **Allowlist modal Relationships tab.** The pair allowlist is now
+  managed inside the Allowlist modal under a **Relationships** tab
+  (entries textarea and relationship rules are sibling tabs) instead
+  of a separate sidebar dialog.
+- **Source Records — right-click "Copy cell".** Native double-click
+  selection truncates on punctuation (a Community ID's `:`/`=`), so
+  analysts could not grab a full cell value. A right-click
+  Copy-cell context menu on data cells copies the exact value.
+
+### Changed
+
+- **Pair allowlist renamed in the UI: "pair" → "Relationship", and
+  "permanent" phrasing dropped.** Semantics are unchanged — it is
+  still the same pure, tuple-scoped `(src, dst, port[, finding_type])`
+  view filter with no expiry. The right-click menu item is now
+  **Allow this Relationship**; the standalone Pair Allowlist sidebar
+  dialog was removed in favour of the Relationships tab.
+
+### Detection changes
+
+- **New `DNS Beaconing` finding type.**
+  `score = clamp(100·(ts·0.5 + inv_diversity·0.25 + coverage·0.25), 1, 100)`;
+  CRITICAL ≥ 80 else HIGH. The timing axis is the exact conn-level
+  pipeline and reuses the global spectral knobs (no DNS-beacon-specific
+  scoring knobs). Two scoping rules keep it from double-counting other
+  detectors' evidence: a **diversity gate** (an apex at or above
+  `dns_unique_subdomain_min` is exfil-shaped — DNS Tunneling owns it,
+  Correlated Activity links the two) and **NXDOMAIN exclusion**
+  (NXDOMAIN-dominated streams are the DNS NXDOMAIN Flood detector's
+  finding; resolver-retry timing would also contaminate the cadence).
+  The built-in CDN/cloud allowlist (shared with the DGA augmentation)
+  plus the operator's curated allowlist suppress benign apexes before
+  scoring. **Existing golden fixtures are unchanged — the detector
+  adds no findings to any prior scenario.** Operators: re-baseline if
+  you run regular-cadence DNS to internal or low-diversity
+  infrastructure that is not on an allowlist.
+- **Beacon sub-scores (ts/ds/hist/dur) are now persisted and
+  API-exposed.** No formula change: Beaconing and HTTP Beaconing
+  scores, severities, and finding identity are byte-for-byte
+  identical — the sub-scores are merely newly visible and durable.
+
 ## [v0.24.0] — 2026-05-16
 
 ### Breaking
@@ -5348,7 +5435,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.24.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.25.0...HEAD
+[v0.25.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.24.0...v0.25.0
 [v0.24.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.23.0...v0.24.0
 [v0.23.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.22.0...v0.23.0
 [v0.22.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.21.0...v0.22.0

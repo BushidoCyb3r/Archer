@@ -127,6 +127,21 @@ var cdnAllowlistSuffixes = []string{
 	".keycdn.com",
 }
 
+// matchesCDNAllowlist reports whether host ends in one of the built-in
+// universally-legitimate CDN/cloud suffixes. Shared by the DGA
+// augmentation (short-circuits the score bump) and the DNS-cadence
+// beacon detector (skips the apex before scoring) so both consult one
+// definition of "known-benign algorithmic infrastructure."
+func matchesCDNAllowlist(host string) bool {
+	lower := strings.ToLower(host)
+	for _, suffix := range cdnAllowlistSuffixes {
+		if strings.HasSuffix(lower, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
 func init() {
 	englishBigramFreq = make(map[string]float64, 256)
 	for _, line := range strings.Split(bigramData, "\n") {
@@ -206,11 +221,8 @@ func dgaHostnameScore(host string, entropyThreshold, bigramThreshold float64) DG
 	// correctly score "cloudfront" as non-DGA via SLD extraction;
 	// the suffix list catches the rare case where a CDN's
 	// registrable domain itself looks algorithmic.
-	lower := strings.ToLower(host)
-	for _, suffix := range cdnAllowlistSuffixes {
-		if strings.HasSuffix(lower, suffix) {
-			return res
-		}
+	if matchesCDNAllowlist(host) {
+		return res
 	}
 
 	sld := extractSLD(host)

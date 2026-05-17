@@ -56,7 +56,7 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 - **Live threat intelligence** — manual escalation queries VirusTotal, CrowdSec CTI, AlienVault OTX, AbuseIPDB, GreyNoise (Community API works without a key), and Censys; results are consolidated into a single TI Enrichment note per escalation (per-IP grouping with hit/clean indicators), with live SSE toasts as each lookup completes
 - **Archive IOC scan** — admin-triggered retroactive scan over `/data/archive` against the current IOC list and TI feeds (Feodo / URLhaus / Suspicious URL); skips the heavy beacon/exfil/lateral phases so a 100+ GB archive scans in minutes. New IOC matches surface as findings exactly like a regular run; existing analyst state is preserved by fingerprint merge.
 - **Cell-aware right-click menu** — click-anchor arrow at one of the menu's four corners (↖↗↙↘) points back at the click point regardless of which way the menu had to flip to fit the viewport; column-aware items (Pivot / Lookup / Add to Allowlist / Add to IOC) adapt to whichever IP cell was clicked so there's no Src-vs-Dst picker; state-aware disabling (Acknowledge greys for already-acked findings, "Add to IOC" greys when the IP's already on the list); tab-aware (Acknowledge / Escalate / Suppress hidden on Campaigns and Hosts tabs since those operate on synthesised aggregate rows, not findings); role-gated (write actions hidden for viewers); 8 external-lookup destinations (VT, AbuseIPDB, Shodan, CrowdSec, Censys, GreyNoise, URLscan.io, OTX); **Show contributing activity** on Correlated Activity rows filters the Findings tab on the CA's `(src, dst)` pair so the analyst sees the roll-up, every contributor, and any newer activity on the same pair in one view; Hosts-tab **Pivot** routes to the Findings tab and filters on the host IP (Lookup is hidden there since Hosts rows are always internal RFC1918 addresses).
-- **Tabbed detail dock** — the bottom detail pane is a Detail / Notes / TI Results tab strip with persistent action footer (Ack / Esc / Dismiss / Beacon Chart / PCAP / Source Records / Suppress) that stays visible when the dock is collapsed. Notes partition on author so analyst notes stay in Notes and machine-emitted TI Enrichment notes route to TI Results — tab badges show counts. 1/2/3 keyboard shortcuts flip tabs when focus isn't in an input. The dock collapses to a header strip via the chevron; the collapse preference persists. **Drag-to-resize** on the top edge sets a height between 120px and 80% of the viewport, persisted across reloads. The active panel scrolls only when its content overflows; otherwise the dock fits its content.
+- **Tabbed detail dock** — the bottom detail pane is a Detail / Notes / TI Results tab strip with persistent action footer (Ack / Esc / Dismiss / Beacon Chart / PCAP / Source Records / Suppress) that stays visible when the dock is collapsed. Notes partition on author so analyst notes stay in Notes and machine-emitted TI Enrichment notes route to TI Results — tab badges show counts. 1/2/3 keyboard shortcuts flip tabs when focus isn't in an input. The dock collapses to a header strip via the chevron; the collapse preference persists. **Drag-to-resize** on the top edge sets a height between 120px and 80% of the viewport, persisted across reloads. The active panel scrolls only when its content overflows; otherwise the dock fits its content. For `Beaconing` / `HTTP Beaconing` / `DNS Beaconing` findings the Detail tab leads with a **structured triage header** — jitter %, "every 47s ± 3s", median interval, sample size, and the per-axis sub-score breakdown — so the confidence signal is readable in the first five seconds without parsing the raw Detail string.
 - **Dismiss as a reversible bucket** — fourth status alongside Open, Acknowledged, Escalated. Hides the finding from every standard view (Findings, Acknowledged, Escalated, IOC, Campaigns, Hosts) without committing to the heavier Acknowledge semantic. A dedicated Dismissed top-level tab with Findings + Campaigns sub-tabs shows what's been dismissed; sub-tabs sit directly below the main tab strip so the hierarchy reads top-down. **Bulk-dismiss on Campaigns rows** — right-click a campaign aggregate to dismiss every open finding in that campaign with a shared note. Hosts is intentionally exempt — bulk-dismissing a source IP's findings would erase the host's risk story.
 - **Allowlist-aware bell** — adding an IP to the allowlist (or applying a suppression) dismisses any active bell notification whose src/dst is now hidden, in lockstep with the matcher update. New notifications skip the bell entirely when src/dst is allowlisted or suppressed — the bell only rings for findings whose row will actually appear in the table.
 - **Beacon evolution chart with expand-to-modal** — click the in-place chart to open a larger modal view with PNG / JPEG export. Pure client-side serialization (SVG → canvas → toDataURL); no extra round trip.
@@ -96,6 +96,7 @@ Archer runs five parallel analysis phases across all supported log types.
 |---|---|---|
 | **DNS Tunneling** | High-entropy, long DNS labels (default: > 40 chars, entropy > 3.5) with deep nesting (default: > 5 levels), or a high count of unique subdomains per apex domain — detects iodine, DNScat2, dns2tcp | HIGH |
 | **DNS NXDOMAIN Flood** | High rate of non-existent domain responses (default: ≥ 200) — indicative of DGA-based malware | HIGH |
+| **DNS Beaconing** | Regular-cadence query timing on a `(source, apex)` key — the Cobalt-Strike DNS-C2 heartbeat that slips both DNS Tunneling (labels too short/low-entropy, diversity too low) and conn-level Beaconing (IP-pair keyed, no `conn.log`). Reuses the conn-level timing + Lomb-Scargle spectral pipeline; scored timing 0.5 / inverse-subdomain-diversity 0.25 / window-coverage 0.25. Diversity gate defers high-diversity apexes to DNS Tunneling; NXDOMAIN-dominated streams defer to NXDOMAIN Flood; built-in CDN + operator allowlist suppress benign apexes. Min queries default 20. | CRITICAL / HIGH |
 | **Suspicious TLD** | Queries to free or commonly abused TLDs: `.tk`, `.ml`, `.ga`, `.cf`, `.gq`, `.top`, `.xyz`, `.pw`, `.cc`, `.to`, and others | MEDIUM |
 | **DoH Bypass** | DNS-over-HTTPS queries to known public resolvers (8.8.8.8, 1.1.1.1, 9.9.9.9, etc.) on port 443 — malware evading DNS logging and response policy zones | MEDIUM |
 
@@ -154,7 +155,7 @@ For the analyst-side workflow — how to actually hunt with these findings, what
 
 | Detection Type | Description | Severity |
 |---|---|---|
-| **Host Risk Score** | Weighted composite score (0–100) aggregated across all findings for a given source IP. Weights: Cobalt Strike URI +40, Malicious JA3 +40, Domain Fronting +32, TI Hit (IP/Domain/Hash) +35 each, HTTP Beaconing +28, Beaconing +30, Data Exfiltration +25, Lateral Movement +20, Strobe +15, Long Connection +10. Surfaced in the **Hosts** tab (not the Findings tab — that tab is reserved for discrete network events). Click any host row to open the underlying score breakdown. | CRITICAL / HIGH / MEDIUM / LOW |
+| **Host Risk Score** | Weighted composite score (0–100) aggregated across all findings for a given source IP. Weights: Cobalt Strike URI +40, Malicious JA3 +40, Domain Fronting +32, TI Hit (IP/Domain/Hash) +35 each, HTTP Beaconing +28, Beaconing +30, DNS Beaconing +30, Data Exfiltration +25, Lateral Movement +20, Strobe +15, Long Connection +10. Surfaced in the **Hosts** tab (not the Findings tab — that tab is reserved for discrete network events). Click any host row to open the underlying score breakdown. | CRITICAL / HIGH / MEDIUM / LOW |
 | **Correlated Activity** | Same-pair multi-detector roll-up: any `(src, dst)` pair carrying findings from N+ distinct detector types becomes a Correlated Activity row, and contributing findings carry a `+N corr` chip linking back. Score = max(contributor scores) + 5 per extra distinct type above N (capped 99). Excludes roll-ups (HRS recursion, self-feedback), Zeek Notice, and Long Connection from the contributor set. Surfaces kill-chain progression a single detector wouldn't catch alone. | CRITICAL / HIGH / MEDIUM |
 
 ---
@@ -748,6 +749,7 @@ All thresholds are configurable at runtime through the **Settings** dialog (admi
 | `dns_tunnel_min_depth` | `5` | Minimum subdomain nesting depth for tunneling detection |
 | `dns_nxdomain_threshold` | `200` | NXDOMAIN response count threshold for DGA detection |
 | `dns_unique_subdomain_min` | `50` | Unique subdomain count threshold per apex domain |
+| `dns_beacon_min_queries` | `20` | Minimum non-NXDOMAIN queries to a `(src, apex)` before the DNS Beaconing cadence detector scores it (sample-size floor, analogous to the conn/HTTP beacon minimums) |
 
 ### Deployment
 
@@ -885,7 +887,7 @@ Every user can change their own password from the account menu (click your name 
 | Scan and clear log files | ✓ | ✓ | — |
 | Edit allowlist and IOC list | ✓ | ✓ | — |
 | Manage suppressions | ✓ | ✓ | — |
-| Manage pair allowlist | ✓ | ✓ | — |
+| Manage relationship allowlist (pair rules) | ✓ | ✓ | — |
 | Update analysis thresholds | ✓ | — | — |
 | Manage API keys | ✓ | — | — |
 | Configure watch mode (anchor time / timezone / cadence) | ✓ | — | — |
@@ -919,7 +921,7 @@ Sessions are stored in SQLite with a 24-hour expiry, httpOnly cookies, and `Same
 | **Allowlist** | Edit the list of IPs and domains to exclude from all findings. One entry per line. Findings matching an allowlisted IP are hidden across all tabs immediately after saving. |
 | **IOC List** | Edit the list of known-bad IPs and domains. Findings with a src/dst IP matching this list are tagged and appear in the IOC Hits tab. |
 | **Suppressions** | View all active suppressions with their target, context, and expiry time. Individual suppressions can be removed here; expired suppressions are pruned automatically. |
-| **Pair Allowlist** | Tuple-scoped permanent finding filter for known-good `src → dst : port` pairs (e.g. a host beaconing to the corp DNS). Created from a finding's right-click menu (pre-filled; scope defaults to that finding's type so DNS Tunneling on the same pair still surfaces). A pure view filter — matching findings are hidden from the table and bell, never deleted; removing a rule brings them straight back with no re-analysis. Manage and remove rules from the Pair Allowlist dialog. |
+| **Relationships** (allowlist tab) | Tuple-scoped finding filter for known-good `src → dst : port` relationships (e.g. a host beaconing to the corp DNS). Created from a finding's right-click menu → **Allow this Relationship** (pre-filled; scope defaults to that finding's type so DNS Tunneling on the same pair still surfaces). A pure view filter — matching findings are hidden from the table and bell, never deleted; removing a rule brings them straight back with no re-analysis. Managed from the **Allowlist** modal's **Relationships** tab (the standalone sidebar dialog was removed in v0.25.0). |
 
 ### Finding Tabs
 
@@ -932,7 +934,7 @@ The first four tabs (Findings / Acknowledged / Escalated / IOC Hits) all view th
 | **Escalated** | Network-event findings sent to threat intelligence or escalated for response |
 | **IOC Hits** | Network-event findings where src or dst IP matches the IOC list, plus all `TI Hit (IP)` / `TI Hit (Domain)` / `TI Hit (Hash)` / `Suspicious URL` findings |
 | **Campaigns** | Destinations contacted by two or more distinct internal source IPs — potential shared C2 infrastructure |
-| **Hosts** | Per-host composite risk scores aggregated across all finding types. Click any row to open the underlying `Host Risk Score` finding's detail panel (composite score, contributing detection types, weighting breakdown). Right-click for the standard pivots. |
+| **Hosts** | Per-host composite risk scores aggregated across all finding types, plus a sortable **Beacons** column — the count of `Beaconing` / `HTTP Beaconing` findings for that host, so a staging host accounting for many of the active beacons stands out instead of being buried in a flat list. Click any row to open the underlying `Host Risk Score` finding's detail panel (composite score, contributing detection types, weighting breakdown). Right-click for the standard pivots. |
 
 ### Findings Table
 
@@ -979,7 +981,7 @@ Selecting a finding opens the detail pane, which shows:
 - **Escalate** — opens the TI escalation dialog
 - **Beacon Chart** — three-view canvas dialog for `Beaconing` and `HTTP Beaconing` findings: **Timeline** (one vertical tick per connection event on a fit-to-span time axis — eyeball test for regularity), **Interval histogram** (distribution of inter-arrival gaps with a dashed mean-interval reference line — tall single peak confirms a beacon's heartbeat), **Bytes** (legacy bytes-sent-per-bucket chart, useful for cross-checking exfil suspicion alongside a beacon). A stats strip above the canvas shows connection count / mean interval / jitter (CV) / span; a per-view PNG / JPEG export dropdown snaps the active canvas with a filename including the src→dst pair and view name. **Interactive zoom** on the Timeline view: click-drag to brush-select a time range and the view re-fits to that slice (the data is already client-side, so zoom doesn't refetch). Right-click on the canvas or the **Reset zoom** button returns to auto-fit. Switching to Interval histogram or Bytes drops the zoom since those views have their own X mappings.
 - **PCAP Filter** — copies a ready-to-use `tcpdump` or Suricata filter string to the clipboard
-- **Source Records** — scans the original Zeek logs (and `/data/archive`) for records matching the finding's (src, dst) pair, then opens a dialog with the full standard schema for the relevant log types. Columns are resizable; the table scrolls on both axes. A **Search range** dropdown (±6h default, up to All time) broadens the scan when needed. **Export CSV** flattens every loaded record into a single CSV with a leading `_log_type` column and canonical Zeek field ordering per type.
+- **Source Records** — scans the original Zeek logs (and `/data/archive`) for records matching the finding's (src, dst) pair, then opens a dialog with the full standard schema for the relevant log types. Columns are resizable; the table scrolls on both axes. A **Search range** dropdown (±6h default, up to All time) broadens the scan when needed. **Export CSV** flattens every loaded record into a single CSV with a leading `_log_type` column and canonical Zeek field ordering per type. Right-click any data cell → **Copy cell** copies the exact value — native double-click selection truncates on punctuation (e.g. a Community ID's `:`/`=`).
 - **Suppress** — suppresses alerts for the source or destination IP for a configurable duration; suppressed findings are hidden from all tabs until the suppression expires or is manually removed
 - **Analyst Recommendation** — auto-generated investigative guidance based on the finding type and score
 - **Notes** — chronological thread of analyst annotations; new notes can be added inline
@@ -1119,12 +1121,16 @@ All API endpoints require authentication. Role requirements are noted where appl
 | `POST` | `/api/suppressions` | Analyst+ | Add suppression: `{"target":"1.2.3.4","days":7,"detail":"..."}` |
 | `DELETE` | `/api/suppressions/{target}` | Analyst+ | Remove suppression immediately |
 
-### Pair Allowlist
+### Relationship Allowlist
+
+UI: the **Allowlist** modal's **Relationships** tab (the standalone
+Pair Allowlist sidebar dialog was removed in v0.25.0). The API route
+is unchanged — still `/api/pair-allowlist`.
 
 | Method | Path | Role | Description |
 |---|---|---|---|
 | `GET` | `/api/pair-allowlist` | Any | `[{"id":1,"src":"10.0.0.1","dst":"1.1.1.1","port":"53","finding_type":"Beaconing","detail":"...","created_by":"...","created_at":1234567890},...]` |
-| `POST` | `/api/pair-allowlist` | Analyst+ | Add tuple-scoped permanent filter: `{"src","dst","port","finding_type","detail"}` (empty `finding_type` = all types on the tuple) |
+| `POST` | `/api/pair-allowlist` | Analyst+ | Add a tuple-scoped view filter: `{"src","dst","port","finding_type","detail"}` (empty `finding_type` = all types on the tuple). No expiry — removal is explicit. |
 | `DELETE` | `/api/pair-allowlist/{id}` | Analyst+ | Remove rule by id; matching findings reappear next fetch, no re-analysis |
 
 ### Notifications

@@ -27,6 +27,7 @@ import (
 var riskWeights = map[string]int{
 	"Beaconing":         30,
 	"HTTP Beaconing":    28,
+	"DNS Beaconing":     30,
 	"Cobalt Strike URI": 40,
 	"C2 URI Pattern":    38,
 	"Domain Fronting":   32,

@@ -16,6 +16,16 @@ type Config struct {
 	DNSTunnelMinDepth     int     `json:"dns_tunnel_min_depth"`
 	DNSNXDomainThreshold  int     `json:"dns_nxdomain_threshold"`
 	DNSUniqueSubdomainMin int     `json:"dns_unique_subdomain_min"`
+	// DNSBeaconMinQueries is the minimum number of queries to a single
+	// (src, apex) pair before the DNS-cadence beacon detector scores it.
+	// A sample-size floor, not a calibration knob — the timing/spectral
+	// math reuses the global beacon knobs — so it's a per-deployment
+	// Settings field like BeaconMinConnections / HTTPBeaconMinRequests.
+	// Default 20: high enough that an incidental browse burst to one
+	// apex (chatty but irregular, rejected by the timing scorer anyway)
+	// doesn't reach the scorer; low enough to catch a slow hourly DNS
+	// heartbeat over a multi-day capture.
+	DNSBeaconMinQueries int `json:"dns_beacon_min_queries"`
 	// CorrelationMinTypes is the minimum number of distinct detector
 	// types on the same (SrcIP, DstIP) pair required to emit a
 	// Correlated Activity roll-up. Default 2 catches the high-value
@@ -156,6 +166,7 @@ func Default() Config {
 		DNSTunnelMinDepth:     5,
 		DNSNXDomainThreshold:  200,
 		DNSUniqueSubdomainMin: 50,
+		DNSBeaconMinQueries:   20,
 		CorrelationMinTypes:   2,
 
 		// Spectral defaults — conservative enough for first-run

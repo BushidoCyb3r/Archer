@@ -79,37 +79,37 @@ type Finding struct {
 	// finding at emit time. Populated for HTTP Beaconing (from the
 	// http.log uri field). Empty for non-HTTP findings.
 	URI string `json:"uri,omitempty"`
-	// TSScore / DSScore / HistScore / DurScore are the four
-	// per-axis sub-scores that compose the Beaconing and HTTP
-	// Beaconing total score (each is in [0, 1]; total = sum × 25).
-	// Populated by the conn and http_analysis emit sites; consumed
-	// by SetFindings to write the beacon_history row. Not serialized
-	// to the findings JSON API — analysts see them via the per-finding
-	// history endpoint instead.
+	// TSScore / DSScore / HistScore / DurScore are the four per-axis
+	// sub-scores that compose the Beaconing and HTTP Beaconing total
+	// score (each is in [0, 1]; total = sum × 25). Populated by the
+	// conn and http_analysis emit sites and serialized to the findings
+	// JSON API so the detail-pane triage header can break the score
+	// down by axis without a separate history fetch.
 	//
-	// LIFECYCLE: these fields are populated only at emit time. They
-	// are NOT persisted to the findings table (no columns), so:
-	//   - At server boot, loadFindings rebuilds in-memory Finding
-	//     objects with all four zeroed.
-	//   - SetFindings's preserve-historical loop carries forward
-	//     historical findings with whatever values they had on disk —
-	//     which is zero, since the table has no column.
-	//   - Only this-run finding emissions carry non-zero sub-scores;
-	//     by the time saveBeaconHistory reads them (immediately after
-	//     emission in the same SetFindings call), they're correct.
-	//   - Any future consumer reading these fields outside the
-	//     emit → SetFindings critical section must guard on IsNew or
-	//     join to beacon_history; the in-memory Finding object can't
-	//     be trusted to carry the sub-scores after a server restart.
-	//
-	// NEW-89 from the twentieth audit round documented this rather
-	// than adding columns — no consumer outside saveBeaconHistory
-	// currently needs the persistence. Add the columns (migration
-	// 0013) the first time a feature requires them.
-	TSScore   float64 `json:"-"`
-	DSScore   float64 `json:"-"`
-	HistScore float64 `json:"-"`
-	DurScore  float64 `json:"-"`
+	// Persisted as REAL columns on the findings table (migration 0018,
+	// NEW-89 closure). They survive a server restart and the
+	// preserve-historical carry-forward: loadFindings repopulates them
+	// from the columns, so a beacon that didn't re-fire this run still
+	// carries its real sub-scores instead of zeros. saveBeaconHistory
+	// still reads them in the same SetFindings call that emitted them.
+	TSScore   float64 `json:"ts_score,omitempty"`
+	DSScore   float64 `json:"ds_score,omitempty"`
+	HistScore float64 `json:"hist_score,omitempty"`
+	DurScore  float64 `json:"dur_score,omitempty"`
+	// MeanInterval / MedianInterval are the arithmetic mean and median
+	// of the inter-arrival intervals (seconds) the timing scorer saw
+	// for this beacon. Jitter is the coefficient of variation
+	// (stddev / mean) of those intervals — the "± Ns" spread the
+	// triage header renders as a percentage. SampleSize is the count
+	// of observations the score is based on (connections for
+	// Beaconing, requests for HTTP Beaconing) — the confidence signal.
+	// Populated only for Beaconing / HTTP Beaconing; zero elsewhere.
+	// Persisted alongside the sub-scores (migration 0018) for the same
+	// restart-survival reason.
+	MeanInterval   float64 `json:"mean_interval,omitempty"`
+	MedianInterval float64 `json:"median_interval,omitempty"`
+	Jitter         float64 `json:"jitter,omitempty"`
+	SampleSize     int     `json:"sample_size,omitempty"`
 }
 
 // BeaconHistoryKey is the per-beacon identity used by the

@@ -355,6 +355,10 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 		byteVals := make([]float64, len(st.byteVals))
 		copy(byteVals, st.byteVals)
 
+		ivMean := fmean(ivs)
+		ivMedian := fmedian(ivs)
+		ivCV := intervalCV(ivs, ivMean)
+
 		tsScore := statisticalScore(ivs, 1.0)
 		if mm := intervalMultimodalScore(ivs); mm > tsScore {
 			tsScore = mm
@@ -414,20 +418,24 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 				spectralResult.Score, spectralResult.Period, spectralResult.RawPower, a.cfg.SpectralFAPThreshold)
 		}
 		a.add(model.Finding{
-			Type:      "HTTP Beaconing",
-			Severity:  sev,
-			Score:     score,
-			SrcIP:     bk.src,
-			DstIP:     bk.dst,
-			Detail:    detail,
-			Timestamp: fmtTS(st.firstTs),
-			TSData:    tsData,
-			Hostname:  bk.host,
-			URI:       bk.uri,
-			TSScore:   tsScore,
-			DSScore:   dsScore,
-			HistScore: hScore,
-			DurScore:  durScore,
+			Type:           "HTTP Beaconing",
+			Severity:       sev,
+			Score:          score,
+			SrcIP:          bk.src,
+			DstIP:          bk.dst,
+			Detail:         detail,
+			Timestamp:      fmtTS(st.firstTs),
+			TSData:         tsData,
+			Hostname:       bk.host,
+			URI:            bk.uri,
+			TSScore:        tsScore,
+			DSScore:        dsScore,
+			HistScore:      hScore,
+			DurScore:       durScore,
+			MeanInterval:   ivMean,
+			MedianInterval: ivMedian,
+			Jitter:         ivCV,
+			SampleSize:     totalObserved,
 		})
 	}
 }

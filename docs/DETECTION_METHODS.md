@@ -291,6 +291,18 @@ Score components: ts=0.97 ds=0.95 hist=0.91 dur=1.00
   regular; above ~1.0 is human-driven.
 - The four sub-scores tell you which axis dominated.
 
+As of v0.25.0 the detail pane renders a **structured triage header**
+above this raw line — jitter % (the interval CV as a percentage),
+"every 47s ± 3s", median interval, sample size, and the per-axis
+sub-score breakdown — so the same numbers are readable in the first
+five seconds without parsing the pipe-delimited string. The four
+sub-scores and the `mean_interval` / `median_interval` / `jitter` /
+`sample_size` fields are serialized on the single-finding API and
+persisted as `findings` columns (migration 0018, NEW-89 closure), so
+they survive a server restart and the preserve-historical
+carry-forward. No score formula changed — the numbers are only newly
+visible and durable.
+
 ### 2.4 What this catches and what it misses
 
 Catches: fixed-interval implants (Cobalt Strike default 60s, Empire 5min,
@@ -647,6 +659,69 @@ Categorical match against a curated list of free / abused TLDs (`.tk`, `.ml`,
 A connection on port 443 to an IP in `DoHIPs` (Cloudflare 1.1.1.1, Google
 8.8.8.8, Quad9, NextDNS, etc.) is DNS-over-HTTPS, which evades on-prem DNS
 logging. Score 62, severity Medium.
+
+### 9.6 DNS Beaconing — query-cadence on (src, apex)
+
+The gap this closes: a regular-cadence, low-entropy, low-diversity DNS
+heartbeat to a single FQDN — the Cobalt-Strike DNS-C2 shape — slips
+*both* other DNS-aware paths and the conn-level beacon detector. DNS
+Tunneling (§9.2/§9.3) needs long high-entropy labels or high subdomain
+diversity; this has neither. Beaconing (§2) is keyed on `conn.log` IP
+pairs and never consumes DNS query timing; a DoH-free DNS beacon may
+produce no conn-level beacon at all.
+
+**Key.** `(src, apex)`, apex = eTLD+1 via the Mozilla Public Suffix
+List (same extraction the diversity path uses). Every non-NXDOMAIN
+query to the pair contributes its inter-arrival interval to an
+Algorithm-R reservoir — the exact timing machinery §2 runs for IP
+pairs, reused here.
+
+**Score composition** (each axis in [0,1]):
+
+- **timing (weight 0.5)** — `statisticalScore` → multimodal → entropy
+  → Lomb-Scargle spectral rescue. Identical recipe to §2.2(a); the
+  spectral knobs (`SpectralEnabled`, FAP, min-obs, rescue gate) are the
+  global ones, reused unchanged.
+- **inverse subdomain-diversity (weight 0.25)** — `1 − subs/DNSUniqueSubdomainMin`.
+  A fixed-FQDN heartbeat has ≈1 unique label (≈1.0); the score decays
+  as diversity climbs.
+- **window-coverage (weight 0.25)** — the average of the §2.2(c)
+  histogram-regularity and §2.2(d) duration helpers, scored against the
+  whole DNS capture window.
+
+`score = clamp(100·(ts·0.5 + div·0.25 + cov·0.25), 1, 100)`; Critical
+≥ 80, else High. DNS Beaconing carries the same structured triage
+fields as §2 (sample size, mean/median interval, jitter) and the
+`ts/hist/dur` sub-scores; `ds_score` is intentionally left zero (DNS
+has no payload-size axis — the diversity axis is detector-internal and
+surfaced in the Detail string, not overloaded onto `ds_score`).
+
+**Two scoping rules keep it from double-counting:**
+
+- **Diversity gate.** At or above `DNSUniqueSubdomainMin` the apex is
+  exfil-shaped — DNS Tunneling owns it, and Correlated Activity links
+  the two if the cadence is also regular. DNS Beaconing does not fire.
+- **NXDOMAIN exclusion.** NXDOMAIN responses are dropped from the
+  cadence accumulation entirely: a beacon to a sinkholed/dead C2 is
+  the NXDOMAIN-flood detector's finding (§9.1), and resolver-retry
+  behaviour on failed lookups contaminates inter-arrival timing.
+
+**Benign suppression.** Before scoring, an apex matching the built-in
+CDN/cloud suffix allowlist (shared with the DGA augmentation, §2.5) or
+the operator's curated allowlist is skipped — a constant-cadence
+resolver/telemetry/CDN apex would otherwise aggregate every query
+under one key and read as periodic.
+
+**Calibration.** `DNSBeaconMinQueries` (Settings → DNS → *DNS Beacon
+Min Queries*, default 20) is the sample-size floor — the minimum
+queries to a `(src, apex)` before scoring, analogous to
+`BeaconMinConnections`. The timing/spectral math reuses the global
+beacon knobs; there are no DNS-beacon-specific scoring knobs.
+
+**What it misses.** A beacon resolving via DoH is invisible to
+`dns.log` entirely (no query records to time) — a separate JA3/SNI
+problem, out of scope here. DoH *usage* is still surfaced independently
+by §9.5.
 
 ---
 

@@ -256,7 +256,15 @@ The most-used surface. Findings are detector outputs, persisted in
   "correlations": [57, 91],
   "intervals":    [60.0, 60.0, 60.0],
   "ts_data":      [[1705320000, 500, 2000], …],
-  "notes":        []
+  "notes":        [],
+  "ts_score":        0.92,
+  "ds_score":        0.81,
+  "hist_score":      0.75,
+  "dur_score":       0.88,
+  "mean_interval":   60.0,
+  "median_interval": 60.0,
+  "jitter":          0.05,
+  "sample_size":     312
 }
 ```
 
@@ -278,6 +286,18 @@ The most-used surface. Findings are detector outputs, persisted in
   Activity roll-up. The SPA renders a `+N corr` chip when non-empty.
 - `ts_data` rows are `[ts_unix, orig_bytes, resp_bytes]` triples used
   for the beacon chart on the analyst UI.
+- `ts_score` / `ds_score` / `hist_score` / `dur_score` are the four
+  per-axis beacon sub-scores (each `[0,1]`; the total is their sum ×
+  25). `mean_interval` / `median_interval` are the inter-arrival mean
+  and median in seconds; `jitter` is their coefficient of variation
+  (the "± Ns" spread the triage header renders as a percentage);
+  `sample_size` is the observation count the score rests on. All eight
+  are `omitempty`, populated only for `Beaconing`, `HTTP Beaconing`,
+  and `DNS Beaconing` (which leaves `ds_score` zero — DNS has no
+  data-size axis). Persisted as columns (migration 0018) so they
+  survive a restart and the carry-forward. They are part of the
+  **full** single-finding shape only — the projected list endpoint
+  does not include them (next bullet).
 - **`GET /api/findings` returns a projected list** that drops
   `ts_data`, `intervals`, and `notes` regardless of whether they're
   populated — those fields balloon to hundreds of KB per row on

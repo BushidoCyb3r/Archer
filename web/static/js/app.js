@@ -2226,6 +2226,39 @@
       rawExport.addEventListener('click', () => _exportRawRecordsCSV());
     }
 
+    // Per-cell right-click → "Copy cell". Native text selection breaks on
+    // punctuation (e.g. a Community ID's `:`/`=` truncate a double-click
+    // selection), so analysts can't reliably grab a whole cell value.
+    // This copies the cell's full text content regardless of separators.
+    const rawTableEl = document.getElementById('raw-dlg-table');
+    const cellMenu   = document.getElementById('raw-cell-menu');
+    if (rawTableEl && cellMenu) {
+      let _rawCellText = '';
+      rawTableEl.addEventListener('contextmenu', e => {
+        const td = e.target.closest && e.target.closest('td');
+        if (!td) return;
+        e.preventDefault();
+        _rawCellText = td.textContent;
+        cellMenu.classList.remove('hidden');
+        const margin = 8;
+        const r = cellMenu.getBoundingClientRect();
+        let left = (e.clientX + r.width  > window.innerWidth  - margin)
+          ? Math.max(margin, e.clientX - r.width)  : e.clientX;
+        let top  = (e.clientY + r.height > window.innerHeight - margin)
+          ? Math.max(margin, e.clientY - r.height) : e.clientY;
+        cellMenu.style.left = left + 'px';
+        cellMenu.style.top  = top  + 'px';
+      });
+      document.getElementById('raw-cell-copy').addEventListener('click', () => {
+        const ok = copyToClipboard(_rawCellText);
+        showToast(ok ? 'Cell copied' : 'Copy failed');
+      });
+      const hideCellMenu = () => cellMenu.classList.add('hidden');
+      document.addEventListener('click', hideCellMenu);
+      rawTableEl.addEventListener('scroll', hideCellMenu);
+      document.getElementById('raw-dialog').addEventListener('close', hideCellMenu);
+    }
+
     document.getElementById('dismiss-btn').addEventListener('click', async () => {
       if (!_selectedFinding) return;
       _toggleDismiss(_selectedFinding);
@@ -2612,28 +2645,39 @@
         addDlg.close();
         setStatus(`Pair allowlisted ${src} → ${dst}:${port || ''}`);
         loadFindings(_currentFilterParams());
-        const mgr = document.getElementById('pair-allow-dialog');
-        if (mgr.open) _renderPairAllow();
+        // Keep the Relationships tab fresh if the Allowlist dialog is open.
+        if (document.getElementById('allowlist-dialog').open) _renderPairAllow();
       } catch (e) {
         err.textContent = e || 'Failed to add rule.';
         err.style.display = 'block';
       }
     });
-
-    const mgr = document.getElementById('pair-allow-dialog');
-    document.getElementById('pair-allow-close').addEventListener('click', () => mgr.close());
-    document.getElementById('pair-allow-btn').addEventListener('click', async () => {
-      await _renderPairAllow();
-      mgr.showModal();
-    });
   }
 
   // ── Allowlist / IOC dialogs ────────────────────────────────────────────────
+  // The Allowlist dialog carries two tabs: "entries" (the IP/CIDR/domain
+  // textarea, explicit Save) and "relationships" (the pair allowlist —
+  // changes are immediate via per-row Remove, so Save is irrelevant and
+  // the secondary button reads "Close").
+  function _setAllowlistTab(name) {
+    document.querySelectorAll('#allowlist-tabs .dlg-tab-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.altab === name));
+    document.querySelectorAll('#allowlist-dialog .al-tab-panel').forEach(p =>
+      p.classList.toggle('active', p.dataset.alpanel === name));
+    const rel = name === 'relationships';
+    document.getElementById('allowlist-save').style.display = rel ? 'none' : '';
+    document.getElementById('allowlist-cancel').textContent = rel ? 'Close' : 'Cancel';
+    if (rel) _renderPairAllow();
+  }
+
   function initListDialogs() {
     const alDlg = document.getElementById('allowlist-dialog');
+    document.querySelectorAll('#allowlist-tabs .dlg-tab-btn').forEach(b =>
+      b.addEventListener('click', () => _setAllowlistTab(b.dataset.altab)));
     document.getElementById('allowlist-btn').addEventListener('click', async () => {
       const data = await api('/api/allowlist').catch(() => []);
       document.getElementById('allowlist-ta').value = (Array.isArray(data) ? data : []).join('\n');
+      _setAllowlistTab('entries');
       alDlg.showModal();
     });
     document.getElementById('allowlist-cancel').addEventListener('click', () => alDlg.close());
@@ -3050,6 +3094,7 @@
     set('cfg-nxdomain',       cfg.dns_nxdomain_threshold);
     set('cfg-tunnelbytes',    cfg.dns_tunnel_label_len);
     set('cfg-tunneldiv',      cfg.dns_unique_subdomain_min);
+    set('cfg-dns-beacon-thresh', cfg.dns_beacon_min_queries);
     set('cfg-vt-key',         cfg.virustotal_api_key);
     set('cfg-abuse-key',      cfg.abuseipdb_api_key);
     set('cfg-otx-key',        cfg.otx_api_key);
@@ -3139,6 +3184,7 @@
       dns_nxdomain_threshold:   parseInt(g('cfg-nxdomain'))       || 200,
       dns_tunnel_label_len:     parseInt(g('cfg-tunnelbytes'))    || 40,
       dns_unique_subdomain_min: parseInt(g('cfg-tunneldiv'))      || 50,
+      dns_beacon_min_queries:   parseInt(g('cfg-dns-beacon-thresh')) || 20,
       virustotal_api_key:       g('cfg-vt-key'),
       abuseipdb_api_key:        g('cfg-abuse-key'),
       otx_api_key:              g('cfg-otx-key'),
@@ -4334,7 +4380,7 @@
       }
       // Hide write-only controls for viewers
       if (u.role === 'viewer') {
-        ['analyze-btn','allowlist-btn','ioc-btn','suppressions-btn','pair-allow-btn',
+        ['analyze-btn','allowlist-btn','ioc-btn','suppressions-btn',
          'ack-btn','esc-btn','supp-btn','add-note-btn'].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.style.display = 'none';
