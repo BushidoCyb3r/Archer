@@ -3524,6 +3524,14 @@
         if (lookupEl) lookupEl.style.display = 'none';
       }
 
+      // Source Records pivots a single finding to its underlying Zeek
+      // log rows. A Hosts-tab row is a per-host risk roll-up, not a
+      // finding, so there's no single record set to resolve — hide the
+      // item there. Two-way set: no other loop touches this row-level
+      // item, so it must be re-shown off the Hosts tab.
+      const srcRecEl = document.getElementById('ctx-source-records');
+      if (srcRecEl) srcRecEl.style.display = _tabMode === 'hosts' ? 'none' : '';
+
       // Correlation pivot: only visible when the right-clicked row is
       // a Correlated Activity finding. The action latches the ids
       // filter to the CA's ID + every contributor ID (from

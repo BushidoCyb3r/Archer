@@ -3,7 +3,7 @@ package analysis
 import (
 	"fmt"
 	"math"
-	"math/rand/v2"
+	"math/rand/v2" // nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used -- Algorithm-R reservoir sampling, statistical not security; crypto/rand is wrong here
 	"sort"
 	"time"
 

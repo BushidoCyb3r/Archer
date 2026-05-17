@@ -157,7 +157,11 @@ func (s *Store) InitDB(db *sql.DB) {
 	s.db = db
 
 	loadOrdered := func(tbl string) []string {
-		rows, err := db.Query(`SELECT entry FROM ` + tbl + ` ORDER BY rowid`)
+		// tbl is a table identifier (SQL placeholders cannot
+		// parameterize identifiers) and loadOrdered is only ever
+		// called with hardcoded literal table names — not reachable
+		// from user input.
+		rows, err := db.Query(`SELECT entry FROM ` + tbl + ` ORDER BY rowid`) // nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query -- constant table identifier, internal callers only
 		if err != nil {
 			log.Printf("store: cannot load %s: %v", tbl, err)
 			return nil

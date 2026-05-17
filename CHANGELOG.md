@@ -30,6 +30,57 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.25.1] — 2026-05-17
+
+### Fixed
+
+- **Right-click "Source Records" is hidden on the Hosts tab.** A Hosts
+  row is a per-host risk roll-up, not a finding, so there is no single
+  record set to pivot to; the context-menu item is suppressed there
+  and re-shown on the finding tabs.
+
+### Security
+
+- **Third-party API credentials no longer disclosed to lower-privileged
+  users.** The index page embedded the entire `Config` struct
+  (`window.INIT_CONFIG = {{.Config}}`) into page source for *every*
+  authenticated role, and `GET /api/config` returned it verbatim to
+  *any* role — so a `viewer` or `analyst` could read admin-entered
+  `otx_api_key` / `abuseipdb_api_key` / `virustotal_api_key` /
+  `crowdsec_api_key` / `greynoise_api_key` / `censys_api_id` /
+  `censys_api_secret` from page source or the config endpoint. The
+  `INIT_CONFIG` bootstrap was dead (nothing read it) and is removed
+  entirely; `GET /api/config` now blanks the seven credential fields
+  for non-admins and adds a companion `<field>_configured` boolean
+  (same redaction shape as the feeds `has_api_key` pattern). Admins
+  still receive verbatim values so the admin-only Settings dialog
+  round-trips unchanged. Pre-existing — surfaced by a semgrep
+  `var-in-script-tag` review, not a v0.25.0 regression. Regression
+  tests assert the role-scoped invariant and that the index bootstrap
+  carries no config.
+- **MISP feed client pins an explicit TLS 1.2 floor.** The
+  skip-verify path (`tls_skip_verify`, for self-signed internal MISP)
+  built a `tls.Config` with no `MinVersion`; it now sets
+  `MinVersion: tls.VersionTLS12`. Behaviour-preserving — Go 1.22+
+  already defaulted clients to TLS 1.2, so this only makes the floor
+  explicit; the operator's skip-TLS-verify option is unaffected
+  (cert-trust and protocol-version are orthogonal). Closes the
+  semgrep `missing-ssl-minversion` finding. The three remaining
+  scanner findings are documented false positives suppressed with
+  inline `// nosemgrep:` rationale (reservoir-sampling `math/rand`,
+  constant-identifier SQL, static template var); the only open
+  scanner item is the container running as root, tracked as a
+  privilege-separation design task (in-image sshd needs root).
+
+### Breaking
+
+- **`GET /api/config` response is now role-scoped.** Non-admin callers
+  receive the seven credential fields blanked (`""`) plus
+  `<field>_configured` booleans; admin responses are unchanged. Any
+  external non-admin integration that read credential values from this
+  endpoint (it should not have been able to) must adapt. The
+  `window.INIT_CONFIG` global is removed from the index page.
+
 ## [v0.25.0] — 2026-05-17
 
 ### Breaking
@@ -5435,7 +5486,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.25.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.25.1...HEAD
+[v0.25.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.25.0...v0.25.1
 [v0.25.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.24.0...v0.25.0
 [v0.24.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.23.0...v0.24.0
 [v0.23.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.22.0...v0.23.0

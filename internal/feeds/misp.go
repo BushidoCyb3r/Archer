@@ -122,7 +122,12 @@ func NewMISPClient(baseURL, apiKey string, tlsSkipVerify, allowInternal bool) *M
 func httpClientWithTLS(skipVerify, allowInternal bool) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if skipVerify {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		// InsecureSkipVerify governs cert trust (the operator's
+		// skip-TLS-verify option for self-signed internal MISP).
+		// MinVersion is orthogonal — it only makes Go 1.22+'s default
+		// TLS 1.2 floor explicit, so the skip-verify path still
+		// connects to any modern MISP unchanged.
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}
 	}
 	return &http.Client{
 		Timeout:   90 * time.Second,
