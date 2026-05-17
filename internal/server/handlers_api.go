@@ -1091,11 +1091,62 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 	s.broker.Publish(SSEEvent{Type: "ti_done", Data: string(doneData)})
 }
 
+// secretConfigKeys are the Config JSON fields that carry third-party
+// credentials. Non-admin GET /api/config blanks these and the index
+// page never embeds the config at all — a viewer/analyst must not be
+// able to read admin-entered API keys from the config endpoint or page
+// source. Same redaction shape as the feeds has_api_key pattern.
+var secretConfigKeys = []string{
+	"otx_api_key",
+	"abuseipdb_api_key",
+	"virustotal_api_key",
+	"crowdsec_api_key",
+	"greynoise_api_key",
+	"censys_api_id",
+	"censys_api_secret",
+}
+
+// redactConfigSecrets returns cfg as a JSON-shaped map with every
+// credential field blanked and a companion "<field>_configured"
+// boolean indicating whether a value was set. Non-secret fields pass
+// through unchanged, so a future Config field is never silently leaked
+// here and no parallel allowlist has to track the safe ones.
+func redactConfigSecrets(cfg any) (map[string]any, error) {
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, err
+	}
+	for _, k := range secretConfigKeys {
+		v, _ := m[k].(string)
+		m[k] = ""
+		m[k+"_configured"] = v != ""
+	}
+	return m, nil
+}
+
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(s.store.GetConfig())
+		cfg := s.store.GetConfig()
+		// Admins set these credentials, so the admin-only Settings
+		// dialog gets them back verbatim to prefill. Every lower role
+		// gets them blanked — reading the endpoint must not disclose
+		// keys an analyst/viewer can't otherwise see.
+		if userFromCtx(r).Role == model.RoleAdmin {
+			json.NewEncoder(w).Encode(cfg)
+			return
+		}
+		redacted, err := redactConfigSecrets(cfg)
+		if err != nil {
+			jsonError(w, "config encode error", http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(redacted)
 	case http.MethodPut:
 		if u := userFromCtx(r); u.Role != model.RoleAdmin {
 			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)

@@ -1264,8 +1264,7 @@
 
 <!-- ── JS modules ─────────────────────────────────────────────── -->
 <script>
-  window.SCORE_EXPLANATIONS = {{.ScoreExplanations}};
-  window.INIT_CONFIG = {{.Config}};
+  window.SCORE_EXPLANATIONS = {{.ScoreExplanations}}; // nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag -- static hardcoded score-explanation text (json.Marshal of a constant map), no user input or secrets; config bootstrap removed in the v0.25.1 fix
 </script>
 <script src="/static/js/sse.js"></script>
 <script src="/static/js/notifications.js"></script>

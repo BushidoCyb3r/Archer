@@ -20,12 +20,14 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := s.store.GetConfig()
-	cfgJSON, _ := json.Marshal(cfg)
+	// The config (incl. third-party API keys) is deliberately NOT
+	// embedded here: the index page is served to every role, so
+	// shipping it in page source disclosed admin-entered credentials
+	// to viewers/analysts. The SPA fetches /api/config at runtime,
+	// which redacts secrets for non-admins.
 	scoreJSON, _ := json.Marshal(scoreExplanationsJS())
 
 	data := map[string]template.JS{
-		"Config":            template.JS(cfgJSON),
 		"ScoreExplanations": template.JS(scoreJSON),
 	}
 

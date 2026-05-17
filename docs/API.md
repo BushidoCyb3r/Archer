@@ -441,8 +441,8 @@ Beaconing / HTTP Beaconing.
 
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
-| `GET` | `/api/config` | any | Returns the full `Config` struct (`internal/config/config.go`). |
-| `PUT` | `/api/config` | admin | Replaces the config. Send the full struct (partial updates not supported). |
+| `GET` | `/api/config` | any | Returns the `Config` struct (`internal/config/config.go`). **Admin** gets it verbatim. **Non-admin** (analyst/viewer) gets the credential fields (`otx_api_key`, `abuseipdb_api_key`, `virustotal_api_key`, `crowdsec_api_key`, `greynoise_api_key`, `censys_api_id`, `censys_api_secret`) blanked to `""`, each with a companion `<field>_configured` boolean — same redaction shape as the feeds `has_api_key` pattern. All non-secret fields are identical across roles. |
+| `PUT` | `/api/config` | admin | Replaces the config. Send the full struct (partial updates not supported). Admin GET returns real secrets, so the admin Settings dialog round-trips them unchanged. |
 
 Config field names are documented in `internal/config/config.go`'s
 struct tags. The four most operator-touched fields:
