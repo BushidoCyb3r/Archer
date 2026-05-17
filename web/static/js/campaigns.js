@@ -78,6 +78,7 @@ const Campaigns = (() => {
         case 'ip':       av = a.ip || '';                  bv = b.ip || '';                  break;
         case 'score':    av = a.score;                     bv = b.score;                     break;
         case 'count':    av = a.count;                     bv = b.count;                     break;
+        case 'beacon':   av = a.beaconCount;               bv = b.beaconCount;               break;
         case 'severity': av = _SEV_ORDER[a.topSev] ?? 99;  bv = _SEV_ORDER[b.topSev] ?? 99;  break;
         default:         av = a.score;                     bv = b.score;
       }
@@ -195,9 +196,13 @@ const Campaigns = (() => {
       // the "(TI)" placeholder from threat-intel hits, and anything else
       // not owned by the org are noise in this view.
       if (!_isOrgIP(f.src_ip)) return;
-      if (!map.has(f.src_ip)) map.set(f.src_ip, {ip: f.src_ip, score: 0, count: 0, types: new Set(), topSev: 'INFO'});
+      if (!map.has(f.src_ip)) map.set(f.src_ip, {ip: f.src_ip, score: 0, count: 0, beaconCount: 0, types: new Set(), topSev: 'INFO'});
       const e = map.get(f.src_ip);
       e.count++;
+      // Per-host beacon density (§2a). A host accounting for many of
+      // the active beacons is a likely staging point — the pattern an
+      // analyst catches instantly but a flat findings list buries.
+      if (f.type === 'Beaconing' || f.type === 'HTTP Beaconing') e.beaconCount++;
       e.types.add(f.type || '');
       if (f.score > e.score) e.score = f.score;
       if ((SEV_ORDER[f.severity] ?? 99) < (SEV_ORDER[e.topSev] ?? 99)) e.topSev = f.severity;
@@ -214,7 +219,7 @@ const Campaigns = (() => {
     const tbody = document.getElementById('hosts-tbody');
     tbody.innerHTML = '';
     if (_hosts.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" style="color:var(--fg-dim);padding:12px">No host data</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="color:var(--fg-dim);padding:12px">No host data</td></tr>';
       return;
     }
     const slice = _hosts.slice(off, off + lim);
@@ -231,6 +236,7 @@ const Campaigns = (() => {
         <td class="score" style="color:${_scoreColor(e.score)}">${e.score | 0}</td>
         <td class="src-ip dst-ip" style="font-family:monospace">${_esc(e.ip)}</td>
         <td style="text-align:center">${e.count | 0}</td>
+        <td style="text-align:center;${e.beaconCount > 0 ? 'color:var(--sev-high);font-weight:700' : 'color:var(--fg-dim)'}">${e.beaconCount | 0}</td>
         <td style="color:${_sevColor(e.topSev)};font-weight:700">${_esc(e.topSev)}</td>
         <td style="font-size:11px;color:var(--fg-dim)">${_esc(typesText)}</td>`;
       tr.addEventListener('click', () => {

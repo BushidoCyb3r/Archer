@@ -33,6 +33,23 @@ func fmean(xs []float64) float64 {
 	return sum / float64(len(xs))
 }
 
+// intervalCV is the coefficient of variation (population stddev / mean)
+// of xs, given a pre-computed mean. Zero when mean is non-positive or
+// xs is empty. This is the "jitter" the beacon triage header renders as
+// a percentage; both beacon emit sites (conn + http_analysis) call it
+// so the Jitter field is defined identically regardless of detector.
+func intervalCV(xs []float64, mean float64) float64 {
+	if mean <= 0 || len(xs) == 0 {
+		return 0
+	}
+	variance := 0.0
+	for _, v := range xs {
+		d := v - mean
+		variance += d * d
+	}
+	return math.Sqrt(variance/float64(len(xs))) / mean
+}
+
 // bowleyScore computes (1 - |Bowley skewness|) on a sorted slice.
 // Returns 1.0 when distribution is perfectly symmetric, 0.0 when maximally skewed.
 func bowleyScore(xs []float64) float64 {

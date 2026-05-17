@@ -36,6 +36,13 @@ Otherwise: leave the knobs alone.
 All four live in **Settings → Beaconing**. Each one shifts a
 different trade-off.
 
+> As of v0.25.0 these same four knobs also govern the timing axis of
+> the **DNS Beaconing** detector (`docs/DETECTION_METHODS.md` §9.6) —
+> it reuses the identical statistical→multimodal→entropy→Lomb-Scargle
+> pipeline on `(src, apex)` query timing. There are no
+> DNS-beacon-specific spectral knobs; tuning here moves conn-level,
+> HTTP, and DNS beacon rescue together.
+
 ### 1. Enable spectral rescue *(default: ON)*
 
 The master kill switch. Off means the spectral path never runs;

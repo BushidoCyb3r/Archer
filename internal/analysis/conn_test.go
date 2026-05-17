@@ -68,6 +68,62 @@ func TestOffHoursBadTimezoneFallsBackToUTC(t *testing.T) {
 	}
 }
 
+// TestBeaconEmitsStructuredTriageFields asserts the analyzer populates
+// the migration-0018 triage fields at the conn-level Beaconing emit
+// site — the producer half of the NEW-89 closure (the store round-trip
+// is covered in store_test.go). Invariant: a Beaconing finding carries
+// a positive sample size and mean/median interval, four sub-scores in
+// [0,1] that are not all zero, and a finite non-negative jitter whose
+// implied spread (mean × jitter) is well-defined. A regression that
+// drops any field at emit time (e.g. a struct-literal key omitted in a
+// future refactor) fails here even though the golden snapshot — which
+// projects only Score/Type — would stay green.
+func TestBeaconEmitsStructuredTriageFields(t *testing.T) {
+	a := New(config.Default(), "", nil, nil)
+	a.feodoIPs = map[string]bool{}
+	a.urlhausIPs = map[string]bool{}
+	a.urlhausHosts = map[string]bool{}
+	findings := a.Analyze([]string{
+		"testdata/zeek/beacon_url/conn.log",
+		"testdata/zeek/beacon_url/http.log",
+	})
+
+	var b *model.Finding
+	for i := range findings {
+		if findings[i].Type == "Beaconing" {
+			b = &findings[i]
+			break
+		}
+	}
+	if b == nil {
+		t.Fatalf("expected a Beaconing finding from beacon_url fixture, got types: %v", findingTypes(findings))
+	}
+
+	if b.SampleSize <= 0 {
+		t.Errorf("SampleSize = %d; want > 0", b.SampleSize)
+	}
+	if b.MeanInterval <= 0 {
+		t.Errorf("MeanInterval = %v; want > 0", b.MeanInterval)
+	}
+	if b.MedianInterval <= 0 {
+		t.Errorf("MedianInterval = %v; want > 0", b.MedianInterval)
+	}
+	for _, sc := range []struct {
+		name string
+		v    float64
+	}{{"ts", b.TSScore}, {"ds", b.DSScore}, {"hist", b.HistScore}, {"dur", b.DurScore}} {
+		if sc.v < 0 || sc.v > 1 {
+			t.Errorf("%s sub-score = %v; want within [0,1]", sc.name, sc.v)
+		}
+	}
+	if b.TSScore+b.DSScore+b.HistScore+b.DurScore == 0 {
+		t.Error("all four sub-scores are zero — emit site did not populate them")
+	}
+	if b.Jitter < 0 || b.Jitter != b.Jitter { // NaN-safe
+		t.Errorf("Jitter = %v; want finite and >= 0", b.Jitter)
+	}
+}
+
 func hasFindingType(findings []model.Finding, t string) bool {
 	for _, f := range findings {
 		if f.Type == t {

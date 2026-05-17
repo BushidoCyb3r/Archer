@@ -60,7 +60,34 @@ func (a *Analyzer) analyzeDNS(files []string) {
 		firstTS float64
 	}
 
+	// dnsBeaconState accumulates per-(src, apex) query timing for the
+	// DNS-cadence beacon detector (§2g). Held separately from apexData
+	// so the existing DNS Tunneling diversity path is byte-for-byte
+	// untouched — this detector only adds findings, never perturbs the
+	// proven ones. Reservoir caps + scorers are the conn-level beacon
+	// machinery; subdomain diversity is read from apexMap at emit time
+	// (same key) rather than re-tracked here.
+	type dnsBeaconState struct {
+		lastTS  float64
+		ivs     []float64
+		ivsSeen int
+		tsData  [][3]float64
+		tsSeen  int
+		hourMap map[int]int
+		minTS   float64
+		maxTS   float64
+		firstTS float64
+		count   int
+	}
+
 	apexMap := make(map[apexKey]*apexData)
+	beaconApex := make(map[apexKey]*dnsBeaconState)
+	// Global DNS capture window — the hist/dur axes score how much of
+	// the whole capture a beacon spanned, mirroring conn.go's per-sensor
+	// window. dns.go's detector family is not sensor-partitioned (the
+	// existing apexKey carries no sensor), so a single window is the
+	// consistent choice here.
+	var dnsWinMin, dnsWinMax float64
 	nxCounts := make(map[string]int) // src → nxdomain count
 	nxFirst := make(map[string]float64)
 	seenTunnel := make(map[[2]string]bool)
@@ -123,6 +150,56 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			apex := apexFromQuery(query)
 			if apex == "" {
 				return true
+			}
+
+			// DNS-cadence beacon accumulation (§2g). Every query to a
+			// (src, apex) contributes its inter-arrival timing —
+			// subdomain-rotating C2 (apex constant, label varies) and
+			// fixed-FQDN heartbeats both land on the same key. ts==0
+			// (missing field) contributes to the count but not the
+			// timing reservoir, matching conn.go's iv>0 guard.
+			if ts > 0 {
+				if dnsWinMin == 0 || ts < dnsWinMin {
+					dnsWinMin = ts
+				}
+				if ts > dnsWinMax {
+					dnsWinMax = ts
+				}
+			}
+			// NXDOMAIN-dominated streams are the DNS NXDOMAIN Flood
+			// detector's responsibility — a beacon to a sinkholed/dead
+			// C2 is that finding, and resolver retry behaviour on
+			// failed lookups contaminates the inter-arrival timing.
+			// Excluding them keeps DNS Beaconing scoped to the cadence
+			// of real lookups and prevents a second HIGH finding on the
+			// exact same evidence the flood detector already flags.
+			if rcode != "NXDOMAIN" {
+				bk := apexKey{src, apex}
+				bs := beaconApex[bk]
+				if bs == nil {
+					bs = &dnsBeaconState{hourMap: make(map[int]int), firstTS: ts, minTS: ts, maxTS: ts}
+					beaconApex[bk] = bs
+				}
+				bs.count++
+				if ts > 0 {
+					if bs.lastTS > 0 {
+						if iv := ts - bs.lastTS; iv > 0 {
+							bs.ivs, bs.ivsSeen = reservoirAddF(bs.ivs, bs.ivsSeen, iv, beaconIvCap)
+						}
+					}
+					bs.lastTS = ts
+					bs.tsData, bs.tsSeen = reservoirAddT(bs.tsData, bs.tsSeen, [3]float64{ts, 0, 0}, beaconTsCap)
+					bs.hourMap[int(ts)/3600]++
+					if bs.firstTS == 0 || ts < bs.firstTS {
+						bs.firstTS = ts
+					}
+					if bs.minTS == 0 || ts < bs.minTS {
+						bs.minTS = ts
+					}
+					if ts > bs.maxTS {
+						bs.maxTS = ts
+					}
+				}
 			}
 
 			// Suspicious TLD
@@ -276,6 +353,135 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			DstPort:   "53",
 			Detail:    fmt.Sprintf("High subdomain diversity — apex: %s | Unique subdomains: %d | Avg entropy: %.2f", k.apex, len(data.subs), avgEnt),
 			Timestamp: fmtTS(data.firstTS),
+		})
+	}
+
+	// ── DNS-cadence beaconing (§2g) ───────────────────────────────────────────
+	// A regular-cadence, low-entropy, low-diversity DNS heartbeat (the
+	// Cobalt-Strike DNS C2 shape) slips DNS Tunneling (entropy/diversity
+	// too low) and conn-level Beaconing (IP-pair keyed, never consumes
+	// query timing). This closes that gap on the (src, apex) key.
+	for k, bs := range beaconApex {
+		if bs.count < a.cfg.DNSBeaconMinQueries || len(bs.ivs) < 3 {
+			continue
+		}
+		// Benign skip: built-in CDN/cloud allowlist + the operator's
+		// curated allowlist. A constant-cadence resolver / telemetry /
+		// CDN apex otherwise aggregates every query under one key and
+		// the timing scorer can read that regularity as a beacon.
+		if matchesCDNAllowlist(k.apex) || (a.allowlistMatches != nil && a.allowlistMatches(k.apex)) {
+			continue
+		}
+
+		ivs := make([]float64, len(bs.ivs))
+		copy(ivs, bs.ivs)
+
+		// Timing axis — same recipe as the conn-level beacon detector
+		// (statistical → multimodal → entropy → spectral rescue).
+		// Inlined, not shared, so conn.go's proven path stays
+		// untouched; the golden fixture locks this behaviour.
+		tsScore := statisticalScore(ivs, 1.0)
+		if mm := intervalMultimodalScore(ivs); mm > tsScore {
+			tsScore = mm
+		}
+		if eh := intervalEntropyScore(ivs); eh > tsScore {
+			tsScore = eh
+		}
+		var spectralRescued bool
+		var spectralResult SpectralResult
+		if a.cfg.SpectralEnabled && tsScore < a.cfg.SpectralRescueThreshold && len(bs.tsData) >= a.cfg.SpectralMinObservations {
+			tsOnly := make([]float64, len(bs.tsData))
+			for i, row := range bs.tsData {
+				tsOnly[i] = row[0]
+			}
+			spec := spectralScore(tsOnly, a.cfg.SpectralMinObservations, a.cfg.SpectralFAPThreshold)
+			if spec.Score > tsScore {
+				tsScore = spec.Score
+				spectralRescued = true
+				spectralResult = spec
+			}
+		}
+
+		// Inverse subdomain-diversity axis. A fixed-FQDN heartbeat has
+		// ≈1 unique label under the apex; a subdomain-rotating beacon
+		// more, but still far below legit varied DNS. Read the existing
+		// apexMap diversity (same key) — absent means only the bare
+		// apex was queried (0 subs), maximally beacon-like. The score
+		// decays to 0 by the DNS Tunneling diversity floor (those are
+		// caught there, not here).
+		subCount := 0
+		if ad := apexMap[k]; ad != nil {
+			subCount = len(ad.subs)
+		}
+		divFloor := a.cfg.DNSUniqueSubdomainMin
+		if divFloor < 1 {
+			divFloor = 1
+		}
+		// Diversity gate. At or above the DNS Tunneling diversity
+		// floor the traffic is exfil-shaped, not a heartbeat — DNS
+		// Tunneling owns it and Correlated Activity links the two if
+		// the cadence is also regular. §2g scopes this detector to the
+		// *low-diversity* shape, so make that explicit rather than
+		// letting pure timing regularity carry a high-diversity apex.
+		if subCount >= divFloor {
+			continue
+		}
+		divScore := 1.0 - float64(subCount)/float64(divFloor)
+		if divScore < 0 {
+			divScore = 0
+		}
+
+		// Window-coverage axes — histogram regularity + duration span
+		// over the whole DNS capture, same helpers/min-bars as conn.go.
+		hScore, _ := histScoreFromHourMap(bs.hourMap, dnsWinMin, dnsWinMax)
+		durScore := durationScoreFromHourMap(bs.hourMap, bs.minTS, bs.maxTS, dnsWinMin, dnsWinMax, 6)
+		coverage := (hScore + durScore) / 2.0
+
+		// Composition: timing 0.5, inverse-diversity 0.25, coverage
+		// 0.25 — the slice's stated split, pinned by the golden.
+		score := clamp(int(100*(tsScore*0.5+divScore*0.25+coverage*0.25)), 1, 100)
+		if score < 1 {
+			continue
+		}
+		sev := model.SevHigh
+		if score >= 80 {
+			sev = model.SevCritical
+		}
+
+		ivMean := fmean(ivs)
+		ivMedian := fmedian(ivs)
+		ivCV := intervalCV(ivs, ivMean)
+
+		detail := fmt.Sprintf("DNS queries: %d | Unique subdomains: %d | Mean interval: %.1fs | CV: %.2f | Score: ts=%.2f div=%.2f cov=%.2f",
+			bs.count, subCount, ivMean, ivCV, tsScore, divScore, coverage)
+		if spectralRescued {
+			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (dominant period %.1fs, power %.1f, FAP threshold %.1f)",
+				spectralResult.Score, spectralResult.Period, spectralResult.RawPower, a.cfg.SpectralFAPThreshold)
+		}
+
+		// DSScore is left zero: DNS has no data-size axis, and the
+		// diversity axis is detector-internal (surfaced in Detail) —
+		// overloading the ds_score column would make §2e sub-score
+		// filtering mean different things per finding type. ts/hist/dur
+		// keep their conn-level meaning; the timing-summary fields are
+		// the same as every other beacon.
+		a.add(model.Finding{
+			Type:           "DNS Beaconing",
+			Severity:       sev,
+			Score:          score,
+			SrcIP:          k.src,
+			DstIP:          k.apex,
+			DstPort:        "53",
+			Detail:         detail,
+			Timestamp:      fmtTS(bs.firstTS),
+			Hostname:       k.apex,
+			TSScore:        tsScore,
+			HistScore:      hScore,
+			DurScore:       durScore,
+			MeanInterval:   ivMean,
+			MedianInterval: ivMedian,
+			Jitter:         ivCV,
+			SampleSize:     bs.count,
 		})
 	}
 }

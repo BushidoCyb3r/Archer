@@ -1720,6 +1720,38 @@ dialog::backdrop {
   border-top-left-radius: var(--radius-lg);
   border-top-right-radius: var(--radius-lg);
 }
+/* In-dialog tab strip — Allowlist dialog (Allowlist / Relationships).
+   Modeled on the dock tab strip; sits between the draggable header and
+   the body. */
+.dlg-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 22px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-elev-1);
+  flex-shrink: 0;
+}
+.dlg-tab-btn {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--fg-dim);
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: color .12s, border-color .12s;
+}
+.dlg-tab-btn:hover { color: var(--fg-secondary); }
+.dlg-tab-btn.active {
+  color: var(--fg-primary);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.al-tab-panel { display: none; }
+.al-tab-panel.active { display: block; }
+
 .dlg-body {
   padding: 16px 22px;
   overflow: auto;

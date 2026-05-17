@@ -16,6 +16,45 @@ const Detail = (() => {
     return 'OPEN';
   }
 
+  // _fmtDur renders a seconds value in human units for the triage
+  // header — "47s", "5m 2s", "1h 03m". Sub-second cadences (rare, but
+  // a tight loop or a parser artifact can produce one) keep one
+  // decimal so they don't collapse to "0s".
+  function _fmtDur(sec) {
+    if (!isFinite(sec) || sec <= 0) return '0s';
+    if (sec < 1)   return sec.toFixed(1) + 's';
+    if (sec < 90)  return Math.round(sec) + 's';
+    if (sec < 3600) {
+      const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+      return s ? `${m}m ${s}s` : `${m}m`;
+    }
+    const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+    return m ? `${h}h ${String(m).padStart(2, '0')}m` : `${h}h`;
+  }
+
+  // _beaconTriage builds the structured triage header for Beaconing /
+  // HTTP Beaconing findings from the additive fields the analyzer now
+  // persists (migration 0018). Returns [] for non-beacon findings or
+  // when sample_size is zero — a pre-0018 historical beacon row reads
+  // back zeroed, so it cleanly falls back to the raw Detail string with
+  // no broken header. stddev is reconstructed mean × jitter (jitter is
+  // the interval CV); that's the "± Ns" spread an analyst reads first.
+  function _beaconTriage(f) {
+    const isBeacon = f.type === 'Beaconing' || f.type === 'HTTP Beaconing';
+    if (!isBeacon || !(f.sample_size > 0)) return [];
+    const mean = f.mean_interval || 0;
+    const cv   = f.jitter || 0;
+    const std  = mean * cv;
+    const out = [];
+    out.push('Beacon triage');
+    out.push(`Cadence    : every ${_fmtDur(mean)} ± ${_fmtDur(std)}   (median ${_fmtDur(f.median_interval || 0)})`);
+    out.push(`Jitter     : ${(cv * 100).toFixed(1)}%`);
+    out.push(`Samples    : n=${f.sample_size}`);
+    out.push(`Sub-scores : ts ${(f.ts_score || 0).toFixed(2)}  ds ${(f.ds_score || 0).toFixed(2)}  hist ${(f.hist_score || 0).toFixed(2)}  dur ${(f.dur_score || 0).toFixed(2)}`);
+    out.push('');
+    return out;
+  }
+
   function render(f) {
     const header = document.getElementById('detail-header');
     const text   = document.getElementById('detail-text');
@@ -38,6 +77,7 @@ const Detail = (() => {
     if (f.dst_ip)   lines.push(`Dst IP     : ${f.dst_ip}`);
     if (f.dst_port) lines.push(`Dst Port   : ${f.dst_port}`);
     lines.push('');
+    _beaconTriage(f).forEach(l => lines.push(l));
     if (f.detail)   lines.push(f.detail);
     if (f.is_new)   { lines.push(''); lines.push('*** NEW SINCE BASELINE ***'); }
     if (f.ioc_match){ lines.push(''); lines.push('*** MATCHED IOC LIST ***'); }

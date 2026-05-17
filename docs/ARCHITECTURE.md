@@ -185,7 +185,15 @@ CREATE TABLE findings (
     intervals    TEXT,         -- JSON, beacon-chart raw intervals
     ts_data      TEXT,         -- JSON, beacon-chart raw timestamps
     notes        TEXT,         -- JSON array of operator notes (escalation, TI cross-notes)
-    correlations TEXT          -- JSON []int of sibling finding IDs (Correlated Activity participants)
+    correlations TEXT,         -- JSON []int of sibling finding IDs (Correlated Activity participants)
+    ts_score        REAL NOT NULL DEFAULT 0,  -- migration 0018: per-axis beacon sub-scores
+    ds_score        REAL NOT NULL DEFAULT 0,  -- (NEW-89 closure). DNS Beaconing leaves
+    hist_score      REAL NOT NULL DEFAULT 0,  -- ds_score zero — no data-size axis.
+    dur_score       REAL NOT NULL DEFAULT 0,
+    mean_interval   REAL NOT NULL DEFAULT 0,  -- triage-header timing summary; persisted
+    median_interval REAL NOT NULL DEFAULT 0,  -- so it survives restart + carry-forward
+    jitter          REAL NOT NULL DEFAULT 0,  -- interval coefficient of variation
+    sample_size     INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE beacon_history (
@@ -285,6 +293,28 @@ ALTER TABLE feeds ADD COLUMN allow_internal INTEGER NOT NULL DEFAULT 0;
 -- the Feeds dialog renders the ratio as a per-feed "% aged out".
 -- See docs/FEEDS.md "Calibrating the window".
 ALTER TABLE feeds ADD COLUMN last_pruned_count INTEGER NOT NULL DEFAULT 0;
+
+-- v0.24.0 / migration 0017. Pair allowlist — tuple-scoped permanent
+-- view filter (UI: the Allowlist modal's "Relationships" tab as of
+-- v0.25.0). Pure view filter: consulted in findings_filter +
+-- bell-suppression only, never at emit time, so it never deletes a
+-- finding from the store.
+CREATE TABLE pair_allowlist (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    src          TEXT NOT NULL,
+    dst          TEXT NOT NULL,
+    port         TEXT NOT NULL DEFAULT '',
+    finding_type TEXT NOT NULL DEFAULT '',   -- '' = every type on the tuple
+    detail       TEXT NOT NULL DEFAULT '',
+    created_by   TEXT NOT NULL DEFAULT '',
+    created_at   INTEGER NOT NULL
+);  -- UNIQUE(src, dst, port, finding_type)
+
+-- v0.25.0 / migration 0018. Eight beacon-detail columns on findings
+-- (shown inline above): the four per-axis sub-scores + the
+-- mean/median/jitter/sample_size triage-summary fields. Closes NEW-89
+-- — they were in-memory only and zeroed on every restart and on the
+-- preserve-historical carry-forward; now durable.
 
 -- Users live in a separate file (/data/users.db, sometimes co-located):
 CREATE TABLE users (...);
