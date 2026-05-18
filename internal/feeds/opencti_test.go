@@ -72,7 +72,7 @@ func TestOpenCTIClient_Fetch_ParsesAndNormalizes(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewOpenCTIClient(srv.URL, "test-token", false, false)
+	c := NewOpenCTIClient(srv.URL, "test-token", false, true)
 	res, err := c.Fetch(context.Background(), 0)
 	if err != nil {
 		t.Fatalf("Fetch returned error: %v", err)
@@ -158,7 +158,7 @@ func TestOpenCTIClient_Fetch_FollowsPagination(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewOpenCTIClient(srv.URL, "tok", false, false)
+	c := NewOpenCTIClient(srv.URL, "tok", false, true)
 	c.PageSize = 1
 	res, err := c.Fetch(context.Background(), 0)
 	if err != nil {
@@ -189,7 +189,7 @@ func TestOpenCTIClient_Fetch_PageLimitGuard(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewOpenCTIClient(srv.URL, "tok", false, false)
+	c := NewOpenCTIClient(srv.URL, "tok", false, true)
 	c.PageLimit = 3
 	_, err := c.Fetch(context.Background(), 0)
 	if err != nil {
@@ -207,7 +207,7 @@ func TestOpenCTIClient_Fetch_PropagatesGraphQLError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewOpenCTIClient(srv.URL, "tok", false, false)
+	c := NewOpenCTIClient(srv.URL, "tok", false, true)
 	_, err := c.Fetch(context.Background(), 0)
 	if err == nil {
 		t.Fatalf("expected graphql error, got nil")
@@ -223,7 +223,7 @@ func TestOpenCTIClient_Fetch_PropagatesHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewOpenCTIClient(srv.URL, "tok", false, false)
+	c := NewOpenCTIClient(srv.URL, "tok", false, true)
 	_, err := c.Fetch(context.Background(), 0)
 	if err == nil {
 		t.Fatalf("expected HTTP 403 error, got nil")

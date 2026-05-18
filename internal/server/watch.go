@@ -400,6 +400,7 @@ func (s *Server) launchIncrementalAnalysis(files []string) {
 			close(statusCh)
 		}()
 
+		startedAt := time.Now().UTC()
 		findings := az.AnalyzeTIOnly(files)
 
 		// SetFindingsIncremental (rather than SetFindings) so the
@@ -420,8 +421,10 @@ func (s *Server) launchIncrementalAnalysis(files []string) {
 		if !wasCancelled {
 			// Incremental updates the "any run" timestamp only — does NOT
 			// touch the full-run timestamp, so tomorrow's first tick still
-			// triggers a full pass.
-			s.store.SetLastAnalysisTime(time.Now().UTC())
+			// triggers a full pass. Uses startedAt for the same reason as
+			// launchAnalysisWithOptions: files synced during this pass
+			// must be caught by the next incremental.
+			s.store.SetLastAnalysisTime(startedAt)
 		}
 
 		newCount := 0
@@ -678,6 +681,15 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) bool {
 			close(statusCh)
 		}()
 
+		// Capture the start time before Analyze runs. SetLastAnalysisTime
+		// uses startedAt (not the post-analysis wall clock) so the next
+		// incremental tick's mtime cutoff covers files written during the
+		// analysis window — a long run on a large corpus can take 30+
+		// minutes, and logs rsynced during that window would otherwise
+		// have mtimes before the post-analysis timestamp and be silently
+		// excluded from every subsequent incremental until the next
+		// UTC-day full pass.
+		startedAt := time.Now().UTC()
 		findings := az.Analyze(files)
 
 		newNotifs := s.store.SetFindings(findings)
@@ -690,16 +702,15 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) bool {
 		wasCancelled := az.Ctx().Err() != nil
 		if !wasCancelled {
 			s.store.SetLastAnalysisFingerprint(s.datasetFingerprint(files))
-			// Mark both the "full run" and "any run" timestamps. The full
-			// stamp gates the next watch tick's full-vs-incremental
-			// decision; the any stamp is the mtime cutoff for the next
-			// incremental's file filter. Manual "Discard & re-analyze"
-			// also flows through here, so a manual reset cleanly resets
-			// both — tomorrow's incremental ticks will work off a fresh
-			// baseline established by the manual run.
+			// SetLastFullAnalysisTime uses the completion time so the
+			// full-vs-incremental day gate (UTC YearDay comparison) reflects
+			// when this run actually finished. SetLastAnalysisTime uses
+			// startedAt so the incremental mtime cutoff reaches back to
+			// when this pass began reading files, covering logs written
+			// during the analysis window.
 			now := time.Now().UTC()
 			s.store.SetLastFullAnalysisTime(now)
-			s.store.SetLastAnalysisTime(now)
+			s.store.SetLastAnalysisTime(startedAt)
 			// The post-analysis archive only fires for the automated daily
 			// watch tick (force=false). Manual analyses — including the
 			// "Discard findings & re-analyze" reset — must not silently move
