@@ -50,7 +50,7 @@ const Detail = (() => {
     out.push(`Cadence    : every ${_fmtDur(mean)} ± ${_fmtDur(std)}   (median ${_fmtDur(f.median_interval || 0)})`);
     out.push(`Jitter     : ${(cv * 100).toFixed(1)}%`);
     out.push(`Samples    : n=${f.sample_size}`);
-    out.push(`Sub-scores : ts ${(f.ts_score || 0).toFixed(2)}  ds ${(f.ds_score || 0).toFixed(2)}  hist ${(f.hist_score || 0).toFixed(2)}  dur ${(f.dur_score || 0).toFixed(2)}`);
+    out.push(`Sub-scores : Timing ${(f.ts_score || 0).toFixed(2)}   Data size ${(f.ds_score || 0).toFixed(2)}   Histogram ${(f.hist_score || 0).toFixed(2)}   Persistence ${(f.dur_score || 0).toFixed(2)}`);
     out.push('');
     return out;
   }
