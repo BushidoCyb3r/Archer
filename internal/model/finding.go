@@ -110,6 +110,47 @@ type Finding struct {
 	MedianInterval float64 `json:"median_interval,omitempty"`
 	Jitter         float64 `json:"jitter,omitempty"`
 	SampleSize     int     `json:"sample_size,omitempty"`
+	// JA3 / JA4 are the TLS client fingerprints of the connection that
+	// seeded a conn-level Beaconing finding, lifted from the sslUIDIndex
+	// at emit time (the same index lookup that already resolves the SNI
+	// into Hostname). Empty for non-TLS beacons, HTTP Beaconing (http.log
+	// is cleartext by construction — TLS lands in ssl.log, not http.log),
+	// DNS Beaconing, and every non-beacon type. JA4 stays empty unless
+	// the sensor's Zeek emits a ja4 field (stock ssl.log is ja3/ja3s; JA4
+	// needs the JA4+ plugin) — read opportunistically, never required.
+	// Persisted as TEXT columns (migration 0019) for the same restart-
+	// survival reason as the 0018 triage fields: a carried-forward beacon
+	// that didn't re-fire this run still carries its fingerprint instead
+	// of blanking out.
+	JA3 string `json:"ja3,omitempty"`
+	JA4 string `json:"ja4,omitempty"`
+	// JA3SiblingCount is a transient, derived-at-read field — the number
+	// of OTHER beacon findings in the current dataset sharing this JA3.
+	// Computed by the single-finding detail handler, never persisted (no
+	// column, excluded from the store round-trip and exports). Lets the
+	// analyst see "this implant fingerprint also fired on N other pairs"
+	// and pivot. The detail render gates the JA3 block on JA3 being
+	// non-empty, not on this count, so an omitted-because-zero value
+	// reads correctly as "matched 0 other beacons".
+	JA3SiblingCount int `json:"ja3_sibling_count,omitempty"`
+	// TopURIs is the HTTP Beaconing destination's request-path
+	// footprint: the most-frequent paths the same (sensor,src,dst,host)
+	// group beaconed on, count-descending, capped. Stamped identically
+	// on every HTTP Beaconing finding in the group at emit time, so the
+	// one that survives the (Type,src,dst,port) fingerprint dedup still
+	// carries the full footprint regardless of which single path scored
+	// highest — deriving it from the surviving finding's own URI would
+	// reintroduce the dedup blind spot. Persisted as a JSON TEXT column
+	// (migration 0020) for the same restart / carry-forward survival
+	// reason as the JA3 fields. Empty for every non-HTTP-Beaconing type.
+	TopURIs []URIStat `json:"top_uris,omitempty"`
+}
+
+// URIStat is one request path and the number of requests an HTTP
+// beacon made to it. Slice element of Finding.TopURIs.
+type URIStat struct {
+	URI   string `json:"uri"`
+	Count int    `json:"count"`
 }
 
 // BeaconHistoryKey is the per-beacon identity used by the
@@ -211,6 +252,22 @@ func IsRollupType(t string) bool {
 func IsThreatIntelType(t string) bool {
 	switch t {
 	case TypeTIHitIP, TypeTIHitDomain, TypeTIHitHash, TypeSuspiciousURL, TypeTIHitLegacy:
+		return true
+	}
+	return false
+}
+
+// IsBeaconType reports whether a finding type carries the migration-0018
+// triage fields (the four ts/ds/hist/dur sub-scores + mean/median/jitter/
+// sample_size). DNS Beaconing leaves DSScore a structural zero — it has no
+// data-size axis — but still populates the rest, so it counts. Bare string
+// literals rather than constants: the analyzer emit sites use the literals
+// directly and introducing a constant set is a wider refactor than this
+// helper's callers (sub-score filter scope, JA3 cross-ref, beacon export)
+// justify.
+func IsBeaconType(t string) bool {
+	switch t {
+	case "Beaconing", "HTTP Beaconing", "DNS Beaconing":
 		return true
 	}
 	return false

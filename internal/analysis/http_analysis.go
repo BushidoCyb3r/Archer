@@ -9,6 +9,54 @@ import (
 	"github.com/BushidoCyb3r/Archer/internal/parser"
 )
 
+// httpBeaconTopURICap bounds the per-(sensor,src,dst,host) request-path
+// footprint stamped on each HTTP Beaconing finding. A footprint is the
+// multi-path implant shape, not an exhaustive site map — top-N by
+// request count is enough signal and keeps the persisted JSON small.
+const httpBeaconTopURICap = 8
+
+// uriGroup identifies one HTTP-beacon destination — the (sensor,src,
+// dst,host) tuple whose request paths share a footprint. Distinct from
+// the (Type,src,dst,port) fingerprint that dedups findings.
+type uriGroup struct{ sensor, src, dst, host string }
+
+// uriFootprintEntry is one beacon-shaped path observed for a group,
+// fed to topURIFootprint after the caller applies the beacon gate.
+type uriFootprintEntry struct {
+	group uriGroup
+	uri   string
+	count int
+}
+
+// topURIFootprint groups entries by uriGroup and returns each group's
+// paths ordered by request count descending, URI ascending as the
+// deterministic tie-break, capped at cap. Pure so the ordering / cap /
+// grouping invariant is unit-testable without a timing-sensitive Zeek
+// fixture (analyzeHTTP owns the beacon gate; this owns the shape).
+func topURIFootprint(entries []uriFootprintEntry, limit int) map[uriGroup][]model.URIStat {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make(map[uriGroup][]model.URIStat)
+	for _, e := range entries {
+		out[e.group] = append(out[e.group], model.URIStat{URI: e.uri, Count: e.count})
+	}
+	for g := range out {
+		fp := out[g]
+		sort.Slice(fp, func(i, j int) bool {
+			if fp[i].Count != fp[j].Count {
+				return fp[i].Count > fp[j].Count
+			}
+			return fp[i].URI < fp[j].URI
+		})
+		if limit > 0 && len(fp) > limit {
+			fp = fp[:limit]
+		}
+		out[g] = fp
+	}
+	return out
+}
+
 type httpBeaconState struct {
 	lastTs   float64
 	ivs      []float64
@@ -340,6 +388,28 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 	}
 	a.mu.Unlock()
 
+	// Footprint aggregation. The (Type,src,dst,port) fingerprint dedup
+	// in setFindingsImpl keeps one HTTP Beaconing finding per group, so
+	// the multi-path footprint ("this implant beacons /a, /b, /c on the
+	// same host") is destroyed before storage. Collect the beacon-shaped
+	// paths here, under the SAME gate the emit loop below applies (a
+	// path that isn't itself beacon-shaped isn't part of the footprint),
+	// then topURIFootprint groups + sorts + caps. The identical list is
+	// stamped on every finding in the group, so whichever one wins the
+	// dedup carries the whole footprint regardless of which path scored
+	// highest.
+	var fpEntries []uriFootprintEntry
+	for bk, st := range beacon {
+		if beaconCounts[bk] < a.cfg.HTTPBeaconMinRequests || len(st.ivs) < 3 {
+			continue
+		}
+		fpEntries = append(fpEntries, uriFootprintEntry{
+			group: uriGroup{bk.sensor, bk.src, bk.dst, bk.host},
+			uri:   bk.uri, count: beaconCounts[bk],
+		})
+	}
+	footprint := topURIFootprint(fpEntries, httpBeaconTopURICap)
+
 	// ── HTTP Beaconing ────────────────────────────────────────────────────────
 	for bk, st := range beacon {
 		totalObserved := beaconCounts[bk]
@@ -428,6 +498,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 			TSData:         tsData,
 			Hostname:       bk.host,
 			URI:            bk.uri,
+			TopURIs:        footprint[uriGroup{bk.sensor, bk.src, bk.dst, bk.host}],
 			TSScore:        tsScore,
 			DSScore:        dsScore,
 			HistScore:      hScore,

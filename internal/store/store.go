@@ -336,7 +336,7 @@ func (s *Store) loadFindings() {
 	if s.db == nil {
 		return
 	}
-	rows, err := s.db.Query(`SELECT id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size FROM findings ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size, ja3, ja4, top_uris FROM findings ORDER BY id`)
 	if err != nil {
 		log.Printf("store: load findings: %v", err)
 		return
@@ -345,8 +345,8 @@ func (s *Store) loadFindings() {
 	for rows.Next() {
 		var f model.Finding
 		var iocMatch, isNew int
-		var intervals, tsData, notes, correlations string
-		if err := rows.Scan(&f.ID, &f.Type, &f.Severity, &f.Score, &f.SrcIP, &f.DstIP, &f.DstPort, &f.Detail, &f.Timestamp, &f.SourceFile, &f.Status, &f.Analyst, &f.AnalystNote, &f.StatusTS, &iocMatch, &isNew, &f.Sensor, &intervals, &tsData, &notes, &correlations, &f.TSScore, &f.DSScore, &f.HistScore, &f.DurScore, &f.MeanInterval, &f.MedianInterval, &f.Jitter, &f.SampleSize); err != nil {
+		var intervals, tsData, notes, correlations, topURIs string
+		if err := rows.Scan(&f.ID, &f.Type, &f.Severity, &f.Score, &f.SrcIP, &f.DstIP, &f.DstPort, &f.Detail, &f.Timestamp, &f.SourceFile, &f.Status, &f.Analyst, &f.AnalystNote, &f.StatusTS, &iocMatch, &isNew, &f.Sensor, &intervals, &tsData, &notes, &correlations, &f.TSScore, &f.DSScore, &f.HistScore, &f.DurScore, &f.MeanInterval, &f.MedianInterval, &f.Jitter, &f.SampleSize, &f.JA3, &f.JA4, &topURIs); err != nil {
 			log.Printf("store: scan finding: %v", err)
 			continue
 		}
@@ -374,6 +374,14 @@ func (s *Store) loadFindings() {
 		if correlations != "" {
 			if err := json.Unmarshal([]byte(correlations), &f.Correlations); err != nil {
 				log.Printf("store: finding %d: corrupt correlations: %v", f.ID, err)
+			}
+		}
+		// top_uris (migration 0020): the HTTP-beacon path footprint.
+		// Empty string (schema default for pre-0020 rows / non-HTTP
+		// findings) decodes to a nil slice — the pre-feature shape.
+		if topURIs != "" {
+			if err := json.Unmarshal([]byte(topURIs), &f.TopURIs); err != nil {
+				log.Printf("store: finding %d: corrupt top_uris: %v", f.ID, err)
 			}
 		}
 		s.findings = append(s.findings, f)
@@ -409,6 +417,7 @@ func (s *Store) saveFindings() {
 		// shapes are semantically equivalent for the chip-rendering
 		// logic.
 		correlations, _ := json.Marshal(f.Correlations)
+		topURIs, _ := json.Marshal(f.TopURIs)
 		iocMatch, isNew := 0, 0
 		if f.IOCMatch {
 			iocMatch = 1
@@ -417,11 +426,12 @@ func (s *Store) saveFindings() {
 			isNew = 1
 		}
 		_, err := tx.Exec(
-			`INSERT INTO findings (id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT INTO findings (id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size, ja3, ja4, top_uris) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			f.ID, f.Type, string(f.Severity), f.Score, f.SrcIP, f.DstIP, f.DstPort, f.Detail, f.Timestamp, f.SourceFile,
 			string(f.Status), f.Analyst, f.AnalystNote, f.StatusTS, iocMatch, isNew, f.Sensor,
 			string(intervals), string(tsData), string(notes), string(correlations),
 			f.TSScore, f.DSScore, f.HistScore, f.DurScore, f.MeanInterval, f.MedianInterval, f.Jitter, f.SampleSize,
+			f.JA3, f.JA4, string(topURIs),
 		)
 		if err != nil {
 			tx.Rollback()
@@ -769,6 +779,29 @@ func (s *Store) GetFinding(id int) (model.Finding, bool) {
 		return model.Finding{}, false
 	}
 	return s.findings[i], true
+}
+
+// CountBeaconsWithJA3 returns how many beacon findings other than
+// excludeID carry the same (non-empty) JA3 — the "matched N other
+// beacons in this dataset" signal the detail pane renders. An empty
+// ja3 returns 0 (no fingerprint, nothing to correlate). In-memory
+// scan under the same RLock the rest of the read path uses; the
+// finding set is already resident, so this is cheap relative to the
+// per-request detail render that calls it.
+func (s *Store) CountBeaconsWithJA3(ja3 string, excludeID int) int {
+	if ja3 == "" {
+		return 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	n := 0
+	for i := range s.findings {
+		f := &s.findings[i]
+		if f.ID != excludeID && f.JA3 == ja3 && model.IsBeaconType(f.Type) {
+			n++
+		}
+	}
+	return n
 }
 
 func (s *Store) AddNote(id int, note model.Note) bool {

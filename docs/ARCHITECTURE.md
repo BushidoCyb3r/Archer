@@ -193,7 +193,11 @@ CREATE TABLE findings (
     mean_interval   REAL NOT NULL DEFAULT 0,  -- triage-header timing summary; persisted
     median_interval REAL NOT NULL DEFAULT 0,  -- so it survives restart + carry-forward
     jitter          REAL NOT NULL DEFAULT 0,  -- interval coefficient of variation
-    sample_size     INTEGER NOT NULL DEFAULT 0
+    sample_size     INTEGER NOT NULL DEFAULT 0,
+    ja3             TEXT NOT NULL DEFAULT '',  -- migration 0019: TLS client fingerprint of
+    ja4             TEXT NOT NULL DEFAULT '',  -- the conn-level Beaconing seed connection
+    top_uris        TEXT NOT NULL DEFAULT ''   -- migration 0020: JSON []{uri,count} HTTP-beacon
+                                               -- path footprint, aggregated pre-dedup
 );
 
 CREATE TABLE beacon_history (
@@ -315,6 +319,14 @@ CREATE TABLE pair_allowlist (
 -- mean/median/jitter/sample_size triage-summary fields. Closes NEW-89
 -- — they were in-memory only and zeroed on every restart and on the
 -- preserve-historical carry-forward; now durable.
+
+-- v0.27.0 / migrations 0019 + 0020. ja3/ja4 (the conn-level Beaconing
+-- seed connection's TLS client fingerprint, lifted from sslUIDIndex at
+-- emit) and top_uris (the HTTP-beacon path footprint, JSON []{uri,
+-- count} aggregated over the pre-dedup (sensor,src,dst,host) keys).
+-- Same restart/carry-forward durability reason as 0018. Additive,
+-- DEFAULT '' — not a detection-semantics change (no score, threshold,
+-- finding type, or Fingerprint() touched; golden corpus unchanged).
 
 -- Users live in a separate file (/data/users.db, sometimes co-located):
 CREATE TABLE users (...);

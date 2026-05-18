@@ -21,6 +21,10 @@ func (a *Analyzer) analyzeSSL(files []string) {
 			dstPort := parser.GetInt(rec, "id.resp_p")
 			uid := parser.GetStr(rec, "uid")
 			ja3 := strings.ToLower(parser.GetStr(rec, "ja3"))
+			// JA4 is opportunistic: stock Zeek ssl.log is ja3/ja3s, so
+			// GetStr returns "" unless the sensor runs the JA4+ plugin.
+			// An empty value is the normal case, not an error.
+			ja4 := strings.ToLower(parser.GetStr(rec, "ja4"))
 			sni := parser.GetStr(rec, "server_name")
 			version := parser.GetStr(rec, "version")
 			established := parser.GetBool(rec, "established")
@@ -38,6 +42,7 @@ func (a *Analyzer) analyzeSSL(files []string) {
 				a.sslUIDIndex[uid] = sslEntry{
 					serverName: sni,
 					ja3:        ja3,
+					ja4:        ja4,
 					version:    version,
 					subject:    subject,
 					issuer:     issuer,

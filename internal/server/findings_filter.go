@@ -22,7 +22,10 @@ import (
 // Supported query parameters:
 //
 //	search        — case-insensitive substring across type/src/dst/port/detail/ts/severity
-//	type          — exact finding type ("All" or "" disables)
+//	type          — exact finding type ("All" or "" disables); the
+//	                pseudo-value "beacons" matches the whole beacon
+//	                family (model.IsBeaconType) — used by the beacon
+//	                export target and the all-beacons Findings filter
 //	severity      — exact severity  ("All" or "" disables)
 //	min_score     — minimum score (integer)
 //	delta         — "true" restricts to IsNew findings
@@ -34,6 +37,20 @@ import (
 //	                was rescued by the spectral path (Detail contains
 //	                "Spectral rescued:"). Used by the calibration loop to
 //	                triage which rescue candidates are true vs false positives.
+//	ts_min/ts_max, ds_min/ds_max, hist_min/hist_max, dur_min/dur_max
+//	              — inclusive [min,max] bounds on the four beacon sub-scores
+//	                (each axis is 0–1; either bound may be omitted). Setting
+//	                ANY of these implicitly scopes the result to beacon
+//	                findings (model.IsBeaconType) — a bare "dur_max=0.3"
+//	                would otherwise surface every non-beacon, whose dur_score
+//	                is a structural 0 ≤ 0.3, which is never the intent. A
+//	                non-numeric bound disables that one axis rather than
+//	                blanking the filter.
+//	ja3           — exact JA3 client-fingerprint match (case-insensitive;
+//	                JA3 is stored lowercased at emit). Powers the detail-
+//	                pane "matched N other beacons" pivot — clicking the
+//	                JA3 line filters to every finding carrying that
+//	                fingerprint.
 //
 // Allowlisted and currently-suppressed findings are always excluded —
 // filtering doesn't undo those admin decisions. Shared between the findings
@@ -68,6 +85,21 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 	dstMatcher := parseIPMatcher(q.Get("dst_ip"))
 	portSet := parsePortSet(q.Get("dst_port"))
 
+	// Beacon sub-score range filters. Sub-scores are only meaningful for
+	// beacon findings (zero on every other type and on pre-0018 legacy
+	// beacon rows); when any bound is set the filter implicitly scopes to
+	// beacon types so a bare upper bound can't surface non-beacons whose
+	// sub-scores are a structural zero.
+	ssTS := parseScoreRange(q.Get("ts_min"), q.Get("ts_max"))
+	ssDS := parseScoreRange(q.Get("ds_min"), q.Get("ds_max"))
+	ssHist := parseScoreRange(q.Get("hist_min"), q.Get("hist_max"))
+	ssDur := parseScoreRange(q.Get("dur_min"), q.Get("dur_max"))
+	anySubScore := ssTS != nil || ssDS != nil || ssHist != nil || ssDur != nil
+	// JA3 is stored lowercased at emit (strings.ToLower in analyzeSSL);
+	// lowercase the query value so a pasted upper/mixed-case fingerprint
+	// still matches.
+	ja3F := strings.ToLower(strings.TrimSpace(q.Get("ja3")))
+
 	// User-supplied datetime-local strings are parsed in the operator's
 	// configured timezone; the analyzer's own Timestamp field stays UTC.
 	opLoc := s.operatorLocation()
@@ -95,13 +127,41 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 	result := make([]model.Finding, 0, len(findings))
 	for i := range findings {
 		f := &findings[i]
-		if typeF != "" && typeF != "All" && f.Type != typeF {
+		if typeF == "beacons" {
+			// Pseudo-type: the beacon family (Beaconing / HTTP Beaconing /
+			// DNS Beaconing) as one selector. Powers "export just the
+			// beacons" and an all-beacons Findings filter without three
+			// separate passes.
+			if !model.IsBeaconType(f.Type) {
+				continue
+			}
+		} else if typeF != "" && typeF != "All" && f.Type != typeF {
 			continue
 		}
 		if sevF != "" && sevF != "All" && string(f.Severity) != sevF {
 			continue
 		}
 		if f.Score < minScore {
+			continue
+		}
+		if anySubScore {
+			if !model.IsBeaconType(f.Type) {
+				continue
+			}
+			if ssTS != nil && !ssTS(f.TSScore) {
+				continue
+			}
+			if ssDS != nil && !ssDS(f.DSScore) {
+				continue
+			}
+			if ssHist != nil && !ssHist(f.HistScore) {
+				continue
+			}
+			if ssDur != nil && !ssDur(f.DurScore) {
+				continue
+			}
+		}
+		if ja3F != "" && f.JA3 != ja3F {
 			continue
 		}
 		if alM.Matches(f.SrcIP) || alM.Matches(f.DstIP) {
@@ -215,6 +275,41 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 		result = append(result, *f)
 	}
 	return result
+}
+
+// parseScoreRange builds an inclusive [min,max] predicate over a beacon
+// sub-score (each sub-score is in [0,1]). Either bound may be omitted.
+// Returns nil when neither bound parses as a float, so the caller skips
+// that axis entirely — a stray non-numeric value disables one axis
+// rather than filtering everything out (same defensive shape as
+// parsePortSet / parseIPMatcher).
+func parseScoreRange(minS, maxS string) func(float64) bool {
+	lo, okLo := parseFloatBound(minS)
+	hi, okHi := parseFloatBound(maxS)
+	if !okLo && !okHi {
+		return nil
+	}
+	return func(v float64) bool {
+		if okLo && v < lo {
+			return false
+		}
+		if okHi && v > hi {
+			return false
+		}
+		return true
+	}
+}
+
+func parseFloatBound(s string) (float64, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, false
+	}
+	return f, true
 }
 
 // parsePortSet accepts a single port ("443") or a comma-separated list

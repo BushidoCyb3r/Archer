@@ -206,6 +206,7 @@
       <label>Src IP/CIDR <input class="filter-input" id="filter-src" type="text" placeholder="10.0.0.0/24"></label>
       <label>Dst IP/CIDR <input class="filter-input" id="filter-dst" type="text" placeholder="1.2.3.4"></label>
       <label>Dst Port <input class="filter-input" id="filter-port" type="text" placeholder="443 or 80,443"></label>
+      <label title="Exact JA3 TLS client fingerprint (case-insensitive). The JA3 Pivot button in the finding detail fills this to surface every beacon sharing the fingerprint.">JA3 <input class="filter-input wide" id="filter-ja3" type="text" placeholder="TLS client fingerprint"></label>
       <label>Sensor
         <select class="filter-select" id="filter-sensor">
           <option value="">All</option>
@@ -213,6 +214,13 @@
       </label>
       <label title="Restrict to Beaconing findings whose timing score was rescued by the spectral path. Use this during spectral calibration to triage which rescues are true positives vs false positives."><input id="filter-spectral-only" type="checkbox"> Spectral rescued only</label>
       <label title="Show the Dismissed tab in the tab strip. Dismissed findings are hidden from every other view by default; the Dismissed tab is the only place they surface."><input id="filter-show-dismissed" type="checkbox"> Show Dismissed tab</label>
+    </div>
+    <div id="filter-bar-subscore" style="display:none">
+      <span class="filter-subscore-title" title="Inclusive [min,max] bounds on the four beacon sub-scores (each axis 0–1). Setting any bound scopes results to beacon findings. Leave blank to ignore an axis. Example: ts ≥ 0.7 + dur ≤ 0.3 = tight-rhythm short-lived spikes.">Beacon sub-scores</span>
+      <label title="Timing-rhythm sub-score (interval regularity / spectral).">ts <input class="filter-input ss-in" id="filter-ss-ts-min" type="number" min="0" max="1" step="0.05" placeholder="≥"><input class="filter-input ss-in" id="filter-ss-ts-max" type="number" min="0" max="1" step="0.05" placeholder="≤"></label>
+      <label title="Data-size regularity sub-score (payload-byte consistency). Structurally 0 for DNS Beaconing.">ds <input class="filter-input ss-in" id="filter-ss-ds-min" type="number" min="0" max="1" step="0.05" placeholder="≥"><input class="filter-input ss-in" id="filter-ss-ds-max" type="number" min="0" max="1" step="0.05" placeholder="≤"></label>
+      <label title="Hour-coverage sub-score (how much of the capture window the beacon spans).">hist <input class="filter-input ss-in" id="filter-ss-hist-min" type="number" min="0" max="1" step="0.05" placeholder="≥"><input class="filter-input ss-in" id="filter-ss-hist-max" type="number" min="0" max="1" step="0.05" placeholder="≤"></label>
+      <label title="Duration sub-score (span of the beacon relative to the capture window).">dur <input class="filter-input ss-in" id="filter-ss-dur-min" type="number" min="0" max="1" step="0.05" placeholder="≥"><input class="filter-input ss-in" id="filter-ss-dur-max" type="number" min="0" max="1" step="0.05" placeholder="≤"></label>
     </div>
 
     <!-- Delta bar -->
@@ -366,6 +374,7 @@
           <button class="action-btn chart" id="chart-btn" disabled>Beacon Chart</button>
           <button class="action-btn pcap"  id="pcap-btn"  disabled>PCAP Filter</button>
           <button class="action-btn raw"   id="raw-btn"   disabled>Source Records</button>
+          <button class="action-btn ja3"   id="ja3-btn"   disabled title="Filter every beacon sharing this TLS client fingerprint">JA3 Pivot</button>
           <button class="action-btn supp"  id="supp-btn"  disabled>Suppress</button>
           <span id="analyst-rec"></span>
         </div>

@@ -1,0 +1,33 @@
+-- 0020_http_beacon_top_uris.sql
+-- Beacon-depth slice, item 1.1 (full analyze-time path).
+--
+-- HTTP Beaconing groups by (sensor,src,dst,host,uri) in the analyzer,
+-- but Finding.Fingerprint() is (Type,src,dst,port) — no URI — and
+-- setFindingsImpl's in-batch fingerprint dedup keeps one finding per
+-- (Type,src,dst,port). So the multi-URI footprint an analyst wants
+-- ("this implant beacons /a, /b, /c on the same host") is destroyed
+-- before storage: a per-finding URI is all that survives. The cheap
+-- "aggregate sibling findings at read time" route was rejected for
+-- exactly this reason — the siblings never reach the store.
+--
+-- The fix computes the top-N paths per (sensor,src,dst,host) at emit
+-- time, from the pre-dedup beacon-key map the analyzer already builds,
+-- and stamps the identical list on every HTTP Beaconing finding in the
+-- group — so whichever one wins the dedup carries the full footprint.
+-- That list needs to survive a restart and SetFindings's carry-forward
+-- of a beacon that didn't re-fire (same reason migration 0019 made
+-- ja3/ja4 columns), hence a real column rather than a derived value.
+--
+-- JSON TEXT, same shape as the correlations column: marshalled
+-- []model.URIStat. TEXT NOT NULL DEFAULT '': pre-0020 rows and every
+-- non-HTTP-Beaconing finding read back as "" which loadFindings
+-- decodes to a nil slice — the detail render simply omits the
+-- footprint block, no regression until the next full analysis
+-- re-emits an HTTP beacon.
+--
+-- Not a detection-semantics change: no score, threshold, finding type,
+-- emission decision, or Fingerprint() is touched — this is a
+-- descriptive aggregate of data the analyzer already has. The golden
+-- corpus is expected to stay flat.
+
+ALTER TABLE findings ADD COLUMN top_uris TEXT NOT NULL DEFAULT '';
