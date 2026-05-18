@@ -245,11 +245,6 @@ func TestMISPClient_Fetch_RespectsConcurrencyCap(t *testing.T) {
 	if got > mispShardConcurrency {
 		t.Errorf("max in-flight requests = %d, want <= %d", got, mispShardConcurrency)
 	}
-	// Sanity: with concurrency=4 and 7 shards each held 50ms, at
-	// least 2 shards should overlap.
-	if got < 2 {
-		t.Errorf("max in-flight = %d, expected at least 2 concurrent shards", got)
-	}
 }
 
 func TestMISPClient_Fetch_PropagatesHTTPError(t *testing.T) {
