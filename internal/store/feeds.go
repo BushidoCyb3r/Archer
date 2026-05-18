@@ -30,11 +30,12 @@ func (s *Store) CreateFeed(f feeds.Feed) (int64, error) {
 			last_refresh_at, last_full_refresh_at,
 			last_indicator_count, last_fetch_truncated,
 			last_error, status, enabled, tls_skip_verify, allow_internal,
-			created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, '', 'idle', ?, ?, ?, ?, ?)`,
+			query_filter_json, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, '', 'idle', ?, ?, ?, ?, ?, ?)`,
 		string(f.SourceType), f.Name, f.URL, f.APIKey,
 		f.IndicatorAgingDays,
-		boolToInt(f.Enabled), boolToInt(f.TLSSkipVerify), boolToInt(f.AllowInternal), now, now,
+		boolToInt(f.Enabled), boolToInt(f.TLSSkipVerify), boolToInt(f.AllowInternal),
+		f.QueryFilterJSON, now, now,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("store: insert feed: %w", err)
@@ -54,7 +55,7 @@ func (s *Store) GetFeed(id int64) (feeds.Feed, error) {
 			last_refresh_at, last_full_refresh_at,
 			last_indicator_count, last_fetch_truncated, last_error,
 			status, enabled, tls_skip_verify, allow_internal, created_at, updated_at,
-			consecutive_failures, last_pruned_count
+			consecutive_failures, last_pruned_count, query_filter_json
 		FROM feeds WHERE id = ?`, id)
 	return scanFeed(row)
 }
@@ -71,7 +72,7 @@ func (s *Store) ListFeeds() []feeds.Feed {
 			last_refresh_at, last_full_refresh_at,
 			last_indicator_count, last_fetch_truncated, last_error,
 			status, enabled, tls_skip_verify, allow_internal, created_at, updated_at,
-			consecutive_failures, last_pruned_count
+			consecutive_failures, last_pruned_count, query_filter_json
 		FROM feeds ORDER BY id`)
 	if err != nil {
 		return nil
@@ -101,14 +102,15 @@ func (s *Store) UpdateFeed(f feeds.Feed) error {
 			indicator_aging_days = ?,
 			last_refresh_at = ?, last_full_refresh_at = ?,
 			last_indicator_count = ?, last_fetch_truncated = ?, last_error = ?,
-			status = ?, enabled = ?, tls_skip_verify = ?, allow_internal = ?, updated_at = ?
+			status = ?, enabled = ?, tls_skip_verify = ?, allow_internal = ?,
+			query_filter_json = ?, updated_at = ?
 		WHERE id = ?`,
 		string(f.SourceType), f.Name, f.URL, f.APIKey,
 		f.IndicatorAgingDays,
 		f.LastRefreshAt, f.LastFullRefreshAt,
 		f.LastIndicatorCount, boolToInt(f.LastFetchTruncated), f.LastError,
 		f.Status, boolToInt(f.Enabled), boolToInt(f.TLSSkipVerify), boolToInt(f.AllowInternal),
-		time.Now().Unix(), f.ID,
+		f.QueryFilterJSON, time.Now().Unix(), f.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("store: update feed %d: %w", f.ID, err)
@@ -524,7 +526,7 @@ func scanFeed(r rowScanner) (feeds.Feed, error) {
 		&f.LastRefreshAt, &f.LastFullRefreshAt,
 		&f.LastIndicatorCount, &lastFetchTruncated, &f.LastError,
 		&f.Status, &enabled, &tlsSkipVerify, &allowInternal, &f.CreatedAt, &f.UpdatedAt,
-		&f.ConsecutiveFailures, &f.LastPrunedCount,
+		&f.ConsecutiveFailures, &f.LastPrunedCount, &f.QueryFilterJSON,
 	); err != nil {
 		return feeds.Feed{}, err
 	}

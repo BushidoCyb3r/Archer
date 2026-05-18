@@ -88,8 +88,15 @@ type Feed struct {
 	// that feed only. Per-feed scope means a typo in another feed's
 	// URL still can't reach internal space.
 	AllowInternal bool
-	CreatedAt     int64
-	UpdatedAt     int64
+	// QueryFilterJSON is a JSON object string merged into every MISP
+	// restSearch request body. Useful operator keys: tags, event_id,
+	// org, threat_level_id, category. Archer's required keys (type,
+	// to_ids, deleted, limit, page, returnFormat, timestamp) always
+	// overwrite whatever the operator sets. Empty means no extra filter.
+	// Ignored for non-MISP feeds.
+	QueryFilterJSON string
+	CreatedAt       int64
+	UpdatedAt       int64
 }
 
 // Indicator is the normalized form an adapter emits. The fetcher

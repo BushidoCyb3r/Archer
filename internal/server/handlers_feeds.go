@@ -54,6 +54,7 @@ type feedResponse struct {
 	Enabled            bool   `json:"enabled"`
 	TLSSkipVerify      bool   `json:"tls_skip_verify"`
 	AllowInternal      bool   `json:"allow_internal"`
+	QueryFilterJSON    string `json:"query_filter_json"`
 	CreatedAt          int64  `json:"created_at"`
 	UpdatedAt          int64  `json:"updated_at"`
 	HasAPIKey          bool   `json:"has_api_key"`
@@ -76,6 +77,7 @@ func toFeedResponse(f feeds.Feed) feedResponse {
 		Enabled:            f.Enabled,
 		TLSSkipVerify:      f.TLSSkipVerify,
 		AllowInternal:      f.AllowInternal,
+		QueryFilterJSON:    f.QueryFilterJSON,
 		CreatedAt:          f.CreatedAt,
 		UpdatedAt:          f.UpdatedAt,
 		HasAPIKey:          f.APIKey != "",
@@ -97,6 +99,7 @@ type feedRequest struct {
 	Enabled            bool   `json:"enabled"`
 	TLSSkipVerify      bool   `json:"tls_skip_verify"`
 	AllowInternal      bool   `json:"allow_internal"`
+	QueryFilterJSON    string `json:"query_filter_json"`
 }
 
 // handleFeeds dispatches GET (list) and POST (create) on /api/feeds.
@@ -139,6 +142,7 @@ func (s *Server) handleFeeds(w http.ResponseWriter, r *http.Request) {
 			Enabled:            req.Enabled,
 			TLSSkipVerify:      req.TLSSkipVerify,
 			AllowInternal:      req.AllowInternal,
+			QueryFilterJSON:    req.QueryFilterJSON,
 		})
 		if err != nil {
 			jsonError(w, err.Error(), http.StatusInternalServerError)
@@ -222,6 +226,7 @@ func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 		current.Enabled = req.Enabled
 		current.TLSSkipVerify = req.TLSSkipVerify
 		current.AllowInternal = req.AllowInternal
+		current.QueryFilterJSON = req.QueryFilterJSON
 		if err := s.store.UpdateFeed(current); err != nil {
 			jsonError(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -518,7 +523,7 @@ func (s *Server) refreshAllFeedsForWatch(ctx context.Context) {
 func (s *Server) buildFeedAdapter(f feeds.Feed) (feeds.Adapter, error) {
 	switch f.SourceType {
 	case feeds.SourceMISP:
-		return feeds.NewMISPClient(f.URL, f.APIKey, f.TLSSkipVerify, f.AllowInternal), nil
+		return feeds.NewMISPClient(f.URL, f.APIKey, f.TLSSkipVerify, f.AllowInternal, f.QueryFilterJSON), nil
 	case feeds.SourceOpenCTI:
 		return feeds.NewOpenCTIClient(f.URL, f.APIKey, f.TLSSkipVerify, f.AllowInternal), nil
 	default:
@@ -560,6 +565,12 @@ func validateFeedRequest(req feedRequest, requireAPIKey bool) error {
 	}
 	if req.IndicatorAgingDays < 0 {
 		return fmt.Errorf("indicator_aging_days must be >= 0 (0 = no aging)")
+	}
+	if req.QueryFilterJSON != "" {
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(req.QueryFilterJSON), &obj); err != nil {
+			return fmt.Errorf("query_filter_json must be a valid JSON object: %v", err)
+		}
 	}
 	return nil
 }
