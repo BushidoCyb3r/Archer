@@ -504,6 +504,8 @@ func (s *Store) invalidateFeedBuckets() {
 	s.feedBucketsMu.Lock()
 	s.feedBuckets = nil
 	s.feedBucketsOK = false
+	s.enabledFeedList = nil
+	s.feedListOK = false
 	s.feedBucketsMu.Unlock()
 }
 

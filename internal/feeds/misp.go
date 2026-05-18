@@ -129,6 +129,39 @@ func httpClientWithTLS(skipVerify, allowInternal bool) *http.Client {
 		// connects to any modern MISP unchanged.
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}
 	}
+	// Close the DNS-rebinding gap in the redirect-only SSRF guard: the
+	// CheckRedirect hook below only sees redirect hops, not the initial
+	// request. A feed hostname that resolves to a public IP at config
+	// time but to an internal IP at fetch time (DNS rebinding, or a
+	// legitimately-misconfigured domain that switches A records) would
+	// reach internal services with whatever API key the admin attached.
+	// DialContext resolves DNS once, checks every returned address, then
+	// connects to the first allowed IP directly — subsequent layers see
+	// a stable IP and DNS cannot re-resolve under them.
+	// allowInternal bypasses the check for explicitly-internal feeds
+	// (MISP/OpenCTI hosted on RFC1918 with allow_internal=true).
+	if !allowInternal {
+		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, fmt.Errorf("feed: invalid address %q: %w", addr, err)
+			}
+			addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, fmt.Errorf("feed: DNS lookup %s: %w", host, err)
+			}
+			if len(addrs) == 0 {
+				return nil, fmt.Errorf("feed: no addresses for %s", host)
+			}
+			for _, a := range addrs {
+				if isInternalAddr(a.IP) {
+					return nil, fmt.Errorf("feed: refused connection to internal address %s (%s)", a.IP, host)
+				}
+			}
+			var d net.Dialer
+			return d.DialContext(ctx, network, net.JoinHostPort(addrs[0].IP.String(), port))
+		}
+	}
 	return &http.Client{
 		Timeout:   90 * time.Second,
 		Transport: transport,

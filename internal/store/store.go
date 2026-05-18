@@ -59,9 +59,16 @@ type Store struct {
 	// that runs on every analyze tick and every TI-only incremental
 	// pass. Holding the snapshot here cuts redundant DB work; feed
 	// CRUD and indicator writes invalidate it.
-	feedBucketsMu sync.Mutex
-	feedBuckets   []feeds.SourcedIndicators
-	feedBucketsOK bool
+	//
+	// enabledFeedList is a separate cache for IOCSources()'s ListFeeds()
+	// call, which fires on every /api/findings request. Same invalidation
+	// hook as feedBuckets — any feed CRUD path that calls
+	// invalidateFeedBuckets() clears both.
+	feedBucketsMu   sync.Mutex
+	feedBuckets     []feeds.SourcedIndicators
+	feedBucketsOK   bool
+	enabledFeedList []feeds.Feed
+	feedListOK      bool
 
 	// Audit-log total-count cache. CountAuditLog runs a COUNT(*) on
 	// every UI page-load; for a multi-million-row audit_log that's
@@ -405,6 +412,13 @@ func (s *Store) saveFindings() {
 		log.Printf("store: save findings delete: %v", err)
 		return
 	}
+	stmt, err := tx.Prepare(`INSERT INTO findings (id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size, ja3, ja4, top_uris) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+	if err != nil {
+		tx.Rollback()
+		log.Printf("store: save findings prepare: %v", err)
+		return
+	}
+	defer stmt.Close()
 	for _, f := range s.findings {
 		intervals, _ := json.Marshal(f.Intervals)
 		tsData, _ := json.Marshal(f.TSData)
@@ -425,15 +439,13 @@ func (s *Store) saveFindings() {
 		if f.IsNew {
 			isNew = 1
 		}
-		_, err := tx.Exec(
-			`INSERT INTO findings (id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size, ja3, ja4, top_uris) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		if _, err := stmt.Exec(
 			f.ID, f.Type, string(f.Severity), f.Score, f.SrcIP, f.DstIP, f.DstPort, f.Detail, f.Timestamp, f.SourceFile,
 			string(f.Status), f.Analyst, f.AnalystNote, f.StatusTS, iocMatch, isNew, f.Sensor,
 			string(intervals), string(tsData), string(notes), string(correlations),
 			f.TSScore, f.DSScore, f.HistScore, f.DurScore, f.MeanInterval, f.MedianInterval, f.Jitter, f.SampleSize,
 			f.JA3, f.JA4, string(topURIs),
-		)
-		if err != nil {
+		); err != nil {
 			tx.Rollback()
 			log.Printf("store: save findings insert: %v", err)
 			return
@@ -508,9 +520,15 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 	// offender (multiple TI sources can flag the same dst), but this
 	// guard catches any future detector that emits the same logical
 	// finding twice without crashing the entire pipeline. Highest-
-	// scored row wins; the first-seen index is preserved to keep
-	// downstream ID assignment stable across re-runs on identical
-	// input.
+	// scored row wins; ties go to the first-seen index to keep
+	// downstream ID assignment stable across re-runs on identical input.
+	//
+	// droppedToWinner maps a dropped finding's fresh ID to the winner's
+	// fresh ID. After the main ID-assignment loop builds freshToPersisted,
+	// we extend it with these mappings so Correlations references to
+	// dropped findings resolve to the winner's persisted ID instead of
+	// being silently dropped.
+	var droppedToWinner map[int]int
 	if len(findings) > 1 {
 		bestByFP := make(map[model.Fingerprint]int, len(findings))
 		for i := range findings {
@@ -524,6 +542,13 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 			keep := make([]bool, len(findings))
 			for _, i := range bestByFP {
 				keep[i] = true
+			}
+			droppedToWinner = make(map[int]int)
+			for i := range findings {
+				if !keep[i] {
+					fp := findings[i].Fingerprint()
+					droppedToWinner[findings[i].ID] = findings[bestByFP[fp]].ID
+				}
 			}
 			deduped := make([]model.Finding, 0, len(bestByFP))
 			for i := range findings {
@@ -604,6 +629,18 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 			findings[i].IsNew = true
 		}
 		freshToPersisted[freshID] = findings[i].ID
+	}
+
+	// Extend freshToPersisted for findings dropped by the in-batch dedup
+	// above. Without this, a Correlations reference to a dropped finding's
+	// fresh ID is neither in freshToPersisted nor in historicalIDs, so the
+	// translation pass silently drops it — the +N chip undercounts and the
+	// sibling-jump lands nowhere. Map the dropped ID to its winner's
+	// persisted ID so the reference survives translation.
+	for droppedID, winnerFreshID := range droppedToWinner {
+		if persistedID, ok := freshToPersisted[winnerFreshID]; ok {
+			freshToPersisted[droppedID] = persistedID
+		}
 	}
 
 	// Translate Correlations references on this-run findings. Two
@@ -839,6 +876,22 @@ func (s *Store) SetConfig(cfg config.Config) {
 	s.mu.Unlock()
 }
 
+// persistConfig writes s.config to the settings row. Caller must hold
+// s.mu (any form). All one-field config mutations (SetWatch,
+// SetSensorFacingHost, etc.) route through here so a failed DB write
+// is logged rather than silently swallowed — a failed write leaves
+// in-memory state ahead of disk, which the operator would observe as
+// a config revert on the next restart.
+func (s *Store) persistConfig() {
+	if s.db == nil {
+		return
+	}
+	cfgJSON, _ := json.Marshal(s.config)
+	if _, err := s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON)); err != nil {
+		log.Printf("store: persist settings: %v", err)
+	}
+}
+
 func (s *Store) GetAllowlist() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -906,10 +959,21 @@ func (s *Store) IOCSources() []SourcedMatcher {
 	iocM := s.iocM
 	s.mu.RUnlock()
 
+	// Use the cached feed list to avoid a live DB query on every
+	// /api/findings request. invalidateFeedBuckets clears this cache
+	// on every feed CRUD path, so it is always coherent with the DB.
+	s.feedBucketsMu.Lock()
+	if !s.feedListOK {
+		s.enabledFeedList = s.ListFeeds()
+		s.feedListOK = true
+	}
+	feedList := s.enabledFeedList
+	s.feedBucketsMu.Unlock()
+
 	out := []SourcedMatcher{
 		{Source: "Operator IOC list", Matcher: iocM},
 	}
-	for _, f := range s.ListFeeds() {
+	for _, f := range feedList {
 		if !f.Enabled {
 			continue
 		}
@@ -1152,10 +1216,10 @@ func (s *Store) isHiddenLocked(srcIP, dstIP string) bool {
 		}
 	}
 	now := time.Now()
-	if entry, ok := s.suppressions[srcIP]; ok && now.Before(entry.Expiry) {
+	if entry, ok := s.suppressions[srcIP]; ok && !now.After(entry.Expiry) {
 		return true
 	}
-	if entry, ok := s.suppressions[dstIP]; ok && now.Before(entry.Expiry) {
+	if entry, ok := s.suppressions[dstIP]; ok && !now.After(entry.Expiry) {
 		return true
 	}
 	return false
@@ -1282,10 +1346,7 @@ func (s *Store) SetWatch(watchTime, timezone string, enabled bool, intervalHours
 	s.config.Timezone = timezone
 	s.config.WatchEnabled = enabled
 	s.config.WatchIntervalHours = intervalHours
-	if s.db != nil {
-		cfgJSON, _ := json.Marshal(s.config)
-		s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))
-	}
+	s.persistConfig()
 	s.mu.Unlock()
 }
 
@@ -1326,10 +1387,7 @@ func (s *Store) GetSensorFacingHost() string {
 func (s *Store) SetSensorFacingHost(host string) {
 	s.mu.Lock()
 	s.config.SensorFacingHost = host
-	if s.db != nil {
-		cfgJSON, _ := json.Marshal(s.config)
-		s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))
-	}
+	s.persistConfig()
 	s.mu.Unlock()
 }
 
@@ -1354,10 +1412,7 @@ func (s *Store) SetArchive(settings ArchiveSettings) {
 		s.config.ArchiveAfterDays = settings.AfterDays
 	}
 	s.config.PruneFindingsOnArchive = settings.PruneFindingsOnArchive
-	if s.db != nil {
-		cfgJSON, _ := json.Marshal(s.config)
-		s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))
-	}
+	s.persistConfig()
 	s.mu.Unlock()
 }
 
@@ -1387,10 +1442,7 @@ func (s *Store) RecordArchiveRun(filesArchived int, bytesArchived int64, finding
 	s.config.ArchiveLastBytesArchived = bytesArchived
 	s.config.ArchiveLastFindingsPruned = findingsPruned
 	s.config.ArchiveLastTriggeredBy = triggeredBy
-	if s.db != nil {
-		cfgJSON, _ := json.Marshal(s.config)
-		s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))
-	}
+	s.persistConfig()
 	s.mu.Unlock()
 }
 
@@ -1403,10 +1455,7 @@ func (s *Store) GetLastAnalysisFingerprint() string {
 func (s *Store) SetLastAnalysisFingerprint(fp string) {
 	s.mu.Lock()
 	s.config.LastAnalysisFingerprint = fp
-	if s.db != nil {
-		cfgJSON, _ := json.Marshal(s.config)
-		s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))
-	}
+	s.persistConfig()
 	s.mu.Unlock()
 }
 
@@ -1430,10 +1479,7 @@ func (s *Store) GetLastFullAnalysisTime() time.Time {
 func (s *Store) SetLastFullAnalysisTime(t time.Time) {
 	s.mu.Lock()
 	s.config.LastFullAnalysisUnix = t.UTC().Unix()
-	if s.db != nil {
-		cfgJSON, _ := json.Marshal(s.config)
-		s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))
-	}
+	s.persistConfig()
 	s.mu.Unlock()
 }
 
@@ -1455,10 +1501,7 @@ func (s *Store) GetLastAnalysisTime() time.Time {
 func (s *Store) SetLastAnalysisTime(t time.Time) {
 	s.mu.Lock()
 	s.config.LastAnalysisUnix = t.UTC().Unix()
-	if s.db != nil {
-		cfgJSON, _ := json.Marshal(s.config)
-		s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))
-	}
+	s.persistConfig()
 	s.mu.Unlock()
 }
 
@@ -1473,10 +1516,7 @@ func (s *Store) ClearFindings() int {
 	s.findings = nil
 	s.rebuildFindingsIdx()
 	s.config.LastAnalysisFingerprint = ""
-	if s.db != nil {
-		cfgJSON, _ := json.Marshal(s.config)
-		s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))
-	}
+	s.persistConfig()
 	s.saveFindings()
 	return n
 }
