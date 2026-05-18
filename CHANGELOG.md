@@ -30,6 +30,75 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.26.0] — 2026-05-18
+
+### Added
+
+- **Campaigns tab: right-click a destination IP → "Add to Allowlist" /
+  "Add to IOC List".** The plumbing already existed (the Campaigns row
+  synthesises a pseudo-finding and the Dst cell is marked `dst-ip`); a
+  `.ctx-write` aggregate-tab gate had been hiding the two IP-scoped
+  items on Campaigns even though they act on the resolved IP, not a
+  finding's status. They now appear when an IP cell is the right-click
+  target. Hosts is excluded by design — its rows are internal org IPs,
+  where allowlisting/IOC-listing is a footgun (same reason the
+  external-lookup submenu is hidden there).
+- **`govulncheck` gate in CI.** A reachability-based vulnerability job
+  (fails only when the build calls a vulnerable symbol), pinned at
+  `@v1.3.0`, running parallel to lint/test. Complements GitHub's
+  presence-based Dependabot alerts.
+
+### Changed
+
+- **"Pivot" on aggregate panels jumps to the Findings tab filtered on
+  the IP.** Previously only the Hosts tab did this; on Campaigns (and
+  Dismissed › Campaigns) Pivot was an in-place no-op because the panel
+  row is a roll-up, not a finding. The Hosts-only special case is
+  generalised to all aggregate tabs.
+- **Prune loops consolidated.** Unauthorized-attempt, suppression,
+  beacon-history, and expired-session sweeps now run through one
+  `startPruneLoop` helper (boot-time run then ticker); the session
+  prune moved off a `UserStore` goroutine onto the unified path.
+- **API deprecation policy documented** in RELEASING.md — one
+  minor-version overlap, a `Deprecation:` response header for the whole
+  window, announce → signal → remove. The JA3/JA4 detection reference
+  was expanded (hash construction, blind spots, the JA3-only / no-JA4
+  case).
+
+### Fixed
+
+- **`beacon_history` records the correct peak severity on a same-score,
+  more-severe pass (NEW-84).** The UPSERT kept `max_score` /
+  `max_score_at` strict-greater (NEW-76 semantics) but the severity and
+  the four sub-scores moved only with that strict gate. When the DGA
+  augmentation forces a beacon High → Critical at an unchanged numeric
+  score (e.g. raw 64 → 79, still below the 80 Critical cutoff) and an
+  earlier same-day non-DGA pass had recorded that same 79 as High, the
+  row stayed High while the beacon was really Critical. The
+  peak-characterisation columns now also update on a score *tie* when
+  the new pass is strictly more severe (explicit severity rank — the
+  column is TEXT, lexical order is not severity order). A later benign
+  equal-score pass still cannot downgrade the recorded peak. Affects
+  the Score Evolution chart's severity + sub-axis readout only; finding
+  scoring is unchanged.
+
+### Security
+
+- **Response security headers on every response.** `ServeHTTP` now
+  sets `X-Frame-Options: DENY`, `Content-Security-Policy:
+  frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, and
+  `Referrer-Policy: no-referrer`, closing a clickjacking exposure an
+  external scan flagged on the HTTPS surface. The CSP is scoped to
+  `frame-ancestors` only by design — a `script-src` policy would break
+  the inline bootstrap. HSTS is **deliberately omitted**: the
+  self-signed cert regenerates on a TLS/volume reset, so an HSTS pin
+  would make a post-regen cert error non-bypassable and lock analysts
+  out, and the SSL-strip benefit is marginal on an internal LAN with
+  sensor cert-pinning (rationale recorded at the header block). The
+  SSH SHA-1-HMAC and password-field-autocomplete scanner findings were
+  reviewed and accepted as non-actionable for this deployment model. A
+  regression test asserts the headers on 200 / 500 / 404 responses.
+
 ## [v0.25.1] — 2026-05-17
 
 ### Fixed
@@ -5486,7 +5555,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.25.1...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.26.0...HEAD
+[v0.26.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.25.1...v0.26.0
 [v0.25.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.25.0...v0.25.1
 [v0.25.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.24.0...v0.25.0
 [v0.24.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.23.0...v0.24.0
