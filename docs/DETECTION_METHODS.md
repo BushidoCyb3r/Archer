@@ -309,7 +309,10 @@ again **no score formula, threshold, finding type, or `Fingerprint()`
 changed**, and the golden corpus is unchanged:
 
 - **Sub-score filtering.** The findings filter accepts inclusive
-  `[min,max]` bounds on each of the four sub-axes (`ts_min`…`dur_max`).
+  `[min,max]` bounds on each of the four sub-axes (`ts_min`…`dur_max`;
+  the Advanced bar and triage header label these **Timing** / **Data
+  size** / **Histogram** / **Persistence** — the same `ts`/`ds`/`hist`/
+  `dur` axes §2.2 describes, spelled out for the analyst).
   The composite score averages the axes, so a real implant profile —
   tight timing, short duration (a staging beacon) — sits below a score
   threshold despite textbook rhythm. The sub-score filter turns the
