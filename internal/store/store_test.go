@@ -871,6 +871,89 @@ func TestSetFindings_BeaconHistorySameDayUPSERT(t *testing.T) {
 	}
 }
 
+// TestSetFindings_BeaconHistory_NEW84_SameScoreSeverityBump codifies
+// the NEW-84 fix. Reachable case: the DGA augmentation forces
+// High -> Critical even when its +15 leaves the score below 80, so a
+// later same-day pass can present the *same* numeric max_score as an
+// earlier non-DGA pass but a higher severity. The pre-fix strict
+// `excluded.max_score > max_score` gate never fired on the equal-score
+// pass, freezing the row at the lower severity. Invariant asserted:
+// (1) equal score + higher severity updates severity and sub-scores;
+// (2) max_score / max_score_at are untouched (NEW-76 peak semantics);
+// (3) a later equal-score pass with *lower* severity cannot downgrade.
+func TestSetFindings_BeaconHistory_NEW84_SameScoreSeverityBump(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s := New(config.Default())
+	s.InitDB(db)
+
+	key := func(f model.Finding) string { return f.BeaconHistoryKey() }
+	today := time.Now().UTC().Format("2006-01-02")
+	readRow := func(k string) (sev string, maxScore int, maxAt int64, ds float64) {
+		row := s.db.QueryRow(
+			`SELECT severity, max_score, max_score_at, ds_score FROM beacon_history WHERE fingerprint=? AND day_utc=?`,
+			k, today)
+		if err := row.Scan(&sev, &maxScore, &maxAt, &ds); err != nil {
+			t.Fatalf("read beacon_history row: %v", err)
+		}
+		return
+	}
+
+	base := model.Finding{
+		Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		Hostname: "kx9j3qm2pflw.com", Timestamp: "2026-05-17 06:00:00",
+	}
+
+	// Pass A: non-DGA, score 79 -> High.
+	passA := base
+	passA.Score, passA.Severity = 79, model.SevHigh
+	passA.TSScore, passA.DSScore, passA.HistScore, passA.DurScore = 0.7, 0.10, 0.6, 0.5
+	s.SetFindings([]model.Finding{passA})
+	_, _, maxAtA, _ := readRow(key(passA))
+
+	// Pass B: DGA escalated High -> Critical, but +15 capped the raw
+	// score so it still reads 79 — same numeric max as pass A.
+	passB := base
+	passB.Score, passB.Severity = 79, model.SevCritical
+	passB.TSScore, passB.DSScore, passB.HistScore, passB.DurScore = 0.7, 0.99, 0.6, 0.5
+	s.SetFindings([]model.Finding{passB})
+
+	sev, maxScore, maxAtB, ds := readRow(key(passB))
+	if sev != string(model.SevCritical) {
+		t.Errorf("after equal-score severity bump: severity=%q, want CRITICAL (NEW-84 not fixed)", sev)
+	}
+	if maxScore != 79 {
+		t.Errorf("max_score=%d, want 79 (peak value must not move on a tie)", maxScore)
+	}
+	if maxAtB != maxAtA {
+		t.Errorf("max_score_at moved (%d -> %d) on an equal-score tie; first-peak time must hold (NEW-76)", maxAtA, maxAtB)
+	}
+	if ds != 0.99 {
+		t.Errorf("ds_score=%v, want 0.99 (sub-scores follow the winning severity)", ds)
+	}
+
+	// Pass C guard: equal score, *lower* severity must not downgrade.
+	passC := base
+	passC.Score, passC.Severity = 79, model.SevMedium
+	passC.TSScore, passC.DSScore, passC.HistScore, passC.DurScore = 0.7, 0.01, 0.6, 0.5
+	s.SetFindings([]model.Finding{passC})
+	sev, _, _, ds = readRow(key(passC))
+	if sev != string(model.SevCritical) {
+		t.Errorf("after lower-severity equal-score pass: severity=%q, want CRITICAL (must not downgrade)", sev)
+	}
+	if ds != 0.99 {
+		t.Errorf("ds_score=%v, want 0.99 (downgrade must not rewrite sub-scores)", ds)
+	}
+}
+
 // TestPurgeBeaconHistory deletes rows older than the retention window
 // while leaving in-window rows alone. Uses direct SQL inserts with
 // crafted day_utc values to avoid time-of-day dependence — the real

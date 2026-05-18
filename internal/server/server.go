@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"path/filepath"
 	"sync"
@@ -76,6 +77,11 @@ func New(st *store.Store, us *store.UserStore, broker *Broker, webDir, logsDir, 
 	s.startUnauthorizedPruneLoop()
 	s.startSuppressionsPruneLoop()
 	s.startBeaconHistoryPruneLoop()
+	// Session prune was previously a goroutine wired from NewUserStore
+	// (NEW-69 follow-up). Surfaced here so every TTL sweep is started
+	// from one place; PruneExpiredSessions is a method value matching
+	// the fn signature.
+	startPruneLoop("sessions", time.Hour, s.users.PruneExpiredSessions)
 	s.startSensorHeartbeatLoop()
 	s.startFeedHealthLoop()
 	s.startWatchHeartbeatLoop()
@@ -105,20 +111,35 @@ func (s *Server) startFeedWorker() {
 	go w.Run(ctx)
 }
 
+// startPruneLoop runs fn once immediately, then every interval, in a
+// goroutine that lives for the process lifetime — process shutdown is
+// the only termination, the contract every TTL/heartbeat sweep here
+// has always had. The name is logged once at startup so the full set
+// of background sweeps is greppable from the logs in one place; that
+// discoverability gap (six near-identical hand-rolled loops, one of
+// them wired from a different package) is what NEW-95 / TODO §1b
+// flagged. Behavior is identical to the loops it replaces: same
+// run-at-boot-then-tick shape, same no-graceful-shutdown contract.
+func startPruneLoop(name string, interval time.Duration, fn func()) {
+	log.Printf("server: prune loop %q started (interval %s)", name, interval)
+	go func() {
+		fn()
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for range t.C {
+			fn()
+		}
+	}()
+}
+
 // startUnauthorizedPruneLoop drops unpinned unauthorized_attempts rows
 // older than unauthorizedAttemptRetention, hourly. Runs once at startup
 // so a long-lived deployment with a stale backlog doesn't have to wait
-// the full hour. Goroutine outlives the function — process shutdown is
-// the only termination, which matches the watch loop's pattern.
+// the full hour.
 func (s *Server) startUnauthorizedPruneLoop() {
-	go func() {
+	startPruneLoop("unauthorized_attempts", time.Hour, func() {
 		s.store.PruneUnauthorizedAttempts(unauthorizedAttemptRetention)
-		t := time.NewTicker(time.Hour)
-		defer t.Stop()
-		for range t.C {
-			s.store.PruneUnauthorizedAttempts(unauthorizedAttemptRetention)
-		}
-	}()
+	})
 }
 
 // startSuppressionsPruneLoop sweeps expired suppression entries off the
@@ -135,14 +156,9 @@ func (s *Server) startUnauthorizedPruneLoop() {
 // so a long-stopped instance restarting with a stale backlog catches
 // up immediately.
 func (s *Server) startSuppressionsPruneLoop() {
-	go func() {
+	startPruneLoop("suppressions", 5*time.Minute, func() {
 		s.store.PruneExpiredSuppressions()
-		t := time.NewTicker(5 * time.Minute)
-		defer t.Stop()
-		for range t.C {
-			s.store.PruneExpiredSuppressions()
-		}
-	}()
+	})
 }
 
 // startBeaconHistoryPruneLoop sweeps beacon_history rows older than
@@ -160,14 +176,9 @@ func (s *Server) startSuppressionsPruneLoop() {
 // keyed on day_utc), so the daily cadence has no cost concern even
 // on dense histories.
 func (s *Server) startBeaconHistoryPruneLoop() {
-	go func() {
+	startPruneLoop("beacon_history", 24*time.Hour, func() {
 		s.store.PurgeBeaconHistory()
-		t := time.NewTicker(24 * time.Hour)
-		defer t.Stop()
-		for range t.C {
-			s.store.PurgeBeaconHistory()
-		}
-	}()
+	})
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

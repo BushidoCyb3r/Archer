@@ -93,16 +93,31 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
 		log.Printf("store: beacon_history begin tx: %v", err)
 		return
 	}
-	// Known edge case (NEW-84): the severity branch fires only when
-	// excluded.max_score > max_score (strict). If a beacon already at
-	// score 99 has its severity bumped a step by the DGA augmentation
-	// in a later same-day pass (one-step severity upgrade applies
-	// even when score is already at the cap of 99), the history row
-	// keeps the earlier pass's severity. Realistic but rare —
-	// requires two same-day passes both producing the same numeric
-	// max, with the later pass having a different severity. Document
-	// here; restructure to a separate severity-tracking column only
-	// if operators see this in practice.
+	// NEW-84 fixed here. The reachable case: the DGA augmentation
+	// upgrades severity one step (High -> Critical) whenever the
+	// destination looks algorithmic, *including* when the +15 score
+	// bump leaves the score still below the 80 Critical threshold
+	// (e.g. raw 64 -> 79, severity forced High -> Critical). If an
+	// earlier same-day pass for the same beacon recorded that same
+	// numeric score (79) without DGA — High — a strict
+	// `excluded.max_score > max_score` gate never fires on the later
+	// equal-score pass, so the row stays High while the beacon is
+	// really Critical and the analyst's chart/severity is wrong.
+	//
+	// Fix: max_score / max_score_at stay strict-greater so the peak
+	// value and the time it was first reached are unchanged (NEW-76
+	// semantics preserved). The peak-characterization columns
+	// (severity + the four sub-scores) additionally update when the
+	// score ties but the new pass is strictly more severe — compared
+	// via an explicit severity rank since the column is TEXT and
+	// lexical order is not severity order. A tie with equal-or-lower
+	// severity still holds, so a later benign pass can't downgrade
+	// the recorded peak.
+	sevRank := func(col string) string {
+		return `(CASE ` + col + ` WHEN 'CRITICAL' THEN 5 WHEN 'HIGH' THEN 4 WHEN 'MEDIUM' THEN 3 WHEN 'LOW' THEN 2 WHEN 'INFO' THEN 1 ELSE 0 END)`
+	}
+	peakWin := `excluded.max_score > max_score OR (excluded.max_score = max_score AND ` +
+		sevRank("excluded.severity") + ` > ` + sevRank("severity") + `)`
 	stmt, err := tx.Prepare(`
         INSERT INTO beacon_history
             (fingerprint, day_utc, finding_type, src_ip, dst_ip, dst_port,
@@ -115,11 +130,11 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
             last_score_at = excluded.last_score_at,
             max_score     = CASE WHEN excluded.max_score > max_score THEN excluded.max_score    ELSE max_score    END,
             max_score_at  = CASE WHEN excluded.max_score > max_score THEN excluded.max_score_at ELSE max_score_at END,
-            severity      = CASE WHEN excluded.max_score > max_score THEN excluded.severity     ELSE severity     END,
-            ts_score      = CASE WHEN excluded.max_score > max_score THEN excluded.ts_score     ELSE ts_score     END,
-            ds_score      = CASE WHEN excluded.max_score > max_score THEN excluded.ds_score     ELSE ds_score     END,
-            hist_score    = CASE WHEN excluded.max_score > max_score THEN excluded.hist_score   ELSE hist_score   END,
-            dur_score     = CASE WHEN excluded.max_score > max_score THEN excluded.dur_score    ELSE dur_score    END
+            severity      = CASE WHEN ` + peakWin + ` THEN excluded.severity   ELSE severity   END,
+            ts_score      = CASE WHEN ` + peakWin + ` THEN excluded.ts_score   ELSE ts_score   END,
+            ds_score      = CASE WHEN ` + peakWin + ` THEN excluded.ds_score   ELSE ds_score   END,
+            hist_score    = CASE WHEN ` + peakWin + ` THEN excluded.hist_score ELSE hist_score END,
+            dur_score     = CASE WHEN ` + peakWin + ` THEN excluded.dur_score  ELSE dur_score  END
     `)
 	if err != nil {
 		_ = tx.Rollback()

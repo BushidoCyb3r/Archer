@@ -111,6 +111,44 @@ For minor bumps with breaking changes:
   diff before staging it — every line of change should be explainable
   from the CHANGELOG entry. *(See "Detection-semantics tests" below.)*
 
+## Deprecation policy
+
+How an `/api/*` endpoint, response field, or query parameter is retired
+without breaking integrations on the release it disappears.
+
+**The contract: one minor-version cycle of overlap.**
+
+1. **Announce.** The release that deprecates a surface keeps it fully
+   working and adds a `### Deprecated` CHANGELOG entry naming the
+   surface, the replacement, and the earliest version it may be
+   removed (always ≥ the *next* minor). Example:
+   `Deprecated: GET /api/foo — use GET /api/bar; removed no earlier than v0.27.0`.
+2. **Signal at runtime.** For the entire deprecation window the
+   endpoint sends a `Deprecation: <YYYY-MM-DD>` response header (the
+   date the deprecation shipped, per the draft `Deprecation` HTTP
+   header convention) and, where a successor exists, a
+   `Link: <successor>; rel="successor-version"` header. A scripted
+   consumer can detect the header and migrate before removal; nothing
+   silently changes under it.
+3. **Remove.** No earlier than the version named in step 1, and never
+   in the same minor that announced it. Removal is a `### Removed` +
+   `### Breaking` CHANGELOG pair (pre-1.0: minor bump), referencing the
+   deprecation entry so the trail is auditable.
+
+**Scope.** This applies to the HTTP/SSE API contract surface only.
+DB schema, Quiver protocol, and detection semantics have their own
+breaking-change handling (forward-only migrations; protocol-version
+negotiation; golden-diff + `### Detection changes`) and do not use the
+`Deprecation:` header.
+
+**Why a header and not just a CHANGELOG line:** integrations don't read
+CHANGELOGs, they make requests. A response header is the only signal a
+machine consumer actually sees in time to act. Precedent for
+remove-by-minor exists (the v0.7.0 `/api/upload` removal, the v0.14.8
+plaintext-listener removal, the v0.25.1 `window.INIT_CONFIG` removal) —
+this codifies the orderly path so future removals announce before they
+cut.
+
 ## Schema migrations
 
 DB schema changes use the migration framework added in Phase 3.

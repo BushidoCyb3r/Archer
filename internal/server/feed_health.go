@@ -40,15 +40,9 @@ const (
 func (s *Server) startFeedHealthLoop() {
 	active := make(map[string]bool)
 	var mu sync.Mutex
-
-	go func() {
+	startPruneLoop("feed_health", feedHealthCheckInterval, func() {
 		s.scanFeedHealth(active, &mu)
-		t := time.NewTicker(feedHealthCheckInterval)
-		defer t.Stop()
-		for range t.C {
-			s.scanFeedHealth(active, &mu)
-		}
-	}()
+	})
 }
 
 // scanFeedHealth walks every configured feed, emits alarms for feeds
