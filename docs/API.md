@@ -500,6 +500,7 @@ preserve insertion order, support `# comment` lines.
 | `GET` | `/api/pair-allowlist` | any | Returns an array of `{id, src, dst, port, finding_type, detail, created_by, created_at}` rules. |
 | `POST` | `/api/pair-allowlist` | analyst+ | Add a tuple-scoped permanent finding filter. Body: `{"src","dst","port","finding_type","detail"}`. `src` and `dst` required; empty `finding_type` = every type on the tuple, set = only that type. Idempotent on the `(src,dst,port,finding_type)` tuple (re-adding returns the existing id). Pure view filter — matching findings are hidden from the table and bell, never dropped from the store. |
 | `DELETE` | `/api/pair-allowlist/{id}` | analyst+ | Remove a rule by numeric id. Its matching findings reappear on the next `/api/findings` fetch — no re-analysis. |
+| `GET` | `/api/pair-allowlist/suggested` | any | Returns beacon pairs that qualify for allowlist suggestion: 14+ distinct UTC days in `beacon_history` AND an acknowledged finding for that pair AND not already covered by a pair\_allowlist rule. Array of `{src_ip, dst_ip, dst_port, finding_type, day_count, first_seen, last_seen, peak_score, acked_by}`. Empty array when no candidates exist. Read-only; applying a suggestion uses `POST /api/pair-allowlist`. |
 
 `#` lines are preserved verbatim through the round-trip. Inline
 `value # tail` comments have their tail stripped. See
