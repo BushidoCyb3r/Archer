@@ -204,7 +204,7 @@ CREATE TABLE beacon_history (
     fingerprint    TEXT NOT NULL,        -- BeaconHistoryKey: canonical-string identity
                                          -- (Type|SrcIP|DstIP|DstPort|Host|URI joined by \x1f)
     day_utc        TEXT NOT NULL,        -- YYYY-MM-DD
-    finding_type   TEXT NOT NULL,        -- 'Beaconing' or 'HTTP Beaconing'
+    finding_type   TEXT NOT NULL,        -- 'Beaconing', 'HTTP Beaconing', or 'DNS Beaconing'
     src_ip         TEXT NOT NULL,
     dst_ip         TEXT NOT NULL,
     dst_port       TEXT NOT NULL DEFAULT '',
@@ -413,7 +413,7 @@ finding notifications dismissed when their src or dst is now hidden.
 Sensor and feed alarms have no src/dst IPs and pass through unchanged.
 
 After the merge persists, `SetFindings` also writes one row per
-Beaconing / HTTP Beaconing finding to `beacon_history`, keyed by
+Beaconing / HTTP Beaconing / DNS Beaconing finding to `beacon_history`, keyed by
 `(Finding.BeaconHistoryKey(), today_UTC)` with the four sub-axis
 scores. The composite PRIMARY KEY + `INSERT … ON CONFLICT DO
 UPDATE` means a single daily row carries both the max score
@@ -592,6 +592,9 @@ if needFull {
 // Otherwise: incremental. Filter files by mtime > LastAnalysisUnix - 5min,
 // run AnalyzeTIOnly with FeedProvider set so MISP/OpenCTI cached
 // indicators participate (no fetch). Updates LastAnalysisUnix only.
+// NOTE: LastAnalysisUnix is set to the analysis START time, not the
+// completion time. Any file rsynced during a long analysis run still
+// has an mtime inside the next tick's [startedAt-5min, ∞) window.
 return launchIncrementalAnalysis(filteredFiles)
 ```
 

@@ -324,17 +324,22 @@ etc.) and reach for the bypass only when those options are impractical.
 
 ## Internal address bypass (allow_internal)
 
-Archer ships an SSRF guard on the feed surface (NEW-18). Feed URLs
+Archer ships a three-layer SSRF guard on the feed surface. Feed URLs
 whose host is a literal IP in loopback (`127.0.0.0/8`, `::1`),
 link-local (`169.254.0.0/16` covering AWS metadata; `fe80::/10`),
 RFC1918 private (`10/8`, `172.16/12`, `192.168/16`), or IPv6
-unique-local (`fc00::/7`) space are refused at config time. A
-matching CheckRedirect refuses any redirect-time hop that resolves
-into those ranges. The guard exists so a hostile (or careless) admin
-can't configure a feed at `http://169.254.169.254/...` or
-`http://10.0.0.5/internal-api` and have the feed worker exfiltrate
-adjacent internal services using whatever credentials are attached
-to the feed.
+unique-local (`fc00::/7`) space are refused at config time (layer 1 —
+NEW-18). A matching CheckRedirect refuses any redirect-time hop that
+resolves into those ranges (layer 2). A `DialContext` hook resolves
+every hostname immediately before dialing and refuses the connection if
+any resolved IP falls in those ranges (layer 3 — v0.27.2); this closes
+the DNS rebinding gap that layers 1–2 couldn't cover, where a
+hostname resolves to a public IP at config time but rotates to an
+internal IP by the time the TCP connection is established. The guard
+exists so a hostile (or careless) admin can't configure a feed at
+`http://169.254.169.254/...` or `http://10.0.0.5/internal-api` and
+have the feed worker exfiltrate adjacent internal services using
+whatever credentials are attached to the feed.
 
 The **Allow internal address (skip SSRF guard for this feed)**
 checkbox is the per-feed opt-out (v0.18.5+). Tick when pointing
@@ -352,11 +357,14 @@ specific internal feed leaves the SSRF guard active for every other
 feed. A typo that lands a non-internal feed's URL at
 `http://169.254.169.254/` still gets refused.
 
-Both guards (config-time `rejectInternalFeedURL` and fetch-time
-`CheckRedirect`) honor the flag for the same feed. With
-`allow_internal=true`, an internal MISP's normal redirect flow
-(e.g. unauthenticated `GET /attributes/restSearch` → `302 /login`
-internally) doesn't break the fetch.
+All three guards (config-time `rejectInternalFeedURL`, fetch-time
+`CheckRedirect`, and the `DialContext` DNS-rebinding guard that resolves
+hostnames before dialing and refuses any resolved IP in internal ranges)
+honor the flag for the same feed. With `allow_internal=true`, an
+internal MISP's normal redirect flow (e.g. unauthenticated
+`GET /attributes/restSearch` → `302 /login` internally) doesn't break
+the fetch, and hostnames that point to RFC1918 addresses are dialled
+without refusal.
 
 Each toggle of the flag is captured in the audit log
 (`feed_create` / `feed_update` rows carry `allow_internal` in their
