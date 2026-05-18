@@ -12,8 +12,9 @@ const Table = (() => {
   let _sortCol  = 'score';
   let _sortDir  = -1; // -1=desc, 1=asc
   let _selected = null;
-  let _onSelect = null;
-  let _onCtx    = null;
+  let _onSelect    = null;
+  let _onCtx       = null;
+  let _onCorrChip  = null;
 
   // Row height is pinned in archer.css (#findings-tbody > tr:not([aria-hidden])
   // { height: 32px }). Using a constant here — and a CSS rule there — keeps
@@ -83,7 +84,7 @@ const Table = (() => {
     const corrCount = (Array.isArray(f.correlations) ? f.correlations.length : 0) | 0;
     const corrChip = corrCount > 0
       ? ' <span class="corr-chip" title="' +
-          _esc('Part of a correlation with ' + corrCount + ' other finding(s) on the same (src, dst). Click to view the Correlated Activity row.') +
+          _esc('Part of a correlation with ' + corrCount + ' other finding(s) on the same (src, dst). Click to filter the table to this pair.') +
           '">+' + corrCount + ' corr</span>'
       : '';
     return '<tr class="' + cls + '" data-id="' + f.id + '">' +
@@ -179,20 +180,13 @@ const Table = (() => {
     const id = parseInt(tr.dataset.id, 10);
     const f = _findById(id);
     if (!f) return;
-    // Click on the correlation chip pivots to the Correlated Activity
-    // row for this (src, dst). If the Correlated Activity row isn't
-    // in the current loaded findings (filtered or paginated out), we
-    // fall back to selecting the originating finding so the analyst
-    // can read its Detail field — which lists every contributing ID.
+    // Click on the correlation chip filters the Findings tab to the
+    // (src, dst) pair so all contributors are visible in context.
+    // Delegates to app.js via _onCorrChip so the filter state lives
+    // in one place; always works regardless of current filter or page.
     if (e.target.closest('.corr-chip')) {
-      const corr = _findings.find(x =>
-        x.type === 'Correlated Activity' &&
-        x.src_ip === f.src_ip &&
-        x.dst_ip === f.dst_ip);
-      if (corr) {
-        jumpTo(corr.id);
-        return;
-      }
+      if (_onCorrChip) _onCorrChip(f);
+      return;
     }
     _select(f);
   }
@@ -264,9 +258,10 @@ const Table = (() => {
     _select(f);
   }
 
-  function init(onSelect, onCtx) {
-    _onSelect = onSelect;
-    _onCtx = onCtx;
+  function init(onSelect, onCtx, onCorrChip) {
+    _onSelect   = onSelect;
+    _onCtx      = onCtx;
+    _onCorrChip = onCorrChip || null;
     document.querySelectorAll('#findings-table thead th[data-col]').forEach(th => {
       th.addEventListener('click', () => _sortBy(th.dataset.col));
     });
