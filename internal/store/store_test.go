@@ -1330,6 +1330,89 @@ func TestBeaconHistory_CapsAtRetentionWindow(t *testing.T) {
 	}
 }
 
+// TestSuggestedPairAllowlist asserts the three-gate invariant:
+// (1) only pairs with SuggestMinDays+ distinct history days qualify,
+// (2) only pairs whose current finding is acknowledged qualify, and
+// (3) pairs already covered by a pair_allowlist rule are excluded.
+func TestSuggestedPairAllowlist(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s := New(config.Default())
+	s.InitDB(db)
+
+	now := time.Now().UTC()
+	insertHistory := func(fp, src, dst, port, ftype string, days int) {
+		for i := 0; i < days; i++ {
+			day := now.AddDate(0, 0, -i).Format("2006-01-02")
+			_, err := db.Exec(`INSERT OR IGNORE INTO beacon_history
+                (fingerprint, day_utc, finding_type, src_ip, dst_ip, dst_port, host, uri,
+                 max_score, max_score_at, last_score, last_score_at,
+                 severity, ts_score, ds_score, hist_score, dur_score, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, '', '', 75, ?, 75, ?, 'HIGH', 1, 0, 0, 1, ?)`,
+				fp, day, ftype, src, dst, port, now.Unix(), now.Unix(), now.Unix())
+			if err != nil {
+				t.Fatalf("seed beacon_history: %v", err)
+			}
+		}
+	}
+	insertFinding := func(src, dst, port, ftype, status string) {
+		_, err := db.Exec(`INSERT INTO findings
+            (type, src_ip, dst_ip, dst_port, score, severity, detail, timestamp,
+             status, analyst, notes, analyst_note, status_ts,
+             ts_score, ds_score, hist_score, dur_score,
+             mean_interval, median_interval, jitter, sample_size)
+            VALUES (?, ?, ?, ?, 75, 'HIGH', '', '2026-01-01 00:00:00',
+                    ?, 'analyst@test', '', '', '',
+                    0, 0, 0, 0, 0, 0, 0, 0)`,
+			ftype, src, dst, port, status)
+		if err != nil {
+			t.Fatalf("seed finding: %v", err)
+		}
+	}
+
+	// Pair A — 15 days, acknowledged → must appear.
+	insertHistory("fp-a", "10.0.0.1", "1.1.1.1", "443", "Beaconing", 15)
+	insertFinding("10.0.0.1", "1.1.1.1", "443", "Beaconing", "acknowledged")
+
+	// Pair B — only 7 days → must NOT appear (below SuggestMinDays).
+	insertHistory("fp-b", "10.0.0.2", "2.2.2.2", "80", "Beaconing", 7)
+	insertFinding("10.0.0.2", "2.2.2.2", "80", "Beaconing", "acknowledged")
+
+	// Pair C — 15 days, open status → must NOT appear (not acknowledged).
+	insertHistory("fp-c", "10.0.0.3", "3.3.3.3", "443", "Beaconing", 15)
+	insertFinding("10.0.0.3", "3.3.3.3", "443", "Beaconing", "")
+
+	// Pair D — 15 days, acknowledged, but already in pair_allowlist → must NOT appear.
+	insertHistory("fp-d", "10.0.0.4", "4.4.4.4", "443", "Beaconing", 15)
+	insertFinding("10.0.0.4", "4.4.4.4", "443", "Beaconing", "acknowledged")
+	if _, err := s.AddPairAllow(model.PairAllowEntry{
+		Src: "10.0.0.4", Dst: "4.4.4.4", Port: "443", FindingType: "Beaconing",
+		CreatedBy: "test", CreatedAt: now.Unix(),
+	}); err != nil {
+		t.Fatalf("add pair allow for D: %v", err)
+	}
+
+	got := s.SuggestedPairAllowlist()
+	if len(got) != 1 {
+		t.Fatalf("SuggestedPairAllowlist returned %d entries, want 1", len(got))
+	}
+	g := got[0]
+	if g.SrcIP != "10.0.0.1" || g.DstIP != "1.1.1.1" || g.DstPort != "443" {
+		t.Errorf("unexpected suggestion: %v", g)
+	}
+	if g.DayCount < SuggestMinDays {
+		t.Errorf("day_count=%d, want >= %d", g.DayCount, SuggestMinDays)
+	}
+}
+
 // TestNotifications_PersistAcrossReload codifies NEW-98 (twenty-third
 // audit round). The invariant: every notification surfaced through
 // the bell (finding alarms via SetFindings, sensor/feed alarms via

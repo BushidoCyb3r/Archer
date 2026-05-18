@@ -1389,6 +1389,24 @@ func (s *Server) handleDeleteSuppression(w http.ResponseWriter, r *http.Request)
 	jsonOK(w)
 }
 
+// handleSuggestedAllowlist serves GET /api/pair-allowlist/suggested — a
+// read-only list of beacon pairs that meet both suggestion gates (14+
+// distinct history days and an acknowledged finding). Any authenticated
+// role may read; applying a suggestion uses the existing POST
+// /api/pair-allowlist endpoint which enforces the write-role gate there.
+func (s *Server) handleSuggestedAllowlist(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	suggestions := s.store.SuggestedPairAllowlist()
+	if suggestions == nil {
+		suggestions = []model.SuggestedAllowEntry{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(suggestions)
+}
+
 // handlePairAllowlist serves GET (list, any role) and POST (create,
 // write roles) for the tuple-scoped finding filter. It is a pure view
 // filter — see store.AddPairAllow / migrations/0017.

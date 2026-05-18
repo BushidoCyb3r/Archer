@@ -2727,10 +2727,69 @@
       b.classList.toggle('active', b.dataset.altab === name));
     document.querySelectorAll('#allowlist-dialog .al-tab-panel').forEach(p =>
       p.classList.toggle('active', p.dataset.alpanel === name));
-    const rel = name === 'relationships';
-    document.getElementById('allowlist-save').style.display = rel ? 'none' : '';
-    document.getElementById('allowlist-cancel').textContent = rel ? 'Close' : 'Cancel';
-    if (rel) _renderPairAllow();
+    const noSave = name === 'relationships' || name === 'suggestions';
+    document.getElementById('allowlist-save').style.display = noSave ? 'none' : '';
+    document.getElementById('allowlist-cancel').textContent = noSave ? 'Close' : 'Cancel';
+    if (name === 'relationships') _renderPairAllow();
+    if (name === 'suggestions')   _renderSuggestAllow();
+  }
+
+  async function _renderSuggestAllow() {
+    const listEl = document.getElementById('suggest-allow-list');
+    listEl.textContent = 'Loading…';
+    let data;
+    try { data = await api('/api/pair-allowlist/suggested'); }
+    catch (e) { listEl.textContent = 'Error loading suggestions.'; return; }
+    if (!Array.isArray(data) || data.length === 0) {
+      listEl.innerHTML = '<div style="color:var(--fg-dim);font-size:13px">No suggestions — no acknowledged beacons have re-fired for 14+ days.</div>';
+      return;
+    }
+    listEl.innerHTML = '';
+    data.forEach(s => {
+      const card = document.createElement('div');
+      card.style.cssText = 'padding:10px 0;border-bottom:1px solid var(--border)';
+      card.innerHTML =
+        '<div style="font-family:monospace;font-size:13px">' + _esc(s.src_ip) + ' → ' + _esc(s.dst_ip) + ' : ' + _esc(s.dst_port || '·') + '</div>' +
+        '<div style="font-size:11px;color:var(--fg-dim);margin-top:2px">' +
+          _esc(s.finding_type) + ' · ' + _esc(String(s.day_count)) + ' days (' + _esc(s.first_seen) + ' → ' + _esc(s.last_seen) + ')' +
+          ' · peak score ' + _esc(String(s.peak_score)) +
+          (s.acked_by ? ' · acked by ' + _esc(s.acked_by) : '') +
+        '</div>' +
+        '<div style="display:flex;gap:8px;margin-top:8px;align-items:center">' +
+          '<input type="text" class="dlg-input sg-just" placeholder="Justification (required)" style="flex:1;font-size:12px">' +
+          '<button class="dlg-btn primary sg-apply" style="padding:3px 12px;font-size:12px;flex-shrink:0">Apply</button>' +
+        '</div>' +
+        '<div class="sg-error" style="display:none;color:var(--sev-high);font-size:11px;margin-top:4px"></div>';
+      const input   = card.querySelector('.sg-just');
+      const btn     = card.querySelector('.sg-apply');
+      const errEl   = card.querySelector('.sg-error');
+      btn.addEventListener('click', async () => {
+        const detail = input.value.trim();
+        if (!detail) {
+          errEl.textContent = 'Justification is required.';
+          errEl.style.display = 'block';
+          return;
+        }
+        errEl.style.display = 'none';
+        btn.disabled = true;
+        try {
+          await api('/api/pair-allowlist', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({src: s.src_ip, dst: s.dst_ip, port: s.dst_port, finding_type: s.finding_type, detail}),
+          });
+          setStatus('Allowlisted ' + s.src_ip + ' → ' + s.dst_ip + ':' + (s.dst_port || ''));
+          card.remove();
+          loadFindings(_currentFilterParams());
+          if (document.getElementById('allowlist-dialog').open) _renderPairAllow();
+        } catch (e) {
+          errEl.textContent = e || 'Failed.';
+          errEl.style.display = 'block';
+          btn.disabled = false;
+        }
+      });
+      listEl.appendChild(card);
+    });
   }
 
   function initListDialogs() {
