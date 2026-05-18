@@ -8,6 +8,7 @@ import (
 type sslEntry struct {
 	serverName string
 	ja3        string
+	ja4        string
 	version    string
 	subject    string
 	issuer     string

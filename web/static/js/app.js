@@ -17,6 +17,16 @@
   let _currentUser     = null;
   let _orgCIDRs        = []; // admin-supplied CIDRs that augment the built-in private ranges for the Hosts tab
 
+  // The eight beacon sub-score range inputs (4 axes × min/max). Listed
+  // once so Reset, the bell-jump filter clear, and Enter-to-apply all
+  // cover them: a stale sub-score bound left in the form would silently
+  // exclude a bell-jump target beacon — the cached-state action-failure
+  // class the clear-all path exists to prevent.
+  const _ssFilterIds = [
+    'filter-ss-ts-min', 'filter-ss-ts-max', 'filter-ss-ds-min', 'filter-ss-ds-max',
+    'filter-ss-hist-min', 'filter-ss-hist-max', 'filter-ss-dur-min', 'filter-ss-dur-max',
+  ];
+
   // Per-tab state. Each findings-style tab (findings / ack / esc / ioc)
   // keeps its own loaded findings, pagination position, and total count.
   // Tab switches read from cache when loaded=true (instant), fetch when
@@ -565,6 +575,17 @@
     if (!sel) return;
     const cur = sel.value;
     sel.innerHTML = '<option value="">All Types</option>';
+    // Synthetic beacon-family selector. Server-side filterFindings maps
+    // type=beacons to model.IsBeaconType, so picking this filters the
+    // Findings tab to every beacon type and "Export current tab" then
+    // produces the beacon export (wide CSV / triage-bearing JSON).
+    {
+      const b = document.createElement('option');
+      b.value = 'beacons';
+      b.textContent = 'Beacons (all types)';
+      if (cur === 'beacons') b.selected = true;
+      sel.appendChild(b);
+    }
     types.forEach(t => {
       // Host Risk Score is a per-host roll-up surfaced through the
       // Hosts tab — not a network event the Findings filter should
@@ -845,7 +866,7 @@
       _resetFilterUI();
       applyFilter();
     });
-    ['filter-search','filter-src','filter-dst','filter-port'].forEach(id => {
+    ['filter-search','filter-src','filter-dst','filter-port','filter-ja3', ..._ssFilterIds].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') applyFilter(); });
     });
@@ -926,8 +947,10 @@
     // in whatever state the analyst left it in across page reloads.
     const advToggle = document.getElementById('filter-advanced-toggle');
     const advPanel  = document.getElementById('filter-bar-advanced');
+    const ssPanel   = document.getElementById('filter-bar-subscore');
     const setAdv = open => {
       advPanel.style.display = open ? 'flex' : 'none';
+      if (ssPanel) ssPanel.style.display = open ? 'flex' : 'none';
       advToggle.classList.toggle('active', open);
       advToggle.textContent = open ? 'Advanced ▴' : 'Advanced ▾';
       try { localStorage.setItem('archer.filter.advanced', open ? '1' : '0'); } catch (e) {}
@@ -974,11 +997,20 @@
     const src = g('filter-src').trim(); if (src) params.src_ip = src;
     const dst = g('filter-dst').trim(); if (dst) params.dst_ip = dst;
     const port = g('filter-port').trim(); if (port) params.dst_port = port;
+    const ja3 = g('filter-ja3').trim();   if (ja3)  params.ja3 = ja3;
     const sn  = g('filter-sensor');     if (sn)  params.sensor = sn;
     // Spectral-rescued: server-side filter on Detail-string substring.
     // Calibration-loop helper — see docs/DETECTION_METHODS.md §2.
     const specOnly = document.getElementById('filter-spectral-only');
     if (specOnly && specOnly.checked) params.spectral_only = 'true';
+    // Beacon sub-score ranges. Each blank input is omitted; the server
+    // treats any present bound as implicitly scoping to beacon findings.
+    ['ts', 'ds', 'hist', 'dur'].forEach(ax => {
+      const lo = g(`filter-ss-${ax}-min`).trim();
+      const hi = g(`filter-ss-${ax}-max`).trim();
+      if (lo !== '') params[`${ax}_min`] = lo;
+      if (hi !== '') params[`${ax}_max`] = hi;
+    });
     // Date filter comes from the Time-range dropdown only. Custom
     // From/To inputs were removed from the Advanced bar — the dropdown
     // covers every common hunt window and the perf cost of a date
@@ -1405,7 +1437,7 @@
   // Reset clears the query without yanking them back to a default
   // window and re-fetching a different span than they were reading.
   function _resetFilterUI() {
-    ['filter-search','filter-src','filter-dst','filter-port'].forEach(id => {
+    ['filter-search','filter-src','filter-dst','filter-port','filter-ja3', ..._ssFilterIds].forEach(id => {
       const el = document.getElementById(id); if (el) el.value = '';
     });
     const sev = document.getElementById('filter-sev');       if (sev) sev.value = '';
@@ -1431,6 +1463,31 @@
     _resetFilterUI();
     const srcEl = document.getElementById('filter-src'); if (srcEl) srcEl.value = src;
     const dstEl = document.getElementById('filter-dst'); if (dstEl) dstEl.value = dst;
+    if (_tabMode !== 'findings') {
+      document.querySelectorAll('.tab-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.tab === 'findings');
+      });
+      _activeTab = 'findings';
+      _tabMode = 'findings';
+      const subTabs = document.getElementById('dismissed-subtabs');
+      if (subTabs) subTabs.style.display = 'none';
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      const panel = document.getElementById('tab-findings');
+      if (panel) panel.classList.add('active');
+    }
+    applyFilter();
+  }
+
+  // pivotByJA3 filters the Findings tab to every finding carrying the
+  // selected beacon's JA3, via the visible #filter-ja3 input — same
+  // shape as showContributingActivity: the analyst sees the filter
+  // state and can edit/clear it, no hidden predicate. Wired from the
+  // JA3 Pivot detail action button; enabled only when f.ja3 is set.
+  function pivotByJA3(f) {
+    if (!f || !f.ja3) return;
+    _resetFilterUI();
+    const el = document.getElementById('filter-ja3');
+    if (el) el.value = f.ja3;
     if (_tabMode !== 'findings') {
       document.querySelectorAll('.tab-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.tab === 'findings');
@@ -2206,6 +2263,12 @@
     if (rawBtn) {
       rawBtn.addEventListener('click', () => {
         if (_selectedFinding) _showRawRecords(_selectedFinding);
+      });
+    }
+    const ja3Btn = document.getElementById('ja3-btn');
+    if (ja3Btn) {
+      ja3Btn.addEventListener('click', () => {
+        if (_selectedFinding) pivotByJA3(_selectedFinding);
       });
     }
     const rawClose = document.getElementById('raw-dlg-close');
@@ -4280,7 +4343,7 @@
       // query 404s and the jump silently falls back to the "hidden from
       // table view" path instead of scrolling+highlighting. The active
       // tab is then chosen by the finding's status.
-      ['filter-search','filter-src','filter-dst','filter-port'].forEach(id => {
+      ['filter-search','filter-src','filter-dst','filter-port','filter-ja3', ..._ssFilterIds].forEach(id => {
         const el = document.getElementById(id); if (el) el.value = '';
       });
       const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };

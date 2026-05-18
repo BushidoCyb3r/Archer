@@ -609,7 +609,8 @@ button, input, select, textarea {
    Filter bar
 ============================================================================ */
 #filter-bar,
-#filter-bar-advanced {
+#filter-bar-advanced,
+#filter-bar-subscore {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -617,14 +618,24 @@ button, input, select, textarea {
   padding: 10px 18px;
 }
 #filter-bar { padding-bottom: 4px; }
-#filter-bar-advanced {
+#filter-bar-advanced,
+#filter-bar-subscore {
   padding-top: 2px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.012);
 }
+#filter-bar-subscore { padding-top: 6px; }
+.filter-subscore-title {
+  color: var(--fg-secondary);
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.filter-input.ss-in { width: 52px; padding-left: 6px; padding-right: 4px; }
 #filter-bar label,
-#filter-bar-advanced label {
+#filter-bar-advanced label,
+#filter-bar-subscore label {
   display: flex;
   align-items: center;
   gap: 7px;

@@ -516,6 +516,13 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
+		// JA3 cross-reference: only the single-finding detail view
+		// pays for this scan (the list/projection path never does).
+		// Empty JA3 → CountBeaconsWithJA3 returns 0 and the field is
+		// omitted; the detail render keys off f.ja3, not the count.
+		if f.JA3 != "" && model.IsBeaconType(f.Type) {
+			f.JA3SiblingCount = s.store.CountBeaconsWithJA3(f.JA3, f.ID)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(f)
 
@@ -1914,15 +1921,35 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="archer_%s.csv"`, time.Now().Format("20060102_150405")))
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"score", "severity", "type", "src_ip", "dst_ip", "dst_port", "timestamp", "detail", "source_file", "sensor", "status", "analyst", "analyst_note"})
+	base := []string{"score", "severity", "type", "src_ip", "dst_ip", "dst_port", "timestamp", "detail", "source_file", "sensor", "status", "analyst", "analyst_note"}
+	// Beacon-scoped export (type=beacons) appends the triage columns an
+	// IR team needs downstream. APPENDED, never inserted: a consumer
+	// reading the default 13 columns by index is unaffected, so widening
+	// stays non-breaking.
+	beaconCols := r.URL.Query().Get("type") == "beacons"
+	if beaconCols {
+		_ = cw.Write(append(append([]string{}, base...),
+			"ts_score", "ds_score", "hist_score", "dur_score",
+			"mean_interval", "median_interval", "jitter", "sample_size", "ja3", "ja4"))
+	} else {
+		_ = cw.Write(base)
+	}
+	ff := func(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
 	for _, f := range findings {
-		_ = cw.Write([]string{
+		row := []string{
 			strconv.Itoa(f.Score), string(f.Severity), spreadsheetSafe(f.Type),
 			spreadsheetSafe(f.SrcIP), spreadsheetSafe(f.DstIP), spreadsheetSafe(f.DstPort),
 			spreadsheetSafe(f.Timestamp), spreadsheetSafe(f.Detail),
 			spreadsheetSafe(f.SourceFile), spreadsheetSafe(f.Sensor),
 			string(f.Status), spreadsheetSafe(f.Analyst), spreadsheetSafe(f.AnalystNote),
-		})
+		}
+		if beaconCols {
+			row = append(row,
+				ff(f.TSScore), ff(f.DSScore), ff(f.HistScore), ff(f.DurScore),
+				ff(f.MeanInterval), ff(f.MedianInterval), ff(f.Jitter), strconv.Itoa(f.SampleSize),
+				spreadsheetSafe(f.JA3), spreadsheetSafe(f.JA4))
+		}
+		_ = cw.Write(row)
 	}
 	cw.Flush()
 }

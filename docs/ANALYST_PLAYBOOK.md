@@ -35,14 +35,15 @@ in this file as they're written.
 8. [The eight-question triage checklist](#the-eight-question-triage-checklist)
 9. [Worked examples](#worked-examples)
 10. [Pivoting from a beacon](#pivoting-from-a-beacon)
-11. [Benign-pattern catalog and the suppress-vs-allowlist rule](#benign-pattern-catalog-and-the-suppress-vs-allowlist-rule)
-12. [Note discipline](#note-discipline)
-13. [Anti-patterns — things that look like good triage but aren't](#anti-patterns--things-that-look-like-good-triage-but-arent)
-14. [Detection blind spots — what Archer cannot see](#detection-blind-spots--what-archer-cannot-see)
-15. [When you're stuck](#when-youre-stuck)
-16. [Daily / weekly / monthly rhythm](#daily--weekly--monthly-rhythm)
-17. [Escalation criteria](#escalation-criteria)
-18. [Glossary — Archer-specific terms](#glossary--archer-specific-terms)
+11. [Beacon-depth tools — signature hunting, JA3 pivot, URI footprint, export](#beacon-depth-tools--signature-hunting-ja3-pivot-uri-footprint-export)
+12. [Benign-pattern catalog and the suppress-vs-allowlist rule](#benign-pattern-catalog-and-the-suppress-vs-allowlist-rule)
+13. [Note discipline](#note-discipline)
+14. [Anti-patterns — things that look like good triage but aren't](#anti-patterns--things-that-look-like-good-triage-but-arent)
+15. [Detection blind spots — what Archer cannot see](#detection-blind-spots--what-archer-cannot-see)
+16. [When you're stuck](#when-youre-stuck)
+17. [Daily / weekly / monthly rhythm](#daily--weekly--monthly-rhythm)
+18. [Escalation criteria](#escalation-criteria)
+19. [Glossary — Archer-specific terms](#glossary--archer-specific-terms)
 
 ---
 
@@ -755,6 +756,118 @@ source. Shows every detection family that's contributed to
 this host's risk score. A host with Beacon + Long Connection
 + Off-Hours Transfer + a TI hit isn't a noisy detector —
 it's an incident.
+
+---
+
+## Beacon-depth tools — signature hunting, JA3 pivot, URI footprint, export
+
+These four tools (v0.27.0) change the unit of work from "triage the
+high-score rows one by one" to a loop: **find the shape → find every
+instance of it → confirm it's C2 → hand it off.** None of them changes
+detection — they don't catch anything new. They make what's already
+detected *huntable*. Use them in that order.
+
+### 1. Sub-score signature hunting — find the shape
+
+The score column is the **average** of four axes (see §5 / Anatomy):
+timing rhythm (`ts`), data-size regularity (`ds`), hour-coverage
+(`hist`), duration (`dur`). Averaging hides shapes. A staging beacon —
+dead-on cadence, but it only checked in for ten minutes before the
+operator moved on — has a high `ts` and a low `dur`/`hist`, so its
+*composite* lands at 55 and never crosses your score floor. It is a
+textbook implant and the score buried it.
+
+The advanced filter bar has a **Beacon sub-scores** row: a min/max box
+for each axis. Setting any one of them scopes the whole result to
+beacons automatically (you can't accidentally pull non-beacons — their
+axes are a structural zero). Stop sorting by score and hoping the
+shape floats up; *state the shape* and pull it directly:
+
+| You're hunting | Filter |
+|---|---|
+| Short-lived tight-cadence check-ins (staging, hands-on-keyboard) | `ts ≥ 0.80`, `dur ≤ 0.30` |
+| Long-haul low-and-slow tunnel (keepalive) | `ts ≥ 0.70`, `dur ≥ 0.80`, `hist ≥ 0.80` |
+| Constant-size heartbeat regardless of timing jitter | `ds ≥ 0.85` (then read jitter in the triage header) |
+| "Show me everything beacon-shaped, any score" | any single bound, e.g. `ts ≥ 0.50` |
+
+This is the entry point. Everything below pivots from a finding you
+found here.
+
+### 2. JA3 pivot — find every instance of the implant
+
+Open a beacon that went over TLS. The detail pane now shows a **JA3**
+line and `matched N other beacons in this dataset`, plus a **JA3
+Pivot** button in the action footer. JA3 fingerprints the TLS *client*
+— the malware's TLS stack, not the destination. An implant family
+produces the *same* JA3 from every host it runs on, regardless of
+which C2 IP or domain each victim talks to.
+
+So: one beacon you've assessed as malicious → **JA3 Pivot** → the
+findings table re-filters (via the `JA3` advanced field, which you can
+see and edit) to *every* finding carrying that fingerprint. Three
+internal hosts beaconing to three different destinations with the same
+JA3 is not three findings — it's one implant on three machines and you
+just scoped the whole intrusion. This is the lateral-spread signal
+that the per-destination view can't show you.
+
+Caveats: a shared *generic* JA3 (a common Go/Python HTTP client, a
+stock curl) is weak on its own — corroborate with the destination
+reputation and the rest of the beacon shape before calling spread.
+JA4 shows only if the sensor's Zeek emits it (stock Zeek does not);
+its absence means nothing.
+
+### 3. URI footprint — confirm it's C2, not a chatty app
+
+For an HTTP beacon the detail pane lists **Beacon paths on `<host>`** —
+the request paths that same `(src,dst,host)` beaconed on, by request
+count. This is the benign-vs-C2 discriminator that the single-URI view
+hid:
+
+- **One path, repeated** (`/api/v2/telemetry` every 5 min) → almost
+  always a benign app. Telemetry, update checks, presence pings hit
+  one stable endpoint.
+- **A small fixed set** (`/poll` n=312, `/cmd` n=18, `/upload` n=4) →
+  this is a C2 protocol. Frequent check-in, occasional tasking, rare
+  exfil — the count ratio *is* the command-and-control rhythm. Read
+  the paths: a poll/result/task split is implant structure, not a
+  REST API a browser would touch.
+
+If the footprint is one path, weight your assessment toward benign and
+go look at reputation. If it's a structured handful, that's
+corroborating evidence for malicious — and the path names are IOCs:
+note them, they're the implant's control API.
+
+### 4. Export the beacons — hand it off
+
+Once you've worked a campaign, hand it off without dumping the whole
+findings DB on the IR team. Set the **Type** filter to **Beacons (all
+types)** and use **Export current tab**:
+
+- **JSON** carries everything — the four sub-scores, jitter, sample
+  size, JA3/JA4, and the `top_uris` footprint. This is the artifact
+  for an IR/SOC handoff: every beacon with its full per-axis evidence
+  and TLS fingerprint already attached, nothing else.
+- **CSV** is the same beacon scope with the triage columns appended
+  (`ts_score`…`sample_size`, `ja3`, `ja4`) for a spreadsheet triage
+  pass. The footprint list is JSON-only — a path list doesn't fit a
+  flat cell.
+
+The export honours every filter you have set, so "export the beacons
+matching `ts ≥ 0.8 & dur ≤ 0.3` with this JA3" is one click — the hunt
+result, scoped, not the database.
+
+### Worked loop
+
+NXDOMAIN-quiet morning. You filter `ts_min=0.85, dur_max=0.35` — eight
+findings the score-sorted view had below the fold. One is a finance
+workstation to a no-reputation IP on 443, jitter 4%, sample 280. You
+**JA3 Pivot**: the same fingerprint is on two more workstations to two
+*different* IPs. Not three alerts — one implant, three hosts. You open
+the HTTP beacon among them: footprint is `/news/feed` n=240, `/news/post`
+n=9 — poll/result, not a news reader. You set Type → Beacons, keep the
+JA3 filter, **Export current tab → JSON**, attach it to the escalation.
+Twenty minutes, campaign scoped and handed off — work the existing
+detections, don't re-hunt them.
 
 ---
 

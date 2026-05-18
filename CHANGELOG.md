@@ -30,6 +30,97 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.27.0] — 2026-05-18
+
+Beacon triage depth. Four analyst-facing tools that change the unit of
+beacon hunting from "triage individual high-score rows" to "hypothesize
+a signature → scope to it → pivot across the campaign → hand it off."
+None of them changes detection — recall is identical; what improved is
+the hunter's ability to *work* the detections.
+
+### Added
+
+- **Sub-score filtering on `/api/findings`.** Eight new optional query
+  params — `ts_min`/`ts_max`, `ds_min`/`ds_max`, `hist_min`/`hist_max`,
+  `dur_min`/`dur_max` — each an inclusive bound on one beacon sub-axis
+  (timing rhythm, data-size regularity, hour-coverage, duration). The
+  composite 0–100 score averages the four axes, so a characteristic
+  implant profile (tight timing, short duration — a staging beacon)
+  gets buried below a score threshold despite textbook C2 rhythm.
+  These turn the score from a single ranking into a queryable signature
+  space ("`ts_min=0.8&dur_max=0.3`" = short-lived tight-cadence
+  spikes). Setting **any** sub-score bound implicitly scopes the result
+  to beacon types — a bare upper bound can't surface non-beacons whose
+  sub-scores are a structural zero. Surfaced in the advanced filter bar
+  as a four-axis min/max row.
+- **JA3 / JA4 inline cross-reference.** A conn-level Beaconing finding
+  now carries the TLS client fingerprint of the connection that seeded
+  it (`ja3`, `ja4`), lifted at emit time from the same `sslUIDIndex`
+  lookup that already resolves the SNI. The single-finding detail view
+  reports `ja3_sibling_count` ("matched N other beacons in this
+  dataset"); the **JA3 Pivot** detail button and the new `ja3` query
+  param filter to every finding sharing the fingerprint. Implants reuse
+  TLS stacks, so one malware family is one JA3 across every pair it
+  runs on — this converts per-pair detection into implant-family
+  attribution. JA4 is read opportunistically (stock Zeek `ssl.log` is
+  ja3/ja3s; absent unless the sensor runs the JA4+ plugin).
+- **HTTP-beacon URI footprint.** An HTTP Beaconing finding now carries
+  `top_uris` — the request-path footprint of the `(src,dst,host)`
+  group, count-descending, capped. The `(Type,src,dst,port)`
+  fingerprint dedup keeps one finding per group, so a multi-path
+  implant (`/poll`, `/cmd`, `/upload` on one host) previously showed as
+  one URI; the footprint is aggregated pre-dedup and stamped on every
+  finding in the group so the dedup survivor carries the whole list. A
+  benign beacon hits one stable endpoint; a C2 has a small fixed set of
+  control paths — the footprint is one of the strongest "implant, not a
+  chatty app" discriminators.
+- **Beacon export target.** The `type` query param accepts the
+  pseudo-value `beacons`, matching the whole beacon family (Beaconing /
+  HTTP Beaconing / DNS Beaconing) in one selector — usable as an
+  all-beacons Findings filter and, via the existing export flow, as a
+  beacon-only export. Surfaced as a "Beacons (all types)" option in the
+  Type dropdown.
+
+### Changed
+
+- **`/api/export/csv` widens under `type=beacons`.** A beacon-scoped
+  CSV export appends ten triage columns (`ts_score`, `ds_score`,
+  `hist_score`, `dur_score`, `mean_interval`, `median_interval`,
+  `jitter`, `sample_size`, `ja3`, `ja4`) after the historical 13. The
+  columns are **appended, never inserted** — a consumer parsing the
+  first 13 by index is unaffected, so the widening is non-breaking. The
+  default (unscoped) export is byte-identical to before. The JSON
+  export already carries every triage field via the Finding struct.
+
+### Detection changes
+
+- **None.** This slice is analysis/triage depth only. No score formula,
+  threshold, finding type, emission decision, or `Fingerprint()` was
+  touched. `ja3`/`ja4`/`top_uris` are descriptive values lifted from
+  data the analyzer already had; the golden corpus is unchanged (the
+  comparison projection excludes these fields by design, and it stayed
+  flat). Analysts do **not** need to re-baseline.
+
+### Breaking
+
+- **DB schema: three columns added to `findings` (migrations 0019 +
+  0020).** `ja3`, `ja4` (migration 0019) and `top_uris` (migration
+  0020), every one `TEXT NOT NULL DEFAULT ''`. `top_uris` holds a JSON
+  `[]{uri,count}` (same shape convention as the `correlations`
+  column). Applied idempotently and transactionally on startup — no
+  operator action — but it is a schema change, called out here per the
+  pre-1.0 contract. Pre-migration rows and every non-beacon /
+  non-HTTP-beacon finding read back empty, which the detail render
+  treats as "no enriched block" — no regression until the next full
+  analysis re-emits the finding.
+- **API: additive only.** New optional `/api/findings` query params
+  (`ts_min`…`dur_max`, `ja3`, `type=beacons`) and new `omitempty`
+  Finding fields (`ja3`, `ja4`, `ja3_sibling_count`, `top_uris`). No
+  field was renamed or removed; no downstream update is required. The
+  beacon-scoped CSV widening is non-breaking as described under
+  **Changed**. Listed here because the HTTP/SSE API contract is one of
+  the four pre-1.0 surfaces and any change to it is called out.
+
 ## [v0.26.0] — 2026-05-18
 
 ### Added
@@ -5555,7 +5646,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.26.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.27.0...HEAD
+[v0.27.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.26.0...v0.27.0
 [v0.26.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.25.1...v0.26.0
 [v0.25.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.25.0...v0.25.1
 [v0.25.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.24.0...v0.25.0

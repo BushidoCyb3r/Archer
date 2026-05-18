@@ -487,6 +487,253 @@ func TestSetFindings_BeaconDetailFieldsPersistAcrossReload(t *testing.T) {
 	assertBeacon("after carry-forward reload", *reloaded)
 }
 
+// TestSetFindings_JA3PersistAcrossReload codifies the migration-0019
+// closure. JA3/JA4 are lifted onto a conn-level Beaconing finding at
+// emit time from sslUIDIndex. Pre-0019 they had no columns, so the
+// same two failure modes the 0018 fields had would recur: a server
+// restart, or SetFindings's carry-forward for a beacon that didn't
+// re-fire, would blank the fingerprint and the detail pane's JA3
+// cross-reference block would vanish for an unchanged beacon.
+//
+// Invariant, not failure case: the test asserts the full lifecycle —
+// (1) JA3/JA4 survive save→reopen→reload (restart survival), and (2) a
+// later SetFindings that does NOT re-emit the beacon preserves the
+// fingerprint on the carried-forward row and re-persists it. A
+// regression in the load scan, the save insert, or the preserve loop
+// fails here.
+func TestSetFindings_JA3PersistAcrossReload(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db1, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db1.SetMaxOpenConns(1)
+	if err := RunMigrations(db1); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	s1 := New(config.Default())
+	s1.InitDB(db1)
+	s1.SetFindings([]model.Finding{
+		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+			Score: 88, Severity: model.SevCritical, Timestamp: "2026-05-18 09:00:00",
+			JA3: "771,4865-4866", JA4: "t13d1516h2_8daaf6152771_b0da82dd1658"},
+	})
+	_ = db1.Close()
+
+	assertJA := func(tag string, f model.Finding) {
+		t.Helper()
+		if f.JA3 != "771,4865-4866" {
+			t.Errorf("%s: JA3 = %q; want %q", tag, f.JA3, "771,4865-4866")
+		}
+		if f.JA4 != "t13d1516h2_8daaf6152771_b0da82dd1658" {
+			t.Errorf("%s: JA4 = %q; want %q", tag, f.JA4, "t13d1516h2_8daaf6152771_b0da82dd1658")
+		}
+	}
+
+	// (1) Restart survival.
+	db2, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("reopen db: %v", err)
+	}
+	db2.SetMaxOpenConns(1)
+	s2 := New(config.Default())
+	s2.InitDB(db2)
+	if len(s2.findings) != 1 {
+		t.Fatalf("reload: %d findings, want 1", len(s2.findings))
+	}
+	assertJA("after reload", s2.findings[0])
+
+	// (2) Carry-forward survival: a later SetFindings that does not
+	// re-emit the beacon must preserve it with its fingerprint intact
+	// and re-persist it.
+	s2.SetFindings([]model.Finding{
+		{ID: 99, Type: "DNS Tunneling", SrcIP: "10.0.0.2", DstIP: "9.9.9.9", DstPort: "53",
+			Score: 60, Severity: model.SevMedium, Timestamp: "2026-05-18 10:00:00"},
+	})
+	var carried *model.Finding
+	for i := range s2.findings {
+		if s2.findings[i].Type == "Beaconing" {
+			carried = &s2.findings[i]
+		}
+	}
+	if carried == nil {
+		t.Fatal("carry-forward: Beaconing finding was not preserved")
+	}
+	assertJA("after carry-forward", *carried)
+	_ = db2.Close()
+
+	db3, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("reopen db3: %v", err)
+	}
+	db3.SetMaxOpenConns(1)
+	defer db3.Close()
+	s3 := New(config.Default())
+	s3.InitDB(db3)
+	var reloaded *model.Finding
+	for i := range s3.findings {
+		if s3.findings[i].Type == "Beaconing" {
+			reloaded = &s3.findings[i]
+		}
+	}
+	if reloaded == nil {
+		t.Fatal("after carry-forward reload: Beaconing finding missing")
+	}
+	assertJA("after carry-forward reload", *reloaded)
+}
+
+// TestSetFindings_TopURIsPersistAcrossReload codifies the migration-
+// 0020 closure. The HTTP-beacon path footprint is aggregated at emit
+// time and stamped on the finding; without a column it would share the
+// pre-0019 failure modes — a restart, or SetFindings's carry-forward of
+// an HTTP beacon that didn't re-fire, would blank the footprint and the
+// detail pane's "Beacon paths on this host" block would vanish for an
+// unchanged finding. Invariant, not failure case: (1) the []URIStat
+// slice survives save→reopen→reload byte-for-byte, and (2) a later
+// SetFindings that does NOT re-emit the beacon preserves the footprint
+// on the carried-forward row and re-persists it.
+func TestSetFindings_TopURIsPersistAcrossReload(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db1, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db1.SetMaxOpenConns(1)
+	if err := RunMigrations(db1); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s1 := New(config.Default())
+	s1.InitDB(db1)
+	want := []model.URIStat{{URI: "/b", Count: 300}, {URI: "/c", Count: 120}, {URI: "/a", Count: 50}}
+	s1.SetFindings([]model.Finding{
+		{ID: 1, Type: "HTTP Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "80",
+			Score: 82, Severity: model.SevHigh, Timestamp: "2026-05-18 09:00:00",
+			Hostname: "evil.example", URI: "/b", TopURIs: want},
+	})
+	_ = db1.Close()
+
+	assertFP := func(tag string, f model.Finding) {
+		t.Helper()
+		if len(f.TopURIs) != len(want) {
+			t.Fatalf("%s: TopURIs len %d, want %d (%v)", tag, len(f.TopURIs), len(want), f.TopURIs)
+		}
+		for i := range want {
+			if f.TopURIs[i] != want[i] {
+				t.Errorf("%s: TopURIs[%d] = %v; want %v", tag, i, f.TopURIs[i], want[i])
+			}
+		}
+	}
+
+	// (1) Restart survival.
+	db2, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("reopen db: %v", err)
+	}
+	db2.SetMaxOpenConns(1)
+	s2 := New(config.Default())
+	s2.InitDB(db2)
+	if len(s2.findings) != 1 {
+		t.Fatalf("reload: %d findings, want 1", len(s2.findings))
+	}
+	assertFP("after reload", s2.findings[0])
+
+	// (2) Carry-forward survival.
+	s2.SetFindings([]model.Finding{
+		{ID: 99, Type: "DNS Tunneling", SrcIP: "10.0.0.2", DstIP: "9.9.9.9", DstPort: "53",
+			Score: 60, Severity: model.SevMedium, Timestamp: "2026-05-18 10:00:00"},
+	})
+	var carried *model.Finding
+	for i := range s2.findings {
+		if s2.findings[i].Type == "HTTP Beaconing" {
+			carried = &s2.findings[i]
+		}
+	}
+	if carried == nil {
+		t.Fatal("carry-forward: HTTP Beaconing finding was not preserved")
+	}
+	assertFP("after carry-forward", *carried)
+	_ = db2.Close()
+
+	db3, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("reopen db3: %v", err)
+	}
+	db3.SetMaxOpenConns(1)
+	defer db3.Close()
+	s3 := New(config.Default())
+	s3.InitDB(db3)
+	var reloaded *model.Finding
+	for i := range s3.findings {
+		if s3.findings[i].Type == "HTTP Beaconing" {
+			reloaded = &s3.findings[i]
+		}
+	}
+	if reloaded == nil {
+		t.Fatal("after carry-forward reload: HTTP Beaconing finding missing")
+	}
+	assertFP("after carry-forward reload", *reloaded)
+}
+
+// TestCountBeaconsWithJA3 codifies the sibling-count invariant the
+// single-finding detail handler relies on: count OTHER beacon findings
+// sharing a JA3 — excluding the finding itself, excluding non-beacon
+// types even when they carry the same JA3 (a Malicious JA3 detection
+// hit must not inflate the beacon cross-reference), and treating an
+// empty JA3 as "no fingerprint, nothing to correlate" (0, never a scan
+// over every empty-JA3 row). Asserting the invariant across all four
+// axes means a refactor of the scan or the type gate can't silently
+// regress one of them.
+func TestCountBeaconsWithJA3(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	defer db.Close()
+	s := New(config.Default())
+	s.InitDB(db)
+	s.SetFindings([]model.Finding{
+		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-18 09:00:00", JA3: "aabb"},
+		{ID: 2, Type: "Beaconing", SrcIP: "10.0.0.2", DstIP: "1.1.1.1", DstPort: "443",
+			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-18 09:01:00", JA3: "aabb"},
+		{ID: 3, Type: "Beaconing", SrcIP: "10.0.0.3", DstIP: "2.2.2.2", DstPort: "443",
+			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-18 09:02:00", JA3: "aabb"},
+		{ID: 4, Type: "Beaconing", SrcIP: "10.0.0.4", DstIP: "3.3.3.3", DstPort: "443",
+			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-18 09:03:00", JA3: "ccdd"},
+		{ID: 5, Type: "Malicious JA3", SrcIP: "10.0.0.5", DstIP: "4.4.4.4", DstPort: "443",
+			Score: 95, Severity: model.SevCritical, Timestamp: "2026-05-18 09:04:00", JA3: "aabb"},
+		{ID: 6, Type: "Beaconing", SrcIP: "10.0.0.6", DstIP: "5.5.5.5", DstPort: "443",
+			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-18 09:05:00", JA3: ""},
+	})
+
+	cases := []struct {
+		name      string
+		ja3       string
+		excludeID int
+		want      int
+	}{
+		{"excludes self, counts beacon siblings", "aabb", 1, 2},
+		{"different exclude — symmetric", "aabb", 2, 2},
+		{"no self in set — all three beacons", "aabb", 0, 3},
+		{"non-beacon sharing the JA3 is excluded", "aabb", 999, 3},
+		{"unique JA3 has no siblings", "ccdd", 4, 0},
+		{"empty JA3 short-circuits to 0", "", 1, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := s.CountBeaconsWithJA3(c.ja3, c.excludeID); got != c.want {
+				t.Errorf("CountBeaconsWithJA3(%q, %d) = %d; want %d", c.ja3, c.excludeID, got, c.want)
+			}
+		})
+	}
+}
+
 // TestSetFindings_TranslatesCorrelationIDs codifies NEW-71. correlate.go
 // populates Finding.Correlations with the per-run fresh a.nextID++ IDs
 // at emit time; SetFindings then rewrites each finding's ID via

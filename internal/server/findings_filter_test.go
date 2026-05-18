@@ -157,6 +157,186 @@ func TestFilterFindings_PairAllowlist(t *testing.T) {
 	}
 }
 
+// TestFilterFindings_SubScoreRanges codifies the v1.4 sub-score filter
+// invariant rather than any single failure case:
+//
+//  1. Each axis bound is an inclusive [min,max] test against the
+//     finding's ts/ds/hist/dur sub-score; either bound may be omitted.
+//  2. Setting ANY sub-score bound implicitly scopes the result to
+//     beacon types (model.IsBeaconType). The foot-gun this closes:
+//     a bare upper bound like dur_max=0.3 must NOT surface every
+//     non-beacon, whose dur_score is a structural 0 ≤ 0.3.
+//  3. Multiple axes AND together — the documented "ts high but dur
+//     low" query is one filter call, not two passes.
+//  4. DNS Beaconing is a beacon type but leaves DSScore a structural
+//     zero: a ds floor correctly excludes it; a ds ceiling includes
+//     it. The gate must not special-case it out.
+//  5. A non-numeric bound disables that one axis (defensive, same
+//     shape as parsePortSet) rather than blanking the whole filter;
+//     when it was the only sub-score param the beacon-scope gate does
+//     not engage and pre-existing behaviour is unchanged.
+//
+// Asserting the invariant (range + implicit beacon-scope + AND across
+// axes + DNS structural-zero handling + defensive parse) means a
+// future refactor of the parse helper or the gate can't silently
+// regress any one axis without a wantIDs mismatch here.
+func TestFilterFindings_SubScoreRanges(t *testing.T) {
+	s := newAuditTestServer(t)
+	findings := []model.Finding{
+		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:00:00",
+			TSScore: 0.90, DSScore: 0.80, HistScore: 0.50, DurScore: 0.10},
+		{ID: 2, Type: "HTTP Beaconing", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 75, Status: model.StatusOpen, Timestamp: "2026-05-18 09:01:00",
+			TSScore: 0.30, DSScore: 0.90, HistScore: 0.90, DurScore: 0.90},
+		{ID: 3, Type: "DNS Beaconing", SrcIP: "10.0.0.3", DstIP: "3.3.3.3", Score: 60, Status: model.StatusOpen, Timestamp: "2026-05-18 09:02:00",
+			TSScore: 0.95, DSScore: 0.00, HistScore: 0.70, DurScore: 0.60},
+		{ID: 4, Type: "Suspicious URL", SrcIP: "10.0.0.4", DstIP: "4.4.4.4", Score: 50, Status: model.StatusOpen, Timestamp: "2026-05-18 09:03:00",
+			TSScore: 0.00, DSScore: 0.00, HistScore: 0.00, DurScore: 0.00},
+	}
+
+	cases := []struct {
+		name    string
+		query   url.Values
+		wantIDs []int
+	}{
+		{
+			name:    "no sub-score params — baseline unchanged, non-beacon still present",
+			query:   url.Values{},
+			wantIDs: []int{1, 2, 3, 4},
+		},
+		{
+			name:    "ts_min scopes to beacons and applies the floor",
+			query:   url.Values{"ts_min": []string{"0.7"}},
+			wantIDs: []int{1, 3},
+		},
+		{
+			name:    "ts_min + dur_max — tight-rhythm short-lived spike (AND across axes)",
+			query:   url.Values{"ts_min": []string{"0.7"}, "dur_max": []string{"0.3"}},
+			wantIDs: []int{1},
+		},
+		{
+			name:    "bare dur_max must not surface the non-beacon (structural-zero foot-gun)",
+			query:   url.Values{"dur_max": []string{"0.3"}},
+			wantIDs: []int{1},
+		},
+		{
+			name:    "ds floor excludes DNS Beaconing's structural-zero ds",
+			query:   url.Values{"ds_min": []string{"0.5"}},
+			wantIDs: []int{1, 2},
+		},
+		{
+			name:    "ds ceiling includes DNS Beaconing (gate must not special-case it out)",
+			query:   url.Values{"ds_max": []string{"0.1"}},
+			wantIDs: []int{3},
+		},
+		{
+			name:    "hist range [0.6,0.8] inclusive",
+			query:   url.Values{"hist_min": []string{"0.6"}, "hist_max": []string{"0.8"}},
+			wantIDs: []int{3},
+		},
+		{
+			name:    "non-numeric bound disables that axis; sole param ⇒ no gate, behaviour unchanged",
+			query:   url.Values{"ts_min": []string{"abc"}},
+			wantIDs: []int{1, 2, 3, 4},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := s.filterFindings(append([]model.Finding{}, findings...), c.query)
+			gotIDs := []int{}
+			for _, f := range got {
+				gotIDs = append(gotIDs, f.ID)
+			}
+			if !sameIntSlice(gotIDs, c.wantIDs) {
+				t.Errorf("query=%v: got IDs %v, want %v", c.query, gotIDs, c.wantIDs)
+			}
+		})
+	}
+}
+
+// TestFilterFindings_JA3 codifies the ja3= filter invariant that
+// powers the detail-pane "matched N other beacons" pivot: an exact,
+// case-insensitive match on Finding.JA3 (the value is stored lowercased
+// at emit, so a pasted upper/mixed-case fingerprint must still match),
+// scoping the result to exactly the findings carrying that fingerprint
+// regardless of type — the pivot deliberately surfaces the Malicious
+// JA3 detection on the same fingerprint alongside the beacons, that is
+// the cross-reference the analyst wants. Empty ja3 is a no-op.
+func TestFilterFindings_JA3(t *testing.T) {
+	s := newAuditTestServer(t)
+	findings := []model.Finding{
+		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:00:00", JA3: "aabb"},
+		{ID: 2, Type: "Beaconing", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:01:00", JA3: "aabb"},
+		{ID: 3, Type: "Malicious JA3", SrcIP: "10.0.0.3", DstIP: "3.3.3.3", Score: 95, Status: model.StatusOpen, Timestamp: "2026-05-18 09:02:00", JA3: "aabb"},
+		{ID: 4, Type: "Beaconing", SrcIP: "10.0.0.4", DstIP: "4.4.4.4", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:03:00", JA3: "ccdd"},
+		{ID: 5, Type: "Beaconing", SrcIP: "10.0.0.5", DstIP: "5.5.5.5", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:04:00", JA3: ""},
+	}
+	cases := []struct {
+		name    string
+		query   url.Values
+		wantIDs []int
+	}{
+		{"no ja3 param — unchanged", url.Values{}, []int{1, 2, 3, 4, 5}},
+		{"exact match across types (beacons + Malicious JA3)", url.Values{"ja3": []string{"aabb"}}, []int{1, 2, 3}},
+		{"case-insensitive (stored lowercased)", url.Values{"ja3": []string{"AABB"}}, []int{1, 2, 3}},
+		{"unique fingerprint", url.Values{"ja3": []string{"ccdd"}}, []int{4}},
+		{"no match", url.Values{"ja3": []string{"deadbeef"}}, []int{}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := s.filterFindings(append([]model.Finding{}, findings...), c.query)
+			gotIDs := []int{}
+			for _, f := range got {
+				gotIDs = append(gotIDs, f.ID)
+			}
+			if !sameIntSlice(gotIDs, c.wantIDs) {
+				t.Errorf("query=%v: got %v, want %v", c.query, gotIDs, c.wantIDs)
+			}
+		})
+	}
+}
+
+// TestFilterFindings_BeaconsPseudoType codifies the type=beacons
+// invariant: the pseudo-value matches exactly the beacon family
+// (Beaconing / HTTP Beaconing / DNS Beaconing) and nothing else, while
+// an exact type and the empty/All cases keep their prior meaning. This
+// is the selector the beacon export and the all-beacons Findings
+// filter both ride, so a regression in the special-case ordering
+// (e.g. "beacons" falling through to the exact-match arm and matching
+// nothing) is caught here.
+func TestFilterFindings_BeaconsPseudoType(t *testing.T) {
+	s := newAuditTestServer(t)
+	findings := []model.Finding{
+		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:00:00"},
+		{ID: 2, Type: "HTTP Beaconing", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 75, Status: model.StatusOpen, Timestamp: "2026-05-18 09:01:00"},
+		{ID: 3, Type: "DNS Beaconing", SrcIP: "10.0.0.3", DstIP: "3.3.3.3", Score: 60, Status: model.StatusOpen, Timestamp: "2026-05-18 09:02:00"},
+		{ID: 4, Type: "Suspicious URL", SrcIP: "10.0.0.4", DstIP: "4.4.4.4", Score: 70, Status: model.StatusOpen, Timestamp: "2026-05-18 09:03:00"},
+		{ID: 5, Type: "Strobe", SrcIP: "10.0.0.5", DstIP: "5.5.5.5", Score: 50, Status: model.StatusOpen, Timestamp: "2026-05-18 09:04:00"},
+	}
+	cases := []struct {
+		name    string
+		query   url.Values
+		wantIDs []int
+	}{
+		{"beacons pseudo-type → whole beacon family only", url.Values{"type": []string{"beacons"}}, []int{1, 2, 3}},
+		{"exact type still exact", url.Values{"type": []string{"Beaconing"}}, []int{1}},
+		{"empty type → all", url.Values{}, []int{1, 2, 3, 4, 5}},
+		{"All → all", url.Values{"type": []string{"All"}}, []int{1, 2, 3, 4, 5}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := s.filterFindings(append([]model.Finding{}, findings...), c.query)
+			gotIDs := []int{}
+			for _, f := range got {
+				gotIDs = append(gotIDs, f.ID)
+			}
+			if !sameIntSlice(gotIDs, c.wantIDs) {
+				t.Errorf("query=%v: got %v, want %v", c.query, gotIDs, c.wantIDs)
+			}
+		})
+	}
+}
+
 func sameIntSlice(a, b []int) bool {
 	if len(a) != len(b) {
 		return false

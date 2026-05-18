@@ -264,7 +264,11 @@ The most-used surface. Findings are detector outputs, persisted in
   "mean_interval":   60.0,
   "median_interval": 60.0,
   "jitter":          0.05,
-  "sample_size":     312
+  "sample_size":     312,
+  "ja3":             "771,4865-4866-49195",
+  "ja4":             "t13d1516h2_8daaf6152771_b0da82dd1658",
+  "ja3_sibling_count": 4,
+  "top_uris": [{"uri": "/poll", "count": 312}, {"uri": "/cmd", "count": 18}]
 }
 ```
 
@@ -298,6 +302,29 @@ The most-used surface. Findings are detector outputs, persisted in
   survive a restart and the carry-forward. They are part of the
   **full** single-finding shape only — the projected list endpoint
   does not include them (next bullet).
+- `ja3` / `ja4` are the TLS client fingerprints of the connection that
+  seeded a conn-level `Beaconing` finding, lifted at emit time from
+  `sslUIDIndex` (the same lookup that resolves `hostname` from the
+  SNI). Empty for non-TLS beacons, HTTP Beaconing (cleartext by
+  construction), DNS Beaconing, and every non-beacon type. `ja4` is
+  empty unless the sensor's Zeek emits a `ja4` field (stock `ssl.log`
+  is ja3/ja3s — JA4 needs the JA4+ plugin). Persisted as columns
+  (migration 0019) so they survive a restart and the carry-forward.
+- `ja3_sibling_count` is a **transient, derived-at-read** field — the
+  number of *other* beacon findings in the current dataset sharing this
+  `ja3`. Computed by the single-finding detail handler only (never
+  persisted, excluded from the list projection and exports). The detail
+  render keys the JA3 block off `ja3` being non-empty, not off this
+  count, so an omitted-because-zero value reads correctly as "matched 0
+  other beacons." Filter to those siblings with the `ja3` query param.
+- `top_uris` is the HTTP Beaconing destination's request-path
+  footprint: `[]{uri, count}`, count-descending, capped at 8. The
+  `(Type,src,dst,port)` fingerprint dedup keeps one finding per group,
+  so this is aggregated pre-dedup over the `(sensor,src,dst,host)`
+  beacon keys and stamped identically on every finding in the group —
+  whichever survives the dedup carries the whole footprint. Empty for
+  every non-HTTP-Beaconing type. Persisted as a JSON column (migration
+  0020) for the same restart / carry-forward reason.
 - **`GET /api/findings` returns a projected list** that drops
   `ts_data`, `intervals`, and `notes` regardless of whether they're
   populated — those fields balloon to hundreds of KB per row on
@@ -311,7 +338,7 @@ The most-used surface. Findings are detector outputs, persisted in
 | Param | Shape | Effect |
 |-------|-------|--------|
 | `search` | string | Case-insensitive substring match on `type`/`detail`/`src_ip`/`dst_ip`. |
-| `type` | string | Exact-match on `type`. |
+| `type` | string | Exact-match on `type`. The pseudo-value `beacons` matches the whole beacon family (`Beaconing` / `HTTP Beaconing` / `DNS Beaconing`) in one selector — drives the beacon export target and the all-beacons Findings filter. |
 | `severity` | `CRITICAL`/`HIGH`/`MEDIUM`/`LOW`/`INFO` | Exact-match. |
 | `min_score` | int 0–100 | Lower bound (inclusive). |
 | `delta` | `true` | Only `is_new=true` findings (drift since last analysis). |
@@ -324,6 +351,8 @@ The most-used surface. Findings are detector outputs, persisted in
 | `ioc_only` | `true` | Only findings whose `src_ip` or `dst_ip` is in the IOC list. |
 | `include_dismissed` | `true` | Counts-style flag for callers that want dismissed findings included in an otherwise-unscoped result. Has no effect when `status` is explicitly set. Default behavior (omitted or `false`): if no `status` filter is provided, dismissed findings are excluded — the "I don't want to see this again" semantic carries through every non-Dismissed tab. Used internally by `/api/findings/counts` to bucket dismissed separately. |
 | `spectral_only` | `true` | Only Beaconing findings whose timing score was rescued by the spectral path. Matches on the `Spectral rescued:` substring in the Detail field. Useful during spectral-tuning calibration — see `docs/SPECTRAL_TUNING.md`. |
+| `ts_min`/`ts_max`, `ds_min`/`ds_max`, `hist_min`/`hist_max`, `dur_min`/`dur_max` | float `[0,1]` | Inclusive bound on one beacon sub-axis (timing / data-size / hour-coverage / duration). Either bound of a pair may be omitted; a non-numeric value disables that one axis rather than blanking the filter. **Setting any sub-score bound implicitly scopes the result to beacon types** (`Beaconing`/`HTTP Beaconing`/`DNS Beaconing`) — a bare upper bound like `dur_max=0.3` would otherwise surface every non-beacon, whose sub-scores are a structural `0 ≤ 0.3`. Lets a hunter query a beacon *signature* the composite score averages away (e.g. `ts_min=0.8&dur_max=0.3` = short-lived tight-cadence spikes). DNS Beaconing leaves `ds_score` a structural zero, so a `ds_min>0` filter correctly excludes it. |
+| `ja3` | string | Exact JA3 client-fingerprint match (case-insensitive — JA3 is stored lowercased at emit). Powers the detail-pane **JA3 Pivot** ("matched N other beacons"): clicking it filters to every finding carrying the fingerprint, so one beacon unravels the whole implant family in the dataset. |
 | `sort` | `score`/`severity`/`type`/`src_ip`/`dst_ip`/`timestamp` | Sort key (default `score`). |
 | `dir` | `asc`/`desc` | Sort direction (default `desc`). |
 | `limit` | int 1–50000 | Max rows in the response. Default `1000`. |
@@ -650,7 +679,7 @@ to update sensors before the server.
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
 | `GET` | `/api/export/json` | any | Full findings dump. Same query params as `/api/findings`. Includes `archer_version` field at the top of the JSON object. |
-| `GET` | `/api/export/csv` | any | CSV variant — flattened columns, no `intervals`/`ts_data`/`notes`. |
+| `GET` | `/api/export/csv` | any | CSV variant — flattened columns, no `intervals`/`ts_data`/`notes`. With `type=beacons` the export is scoped to the beacon family and **appends** ten triage columns (`ts_score`…`sample_size`, `ja3`, `ja4`) after the historical 13; appended-not-inserted, so an index-based consumer of the default schema is unaffected. The default (unscoped) export is byte-identical to prior versions. Pair `type=beacons` with the JSON variant for the structured `top_uris` footprint (a nested list doesn't fit a flat CSV cell). |
 | `GET` | `/api/export/xlsx` | any | Multi-sheet workbook (xlsx). Six sheets — `Findings` (open), `Acknowledged`, `Escalated`, `IOC Hits`, `Campaigns`, `Hosts` — all driven from the full database, ignoring filters and tab state. Used by the **Export all** button's XLSX option. |
 | `POST` | `/api/import` | admin | Restore from a `/api/export/json` dump. Fingerprint-merges with existing findings: existing-by-fingerprint findings keep their analyst data, new ones land as `is_new=true`. Re-assigns IDs in a fresh sequence and translates every `correlations[]` slice through an old→new map so cross-finding references survive the round-trip. |
 

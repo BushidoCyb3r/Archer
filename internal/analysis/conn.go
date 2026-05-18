@@ -497,11 +497,13 @@ func (a *Analyzer) analyzeConn(files []string) {
 		// hostname signal, skip this finding." In practice
 		// analyzeSSL finishes well before analyzeConn (ssl.log is
 		// much smaller than conn.log), so the race window is narrow.
-		var hostname string
+		var hostname, ja3, ja4 string
 		if st.firstUID != "" {
 			a.mu.RLock()
 			if entry, ok := a.sslUIDIndex[st.firstUID]; ok {
 				hostname = entry.serverName
+				ja3 = entry.ja3
+				ja4 = entry.ja4
 			}
 			a.mu.RUnlock()
 		}
@@ -516,6 +518,8 @@ func (a *Analyzer) analyzeConn(files []string) {
 			Timestamp:      fmtTS(st.firstTs),
 			TSData:         tsData,
 			Hostname:       hostname,
+			JA3:            ja3,
+			JA4:            ja4,
 			TSScore:        tsScore,
 			DSScore:        dsScore,
 			HistScore:      hScore,

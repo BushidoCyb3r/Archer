@@ -76,6 +76,24 @@ const Detail = (() => {
     if (f.src_ip)   lines.push(`Src IP     : ${f.src_ip}`);
     if (f.dst_ip)   lines.push(`Dst IP     : ${f.dst_ip}`);
     if (f.dst_port) lines.push(`Dst Port   : ${f.dst_port}`);
+    // TLS client fingerprint (conn-level Beaconing over TLS only). The
+    // sibling count is server-derived per request; 0/omitted reads as
+    // "no other beacon shares this fingerprint in the current dataset".
+    if (f.ja3) {
+      lines.push(`JA3        : ${f.ja3}`);
+      const n = f.ja3_sibling_count || 0;
+      lines.push(`JA3 match  : ${n} other beacon${n === 1 ? '' : 's'} in this dataset` +
+                 (n > 0 ? '  (JA3 Pivot ▸)' : ''));
+    }
+    if (f.ja4) lines.push(`JA4        : ${f.ja4}`);
+    // HTTP-beacon path footprint: the beacon-shaped request paths the
+    // same (src,dst,host) group hit, count-desc, server-aggregated
+    // pre-dedup. >1 entry is the multi-URI implant shape; the finding's
+    // own URI is included so the analyst reads the complete footprint.
+    if (Array.isArray(f.top_uris) && f.top_uris.length > 1) {
+      lines.push(`Beacon paths on ${f.hostname || 'this host'}:`);
+      f.top_uris.forEach(u => lines.push(`  ${u.uri}  (n=${u.count})`));
+    }
     lines.push('');
     _beaconTriage(f).forEach(l => lines.push(l));
     if (f.detail)   lines.push(f.detail);
@@ -130,6 +148,16 @@ const Detail = (() => {
     if (rawBtn) {
       rawBtn.disabled = !(f.src_ip && f.dst_ip);
       rawBtn.dataset.findingId = f.id;
+    }
+    // JA3 Pivot — only when this beacon carries a TLS fingerprint.
+    // Label folds in the sibling count so the analyst sees the pivot's
+    // size before clicking; 0 siblings still allows the pivot (it
+    // narrows to just this finding's fingerprint, a valid hunt).
+    const ja3Btn = document.getElementById('ja3-btn');
+    if (ja3Btn) {
+      ja3Btn.disabled = !f.ja3;
+      const n = f.ja3_sibling_count || 0;
+      ja3Btn.textContent = f.ja3 && n > 0 ? `JA3 Pivot (${n})` : 'JA3 Pivot';
     }
     const exportBtn = document.getElementById('export-notes-btn');
     if (exportBtn) exportBtn.disabled = false;
@@ -235,7 +263,7 @@ const Detail = (() => {
     if (tl) tl.innerHTML = '';
     _setBadge(document.getElementById('notes-badge'), 0);
     _setBadge(document.getElementById('ti-badge'),    0);
-    ['ack-btn','esc-btn','dismiss-btn','chart-btn','pcap-btn','supp-btn','export-notes-btn'].forEach(id => {
+    ['ack-btn','esc-btn','dismiss-btn','chart-btn','pcap-btn','ja3-btn','supp-btn','export-notes-btn'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.disabled = true;
     });

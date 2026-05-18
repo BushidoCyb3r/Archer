@@ -303,6 +303,39 @@ they survive a server restart and the preserve-historical
 carry-forward. No score formula changed — the numbers are only newly
 visible and durable.
 
+As of v0.27.0 the detail pane and the findings filter expose three
+further beacon-triage surfaces, all of them analyst-facing only —
+again **no score formula, threshold, finding type, or `Fingerprint()`
+changed**, and the golden corpus is unchanged:
+
+- **Sub-score filtering.** The findings filter accepts inclusive
+  `[min,max]` bounds on each of the four sub-axes (`ts_min`…`dur_max`).
+  The composite score averages the axes, so a real implant profile —
+  tight timing, short duration (a staging beacon) — sits below a score
+  threshold despite textbook rhythm. The sub-score filter turns the
+  score into a queryable signature space: `ts_min=0.8 & dur_max=0.3`
+  pulls exactly the short-lived tight-cadence spikes the average
+  buries. Any sub-score bound implicitly scopes results to beacon
+  types (a structural-zero axis on a non-beacon can't satisfy a bare
+  upper bound). See §2.2 for what each axis measures.
+- **JA3 / JA4 cross-reference.** A conn-level Beaconing finding now
+  carries the TLS client fingerprint of its seed connection (lifted
+  from the same `ssl.log` index that resolves the SNI — Archer still
+  does not compute JA3 itself; see §10.1). The detail view shows how
+  many *other* beacons in the dataset share that JA3, and one click
+  filters to them. Because an implant family reuses its TLS stack, a
+  shared JA3 across pairs is implant-family attribution, not
+  coincidence — the same logic §10.1 uses for the standalone
+  Malicious JA3 detector, now joined to the beacon view.
+- **HTTP-beacon URI footprint.** An HTTP Beaconing finding carries the
+  request-path footprint of its `(src,dst,host)` group
+  (count-descending, capped). A benign beacon hits one stable
+  endpoint; a C2 has a small fixed set of control paths (`/poll`,
+  `/cmd`, `/upload`). The multi-path footprint is one of the strongest
+  "implant, not a chatty app" discriminators. It is aggregated *before*
+  the `(Type,src,dst,port)` fingerprint dedup that keeps one finding
+  per group, so the surviving finding carries the whole footprint.
+
 ### 2.4 What this catches and what it misses
 
 Catches: fixed-interval implants (Cobalt Strike default 60s, Empire 5min,
