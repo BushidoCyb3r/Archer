@@ -368,10 +368,12 @@ byte distribution), use the Beacon Chart dialog instead.
 
 **Correlation chip.** If this finding's `(src, dst)` pair is
 also carrying findings from N+ other detector types, the row
-shows a `+N corr` chip. Click it to pivot to the Correlated
-Activity row, which lists every sibling finding. This is the
-fastest way to spot kill-chain progression — a Beaconing
-finding plus a DNS Tunneling finding plus a Suspicious File
+shows a `+N corr` chip. Click it to filter the Findings tab to
+that `(src, dst)` pair — every contributor *and* the Correlated
+Activity roll-up row land in one view (it clears any active
+filter/page first, so it works regardless of where you were).
+This is the fastest way to spot kill-chain progression — a
+Beaconing finding plus a DNS Tunneling finding plus a Suspicious File
 Download on the same pair is a much higher-signal story than
 any one of them alone.
 
@@ -769,26 +771,29 @@ detected *huntable*. Use them in that order.
 
 ### 1. Sub-score signature hunting — find the shape
 
-The score column is the **average** of four axes (see §5 / Anatomy):
-timing rhythm (`ts`), data-size regularity (`ds`), hour-coverage
-(`hist`), duration (`dur`). Averaging hides shapes. A staging beacon —
-dead-on cadence, but it only checked in for ten minutes before the
-operator moved on — has a high `ts` and a low `dur`/`hist`, so its
-*composite* lands at 55 and never crosses your score floor. It is a
-textbook implant and the score buried it.
+The score column is the **average** of four axes (see §5 / Anatomy).
+The UI labels them **Timing**, **Data size**, **Histogram**, and
+**Persistence**; the same four are the `ts` / `ds` / `hist` / `dur`
+identifiers in the detection math (§2.2) and the `ts_min`…`dur_max`
+query parameters. Averaging hides shapes. A staging beacon — dead-on
+cadence, but it only checked in for ten minutes before the operator
+moved on — has a high **Timing** and a low **Persistence**/**Histogram**,
+so its *composite* lands at 55 and never crosses your score floor. It
+is a textbook implant and the score buried it.
 
-The advanced filter bar has a **Beacon sub-scores** row: a min/max box
-for each axis. Setting any one of them scopes the whole result to
-beacons automatically (you can't accidentally pull non-beacons — their
-axes are a structural zero). Stop sorting by score and hoping the
-shape floats up; *state the shape* and pull it directly:
+The advanced filter bar has a **Beacon sub-scores** row: a labelled
+min/max box pair for each axis (**Timing**, **Data size**,
+**Histogram**, **Persistence**). Setting any one of them scopes the
+whole result to beacons automatically (you can't accidentally pull
+non-beacons — their axes are a structural zero). Stop sorting by score
+and hoping the shape floats up; *state the shape* and pull it directly:
 
-| You're hunting | Filter |
+| You're hunting | Filter (Advanced-bar boxes) |
 |---|---|
-| Short-lived tight-cadence check-ins (staging, hands-on-keyboard) | `ts ≥ 0.80`, `dur ≤ 0.30` |
-| Long-haul low-and-slow tunnel (keepalive) | `ts ≥ 0.70`, `dur ≥ 0.80`, `hist ≥ 0.80` |
-| Constant-size heartbeat regardless of timing jitter | `ds ≥ 0.85` (then read jitter in the triage header) |
-| "Show me everything beacon-shaped, any score" | any single bound, e.g. `ts ≥ 0.50` |
+| Short-lived tight-cadence check-ins (staging, hands-on-keyboard) | Timing ≥ `0.80`, Persistence ≤ `0.30` |
+| Long-haul low-and-slow tunnel (keepalive) | Timing ≥ `0.70`, Persistence ≥ `0.80`, Histogram ≥ `0.80` |
+| Constant-size heartbeat regardless of timing jitter | Data size ≥ `0.85` (then read jitter in the triage header) |
+| "Show me everything beacon-shaped, any score" | any single bound, e.g. Timing ≥ `0.50` |
 
 This is the entry point. Everything below pivots from a finding you
 found here.
@@ -853,13 +858,14 @@ types)** and use **Export current tab**:
   flat cell.
 
 The export honours every filter you have set, so "export the beacons
-matching `ts ≥ 0.8 & dur ≤ 0.3` with this JA3" is one click — the hunt
-result, scoped, not the database.
+matching Timing ≥ `0.8` & Persistence ≤ `0.3` with this JA3" is one
+click — the hunt result, scoped, not the database.
 
 ### Worked loop
 
-NXDOMAIN-quiet morning. You filter `ts_min=0.85, dur_max=0.35` — eight
-findings the score-sorted view had below the fold. One is a finance
+NXDOMAIN-quiet morning. You set the Advanced-bar boxes Timing ≥ `0.85`,
+Persistence ≤ `0.35` — eight findings the score-sorted view had below
+the fold. One is a finance
 workstation to a no-reputation IP on 443, jitter 4%, sample 280. You
 **JA3 Pivot**: the same fingerprint is on two more workstations to two
 *different* IPs. Not three alerts — one implant, three hosts. You open

@@ -30,6 +30,30 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Changed
+
+- **Beacon sub-score labels spelled out.** The terse axis labels
+  `ts` / `ds` / `hist` / `dur` are now **Timing** / **Data size** /
+  **Histogram** / **Persistence** wherever an analyst reads them — the
+  detail-pane triage header and the Advanced filter bar's sub-score
+  row (whose inputs were also widened to fit the longer labels). The
+  `/api/findings` query parameters are unchanged (`ts_min`/`ts_max` …
+  `dur_min`/`dur_max`); this is a presentation-only relabel, no API,
+  schema, or detection change.
+- **The `+N corr` chip click now filters the Findings tab to the
+  finding's `(src, dst)` pair** instead of jumping to the Correlated
+  Activity row. The old behavior did a client-side lookup for the CA
+  row in the loaded slice and silently no-op'd when it was filtered or
+  paginated out (the cached-state action-failure class). The chip now
+  clears filter state, sets the src/dst pair filter, switches to the
+  Findings tab, and re-fetches — every contributor *and* the CA row
+  are always visible in context regardless of prior filter/page
+  state. `Table` delegates to one place in `app.js` via a new
+  `_onCorrChip` callback so the filter logic lives in a single
+  location (same shape as the JA3 Pivot / Show-contributing-activity
+  pivots). Tooltip updated to match. Pure frontend — no API, schema,
+  or detection change.
+
 ## [v0.27.2] — 2026-05-18
 
 ### Fixed
