@@ -4257,7 +4257,26 @@
           Detail.render(full);
         }).catch(() => {});
       },
-      (e, f) => showMenu(e, f)
+      (e, f) => showMenu(e, f),
+      f => {
+        if (!f || (!f.src_ip && !f.dst_ip)) return;
+        _resetFilterUI();
+        const srcEl = document.getElementById('filter-src'); if (srcEl) srcEl.value = f.src_ip || '';
+        const dstEl = document.getElementById('filter-dst'); if (dstEl) dstEl.value = f.dst_ip || '';
+        if (_tabMode !== 'findings') {
+          document.querySelectorAll('.tab-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.tab === 'findings');
+          });
+          _activeTab = 'findings';
+          _tabMode = 'findings';
+          const subTabs = document.getElementById('dismissed-subtabs');
+          if (subTabs) subTabs.style.display = 'none';
+          document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+          const panel = document.getElementById('tab-findings');
+          if (panel) panel.classList.add('active');
+        }
+        applyFilter();
+      }
     );
 
     // Hosts-row click lifts the per-host roll-up's Host Risk Score finding
