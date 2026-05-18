@@ -30,6 +30,27 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.28.0] — 2026-05-18
+
+### Added
+
+- **Allowlist suggestions.** A new **Suggestions** tab in the Allowlist
+  dialog surfaces beacon pairs that satisfy two gates: (1) the pair
+  has fired across 14+ distinct UTC days in the beacon evolution history,
+  and (2) a current finding for that pair is acknowledged by an analyst.
+  Each candidate shows the evidence trail — day count, date range, peak
+  score, who acked it — and requires a typed justification before
+  applying. Applying creates a Relationship rule via the existing
+  `POST /api/pair-allowlist` path; the justification is stored as the
+  rule's note and is visible in the Relationships tab. New read-only
+  endpoint `GET /api/pair-allowlist/suggested`. No schema change, no
+  detection change.
+- **Arrow-key navigation in the findings table.** With a finding
+  selected, ↑ / ↓ step to the adjacent row in the current sort order,
+  scroll the table to keep the selection centred, and update the detail
+  pane. The shortcut is suppressed when focus is inside a text input or
+  textarea. No API or schema change.
+
 ### Changed
 
 - **Beacon sub-score labels spelled out.** The terse axis labels
