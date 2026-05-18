@@ -69,6 +69,38 @@ jobs:
         # subtle races would otherwise only surface under prod load.
         run: go test -race ./...
 
+  vuln:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: govulncheck
+        # Reachability-based: fails only when the build actually calls a
+        # vulnerable symbol, not on mere presence — low-noise, so a red
+        # run here is almost always actionable. Complements GitHub's
+        # presence-based Dependabot alerts (which this repo also relies
+        # on) by telling you which of those are reachable.
+        #
+        # Version is pinned for reproducibility (an unpinned tool can
+        # start failing an unrelated PR when upstream ships new analysis
+        # logic — the same drift trap as unpinned semgrep rules). v1.3.0
+        # is the first line that supports the Go 1.25 toolchain this repo
+        # pins; bump the pin only deliberately. The vulnerability *data*
+        # is fetched fresh from vuln.go.dev on every run regardless of
+        # the binary pin, so detections never go stale — the pin freezes
+        # the analyzer, not the threat data.
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
   build:
     name: build (binary + docker)
     runs-on: ubuntu-latest
