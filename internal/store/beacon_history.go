@@ -248,6 +248,71 @@ func (s *Store) PurgeBeaconHistory() int64 {
 	return n
 }
 
+// SuggestMinDays is the minimum number of distinct UTC days a beacon must
+// appear in beacon_history before it qualifies as a suggestion. 14 days
+// is deliberately conservative — a patient-C2 that beaconed for two weeks
+// and then went quiet should not be suggested; two weeks of acknowledged
+// repetition is the floor where cloud sync / OS update confidence is high.
+const SuggestMinDays = 14
+
+// SuggestedPairAllowlist returns beacon pairs that satisfy both gates:
+// (1) the pair appears in beacon_history across SuggestMinDays+ distinct UTC
+// days, and (2) a current finding for that pair has status=acknowledged.
+// Pairs already covered by a pair_allowlist rule are excluded. The result is
+// ordered by day count descending so the most persistent pairs surface first.
+func (s *Store) SuggestedPairAllowlist() []model.SuggestedAllowEntry {
+	if s.db == nil {
+		return nil
+	}
+	rows, err := s.db.Query(`
+        SELECT
+            bh.finding_type,
+            bh.src_ip,
+            bh.dst_ip,
+            bh.dst_port,
+            COUNT(DISTINCT bh.day_utc)  AS day_count,
+            MIN(bh.day_utc)             AS first_seen,
+            MAX(bh.day_utc)             AS last_seen,
+            MAX(bh.max_score)           AS peak_score,
+            COALESCE(MAX(f.analyst), '') AS acked_by
+        FROM beacon_history bh
+        INNER JOIN findings f
+            ON  f.src_ip   = bh.src_ip
+            AND f.dst_ip   = bh.dst_ip
+            AND f.dst_port = bh.dst_port
+            AND f.type     = bh.finding_type
+            AND f.status   = 'acknowledged'
+        WHERE NOT EXISTS (
+            SELECT 1 FROM pair_allowlist pa
+            WHERE pa.src = bh.src_ip
+              AND pa.dst = bh.dst_ip
+              AND pa.port = bh.dst_port
+              AND (pa.finding_type = '' OR pa.finding_type = bh.finding_type)
+        )
+        GROUP BY bh.finding_type, bh.src_ip, bh.dst_ip, bh.dst_port
+        HAVING COUNT(DISTINCT bh.day_utc) >= ?
+        ORDER BY day_count DESC, peak_score DESC
+    `, SuggestMinDays)
+	if err != nil {
+		log.Printf("store: suggested pair allowlist: %v", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []model.SuggestedAllowEntry
+	for rows.Next() {
+		var e model.SuggestedAllowEntry
+		if err := rows.Scan(
+			&e.FindingType, &e.SrcIP, &e.DstIP, &e.DstPort,
+			&e.DayCount, &e.FirstSeen, &e.LastSeen, &e.PeakScore, &e.AckedBy,
+		); err != nil {
+			log.Printf("store: suggested pair allowlist scan: %v", err)
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 // beaconHistoryRowSnapshot is a test helper exposed via the unexported
 // type for store_test.go assertions. Returns the persisted max_score
 // + last_score for the (key, day) tuple, or `ok=false` if no row
