@@ -731,11 +731,50 @@ by §9.5.
 
 ### 10.1 Malicious JA3
 
-JA3 is a fingerprint of a TLS client's `ClientHello` — its supported cipher
-suites, extensions, elliptic curves, and EC point formats hashed with MD5.
-Implants tend to use a fixed TLS stack and therefore produce a stable JA3
-hash. Archer maintains a list of known-bad JA3 hashes (Cobalt Strike default,
-Empire, Trickbot, etc.). Match → score 95, severity Critical.
+**What JA3 is.** A JA3 hash fingerprints a TLS *client* from its
+`ClientHello`. Five fields are taken in order — TLS version, the
+cipher-suite list, the extension list, the supported elliptic curves,
+and the EC point formats — concatenated as comma-joined decimal values
+separated by `-`, and MD5'd. The hash is deterministic for a given TLS
+stack: it captures *how* the client negotiates, not *what* it talks to,
+so it is independent of destination IP, SNI, or port.
+
+**Why it catches implants.** Malware that statically links its own TLS
+(Cobalt Strike's BeaconHTTPS, many Go/.NET implants) negotiates with a
+fixed, often non-browser cipher/extension ordering, so every beacon
+from every infected host produces the *same* JA3 — and that JA3 differs
+from the host's browser/OS traffic. A curated hash is therefore a
+high-confidence, low-false-positive signal: it does not depend on
+timing, volume, or payload.
+
+**What Archer does.** `ssl.go` reads the `ja3` field Zeek writes to
+`ssl.log` (Archer consumes Zeek's value — it does not compute JA3
+itself, so a sensor whose Zeek build lacks the JA3 script simply
+produces no `ja3` and this detector cannot fire — a real blind spot
+worth checking during sensor onboarding). The hash is looked up in
+`KnownBadJA3` (a static, curated `map[hash]→framework-label` in
+`heuristics.go` — Cobalt Strike default, Empire, Trickbot, etc.; not
+feed-driven). An exact match emits **Malicious JA3**, score **95**,
+severity **Critical**, deduped per `(src, dst, ja3)`; the label rides
+in the Detail string and the type carries risk weight 40 — the highest
+tier, because an exact known-C2-stack match is about as unambiguous as
+network-only evidence gets.
+
+**What it misses.** Exact-match only: a single changed cipher,
+extension, or TLS-version bump in the implant's stack yields a new hash
+the curated list won't have, so JA3 is strong against *unmodified*
+tooling and weak against *recompiled/tuned* tooling. Legitimate
+applications that share a TLS library can collide on one benign JA3, so
+the list is deliberately conservative (curated, not heuristic — a
+mis-added benign hash would false-positive fleet-wide). GREASE
+(randomized extension/cipher values, RFC 8701) and uTLS/refraction-style
+*randomized* fingerprints defeat static JA3 entirely — that evasion is
+the motivation for **JA4**, the structured successor (GREASE-robust,
+human-readable, separates the TLS/SNI/ALPN components). Archer is
+JA3-only today: there is no JA3S (server-side) or JA4 ingestion, and no
+inline cross-reference between a beacon and other beacons sharing its
+JA3 — that linkage is the planned §2c enhancement in `TODO.md`, not a
+shipped feature.
 
 ### 10.2 Weak TLS
 

@@ -58,15 +58,9 @@ type sensorHealth struct {
 func (s *Server) startSensorHeartbeatLoop() {
 	active := make(map[string]bool)
 	var mu sync.Mutex
-
-	go func() {
+	startPruneLoop("sensor_heartbeat", sensorHeartbeatCheckInterval, func() {
 		s.scanSensorHeartbeat(active, &mu)
-		t := time.NewTicker(sensorHeartbeatCheckInterval)
-		defer t.Stop()
-		for range t.C {
-			s.scanSensorHeartbeat(active, &mu)
-		}
-	}()
+	})
 }
 
 // scanSensorHeartbeat walks the sensor list once, emits alarms for

@@ -85,21 +85,24 @@ func NewUserStore(dataDir string) *UserStore {
 		db:       db,
 		sessions: make(map[string]userSession),
 	}
-	go us.pruneSessionsLoop()
 	return us
 }
 
-// pruneSessionsLoop removes expired sessions once per hour.
-func (us *UserStore) pruneSessionsLoop() {
-	for range time.Tick(time.Hour) {
-		now := time.Now()
-		us.mu.Lock()
-		for tok, sess := range us.sessions {
-			if now.After(sess.ExpiresAt) {
-				delete(us.sessions, tok)
-			}
+// PruneExpiredSessions drops every in-memory session past its expiry.
+// One pass — the periodic cadence is owned by the server's shared
+// startPruneLoop ("sessions", hourly) rather than a goroutine wired
+// from this constructor, so every TTL sweep starts from one place
+// (NEW-95 / TODO §1b). Idempotent and lock-guarded; safe to call at
+// boot (which the shared loop now does — a long-stopped instance
+// sheds stale sessions immediately instead of waiting the first hour).
+func (us *UserStore) PruneExpiredSessions() {
+	now := time.Now()
+	us.mu.Lock()
+	defer us.mu.Unlock()
+	for tok, sess := range us.sessions {
+		if now.After(sess.ExpiresAt) {
+			delete(us.sessions, tok)
 		}
-		us.mu.Unlock()
 	}
 }
 
