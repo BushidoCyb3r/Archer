@@ -29,7 +29,7 @@ func TestExportCSV_BeaconScopedColumns(t *testing.T) {
 		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 			Score: 88, Severity: model.SevCritical, Status: model.StatusOpen,
 			Timestamp: "2026-05-18 09:00:00",
-			TSScore: 0.92, DSScore: 0.81, HistScore: 0.75, DurScore: 0.88,
+			TSScore:   0.92, DSScore: 0.81, HistScore: 0.75, DurScore: 0.88,
 			MeanInterval: 47, MedianInterval: 46, Jitter: 0.064, SampleSize: 312,
 			JA3: "771,4865", JA4: "t13d1516h2_x_y"},
 		{ID: 2, Type: "Suspicious URL", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", DstPort: "80",
