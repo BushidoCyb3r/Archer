@@ -87,7 +87,7 @@ func newMISPTestServer(t *testing.T) (*httptest.Server, *mispTestHandler) {
 func TestMISPClient_Fetch_ParsesAndNormalizes(t *testing.T) {
 	srv, h := newMISPTestServer(t)
 
-	c := NewMISPClient(srv.URL, "test-key", false, true)
+	c := NewMISPClient(srv.URL, "test-key", false, true, "")
 	res, err := c.Fetch(context.Background(), 0)
 	if err != nil {
 		t.Fatalf("Fetch returned error: %v", err)
@@ -168,7 +168,7 @@ func TestMISPClient_Fetch_ParsesAndNormalizes(t *testing.T) {
 func TestMISPClient_Fetch_PassesTimestampFilterWhenSinceSet(t *testing.T) {
 	srv, h := newMISPTestServer(t)
 
-	c := NewMISPClient(srv.URL, "test-key", false, true)
+	c := NewMISPClient(srv.URL, "test-key", false, true, "")
 	const since int64 = 1700000000
 	if _, err := c.Fetch(context.Background(), since); err != nil {
 		t.Fatalf("Fetch returned error: %v", err)
@@ -190,7 +190,7 @@ func TestMISPClient_Fetch_PassesTimestampFilterWhenSinceSet(t *testing.T) {
 func TestMISPClient_Fetch_OmitsTimestampFilterWhenSinceZero(t *testing.T) {
 	srv, h := newMISPTestServer(t)
 
-	c := NewMISPClient(srv.URL, "test-key", false, true)
+	c := NewMISPClient(srv.URL, "test-key", false, true, "")
 	if _, err := c.Fetch(context.Background(), 0); err != nil {
 		t.Fatalf("Fetch returned error: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestMISPClient_Fetch_RespectsConcurrencyCap(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewMISPClient(srv.URL, "test-key", false, true)
+	c := NewMISPClient(srv.URL, "test-key", false, true, "")
 	if _, err := c.Fetch(context.Background(), 0); err != nil {
 		t.Fatalf("Fetch returned error: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestMISPClient_Fetch_PropagatesHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewMISPClient(srv.URL, "bad-key", false, true)
+	c := NewMISPClient(srv.URL, "bad-key", false, true, "")
 	_, err := c.Fetch(context.Background(), 0)
 	if err == nil {
 		t.Fatalf("expected error on HTTP 401, got nil")
@@ -283,6 +283,94 @@ func TestMISPClient_Fetch_RejectsEmptyConfig(t *testing.T) {
 				t.Errorf("expected error for %s, got nil", tt.name)
 			}
 		})
+	}
+}
+
+// TestMISPClient_Fetch_QueryFilterMerge verifies that the operator's
+// per-feed query filter is merged into the restSearch body and that
+// Archer's required keys always overwrite whatever the operator set.
+// Invariant: operator can add keys like tags/event_id but cannot
+// override type, to_ids, limit, page, returnFormat, or timestamp.
+func TestMISPClient_Fetch_QueryFilterMerge(t *testing.T) {
+	var capturedBody map[string]any
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		mu.Lock()
+		capturedBody = body
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"response":{"Attribute":[]}}`)
+	}))
+	defer srv.Close()
+
+	// Operator filter: adds a tags key (useful) and tries to override
+	// to_ids and returnFormat (both must be ignored by Archer).
+	filterJSON := `{"tags":["tlp:red"],"org":"SecTeam","to_ids":false,"returnFormat":"xml"}`
+	c := NewMISPClient(srv.URL, "key", false, true, filterJSON)
+	if _, err := c.Fetch(context.Background(), 0); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+
+	mu.Lock()
+	body := capturedBody
+	mu.Unlock()
+	if body == nil {
+		t.Fatal("no request body captured")
+	}
+
+	// Operator-supplied keys that don't conflict with Archer's required set.
+	if body["tags"] == nil {
+		t.Error("expected operator tags key in request body, got none")
+	}
+	if body["org"] != "SecTeam" {
+		t.Errorf("expected org=SecTeam in request body, got %v", body["org"])
+	}
+	// Archer's required keys must win over whatever the operator set.
+	if body["to_ids"] != true {
+		t.Errorf("to_ids must always be true, got %v", body["to_ids"])
+	}
+	if body["returnFormat"] != "json" {
+		t.Errorf("returnFormat must always be json, got %v", body["returnFormat"])
+	}
+}
+
+// TestMISPClient_Fetch_EmptyQueryFilter verifies that an empty
+// query_filter_json string results in no extra keys in the request body
+// beyond Archer's standard set.
+func TestMISPClient_Fetch_EmptyQueryFilter(t *testing.T) {
+	var capturedBody map[string]any
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		mu.Lock()
+		capturedBody = body
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"response":{"Attribute":[]}}`)
+	}))
+	defer srv.Close()
+
+	c := NewMISPClient(srv.URL, "key", false, true, "")
+	if c.QueryFilter != nil {
+		t.Errorf("empty queryFilterJSON should leave QueryFilter nil, got %v", c.QueryFilter)
+	}
+	if _, err := c.Fetch(context.Background(), 0); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+
+	mu.Lock()
+	body := capturedBody
+	mu.Unlock()
+	// Standard Archer keys must be present.
+	for _, k := range []string{"returnFormat", "type", "to_ids", "deleted", "limit", "page"} {
+		if body[k] == nil {
+			t.Errorf("expected standard key %q in request body", k)
+		}
 	}
 }
 

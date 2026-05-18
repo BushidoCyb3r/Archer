@@ -129,6 +129,11 @@ const Feeds = (() => {
 
   // ── edit form ─────────────────────────────────────────────────────────
 
+  function _syncQueryFilterVisibility() {
+    const st = document.getElementById('feeds-edit-source-type').value;
+    document.getElementById('feeds-edit-query-filter-wrap').style.display = st === 'misp' ? '' : 'none';
+  }
+
   function _openEditDialog(feed) {
     _editingID = feed ? feed.id : null;
     document.getElementById('feeds-edit-title').textContent = feed ? `Edit feed: ${feed.name}` : 'Add feed';
@@ -141,6 +146,8 @@ const Feeds = (() => {
     document.getElementById('feeds-edit-enabled').checked = feed ? feed.enabled : true;
     document.getElementById('feeds-edit-tls-skip-verify').checked = feed ? !!feed.tls_skip_verify : false;
     document.getElementById('feeds-edit-allow-internal').checked = feed ? !!feed.allow_internal : false;
+    document.getElementById('feeds-edit-query-filter').value = feed ? (feed.query_filter_json || '') : '';
+    _syncQueryFilterVisibility();
     const err = document.getElementById('feeds-edit-error');
     err.style.display = 'none';
     err.textContent = '';
@@ -160,6 +167,7 @@ const Feeds = (() => {
       enabled:              document.getElementById('feeds-edit-enabled').checked,
       tls_skip_verify:      document.getElementById('feeds-edit-tls-skip-verify').checked,
       allow_internal:       document.getElementById('feeds-edit-allow-internal').checked,
+      query_filter_json:    document.getElementById('feeds-edit-query-filter').value.trim(),
     };
 
     try {
@@ -286,6 +294,7 @@ const Feeds = (() => {
     if (newBtn) newBtn.addEventListener('click', () => _openEditDialog(null));
     document.getElementById('feeds-edit-cancel').addEventListener('click', () => editDlg.close());
     document.getElementById('feeds-edit-save').addEventListener('click', _saveEdit);
+    document.getElementById('feeds-edit-source-type').addEventListener('change', _syncQueryFilterVisibility);
 
     document.getElementById('feeds-tbody').addEventListener('click', _onRowClick);
   }

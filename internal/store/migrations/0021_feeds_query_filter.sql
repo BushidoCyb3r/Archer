@@ -1,0 +1,1 @@
+ALTER TABLE feeds ADD COLUMN query_filter_json TEXT NOT NULL DEFAULT '';

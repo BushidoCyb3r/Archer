@@ -75,6 +75,14 @@ type MISPClient struct {
 	// page of that shard was full, the fetch is reported as
 	// truncated.
 	PageLimit int
+
+	// QueryFilter holds the operator's per-feed restSearch filter,
+	// pre-parsed from Feed.QueryFilterJSON. Merged into every
+	// fetchShard request body before Archer's required keys are
+	// written, so operator entries can narrow the result set but
+	// cannot override type sharding, pagination, or IDS-flag logic.
+	// Nil means no extra filter.
+	QueryFilter map[string]any
 }
 
 // NewMISPClient constructs a client with safe defaults: 90s per-page
@@ -86,14 +94,24 @@ type MISPClient struct {
 // client so redirects can resolve to internal addresses — paired
 // with the admin-side validateFeedRequest bypass for a feed whose
 // URL itself targets an internal MISP.
-func NewMISPClient(baseURL, apiKey string, tlsSkipVerify, allowInternal bool) *MISPClient {
-	return &MISPClient{
+// queryFilterJSON is an optional JSON object string (empty = no
+// filter); if non-empty and valid it is parsed into QueryFilter and
+// merged into every fetchShard request.
+func NewMISPClient(baseURL, apiKey string, tlsSkipVerify, allowInternal bool, queryFilterJSON string) *MISPClient {
+	c := &MISPClient{
 		BaseURL:   strings.TrimRight(baseURL, "/"),
 		APIKey:    apiKey,
 		HTTP:      httpClientWithTLS(tlsSkipVerify, allowInternal),
 		PageSize:  25000,
 		PageLimit: 100,
 	}
+	if queryFilterJSON != "" {
+		var f map[string]any
+		if err := json.Unmarshal([]byte(queryFilterJSON), &f); err == nil {
+			c.QueryFilter = f
+		}
+	}
+	return c
 }
 
 // httpClientWithTLS builds an *http.Client whose Transport honors the
@@ -329,16 +347,21 @@ func (c *MISPClient) fetchShard(ctx context.Context, mispType string, since int6
 	out := make([]Indicator, 0, c.PageSize)
 	truncated := false
 	for page := 1; page <= c.PageLimit; page++ {
-		body := map[string]any{
-			"returnFormat":       "json",
-			"type":               []string{mispType},
-			"to_ids":             true, // MISP convention: only indicators meant for IDS
-			"deleted":            false,
-			"limit":              c.PageSize,
-			"page":               page,
-			"includeContext":     false,
-			"enforceWarninglist": true,
+		// Operator's filter lands first; Archer's required keys always
+		// overwrite so type-sharding, pagination, IDS flag, and the
+		// incremental timestamp filter cannot be altered per-feed.
+		body := make(map[string]any, 10+len(c.QueryFilter))
+		for k, v := range c.QueryFilter {
+			body[k] = v
 		}
+		body["returnFormat"] = "json"
+		body["type"] = []string{mispType}
+		body["to_ids"] = true // MISP convention: only indicators meant for IDS
+		body["deleted"] = false
+		body["limit"] = c.PageSize
+		body["page"] = page
+		body["includeContext"] = false
+		body["enforceWarninglist"] = true
 		if since > 0 {
 			// MISP's restSearch `timestamp` filter: returns attributes
 			// whose timestamp >= this value (Unix seconds). Caller
