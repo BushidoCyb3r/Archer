@@ -189,6 +189,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// scoped to frame-ancestors only: a script-src policy would break the
 	// inline SCORE_EXPLANATIONS injection in index.html, and frame-ancestors
 	// is the directive that actually governs embedding.
+	//
+	// HSTS is deliberately NOT set. Archer's TLS cert is self-signed and
+	// regenerated on a TLS/volume reset; an HSTS pin would turn a
+	// post-regen cert mismatch into a non-bypassable browser error and
+	// lock analysts out. On an internal LAN with sensor cert-pinning the
+	// SSL-strip benefit doesn't justify that failure mode. The
+	// missing-HSTS scanner INFO is an accepted finding, not an oversight.
 	h := w.Header()
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Content-Security-Policy", "frame-ancestors 'none'")
