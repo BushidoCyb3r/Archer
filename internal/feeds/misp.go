@@ -65,19 +65,17 @@ type MISPClient struct {
 	HTTP    *http.Client
 
 	// PageSize is the `limit` argument MISP accepts on /attributes/restSearch.
-	// Default 25000 — fewer round trips per shard than the previous
-	// 10000, which matters more now that the fetch is type-sharded
-	// (each shard pays the per-page overhead independently). Single-
-	// page response is ~25 MB worst case which sits comfortably in
-	// memory on both client and server.
+	// Default 5000 — reduced from 25000 after field experience showed
+	// large MISP instances return ~30 MB per 25k-attribute page, which
+	// can exceed the per-page timeout under load. At 5k the response is
+	// ~6 MB and assembles quickly even on a loaded box.
 	PageSize int
 
-	// PageLimit caps the page walk per shard. Default 100; with
-	// PageSize 25000 that's 2.5M attributes per type. With seven
+	// PageLimit caps the page walk per shard. Default 500; with
+	// PageSize 5000 that's 2.5M attributes per type. With seven
 	// types the aggregate per-fetch cap is well above any realistic
 	// feed. When the walk hits this cap on any shard and the last
-	// page of that shard was full, the fetch is reported as
-	// truncated.
+	// page of that shard was full, the fetch is reported as truncated.
 	PageLimit int
 
 	// QueryFilter holds the operator's per-feed restSearch filter,
@@ -89,8 +87,8 @@ type MISPClient struct {
 	QueryFilter map[string]any
 }
 
-// NewMISPClient constructs a client with safe defaults: 90s per-page
-// timeout, 25k attributes per page, 100-page cap per type-shard.
+// NewMISPClient constructs a client with safe defaults: 4-minute
+// per-page timeout, 5k attributes per page, 100-page cap per type-shard.
 // tlsSkipVerify=true disables certificate verification on the
 // upstream HTTPS request — opt-in per feed for internal MISP
 // deployments running self-signed or internal-CA certs.
@@ -106,8 +104,8 @@ func NewMISPClient(baseURL, apiKey string, tlsSkipVerify, allowInternal bool, qu
 		BaseURL:   strings.TrimRight(baseURL, "/"),
 		APIKey:    apiKey,
 		HTTP:      httpClientWithTLS(tlsSkipVerify, allowInternal),
-		PageSize:  25000,
-		PageLimit: 100,
+		PageSize:  5000,
+		PageLimit: 500,
 	}
 	if queryFilterJSON != "" {
 		var f map[string]any
@@ -123,13 +121,15 @@ func NewMISPClient(baseURL, apiKey string, tlsSkipVerify, allowInternal bool, qu
 // keep its connection-pool and proxy behavior; only TLSClientConfig is
 // rewritten when the operator opts into bypass.
 //
-// Per-request Timeout caps a single page fetch. MISP's restSearch
-// pagination degrades with depth on large feeds — a single page can
-// take 5-15s on a 1M-attribute MISP at high offsets — so 30s left no
-// margin. 90s is generous enough for a single page on any realistic
-// MISP while still detecting a genuinely stuck connection. The parent
-// context (5-minute manual refresh, 10-minute watch full-pass) caps
-// total fetch time across all pages.
+// Per-request Timeout caps a single page fetch. PageSize dropped from
+// 25k to 5k after field experience with a 38M-attribute MISP: 25k
+// ip-dst attributes serialize to ~30 MB and take >90s for the server
+// to assemble under load, causing Client.Timeout. At 5k the response
+// is ~6 MB and assembles in a few seconds even on a loaded box. The
+// timeout is raised to 4 minutes to stay well inside MISP's own PHP
+// max_execution_time (typically 300s) while giving large responses
+// ample room. The parent context (5-minute manual refresh,
+// 10-minute watch full-pass) still caps total fetch time across pages.
 //
 // CheckRedirect enforces the same SSRF guard the admin-side
 // validateFeedRequest applies: a redirect target whose host resolves
@@ -185,7 +185,7 @@ func httpClientWithTLS(skipVerify, allowInternal bool) *http.Client {
 		}
 	}
 	return &http.Client{
-		Timeout:   90 * time.Second,
+		Timeout:   4 * time.Minute,
 		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
