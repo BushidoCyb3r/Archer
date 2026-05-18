@@ -632,7 +632,7 @@ button, input, select, textarea {
   font-weight: 600;
   white-space: nowrap;
 }
-.filter-input.ss-in { width: 52px; padding-left: 6px; padding-right: 4px; }
+.filter-input.ss-in { width: 68px; padding-left: 6px; padding-right: 4px; }
 #filter-bar label,
 #filter-bar-advanced label,
 #filter-bar-subscore label {
