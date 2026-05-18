@@ -3559,8 +3559,21 @@
       // a source IP would erase that host's risk story, so it's exempt.
       const onCampaignsTab = _tabMode === 'campaigns';
       document.querySelectorAll('.ctx-write').forEach(el => {
-        if (isViewer || onAggregateTab) el.style.display = 'none';
-        else if (!el.classList.contains('ctx-target-aware') || showColAware) el.style.display = '';
+        if (isViewer) { el.style.display = 'none'; return; }
+        // Allowlist / IOC act on the right-clicked IP, not on a
+        // finding's status, so they apply to a Campaigns row's dst IP
+        // even though that row is a synthesised aggregate, not a
+        // finding. Every other write (Ack/Escalate/Dismiss/Suppress)
+        // needs a real finding and stays hidden on aggregate tabs.
+        // Hosts is excluded deliberately: its rows are internal org
+        // IPs, where allowlisting/IOC-ing is a footgun — same reason
+        // the external-lookup submenu is hidden there.
+        const ipScopedWrite = el.classList.contains('ctx-target-aware');
+        if (onAggregateTab && !(ipScopedWrite && onCampaignsTab && showColAware)) {
+          el.style.display = 'none';
+        } else if (!el.classList.contains('ctx-target-aware') || showColAware) {
+          el.style.display = '';
+        }
       });
       document.querySelectorAll('.ctx-write-sep').forEach(el => {
         // Show the separator on Campaigns so the bulk-Dismiss item below
@@ -3671,14 +3684,14 @@
     document.getElementById('ctx-pivot').addEventListener('click', () => {
       if (!_ctxTarget) return;
       document.getElementById('filter-search').value = _ctxTarget;
-      // Hosts tab right-click → Pivot doesn't make sense on the
-      // Hosts panel itself (the panel is one row per host IP — a
-      // filter is a no-op there). The intent is "show me all findings
-      // for this host", which means switching to the Findings tab AND
-      // applying the search filter. Invalidate first so the Findings
-      // tab's cache doesn't render stale pre-filter rows before the
-      // new fetch arrives.
-      if (_tabMode === 'hosts') {
+      // On an aggregate panel (Campaigns / Hosts / Dismissed-Campaigns)
+      // a row is a synthesised roll-up, not a finding, so applying a
+      // filter in place is a no-op the analyst can't see. The intent of
+      // Pivot there is "show me every finding for this IP" — switch to
+      // the Findings tab AND carry the search filter across. Invalidate
+      // first so the Findings tab's cache doesn't paint stale
+      // pre-filter rows before the new fetch lands.
+      if (_isAggregateTab(_tabMode)) {
         _invalidateAllTabs();
         const btn = document.querySelector('.tab-btn[data-tab="findings"]');
         if (btn) btn.click();

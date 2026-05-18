@@ -182,6 +182,18 @@ func (s *Server) startBeaconHistoryPruneLoop() {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// The analyst workbench is a same-origin SPA — it is never
+	// legitimately embedded in a frame. Deny framing outright to close
+	// the clickjacking / UI-redress vector against its security-sensitive
+	// actions (escalation, allowlist, user admin, admin backup). CSP is
+	// scoped to frame-ancestors only: a script-src policy would break the
+	// inline SCORE_EXPLANATIONS injection in index.html, and frame-ancestors
+	// is the directive that actually governs embedding.
+	h := w.Header()
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("Content-Security-Policy", "frame-ancestors 'none'")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Referrer-Policy", "no-referrer")
 	s.mux.ServeHTTP(w, r)
 }
 
