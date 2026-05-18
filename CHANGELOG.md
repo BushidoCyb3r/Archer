@@ -30,6 +30,27 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.27.1] — 2026-05-18
+
+### Fixed
+
+- **Red CI lint gate on the v0.27.0 test additions.**
+  `internal/server/exports_csv_test.go` was not gofmt-clean
+  (struct-literal key-alignment), and
+  `internal/analysis/http_footprint_test.go` used unkeyed
+  `model.URIStat` composite literals across the package boundary
+  (`go vet`'s `composites` check fails on imported-type unkeyed
+  literals — same-package literals don't trip it, which is why
+  earlier vet runs were clean). The local pre-release check ran
+  `go build` / `go test` but not `gofmt -l` or `go vet ./...` after
+  the final test file landed, so the v0.27.0 tag shipped pointing at
+  a CI-red commit. **Test-only — no production code, HTTP/SSE API,
+  DB schema, Quiver protocol, or detection-semantics change;
+  v0.27.0 → v0.27.1 is a functional no-op.** All five CI gates
+  (`gofmt -l`, `go vet ./...`, `go test -race ./...`,
+  `CGO_ENABLED=0 go build ./...`, `govulncheck ./...`) verified
+  locally before tagging.
+
 ## [v0.27.0] — 2026-05-18
 
 Beacon triage depth. Four analyst-facing tools that change the unit of
@@ -5646,7 +5667,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.27.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.27.1...HEAD
+[v0.27.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.27.0...v0.27.1
 [v0.27.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.26.0...v0.27.0
 [v0.26.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.25.1...v0.26.0
 [v0.25.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.25.0...v0.25.1
