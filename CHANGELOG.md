@@ -30,6 +30,82 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.27.2] — 2026-05-18
+
+### Fixed
+
+- **Watch timing: files rsynced during a long analysis run were silently
+  skipped for up to ~24h.** `SetLastAnalysisTime` was set to the
+  post-analysis wall clock; on a large corpus a full pass can take 30+
+  minutes, so logs rsynced during that window had mtimes before the
+  incremental cutoff and were excluded from every subsequent incremental
+  tick until the next UTC-day full pass. Now captures `startedAt` before
+  `Analyze` and uses that as the mtime baseline — the 5-minute overlap
+  covers boundary slop as before, but the window that missed is closed.
+  Applied to both the full-pass path (`launchAnalysisWithOptions`) and the
+  incremental path (`launchIncrementalAnalysis`).
+
+- **Config persistence: eight `SetXxx` methods silently swallowed DB
+  write errors.** `SetWatch`, `SetSensorFacingHost`, `SetArchive`,
+  `RecordArchiveRun`, `SetLastAnalysisFingerprint`, `SetLastFullAnalysisTime`,
+  `SetLastAnalysisTime`, and `ClearFindings` all called
+  `s.db.Exec(INSERT OR REPLACE INTO settings …)` and discarded the error
+  return. A transient DB write failure (full disk, WAL issue) left
+  in-memory state ahead of disk; on the next restart the stale on-disk
+  row silently reverted the change with no log. All routes through the
+  new `persistConfig()` helper, which logs the error.
+
+- **Suppression expiry boundary: `IsSuppressed` and `isHiddenLocked`
+  disagreed at the exact expiry instant.** `IsSuppressed` used
+  `!now.After(expiry)` (inclusive); `isHiddenLocked` used
+  `now.Before(expiry)` (exclusive). At the nanosecond `now == expiry`
+  the findings list still suppressed the row while the bell gate
+  considered it active, reopening the "bell fires but Jump lands on a
+  suppressed row" gap from NEW-111. Unified to `!now.After(expiry)`.
+
+- **Correlation dedup: Correlations references to a dropped finding's
+  fresh ID were silently discarded.** When the in-batch fingerprint dedup
+  (the TI Hit multi-source guard) dropped a duplicate finding, its fresh
+  per-run ID was never added to `freshToPersisted`. A Correlated Activity
+  whose `Correlations` slice referenced that dropped ID landed in the
+  translation pass's fall-through branch and was quietly removed —
+  causing the +N chip to undercount and the sibling-jump to land nowhere.
+  `droppedToWinner` now tracks dropped-ID → winner-ID during dedup and
+  extends `freshToPersisted` after ID assignment.
+
+- **DNS Beaconing findings excluded from score evolution history.**
+  `saveBeaconHistory` filtered on `"Beaconing"` and `"HTTP Beaconing"`
+  only. DNS Beaconing, added in v0.25.0 and covered by `IsBeaconType`,
+  never accumulated a 30-day trajectory. The Score Evolution dock tab is
+  already gated on `IsBeaconType`; adding DNS Beaconing to the type
+  filter is the only change needed — `DSScore` is a structural zero for
+  DNS beacons, which the chart already handles.
+
+- **`saveFindings` re-parsed the INSERT SQL on every row.** The bulk
+  INSERT loop called `tx.Exec` per finding; the SQLite driver recompiles
+  the statement on each call. A single `tx.Prepare` before the loop
+  reduces compilation to once per `SetFindings`/`SetFindingsIncremental`
+  call, shortening the time the global write lock is held during every
+  watch-tick findings persist.
+
+- **`IOCSources()` issued a live `ListFeeds()` DB query on every
+  `/api/findings` call.** The per-feed *matcher* was already cached, but
+  the feed list itself (`SELECT … FROM feeds`) was re-queried on every
+  findings list, count, facet, and export request. The feed list is now
+  cached under `feedBucketsMu` alongside `feedBuckets` and cleared by
+  `invalidateFeedBuckets`, which every feed CRUD path already calls.
+
+- **SSRF via DNS rebinding on feed fetch (defense-in-depth).** The
+  existing SSRF guard ran at config time (literal-IP check) and on
+  redirects (`CheckRedirect` + `LookupIP`). The initial request had no
+  connect-time IP check: a feed hostname that resolved to a public IP
+  at config time but to an internal IP at fetch time reached internal
+  services with the attached API key. `DialContext` now resolves DNS,
+  rejects any result matching the internal deny-list, and dials the
+  first allowed IP directly — subsequent layers see a stable IP and DNS
+  cannot rebind under them. `allowInternal=true` feeds bypass the guard
+  as before.
+
 ## [v0.27.1] — 2026-05-18
 
 ### Fixed
@@ -5667,7 +5743,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.27.1...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.27.2...HEAD
+[v0.27.2]: https://github.com/BushidoCyb3r/Archer/compare/v0.27.1...v0.27.2
 [v0.27.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.27.0...v0.27.1
 [v0.27.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.26.0...v0.27.0
 [v0.26.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.25.1...v0.26.0
