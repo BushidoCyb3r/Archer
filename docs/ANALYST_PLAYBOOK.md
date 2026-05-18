@@ -964,6 +964,57 @@ suppression exists, the audit trail names the analyst, the
 time, and the entries added — see OPERATIONS.md → Audit
 log.
 
+### Allowlist suggestions — closing the repeat-FP loop
+
+If you find yourself acknowledging the same beacon every
+analysis run — OS update checker, cloud sync, EDR heartbeat
+— Archer will eventually surface it in the **Suggestions**
+tab (Allowlist → Suggestions).
+
+A pair appears there when two gates are both true:
+
+1. It has fired across **14+ distinct UTC days** in the
+   beacon evolution history — enough history that the
+   pattern is unambiguously stable, not just a noisy week.
+2. A current finding for that pair is **acknowledged** by
+   an analyst.
+
+Pairs already covered by a Relationship rule are excluded.
+
+**To apply a suggestion:**
+
+1. Open **Allowlist → Suggestions**.
+2. Review the evidence trail: source → destination : port,
+   finding type, how many days it has fired, date range,
+   peak score, who acked it.
+3. Type a justification in the text field — what software
+   or service this is, why it is benign, enough context
+   for a future analyst to verify the rule is still valid.
+   The field is required; you cannot apply without it.
+4. Click **Apply**. Archer creates a Relationship rule
+   scoped to that exact `(src, dst, port, finding_type)`
+   tuple. The justification is stored as the rule's note
+   and is visible in the Relationships tab.
+
+The suggestion disappears from the list once the rule
+exists. If you later remove the rule, the pair will
+re-appear in Suggestions on the next check (once it still
+meets both gates).
+
+**When not to apply:**
+
+- The destination IP overlaps with ranges shared between
+  a known vendor and unknown actors — suggestions are
+  pair-scoped, but verify the destination is specifically
+  the vendor's infrastructure before allowing.
+- You're not sure why the analyst acked it. Check the
+  notes on the finding first; an ack during a noisy
+  incident triage pass is not the same as a deliberate
+  verification.
+- The beacon started recently and the 14-day gate was met
+  by a fast-moving investigation window. Review the
+  evolution chart before applying.
+
 ---
 
 ## Note discipline
