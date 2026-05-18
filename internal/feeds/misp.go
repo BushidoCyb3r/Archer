@@ -18,13 +18,17 @@ import (
 // flight against MISP simultaneously. Splitting the fetch into one
 // query per attribute type collapses MISP's offset-pagination
 // degradation (each shard restarts at page 1 of just its type), but
-// running all 7 shards at once on a small single-VM MISP can saturate
-// CPU and slow each query down past the point where parallelism
-// helps. Four leaves headroom on a 6-core MISP box for Apache, the
-// OS, and the rest of MISP itself while still bringing wall-clock
-// down meaningfully on large feeds. Hardcoded for now; promote to a
-// per-feed config knob if field experience justifies it.
-const mispShardConcurrency = 4
+// running all 7 shards at once on a large MISP saturates it in bursts
+// — field experience with a 38M-attribute instance showed 4 concurrent
+// shards at 25k-attribute pages (~30 MB each) drove load to 6+,
+// causing per-page timeouts on the slower shards while the server was
+// still assembling responses. Serialised (=1) the total fetch wall time
+// is nearly the same because MISP processes each sequential shard faster
+// under lower load than it processes 4 concurrent ones under saturation.
+// Incrementals (since > 0) are tiny regardless, so concurrency=1 only
+// adds latency on infrequent full pulls against well-resourced MISP
+// boxes — an acceptable trade-off for correctness on the common case.
+const mispShardConcurrency = 1
 
 // mispAttributeTypes is the per-shard work list. One restSearch
 // request goes out per type, in parallel up to mispShardConcurrency.
