@@ -431,8 +431,8 @@ client that fixed itself. The score-evolution chart in the
 finding detail pane surfaces this trajectory.
 
 **Where the data comes from.** `internal/store/beacon_history.go`
-hooks `Store.SetFindings`: every time a Beaconing or HTTP
-Beaconing finding lands, one row is written to `beacon_history`
+hooks `Store.SetFindings`: every time a Beaconing, HTTP Beaconing,
+or DNS Beaconing finding lands, one row is written to `beacon_history`
 keyed by `(Finding.BeaconHistoryKey(), today_UTC)` with the
 composite score plus the four sub-axis components (ts, ds, hist,
 dur). The PRIMARY KEY on `(fingerprint, day_utc)` plus
