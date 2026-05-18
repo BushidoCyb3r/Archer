@@ -258,6 +258,15 @@ const Table = (() => {
     _select(f);
   }
 
+  function _navigateBy(delta) {
+    if (!_selected || _sorted.length === 0) return;
+    const idx = _sorted.findIndex(f => f.id === _selected.id);
+    if (idx < 0) return;
+    const next = _sorted[idx + delta];
+    if (!next) return;
+    jumpTo(next.id);
+  }
+
   function init(onSelect, onCtx, onCorrChip) {
     _onSelect   = onSelect;
     _onCtx      = onCtx;
@@ -284,6 +293,14 @@ const Table = (() => {
       if (wrap) wrap.addEventListener('scroll', schedule, {passive: true});
       window.addEventListener('resize', schedule);
     }
+
+    document.addEventListener('keydown', e => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (e.key === 'ArrowUp')   { e.preventDefault(); _navigateBy(-1); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); _navigateBy(1); }
+    });
   }
 
   return { init, load, update, jumpTo, getSelected };
