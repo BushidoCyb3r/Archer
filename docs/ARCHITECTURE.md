@@ -410,9 +410,14 @@ most recent reading. Under sub-daily watch cadence (or
 admin-triggered re-analysis), a noon spike followed by an evening
 fallback is captured as `max_score=88, last_score=50` rather
 than silently dropped — the v0.16.0 `DO NOTHING` shape was
-corrected in v0.16.1 NEW-76. Retention is 30 days, swept on the
-watch's first-tick-of-UTC-day branch via
-`Store.PurgeBeaconHistory()`.
+corrected in v0.16.1 NEW-76. `max_score` / `max_score_at` stay
+strict-greater, but the `severity` and four sub-axis columns also
+update on a score *tie* when the new pass is strictly more severe
+(v0.26.0 NEW-84 — a DGA High→Critical bump at an unchanged sub-80
+score must not stay recorded as the earlier non-DGA pass's lower
+severity; severity rank is an explicit CASE since the column is
+TEXT). Retention is 30 days, swept on the watch's
+first-tick-of-UTC-day branch via `Store.PurgeBeaconHistory()`.
 
 ### `BeaconHistoryKey` vs `Fingerprint`
 
@@ -484,6 +489,17 @@ Three special unauthenticated endpoints:
 
 For the full endpoint catalog with request/response shapes, see the
 "API Reference" section of [README.md](../README.md).
+
+**Response security headers.** Every response — every route, every
+status code — passes through `Server.ServeHTTP`, which sets
+`X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors
+'none'`, `X-Content-Type-Options: nosniff`, and `Referrer-Policy:
+no-referrer` before delegating to the mux (v0.26.0, closes an
+external-scan clickjacking finding). HSTS is **deliberately not
+set**: the self-signed cert regenerates on a TLS/volume reset, so
+an HSTS pin would turn a post-regen cert mismatch into a
+non-bypassable browser error and lock analysts out — rationale is
+recorded at the header block in `server.go`.
 
 ---
 

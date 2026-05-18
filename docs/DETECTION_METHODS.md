@@ -411,6 +411,24 @@ spiked at noon and fell back by evening is recorded as
 `max_score=88, last_score=50` — the chart renders the max,
 and the analyst sees the trajectory shift the next morning.
 
+**Peak characterization on a score tie (NEW-84, v0.26.0).**
+`max_score` / `max_score_at` stay strict-greater, so the recorded
+peak value and the time it was first reached never move on an
+equal-score pass (NEW-76 semantics preserved). But the `severity`
+and the four sub-axis columns describe *that* peak, and severity is
+not a pure function of the numeric score: the DGA augmentation
+(§2.5) forces a beacon one step up (e.g. High → Critical) even when
+its +15 leaves the composite unchanged below the 80 Critical cutoff
+(raw 64 → 79). If an earlier same-day non-DGA pass recorded that
+same 79 as High, a strict-greater gate would leave the row stuck at
+High while the beacon is really Critical. So the
+peak-characterization columns (severity + ts/ds/hist/dur)
+additionally update when the score *ties* the recorded max and the
+new pass is strictly more severe, compared via an explicit severity
+rank (the column is TEXT — lexical order is not severity order). A
+later benign equal-score pass still cannot downgrade the recorded
+peak.
+
 Pre-v0.16.1 used `INSERT … ON CONFLICT DO NOTHING` with a
 justifying comment claiming the morning pass was "the more
 representative score." That reasoning was technically wrong —
