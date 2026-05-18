@@ -29,7 +29,10 @@ func TestTopURIFootprint(t *testing.T) {
 	out := topURIFootprint(entries, 8)
 
 	gotA := out[gA]
-	wantA := []model.URIStat{{"/b", 300}, {"/c", 120}, {"/a", 50}, {"/aa", 50}}
+	wantA := []model.URIStat{
+		{URI: "/b", Count: 300}, {URI: "/c", Count: 120},
+		{URI: "/a", Count: 50}, {URI: "/aa", Count: 50},
+	}
 	if len(gotA) != len(wantA) {
 		t.Fatalf("group A: got %v, want %v", gotA, wantA)
 	}
