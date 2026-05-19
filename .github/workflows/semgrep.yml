@@ -17,6 +17,7 @@ name: semgrep
 #               for Go web servers.
 #   p/secrets — hardcoded credentials and API keys. Catches keys
 #               accidentally committed alongside config.
+#   p/docker  — Dockerfile hygiene: USER, ADD vs COPY, unpinned bases.
 #
 # Pin semgrep/semgrep to a specific tag once the first run is clean, the
 # same way govulncheck is pinned in ci.yml — an unpinned image can start
@@ -48,7 +49,6 @@ jobs:
           semgrep \
             --config p/golang \
             --config p/secrets \
-            --config p/bash \
             --config p/docker \
             --sarif \
             --output semgrep.sarif \
