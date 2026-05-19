@@ -30,6 +30,46 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.29.0] — 2026-05-19
+
+### Added
+
+- **Per-feed MISP query filter.** Each MISP feed now has an optional
+  `query_filter_json` field (JSON object textarea in the feed-edit
+  dialog, hidden for OpenCTI feeds). The object is merged into every
+  `/attributes/restSearch` request body before sending. Useful keys:
+  `timestamp` (relative strings like `"7d"` or Unix epoch),
+  `category` (e.g. `"Network activity"`, `"Payload delivery"`),
+  `tags`, `org`, `threat_level_id`, `event_id`, `published`. Archer's
+  required keys (`type`, `to_ids`, `deleted`, `limit`, `page`,
+  `returnFormat`, `timestamp` on incrementals) always overwrite
+  whatever the operator sets. Designed to unblock large MISP
+  deployments that time out on full sweeps. DB schema: migration 0021
+  adds `query_filter_json TEXT NOT NULL DEFAULT ''` to `feeds`.
+- **MISP query filter reference in docs/FEEDS.md.** New section
+  covering the merge model, all useful field keys, and seven
+  copy-paste recipes for common large-MISP scoping patterns.
+
+### Fixed
+
+- **MISP type-shard requests serialised.** Shard concurrency reduced
+  from 4 to 1. Field experience with a 38M-attribute MISP showed 4
+  concurrent shards at ~30 MB pages drove host load to 6+, causing
+  per-page timeouts while the server was still assembling responses.
+  Serialised shards eliminate the burst.
+- **MISP page size reduced to 5 000 (from 25 000); per-page timeout
+  raised to 4 minutes (from 90 seconds).** At 5k the response is
+  ~6 MB and assembles quickly even under load. Page cap raised to 500
+  to preserve the 2.5M-attribute-per-type aggregate ceiling.
+- **Notification panel stays open when dismissing individual alerts.**
+  Clicking Dismiss on a bell alert closed the whole panel due to the
+  dismissed button being removed from the DOM mid-event, causing the
+  click-outside handler to see a detached element and close.
+
+### Schema
+
+- Migration 0021: `ALTER TABLE feeds ADD COLUMN query_filter_json TEXT NOT NULL DEFAULT ''`
+
 ## [v0.28.0] — 2026-05-18
 
 ### Added
