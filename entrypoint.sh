@@ -22,6 +22,10 @@ mkdir -p /home/quiver/.ssh
 chown -R quiver:quiver /home/quiver/.ssh
 chmod 700 /home/quiver/.ssh
 chmod 600 /home/quiver/.ssh/authorized_keys
+# archer (uid 1001) writes authorized_keys on enroll/disenroll. Hand
+# ownership to archer so it can rewrite the file as a non-root process.
+# sshd_config sets StrictModes no so sshd accepts the non-quiver owner.
+chown archer:archer /home/quiver/.ssh/authorized_keys
 
 # Start sshd in the foreground of a background subshell. tini (PID 1) reaps
 # this when Archer exits, so we don't have to chase signals manually.
@@ -49,4 +53,9 @@ if [ -z "${GOMEMLIMIT:-}" ]; then
     echo "entrypoint: GOMEMLIMIT=${GOMEMLIMIT} (90% of ${total} bytes)"
 fi
 
-exec /app/archer "$@"
+# Hand /data and /logs to the archer user before dropping privileges.
+# On first start after upgrade these dirs are root-owned; this is the
+# one-time migration. Idempotent on subsequent starts.
+chown -R archer:archer /data /logs
+
+exec su-exec archer /app/archer "$@"

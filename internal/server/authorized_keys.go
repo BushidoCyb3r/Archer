@@ -19,13 +19,11 @@ import (
 )
 
 // matchParentOwner chowns path to whoever owns its parent directory.
-// Archer typically runs as root inside the Quiver container while sshd's
-// privilege-separated check reads authorized_keys as the target user
-// (e.g. uid 1000 'quiver'). Without this, a temp-file+rename or first-time
-// create in RemoveAuthKey/AppendAuthKey leaves the file root-owned 0600 and
-// sshd logs "Could not open user authorized keys: Permission denied."
-// Chown failures (e.g. running unprivileged) are ignored — they only matter
-// when we're root and writing for a different user.
+// Archer runs as a non-root user (uid 1001); the entrypoint pre-chowns
+// authorized_keys to that user so this call is a no-op at runtime.
+// It remains here for environments where archer runs as root (dev,
+// bare-metal installs) so sshd's privilege-separated reader can open
+// the file as the quiver user. Chown failures are silently ignored.
 func matchParentOwner(path string) {
 	fi, err := os.Stat(filepath.Dir(path))
 	if err != nil {

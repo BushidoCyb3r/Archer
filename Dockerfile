@@ -28,7 +28,7 @@ FROM alpine:3.20
 # Archer exits. openssh-server + rsync are the sensor-facing transport
 # (Quiver sensors push their daily logs over ssh). ca-certificates and
 # tzdata are kept from the original image for outbound TLS calls.
-RUN apk add --no-cache ca-certificates tzdata openssh-server tini rsync rrsync \
+RUN apk add --no-cache ca-certificates tzdata openssh-server tini rsync rrsync su-exec \
     && adduser -D -h /home/quiver -s /bin/sh quiver \
     # adduser -D leaves /etc/shadow with `quiver:!:...` which marks the
     # account locked. Alpine's openssh is built without PAM (UsePAM is a
@@ -43,7 +43,8 @@ RUN apk add --no-cache ca-certificates tzdata openssh-server tini rsync rrsync \
     && chown -R quiver:quiver /home/quiver \
     && chmod 700 /home/quiver/.ssh \
     && chmod 600 /home/quiver/.ssh/authorized_keys \
-    && chmod 700 /run/sshd
+    && chmod 700 /run/sshd \
+    && adduser -D -u 1001 -H -s /sbin/nologin archer
 
 # rrsync ships in Alpine's rsync package but the canonical path varies
 # between 3.x point releases (3.18 dropped it under /usr/bin, some prior

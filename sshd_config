@@ -22,6 +22,9 @@ ChallengeResponseAuthentication no
 PermitEmptyPasswords no
 UsePAM no
 PubkeyAuthentication yes
+# authorized_keys is written by the non-root archer process (uid 1001),
+# so it is not owned by quiver. StrictModes no skips the ownership check.
+StrictModes no
 
 # Only the quiver user is allowed in. Per-sensor authorized_keys entries
 # pin each connection to its own rsync target.
