@@ -3233,6 +3233,13 @@
     if (cidrEl) cidrEl.value = Array.isArray(cfg.org_internal_cidrs) ? cfg.org_internal_cidrs.join('\n') : '';
     const alwaysFull = document.getElementById('cfg-watch-always-full');
     if (alwaysFull) alwaysFull.checked = !!cfg.watch_always_full;
+
+    const sensorStale = document.getElementById('cfg-sensor-stale-hours');
+    const feedStale   = document.getElementById('cfg-feed-stale-hours');
+    const rsyncStale  = document.getElementById('cfg-rsync-stale-hours');
+    if (sensorStale) sensorStale.value = cfg.sensor_stale_threshold_hours || 2;
+    if (feedStale)   feedStale.value   = cfg.feed_stale_threshold_hours   || 24;
+    if (rsyncStale)  rsyncStale.value  = cfg.rsync_stale_threshold_hours  || 4;
     const specEn = document.getElementById('cfg-spectral-enabled');
     // spectral_enabled defaults true in config.Default(); upgraded
     // installs preserve that value because json.Unmarshal only
@@ -3323,6 +3330,9 @@
       dga_enabled:              !!(document.getElementById('cfg-dga-enabled') || {}).checked,
       dga_entropy_threshold:    parseFloat(g('cfg-dga-entropy')) || 3.5,
       dga_bigram_threshold:     parseFloat(g('cfg-dga-bigram'))  || -4.5,
+      sensor_stale_threshold_hours: parseInt(g('cfg-sensor-stale-hours')) || 2,
+      feed_stale_threshold_hours:   parseInt(g('cfg-feed-stale-hours'))   || 24,
+      rsync_stale_threshold_hours:  parseInt(g('cfg-rsync-stale-hours'))  || 4,
     };
   }
 

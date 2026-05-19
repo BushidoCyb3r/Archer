@@ -1217,6 +1217,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "dga_bigram_threshold must be in [-10, 0) (negative log-probability)", http.StatusBadRequest)
 			return
 		}
+		if cfg.SensorStaleThresholdHours < 0 || cfg.FeedStaleThresholdHours < 0 || cfg.RsyncStaleThresholdHours < 0 {
+			jsonError(w, "alerting threshold hours must be >= 0 (0 = use built-in default)", http.StatusBadRequest)
+			return
+		}
 		before := s.store.GetConfig()
 		s.store.SetConfig(cfg)
 		s.recordAudit(r, "config_change", auditEvent{

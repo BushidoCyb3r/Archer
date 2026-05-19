@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/BushidoCyb3r/Archer/internal/config"
 	"github.com/BushidoCyb3r/Archer/internal/feeds"
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
@@ -35,6 +36,16 @@ const (
 	feedHealthCheckInterval    = 5 * time.Minute
 )
 
+// feedStaleSec returns the feed-staleness threshold in seconds.
+// Reads from config; falls back to the built-in default when the
+// config field is zero (older deployments without the setting).
+func feedStaleSec(cfg config.Config) int64 {
+	if cfg.FeedStaleThresholdHours > 0 {
+		return int64(cfg.FeedStaleThresholdHours) * 3600
+	}
+	return int64(feedStaleThreshold.Seconds())
+}
+
 // startFeedHealthLoop kicks off the feed-reliability watcher. Runs
 // once at startup then on the check interval forever.
 func (s *Server) startFeedHealthLoop() {
@@ -54,7 +65,7 @@ func (s *Server) startFeedHealthLoop() {
 func (s *Server) scanFeedHealth(active map[string]bool, mu *sync.Mutex) {
 	allFeeds := s.store.ListFeeds()
 	now := time.Now().Unix()
-	staleSec := int64(feedStaleThreshold.Seconds())
+	staleSec := feedStaleSec(s.store.GetConfig())
 
 	mu.Lock()
 	defer mu.Unlock()

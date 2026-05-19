@@ -148,6 +148,26 @@ type Config struct {
 	// different addresses internally vs. from the sensor network — e.g. the
 	// admin uses an internal DNS name but sensors come in via a public IP.
 	SensorFacingHost string `json:"sensor_facing_host,omitempty"`
+
+	// Alerting thresholds — how long before the alarm loops fire.
+	// 0 means "use the built-in default" so existing deployments that
+	// don't have these fields in their persisted config keep the same
+	// behaviour they had before the fields were introduced.
+	//
+	// SensorStaleThresholdHours: sensor offline alarm. Default 2 (covers
+	// two missed hourly checkins plus jitter).
+	//
+	// FeedStaleThresholdHours: feed staleness alarm. Default 24 (a feed
+	// that hasn't refreshed in a full day is almost certainly broken).
+	//
+	// RsyncStaleThresholdHours: gap between the sensor's most recent
+	// HMAC checkin and the most recent rsync file mtime, above which the
+	// "Sensor rsync stopped" alarm fires. Only considered when checkin
+	// is still alive (within SensorStaleThreshold) and the sensor has
+	// rsynced at least once. Default 4 (four missed hourly rsyncs).
+	SensorStaleThresholdHours int `json:"sensor_stale_threshold_hours,omitempty"`
+	FeedStaleThresholdHours   int `json:"feed_stale_threshold_hours,omitempty"`
+	RsyncStaleThresholdHours  int `json:"rsync_stale_threshold_hours,omitempty"`
 }
 
 func Default() Config {
@@ -199,5 +219,9 @@ func Default() Config {
 		TITimeoutSec:        12,
 
 		ArchiveAfterDays: 30,
+
+		SensorStaleThresholdHours: 2,
+		FeedStaleThresholdHours:   24,
+		RsyncStaleThresholdHours:  4,
 	}
 }
