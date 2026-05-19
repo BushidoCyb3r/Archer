@@ -19,13 +19,13 @@ chmod 644 /etc/ssh/keys/ssh_host_*_key.pub
 # Idempotent: existing contents are left alone.
 mkdir -p /home/quiver/.ssh
 [ -f /home/quiver/.ssh/authorized_keys ] || touch /home/quiver/.ssh/authorized_keys
-chown -R quiver:quiver /home/quiver/.ssh
+# archer (uid 1001) owns both the directory and the file so it can write
+# authorized_keys directly (AppendAuthKey) and atomically via a sibling
+# temp file + rename (RemoveAuthKey). sshd_config sets StrictModes no so
+# sshd accepts the non-quiver owner; sshd reads the file as root anyway.
+chown -R archer:archer /home/quiver/.ssh
 chmod 700 /home/quiver/.ssh
 chmod 600 /home/quiver/.ssh/authorized_keys
-# archer (uid 1001) writes authorized_keys on enroll/disenroll. Hand
-# ownership to archer so it can rewrite the file as a non-root process.
-# sshd_config sets StrictModes no so sshd accepts the non-quiver owner.
-chown archer:archer /home/quiver/.ssh/authorized_keys
 
 # Start sshd in the foreground of a background subshell. tini (PID 1) reaps
 # this when Archer exits, so we don't have to chase signals manually.
