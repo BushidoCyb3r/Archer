@@ -18,6 +18,8 @@ import (
 	"log"
 	"strings"
 	"time"
+
+	"github.com/BushidoCyb3r/Archer/internal/model"
 )
 
 // Sensor is a Quiver-enrolled (or formerly enrolled) endpoint.
@@ -488,6 +490,43 @@ func (s *Store) DeleteFindingsBySensorPrefix(prefix string) {
 		if !strings.HasPrefix(f.Sensor, prefix) {
 			out = append(out, f)
 		}
+	}
+	s.findings = out
+}
+
+// DeleteOrphanedHostRiskScores removes Host Risk Score findings whose
+// src_ip no longer appears in any non-rollup finding. Called after
+// DeleteFindingsBySensorPrefix so HRS rows backed solely by the purged
+// sensor's findings don't persist without backing detections.
+func (s *Store) DeleteOrphanedHostRiskScores() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return
+	}
+	if _, err := s.db.Exec(`
+		DELETE FROM findings
+		WHERE type = 'Host Risk Score'
+		AND src_ip NOT IN (
+			SELECT DISTINCT src_ip FROM findings
+			WHERE type NOT IN ('Host Risk Score', 'Correlated Activity')
+			AND src_ip != ''
+		)`); err != nil {
+		log.Printf("store: DeleteOrphanedHostRiskScores: %v", err)
+		return
+	}
+	backed := make(map[string]bool)
+	for _, f := range s.findings {
+		if !model.IsRollupType(f.Type) && f.SrcIP != "" {
+			backed[f.SrcIP] = true
+		}
+	}
+	out := s.findings[:0]
+	for _, f := range s.findings {
+		if f.Type == model.TypeHostRiskScore && !backed[f.SrcIP] {
+			continue
+		}
+		out = append(out, f)
 	}
 	s.findings = out
 }

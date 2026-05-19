@@ -280,6 +280,7 @@ func (s *Server) handleSensorPurge(w http.ResponseWriter, r *http.Request) {
 	}
 	s.purgeSensorLogs(sn.Name)
 	s.store.DeleteFindingsBySensorPrefix(sn.Name + ":disenrolled-")
+	s.store.DeleteOrphanedHostRiskScores()
 	if err := s.store.DeleteSensor(sn.ID); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -1728,6 +1728,71 @@ func TestAddSuppression_DismissesHiddenFindingNotifications(t *testing.T) {
 	}
 }
 
+// TestDeleteOrphanedHostRiskScores verifies that HRS findings whose src_ip
+// has no remaining non-rollup findings are removed after a sensor purge, while
+// HRS backed by a second sensor's findings survive.
+func TestDeleteOrphanedHostRiskScores(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s := New(config.Default())
+	s.InitDB(db)
+
+	// Seed: two hosts.
+	//   10.0.0.1 — findings from sensor-a only; HRS should be deleted after purge.
+	//   10.0.0.2 — findings from both sensor-a and sensor-b; HRS should survive.
+	s.SetFindings([]model.Finding{
+		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Sensor: "sensor-a",
+			Score: 80, Severity: model.SevHigh, Timestamp: "2026-01-01 00:00:00"},
+		{ID: 2, Type: "Host Risk Score", SrcIP: "10.0.0.1", DstIP: "(network)", Sensor: "",
+			Score: 80, Severity: model.SevHigh, Timestamp: "2026-01-01 00:00:00"},
+		{ID: 3, Type: "Beaconing", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Sensor: "sensor-a",
+			Score: 70, Severity: model.SevMedium, Timestamp: "2026-01-01 00:00:00"},
+		{ID: 4, Type: "DNS Tunneling", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Sensor: "sensor-b",
+			Score: 60, Severity: model.SevMedium, Timestamp: "2026-01-01 00:00:00"},
+		{ID: 5, Type: "Host Risk Score", SrcIP: "10.0.0.2", DstIP: "(network)", Sensor: "",
+			Score: 75, Severity: model.SevHigh, Timestamp: "2026-01-01 00:00:00"},
+	})
+
+	// Simulate disenroll+purge of sensor-a: retag then delete.
+	s.RetagFindings("sensor-a", "sensor-a:disenrolled-20260101")
+	s.DeleteFindingsBySensorPrefix("sensor-a:disenrolled-")
+	s.DeleteOrphanedHostRiskScores()
+
+	all := s.GetFindings()
+
+	// 10.0.0.1 HRS must be gone — no backing detections remain.
+	for _, f := range all {
+		if f.Type == model.TypeHostRiskScore && f.SrcIP == "10.0.0.1" {
+			t.Errorf("stale HRS for 10.0.0.1 survived purge: %+v", f)
+		}
+	}
+
+	// 10.0.0.2 HRS must survive — sensor-b still backs it.
+	var hrs2 *model.Finding
+	for i := range all {
+		if all[i].Type == model.TypeHostRiskScore && all[i].SrcIP == "10.0.0.2" {
+			hrs2 = &all[i]
+			break
+		}
+	}
+	if hrs2 == nil {
+		t.Error("HRS for 10.0.0.2 was deleted but sensor-b still has findings for that host")
+	}
+
+	// Remaining findings: sensor-b's DNS Tunneling row + 10.0.0.2 HRS.
+	if len(all) != 2 {
+		t.Errorf("want 2 findings after purge, got %d: %+v", len(all), all)
+	}
+}
+
 // activeFindingNotifs returns the subset of s.GetNotifications() that
 // are (a) Kind="finding" (or unset, the pre-v0.17.0 default) and (b)
 // not yet dismissed. Helper for the cleanup-on-list-update tests.
