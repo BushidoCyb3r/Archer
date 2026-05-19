@@ -378,6 +378,124 @@ fronted by a corporate CA Archer trusts only needs allow_internal.
 
 ---
 
+## MISP query filter
+
+### What it is
+
+Each MISP feed has an optional **MISP query filter** field (JSON object,
+MISP-only). Whatever you put there is merged into every
+`/attributes/restSearch` request body before Archer sends it. Use it to
+scope down what MISP returns without touching the adapter code.
+
+### How the merge works
+
+The operator filter is applied first. Archer's required keys are then
+written on top and always win:
+
+| Key | Controlled by | Why |
+|---|---|---|
+| `returnFormat` | Archer | Always `json` |
+| `type` | Archer | Per-shard type (one request per indicator type) |
+| `to_ids` | Archer | Always `true` (IDS-actionable only) |
+| `deleted` | Archer | Always `false` |
+| `limit` | Archer | Page size (5 000 attributes/page) |
+| `page` | Archer | Pagination counter |
+| `enforceWarninglist` | Archer | Always `true` |
+| `includeContext` | Archer | Always `false` |
+| `timestamp` | Archer (incrementals only) | Overwritten only when `since > 0`; on full pulls the operator value persists |
+| Everything else | Operator | `tags`, `event_id`, `org`, `threat_level_id`, `category`, etc. |
+
+The practical consequence: `timestamp` in the filter scopes full pulls
+(the infrequent deep sync) while Archer's own `since` value takes over
+for cheap incrementals. You get both.
+
+### Field reference
+
+| Key | Type | Effect |
+|---|---|---|
+| `timestamp` | string or int | Scope to attributes created/modified since this time. MISP accepts Unix epoch (int) or relative strings: `"1h"`, `"1d"`, `"7d"`, `"30d"`, `"90d"`, `"1y"`. |
+| `category` | string or array | Limit to one or more MISP categories. Common values: `"Network activity"`, `"Payload delivery"`, `"Artifacts dropped"`, `"External analysis"`. |
+| `tags` | array of strings | Exact tag match. MISP ANDs multiple entries within the array. Example: `["tlp:red", "misp-galaxy:threat-actor=\"Sandworm Team\""]`. |
+| `org` | string | Scope to attributes contributed by a specific MISP organisation (org name, not numeric ID). |
+| `threat_level_id` | int | Filter by event threat level. `1` = High, `2` = Medium, `3` = Low, `4` = Undefined. |
+| `event_id` | int or array | Pull attributes from specific event IDs only. Useful for pinning a feed to a curated event. |
+| `published` | bool | `true` limits to published events. Useful on large MISP instances where draft events are numerous. |
+| `to_ids` | — | **Ignored** — Archer always sets `true`. |
+
+### Common recipes
+
+**Large MISP — scope to last 7 days, network indicators only**
+```json
+{"timestamp": "7d", "category": "Network activity"}
+```
+Most effective first filter for a multi-million-attribute MISP. Excludes
+hash-heavy `Payload delivery` events; the md5/sha1/sha256 shards return
+empty instantly. Widen `timestamp` once the initial pull succeeds.
+
+**Large MISP — last 30 days, IDS-grade only**
+```json
+{"timestamp": "30d", "published": true}
+```
+`published: true` cuts draft events that accumulate on busy instances;
+`to_ids` (always true from Archer) ensures indicators flagged as
+non-IDS are already excluded.
+
+**Scope to a specific TLP**
+```json
+{"timestamp": "30d", "tags": ["tlp:red"]}
+```
+Only attributes tagged `tlp:red`. Combine with a category if the red
+feed is still too large.
+
+**Scope to one threat actor feed**
+```json
+{"tags": ["misp-galaxy:threat-actor=\"Sandworm Team\""]}
+```
+No timestamp — you want the full historical IOC set for this actor. MISP
+galaxy tags use quoted-value syntax for entries with spaces.
+
+**Scope to specific events**
+```json
+{"event_id": [1042, 1043, 1101]}
+```
+Pins Archer to three specific MISP events. Useful when the rest of the
+MISP is unrelated to your network environment.
+
+**Scope to a specific contributing org**
+```json
+{"timestamp": "30d", "org": "CIRCL"}
+```
+Only attributes submitted by that organisation. Common when sharing a
+MISP instance with multiple teams whose data quality varies.
+
+**High-confidence only**
+```json
+{"timestamp": "30d", "threat_level_id": 1, "published": true}
+```
+High-threat-level published events only. Reduces false positives at the
+cost of missing lower-rated (but potentially valid) indicators.
+
+### When to leave it empty
+
+If your MISP is small (under ~500k attributes total) or you control its
+content entirely, leave the filter blank. Archer's page size (5 000
+attributes/page) and the automated incremental sync keep fetch volume
+manageable without scoping. Add a filter only when you see:
+
+- `context deadline exceeded` errors on a shard
+- The `⚠ truncated` badge in the Feeds dialog
+- Fetch times > 2 minutes
+- MISP host CPU spiking during Archer refresh
+
+### Filter doesn't apply to OpenCTI
+
+The **MISP query filter** field is hidden in the dialog when source type
+is OpenCTI and is ignored at the adapter layer for OpenCTI feeds. The
+field is stored in the DB regardless of source type but has no effect
+on OpenCTI fetches.
+
+---
+
 ## MISP setup tips
 
 ### Generate the API key
@@ -536,19 +654,17 @@ generate test traffic from a host on that network.
 
 ### Indicator count looks capped, "⚠ truncated" badge shown
 
-The MISP adapter walks pages of 10000 up to 100 pages (1M attributes)
-as of v0.7.0; OpenCTI walks cursor pages of 1000 up to 100 pages
-(100k). When the cap is hit AND the upstream still indicates more
-data, the feed row's `last_fetch_truncated` flag is set and the
-Feeds dialog renders a yellow `⚠ truncated` badge next to the
+The MISP adapter walks pages of 5 000 attributes up to 500 pages
+(2.5M attributes per type shard); OpenCTI walks cursor pages of 1 000
+up to 100 pages (100k). When the cap is hit AND the upstream still
+indicates more data, the feed row's `last_fetch_truncated` flag is set
+and the Feeds dialog renders a yellow `⚠ truncated` badge next to the
 indicator count.
 
-To resolve: narrow the MISP search (more specific tag filter, single
-campaign instead of "all attributes") or scale up by raising the
-adapter's `PageLimit` constant in source if the deployment can
-afford the memory + bandwidth (default cap protects against runaway
-fetches). For OpenCTI, same playbook — narrow the indicator query
-or raise the limit.
+To resolve: add or tighten the **MISP query filter** (timestamp +
+category scoping is usually enough — see the query filter section
+above). For OpenCTI, narrow the indicator query or raise the adapter's
+`PageLimit` constant in source.
 
 ---
 
