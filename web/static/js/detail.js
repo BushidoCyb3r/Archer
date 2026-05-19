@@ -55,6 +55,32 @@ const Detail = (() => {
     return out;
   }
 
+  // _row returns a key/value row HTML string.
+  function _row(key, val, mono) {
+    return `<div class="ds-row"><span class="ds-key">${_esc(key)}</span><span class="ds-val${mono ? ' mono' : ''}">${val}</span></div>`;
+  }
+
+  // _section wraps rows in a labelled section div.
+  function _section(title, rowsHtml) {
+    const titleHtml = title ? `<div class="ds-section-title">${_esc(title)}</div>` : '';
+    return `<div class="ds-section">${titleHtml}${rowsHtml}</div>`;
+  }
+
+  // _parseDetail splits the analyzer's pipe-delimited detail string
+  // into individual rows. Each segment is trimmed; empty ones dropped.
+  function _parseDetail(detail) {
+    if (!detail) return '';
+    return detail.split('|').map(s => s.trim()).filter(Boolean).map(seg => {
+      const colon = seg.indexOf(':');
+      if (colon > 0) {
+        const k = seg.slice(0, colon).trim();
+        const v = seg.slice(colon + 1).trim();
+        return _row(k, _esc(v), true);
+      }
+      return `<div class="ds-row"><span class="ds-val mono">${_esc(seg)}</span></div>`;
+    }).join('');
+  }
+
   function render(f) {
     const header = document.getElementById('detail-header');
     const text   = document.getElementById('detail-text');
@@ -65,59 +91,83 @@ const Detail = (() => {
     header.textContent = `${f.type}  [${f.severity}  score ${f.score}]  ${f.src_ip || '—'} → ${dst}${f.dst_port ? ':' + f.dst_port : ''}`;
     header.style.color = _sevColor(f.severity);
 
-    const lines = [];
-    lines.push(`Type       : ${f.type}`);
-    lines.push(`Severity   : ${f.severity}   Score: ${f.score}`);
-    lines.push(`Status     : ${_statusLabel(f.status)}`);
-    if (sensor) lines.push(`Sensor     : ${sensor}`);
-    lines.push(`Timestamp  : ${f.timestamp || '—'}`);
-    lines.push(`Source     : ${f.source_file || '—'}`);
-    lines.push('');
-    if (f.src_ip)   lines.push(`Src IP     : ${f.src_ip}`);
-    if (f.dst_ip)   lines.push(`Dst IP     : ${f.dst_ip}`);
-    if (f.dst_port) lines.push(`Dst Port   : ${f.dst_port}`);
-    // TLS client fingerprint (conn-level Beaconing over TLS only). The
-    // sibling count is server-derived per request; 0/omitted reads as
-    // "no other beacon shares this fingerprint in the current dataset".
+    const sections = [];
+
+    // --- Identity ---
+    let id = '';
+    id += _row('Type',      _esc(f.type));
+    id += _row('Severity',  `${_esc(f.severity)}<span style="color:var(--fg-dim)">  score </span>${_esc(String(f.score))}`, false);
+    id += _row('Status',    _esc(_statusLabel(f.status)));
+    if (sensor)           id += _row('Sensor',    _esc(sensor));
+    id += _row('Timestamp', _esc(f.timestamp || '—'));
+    id += _row('Source',    _esc(f.source_file || '—'));
+    sections.push(_section('', id));
+
+    // --- Endpoints ---
+    let ep = '';
+    if (f.src_ip)   ep += _row('Src IP',   _esc(f.src_ip),   true);
+    if (f.dst_ip)   ep += _row('Dst IP',   _esc(f.dst_ip),   true);
+    if (f.dst_port) ep += _row('Dst Port', _esc(f.dst_port), true);
     if (f.ja3) {
-      lines.push(`JA3        : ${f.ja3}`);
+      ep += _row('JA3', _esc(f.ja3), true);
       const n = f.ja3_sibling_count || 0;
-      lines.push(`JA3 match  : ${n} other beacon${n === 1 ? '' : 's'} in this dataset` +
-                 (n > 0 ? '  (JA3 Pivot ▸)' : ''));
+      ep += _row('JA3 match', `${n} other beacon${n === 1 ? '' : 's'} in dataset${n > 0 ? '  <span style="color:var(--fg-dim)">(JA3 Pivot ▸)</span>' : ''}`);
     }
-    if (f.ja4) lines.push(`JA4        : ${f.ja4}`);
-    // HTTP-beacon path footprint: the beacon-shaped request paths the
-    // same (src,dst,host) group hit, count-desc, server-aggregated
-    // pre-dedup. >1 entry is the multi-URI implant shape; the finding's
-    // own URI is included so the analyst reads the complete footprint.
+    if (f.ja4) ep += _row('JA4', _esc(f.ja4), true);
     if (Array.isArray(f.top_uris) && f.top_uris.length > 1) {
-      lines.push(`Beacon paths on ${f.hostname || 'this host'}:`);
-      f.top_uris.forEach(u => lines.push(`  ${u.uri}  (n=${u.count})`));
+      ep += `<div class="ds-row"><span class="ds-key">Beacon paths</span><span class="ds-val mono">${_esc(f.hostname || 'this host')}</span></div>`;
+      f.top_uris.forEach(u => {
+        ep += `<div class="ds-row"><span class="ds-key"></span><span class="ds-val mono">${_esc(u.uri)}  <span style="color:var(--fg-dim)">(n=${_esc(String(u.count))})</span></span></div>`;
+      });
     }
-    lines.push('');
-    _beaconTriage(f).forEach(l => lines.push(l));
-    if (f.detail)   lines.push(f.detail);
-    if (f.is_new)   { lines.push(''); lines.push('*** NEW SINCE BASELINE ***'); }
-    if (f.ioc_match){ lines.push(''); lines.push('*** MATCHED IOC LIST ***'); }
+    if (ep) sections.push(_section('Endpoints', ep));
+
+    // --- Beacon triage ---
+    const triage = _beaconTriage(f);
+    if (triage.length > 0) {
+      let tr = '';
+      // triage[0] is the section label, skip it; remaining are "Key : value" lines
+      for (let i = 1; i < triage.length; i++) {
+        const line = triage[i];
+        if (!line) continue;
+        const colon = line.indexOf(':');
+        if (colon > 0) {
+          tr += _row(line.slice(0, colon).trim(), _esc(line.slice(colon + 1).trim()));
+        } else {
+          tr += `<div class="ds-row"><span class="ds-val">${_esc(line)}</span></div>`;
+        }
+      }
+      sections.push(_section('Beacon triage', tr));
+    }
+
+    // --- Detection detail ---
+    const detailHtml = _parseDetail(f.detail);
+    if (detailHtml) sections.push(_section('Detection detail', detailHtml));
+
+    // --- Flags ---
+    let flags = '';
+    if (f.is_new)    flags += `<span class="ds-flag new">NEW SINCE BASELINE</span> `;
+    if (f.ioc_match) flags += `<span class="ds-flag ioc">MATCHED IOC LIST</span> `;
     if (f.status === 'escalated') {
-      lines.push('');
-      lines.push(`Escalated  : ${f.status_ts || '—'}`);
-      if (f.analyst) lines.push(`Analyst    : ${f.analyst}`);
+      flags += `<span class="ds-flag esc">ESCALATED</span>`;
+      let esc = `<div style="margin-top:6px">`;
+      esc += _row('Escalated', _esc(f.status_ts || '—'));
+      if (f.analyst) esc += _row('Analyst', _esc(f.analyst));
+      esc += '</div>';
+      flags += esc;
     }
     if (f.analyst_note) {
-      lines.push('');
-      lines.push('Analyst Note:');
-      lines.push(f.analyst_note);
+      flags += `<div style="margin-top:8px"><div class="ds-section-title">Analyst note</div><div class="ds-explain">${_esc(f.analyst_note)}</div></div>`;
     }
+    if (flags) sections.push(_section('', flags));
 
+    // --- Why flagged ---
     const explain = EXPLANATIONS[f.type] || '';
     if (explain) {
-      lines.push('');
-      lines.push('Why flagged:');
-      lines.push(explain);
+      sections.push(_section('Why flagged', `<div class="ds-explain">${_esc(explain)}</div>`));
     }
 
-    text.textContent = lines.join('\n');
+    text.innerHTML = sections.join('');
     rec.textContent = explain ? explain.split('.')[0] : '';
 
     // Action buttons
