@@ -129,7 +129,7 @@ const Notifications = (() => {
         const notif = _findById(parseInt(jumpBtn.dataset.notifId, 10));
         if (onJump && notif) onJump(notif);
       }
-      if (dismissBtn) dismiss(dismissBtn.dataset.id);
+      if (dismissBtn) { e.stopPropagation(); dismiss(dismissBtn.dataset.id); }
     });
 
     document.addEventListener('click', e => {
