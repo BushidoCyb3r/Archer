@@ -213,6 +213,7 @@ archer/
 │   │   ├── handlers_sse.go     # /events SSE stream handler
 │   │   ├── handlers_quiver.go  # /quiver/install.sh, /api/quiver/enroll, /api/quiver/checkin
 │   │   ├── handlers_sensors.go # Sensors-modal endpoints (enroll, disenroll, purge, tokens, schedule)
+│   │   ├── handlers_service_tokens.go # /api/service-tokens CRUD; tokenOrSession() accepts X-Archer-Token or session
 │   │   ├── handlers_feeds.go   # Feeds CRUD + /api/feeds/{id}/refresh (10-min cap, detached context)
 │   │   ├── handlers_audit_log.go # /api/audit endpoints
 │   │   ├── handlers_backup.go  # /api/admin/backup — VACUUM INTO snapshot stream
@@ -240,6 +241,7 @@ archer/
 │   └── store/
 │       ├── store.go            # Findings (fingerprint-merge), allowlist, IOC, suppressions, config, watch state
 │       ├── sensors.go          # sensors, enrollment_tokens, unauthorized_attempts
+│       ├── service_tokens.go   # service_tokens table — create/list/delete, X-Archer-Token verification
 │       ├── feeds.go            # feeds, feed_indicators, consecutive_failures
 │       ├── audit_log.go        # audit_log table with structured before/after JSON
 │       ├── beacon_history.go   # beacon_history table (UPSERT) for the 30-day evolution chart
