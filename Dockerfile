@@ -94,5 +94,7 @@ LABEL org.opencontainers.image.source="https://github.com/BushidoCyb3r/Archer"
 # 22   — Quiver sensor rsync push (ssh-key auth, separate sshd)
 EXPOSE 8443 22
 
-ENTRYPOINT ["/sbin/tini", "--", "/app/entrypoint.sh"] # nosemgrep: dockerfile.security.missing-user-entrypoint.missing-user-entrypoint
-CMD ["--tls-addr=:8443", "--logs-dir=/logs"] # nosemgrep: dockerfile.security.missing-user.missing-user
+# nosemgrep: dockerfile.security.missing-user-entrypoint.missing-user-entrypoint
+ENTRYPOINT ["/sbin/tini", "--", "/app/entrypoint.sh"]
+# nosemgrep: dockerfile.security.missing-user.missing-user
+CMD ["--tls-addr=:8443", "--logs-dir=/logs"]
