@@ -948,33 +948,33 @@
 
 <dialog id="allowlist-dialog">
   <div class="dlg-header">Allowlist</div>
-  <div class=”dlg-tabs” id=”allowlist-tabs”>
-    <button class=”dlg-tab-btn active” data-altab=”entries”>Allowlist</button>
-    <button class=”dlg-tab-btn” data-altab=”relationships”>Relationships</button>
-    <button class=”dlg-tab-btn” data-altab=”suggestions”>Suggestions</button>
+  <div class="dlg-tabs" id="allowlist-tabs">
+    <button class="dlg-tab-btn active" data-altab="entries">Allowlist</button>
+    <button class="dlg-tab-btn" data-altab="relationships">Relationships</button>
+    <button class="dlg-tab-btn" data-altab="suggestions">Suggestions</button>
   </div>
-  <div class=”dlg-body”>
-    <div class=”al-tab-panel active” data-alpanel=”entries”>
+  <div class="dlg-body">
+    <div class="al-tab-panel active" data-alpanel="entries">
       <label>One IP / CIDR / domain per line</label>
-      <div style=”color:var(--fg-dim);font-size:11px;margin:4px 0 6px”>
+      <div style="color:var(--fg-dim);font-size:11px;margin:4px 0 6px">
         Lines starting with <code>#</code> are kept as comments and survive save/reload — use them as section headers. Inline <code>1.2.3.4 # office</code> tails are stripped down to the entry. Save preserves your line order.
       </div>
-      <textarea class=”dlg-textarea” id=”allowlist-ta” rows=”12” style=”width:100%”></textarea>
+      <textarea class="dlg-textarea" id="allowlist-ta" rows="12" style="width:100%"></textarea>
     </div>
-    <div class=”al-tab-panel” data-alpanel=”relationships”>
-      <div style=”color:var(--fg-dim);font-size:11px;margin-bottom:8px”>
+    <div class="al-tab-panel" data-alpanel="relationships">
+      <div style="color:var(--fg-dim);font-size:11px;margin-bottom:8px">
         Tuple-scoped view filters — a known-good source → destination : port
         pair. Remove a rule and its findings reappear on the next refresh; they were
-        never deleted. Add a rule by right-clicking a finding → “Allow this Relationship”.
+        never deleted. Add a rule by right-clicking a finding → "Allow this Relationship".
       </div>
-      <div id=”pair-allow-list” style=”min-height:60px”></div>
+      <div id="pair-allow-list" style="min-height:60px"></div>
     </div>
-    <div class=”al-tab-panel” data-alpanel=”suggestions”>
-      <div style=”color:var(--fg-dim);font-size:11px;margin-bottom:8px”>
+    <div class="al-tab-panel" data-alpanel="suggestions">
+      <div style="color:var(--fg-dim);font-size:11px;margin-bottom:8px">
         Acknowledged beacons that have re-fired across 14+ distinct days.
         Each suggestion requires a typed justification before applying — it becomes the rule's note in the Relationships tab.
       </div>
-      <div id=”suggest-allow-list” style=”min-height:60px”></div>
+      <div id="suggest-allow-list" style="min-height:60px"></div>
     </div>
   </div>
   <div class="dlg-footer">
