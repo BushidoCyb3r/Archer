@@ -29,9 +29,9 @@ func (s *Server) tokenOrSession(h http.HandlerFunc) http.Handler {
 // handleServiceTokens handles GET and POST on /api/service-tokens.
 // Admin only (enforced by route middleware).
 //
-//   GET  — returns the list of tokens (label + metadata, no hashes).
-//   POST — creates a new token; returns id, label, and the raw token
-//          (shown exactly once; not stored or recoverable).
+//	GET  — returns the list of tokens (label + metadata, no hashes).
+//	POST — creates a new token; returns id, label, and the raw token
+//	       (shown exactly once; not stored or recoverable).
 func (s *Server) handleServiceTokens(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -100,4 +100,3 @@ func (s *Server) handleServiceTokenItem(w http.ResponseWriter, r *http.Request) 
 	})
 	jsonOK(w)
 }
-

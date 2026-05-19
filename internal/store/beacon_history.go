@@ -39,16 +39,18 @@ const BeaconHistoryRetentionDays = 30
 // (sub-axis explanation for the high day), not the last-score
 // write.
 type BeaconHistoryRow struct {
-	DayUTC      string  `json:"day_utc"`
-	MaxScore    int     `json:"max_score"`
-	MaxScoreAt  int64   `json:"max_score_at"`
-	LastScore   int     `json:"last_score"`
-	LastScoreAt int64   `json:"last_score_at"`
-	Severity    string  `json:"severity"`
-	TSScore     float64 `json:"ts_score"`
-	DSScore     float64 `json:"ds_score"`
-	HistScore   float64 `json:"hist_score"`
-	DurScore    float64 `json:"dur_score"`
+	DayUTC          string  `json:"day_utc"`
+	MaxScore        int     `json:"max_score"`
+	MaxScoreAt      int64   `json:"max_score_at"`
+	LastScore       int     `json:"last_score"`
+	LastScoreAt     int64   `json:"last_score_at"`
+	Severity        string  `json:"severity"`
+	TSScore         float64 `json:"ts_score"`
+	DSScore         float64 `json:"ds_score"`
+	HistScore       float64 `json:"hist_score"`
+	DurScore        float64 `json:"dur_score"`
+	SpectralRescued bool    `json:"spectral_rescued"`
+	SpectralPeriod  float64 `json:"spectral_period,omitempty"`
 }
 
 // saveBeaconHistory writes one beacon_history row per this-run
@@ -123,18 +125,21 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
             (fingerprint, day_utc, finding_type, src_ip, dst_ip, dst_port,
              host, uri,
              max_score, max_score_at, last_score, last_score_at,
-             severity, ts_score, ds_score, hist_score, dur_score, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             severity, ts_score, ds_score, hist_score, dur_score,
+             spectral_rescued, spectral_period, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(fingerprint, day_utc) DO UPDATE SET
-            last_score    = excluded.last_score,
-            last_score_at = excluded.last_score_at,
-            max_score     = CASE WHEN excluded.max_score > max_score THEN excluded.max_score    ELSE max_score    END,
-            max_score_at  = CASE WHEN excluded.max_score > max_score THEN excluded.max_score_at ELSE max_score_at END,
-            severity      = CASE WHEN ` + peakWin + ` THEN excluded.severity   ELSE severity   END,
-            ts_score      = CASE WHEN ` + peakWin + ` THEN excluded.ts_score   ELSE ts_score   END,
-            ds_score      = CASE WHEN ` + peakWin + ` THEN excluded.ds_score   ELSE ds_score   END,
-            hist_score    = CASE WHEN ` + peakWin + ` THEN excluded.hist_score ELSE hist_score END,
-            dur_score     = CASE WHEN ` + peakWin + ` THEN excluded.dur_score  ELSE dur_score  END
+            last_score       = excluded.last_score,
+            last_score_at    = excluded.last_score_at,
+            max_score        = CASE WHEN excluded.max_score > max_score THEN excluded.max_score    ELSE max_score    END,
+            max_score_at     = CASE WHEN excluded.max_score > max_score THEN excluded.max_score_at ELSE max_score_at END,
+            severity         = CASE WHEN ` + peakWin + ` THEN excluded.severity        ELSE severity        END,
+            ts_score         = CASE WHEN ` + peakWin + ` THEN excluded.ts_score        ELSE ts_score        END,
+            ds_score         = CASE WHEN ` + peakWin + ` THEN excluded.ds_score        ELSE ds_score        END,
+            hist_score       = CASE WHEN ` + peakWin + ` THEN excluded.hist_score      ELSE hist_score      END,
+            dur_score        = CASE WHEN ` + peakWin + ` THEN excluded.dur_score       ELSE dur_score       END,
+            spectral_rescued = CASE WHEN ` + peakWin + ` THEN excluded.spectral_rescued ELSE spectral_rescued END,
+            spectral_period  = CASE WHEN ` + peakWin + ` THEN excluded.spectral_period  ELSE spectral_period  END
     `)
 	if err != nil {
 		_ = tx.Rollback()
@@ -149,6 +154,10 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
 		}
 		if !newFPSet[f.Fingerprint()] {
 			continue
+		}
+		spectralRescued := 0
+		if f.SpectralRescued {
+			spectralRescued = 1
 		}
 		_, err := stmt.Exec(
 			f.BeaconHistoryKey(),
@@ -168,6 +177,8 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
 			f.DSScore,
 			f.HistScore,
 			f.DurScore,
+			spectralRescued,
+			f.SpectralPeriod,
 			now,
 		)
 		if err != nil {
@@ -200,7 +211,8 @@ func (s *Store) BeaconHistory(key string) []BeaconHistoryRow {
 	cutoff := time.Now().UTC().AddDate(0, 0, -BeaconHistoryRetentionDays).Format("2006-01-02")
 	rows, err := s.db.Query(`
         SELECT day_utc, max_score, max_score_at, last_score, last_score_at,
-               severity, ts_score, ds_score, hist_score, dur_score
+               severity, ts_score, ds_score, hist_score, dur_score,
+               spectral_rescued, spectral_period
         FROM beacon_history
         WHERE fingerprint = ?
           AND day_utc >= ?
@@ -214,16 +226,19 @@ func (s *Store) BeaconHistory(key string) []BeaconHistoryRow {
 	var out []BeaconHistoryRow
 	for rows.Next() {
 		var r BeaconHistoryRow
+		var spectralRescued int
 		if err := rows.Scan(
 			&r.DayUTC,
 			&r.MaxScore, &r.MaxScoreAt,
 			&r.LastScore, &r.LastScoreAt,
 			&r.Severity,
 			&r.TSScore, &r.DSScore, &r.HistScore, &r.DurScore,
+			&spectralRescued, &r.SpectralPeriod,
 		); err != nil {
 			log.Printf("store: beacon_history scan: %v", err)
 			continue
 		}
+		r.SpectralRescued = spectralRescued != 0
 		out = append(out, r)
 	}
 	return out

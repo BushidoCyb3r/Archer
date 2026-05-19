@@ -17,11 +17,12 @@
 
 const BeaconEvolution = (() => {
   const COLORS = {
-    score: 'var(--sev-high)',
-    ts:    'var(--accent)',
-    ds:    'var(--accent-alt, #6bb6ff)',
-    hist:  '#f0a040',
-    dur:   '#8ec07c',
+    score:    'var(--sev-high)',
+    ts:       'var(--accent)',
+    ds:       'var(--accent-alt, #6bb6ff)',
+    hist:     '#f0a040',
+    dur:      '#8ec07c',
+    spectral: 'var(--sev-critical, #e06c75)',
   };
 
   let _lastRows = null;
@@ -47,7 +48,7 @@ const BeaconEvolution = (() => {
   // given finding. type is gating: Beaconing / HTTP Beaconing show
   // the chart, anything else hides the container entirely.
   function load(findingID, type) {
-    if (type !== 'Beaconing' && type !== 'HTTP Beaconing') {
+    if (type !== 'Beaconing' && type !== 'HTTP Beaconing' && type !== 'DNS Beaconing') {
       _lastRows = null;
       _currentFindingID = null;
       _hide();
@@ -126,10 +127,17 @@ const BeaconEvolution = (() => {
         titleLines.push(`Last: ${r.last_score} (most recent ${_fmtTime(r.last_score_at)})`);
       }
       titleLines.push(`ts=${(r.ts_score||0).toFixed(2)}  ds=${(r.ds_score||0).toFixed(2)}  hist=${(r.hist_score||0).toFixed(2)}  dur=${(r.dur_score||0).toFixed(2)}`);
-      return `
-        <circle class="data-point" cx="${cx}" cy="${cy}" r="3.5" fill="${COLORS.score}" stroke="none">
-          <title>${_esc(titleLines.join('\n'))}</title>
-        </circle>`;
+      if (r.spectral_rescued) {
+        const period = r.spectral_period > 0 ? ` period≈${r.spectral_period.toFixed(1)}s` : '';
+        titleLines.push(`Spectral rescue${period}`);
+      }
+      const title = `<title>${_esc(titleLines.join('\n'))}</title>`;
+      if (r.spectral_rescued) {
+        // Diamond marker (square rotated 45°) to distinguish spectral-rescue days.
+        const s = 4.5;
+        return `<polygon class="data-point" points="${cx},${(parseFloat(cy)-s).toFixed(1)} ${(parseFloat(cx)+s).toFixed(1)},${cy} ${cx},${(parseFloat(cy)+s).toFixed(1)} ${(parseFloat(cx)-s).toFixed(1)},${cy}" fill="${COLORS.spectral}" stroke="none">${title}</polygon>`;
+      }
+      return `<circle class="data-point" cx="${cx}" cy="${cy}" r="3.5" fill="${COLORS.score}" stroke="none">${title}</circle>`;
     }).join('');
 
     svgEl.innerHTML = `
@@ -152,11 +160,12 @@ const BeaconEvolution = (() => {
 
     if (legendEl) {
       legendEl.innerHTML = [
-        ['Score (0-100)', COLORS.score],
-        ['ts',            COLORS.ts],
-        ['ds',            COLORS.ds],
-        ['hist',          COLORS.hist],
-        ['dur',           COLORS.dur],
+        ['Score (0-100)',   COLORS.score],
+        ['ts',             COLORS.ts],
+        ['ds',             COLORS.ds],
+        ['hist',           COLORS.hist],
+        ['dur',            COLORS.dur],
+        ['Spectral rescue',COLORS.spectral],
       ].map(([label, color]) =>
         `<span class="leg-item"><span class="leg-swatch" style="background:${color}"></span>${_esc(label)}</span>`
       ).join('');

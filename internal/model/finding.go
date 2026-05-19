@@ -144,6 +144,14 @@ type Finding struct {
 	// (migration 0020) for the same restart / carry-forward survival
 	// reason as the JA3 fields. Empty for every non-HTTP-Beaconing type.
 	TopURIs []URIStat `json:"top_uris,omitempty"`
+	// SpectralRescued / SpectralPeriod are set at emit time when the
+	// Lomb-Scargle periodogram rescued a beacon whose ts score fell below
+	// SpectralRescueThreshold. Not persisted on the findings table — only
+	// written to beacon_history (migration 0023) so the evolution chart
+	// can mark spectral-rescued days. json:"-" keeps them out of the
+	// /api/findings response; the history endpoint surfaces them instead.
+	SpectralRescued bool    `json:"-"`
+	SpectralPeriod  float64 `json:"-"`
 }
 
 // URIStat is one request path and the number of requests an HTTP
