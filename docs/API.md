@@ -47,6 +47,15 @@ persisted in `/data/users.db`'s `sessions` table.
 - `POST /api/quiver/enroll`, `POST /api/quiver/checkin`
 - `GET /static/*`
 
+**Machine-to-machine (`X-Archer-Token`)**:
+`GET /api/sensors/health` additionally accepts a service-account token
+via an `X-Archer-Token: archer_<value>` request header. If the header
+is present and the token is invalid, the request is rejected with `401`
+immediately (the session path is not attempted). Tokens are
+admin-generated on `/api/service-tokens` and stored only as their
+SHA-256 hash. This is the intended path for Prometheus textfile
+collector, Nagios checks, and similar scrape tooling.
+
 All other routes return `401 Unauthorized` for unauthenticated
 requests.
 
@@ -414,28 +423,32 @@ configured API keys (see `/api/ti/services`).
 ```json
 [
   {
-    "day_utc":       "2026-04-12",
-    "max_score":     88,
-    "max_score_at":  1712923200,
-    "last_score":    62,
-    "last_score_at": 1712944800,
-    "severity":      "CRITICAL",
-    "ts_score":      0.93,
-    "ds_score":      0.92,
-    "hist_score":    0.30,
-    "dur_score":     0.78
+    "day_utc":           "2026-04-12",
+    "max_score":         88,
+    "max_score_at":      1712923200,
+    "last_score":        62,
+    "last_score_at":     1712944800,
+    "severity":          "CRITICAL",
+    "ts_score":          0.93,
+    "ds_score":          0.92,
+    "hist_score":        0.30,
+    "dur_score":         0.78,
+    "spectral_rescued":  1,
+    "spectral_period":   3600.0
   },
   {
-    "day_utc":       "2026-04-13",
-    "max_score":     78,
-    "max_score_at":  1713009600,
-    "last_score":    78,
-    "last_score_at": 1713009600,
-    "severity":      "HIGH",
-    "ts_score":      0.94,
-    "ds_score":      0.92,
-    "hist_score":    0.20,
-    "dur_score":     0.78
+    "day_utc":           "2026-04-13",
+    "max_score":         78,
+    "max_score_at":      1713009600,
+    "last_score":        78,
+    "last_score_at":     1713009600,
+    "severity":          "HIGH",
+    "ts_score":          0.94,
+    "ds_score":          0.92,
+    "hist_score":        0.20,
+    "dur_score":         0.78,
+    "spectral_rescued":  0,
+    "spectral_period":   0
   }
 ]
 ```
@@ -457,6 +470,16 @@ window).
   *max-score* write — so an analyst inspecting a high-score day
   sees the sub-axis breakdown that drove the high.
 - `severity` matches the max-score write.
+- `spectral_rescued` is `1` when the Lomb-Scargle periodogram rescued
+  this beacon on this day (i.e., the `ts_score` was below the spectral
+  rescue threshold on the raw Bowley/MAD path but the periodogram found
+  a strong peak). `0` otherwise. Pre-migration-0023 rows and
+  non-spectral beacons read back as `0`. The evolution chart marks
+  rescued days so analysts can see which days relied on spectral
+  detection. Migration 0023.
+- `spectral_period` is the dominant period (seconds) the periodogram
+  identified on a rescued day. `0` when the period wasn't resolved or
+  the day wasn't spectral-rescued. Migration 0023.
 
 Rows are written by `Store.SetFindings` via
 `INSERT … ON CONFLICT DO UPDATE`: max_* updates conditionally when
@@ -482,6 +505,9 @@ struct tags. The four most operator-touched fields:
 | `off_hours_start` / `off_hours_end` | Hour-of-day bounds for off-hours detection, interpreted in `timezone`. |
 | `watch_enabled`, `watch_time`, `watch_interval_hours` | See `/api/watch` for the dedicated endpoint that wraps these. |
 | `archive_enabled`, `archive_after_days` | Log archive policy. |
+| `sensor_stale_threshold_hours` | How long a sensor must be silent (no HMAC checkin) before the heartbeat alarm fires. Default `2`. |
+| `feed_stale_threshold_hours` | How long since a feed's last successful fetch before the feed-health alarm fires. Default `24`. |
+| `rsync_stale_threshold_hours` | How long the gap between `last_seen_at` and `last_log_mtime` must be before the rsync-dead alarm fires. Default `4`. |
 
 ### Lists
 
@@ -628,7 +654,7 @@ mutations) is admin-only (enforced inside each handler).
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
 | `GET` | `/api/sensors` | any | List sensor rows (any status), most recent enrollment first. |
-| `GET` | `/api/sensors/health` | any | Per-sensor staleness state: `{sensors:[{name, last_seen_at, stale, stale_for_seconds, stale_threshold_sec}]}`. `stale=true` when `last_seen_at` is older than the 2h threshold; `stale_for_seconds` is how far past. Same threshold the bell heartbeat alarm uses. Session-cookie auth, so not a Prometheus/Nagios scrape target today. |
+| `GET` | `/api/sensors/health` | any / `X-Archer-Token` | Per-sensor staleness state: `{sensors:[{name, status, last_seen_at, stale, stale_for_seconds, stale_threshold_sec}]}`. `stale=true` when `last_seen_at` is older than `sensor_stale_threshold_hours` (default 2 h, configurable); `stale_for_seconds` is how far past the threshold. Only enrolled sensors are included. Accepts a session cookie **or** an `X-Archer-Token` header (see *Machine-to-machine* under **Authentication**). |
 | `GET` | `/api/sensors/info` | admin | Server identity for the install one-liner — `{tls_fingerprint, sensor_facing_host, effective_host}`. |
 | `PUT` | `/api/sensors/host` | admin | Set the sensor-facing host override. Body: `{"host":"<host>"}` (with optional `:port`). |
 | `GET` | `/api/sensors/tokens` | admin | List outstanding enrollment tokens. |
@@ -674,6 +700,37 @@ The structured error lets the sensor self-diagnose. Bumping
 `QuiverProtocolVersion` is a breaking change requiring all sensors to
 upgrade — flag in CHANGELOG under `### Breaking` and warn operators
 to update sensors before the server.
+
+### Service-account tokens
+
+Admin-only CRUD for machine-to-machine tokens that let external
+monitoring tools (Prometheus textfile collector, Nagios, scripts)
+authenticate to `GET /api/sensors/health` without a browser session.
+
+| Method | Path | Role | Notes |
+|--------|------|------|-------|
+| `GET` | `/api/service-tokens` | admin | List tokens (id, label, created_at, created_by). Raw values are never stored or returned after creation. |
+| `POST` | `/api/service-tokens` | admin | Create a token. Body: `{"label":"<name>"}`. Returns `{"id":N, "label":"…", "token":"archer_<base64url>"}` with HTTP 201. The raw token is shown **exactly once** — copy it immediately. |
+| `DELETE` | `/api/service-tokens/{id}` | admin | Revoke a token by numeric id. Returns `{"ok":true}` or 404 if not found. |
+
+**`GET /api/service-tokens` response shape** (array):
+
+```json
+[
+  {
+    "id":         1,
+    "label":      "nagios-prod",
+    "created_at": 1716163200,
+    "created_by": "admin@example.com"
+  }
+]
+```
+
+Tokens are 32-byte random values Base64URL-encoded with an `archer_`
+prefix, stored only as their SHA-256 hash. Revoking a token takes
+effect immediately — the next `GET /api/sensors/health` call using it
+returns `401`. Audit-logged as `service_token_create` /
+`service_token_revoke`.
 
 ### Export / Import
 

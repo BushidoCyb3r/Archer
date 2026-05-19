@@ -1936,3 +1936,14 @@ func activeFindingNotifs(s *Store) []model.Notification {
 	}
 	return out
 }
+
+// TestCheckIntegrity_FreshDB asserts the invariant: a freshly migrated
+// database passes CheckIntegrity without error. Catches regressions
+// where a migration introduces invalid state (e.g. a CHECK constraint
+// violation baked into initial rows or a malformed trigger).
+func TestCheckIntegrity_FreshDB(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.CheckIntegrity(); err != nil {
+		t.Fatalf("CheckIntegrity on fresh DB: %v", err)
+	}
+}

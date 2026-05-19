@@ -86,7 +86,10 @@ else is goroutines.
 
 `tini` (PID 1) reaps zombies and forwards signals so sshd dies cleanly
 when archer exits. `entrypoint.sh` is the supervised process: it starts
-sshd, then archer.
+sshd, performs a one-time `chown -R archer:archer /data /logs` (idempotent
+volume-ownership migration introduced in v0.30.0), then drops to uid 1001
+via `su-exec archer` to start the archer binary. sshd continues running as
+root to handle Quiver rsync-over-SSH on port 2222.
 
 ---
 
@@ -327,6 +330,31 @@ CREATE TABLE pair_allowlist (
 -- Same restart/carry-forward durability reason as 0018. Additive,
 -- DEFAULT '' — not a detection-semantics change (no score, threshold,
 -- finding type, or Fingerprint() touched; golden corpus unchanged).
+
+-- v0.28.0 / migration 0021. query_filter_json on feeds. TEXT NOT NULL
+-- DEFAULT '' — stores a feed-specific indicator-filter expression so
+-- different MISP/OpenCTI feeds can scope their indicator pull independently.
+
+-- v0.30.0 / migration 0022. service_tokens table — machine-to-machine
+-- tokens for endpoints that cannot use a browser session (Prometheus,
+-- Nagios, shell scripts). Raw token never stored; SHA-256 hash only.
+CREATE TABLE service_tokens (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    label       TEXT    NOT NULL,
+    token_hash  TEXT    NOT NULL UNIQUE,
+    created_at  INTEGER NOT NULL,
+    created_by  TEXT    NOT NULL DEFAULT ''
+);
+
+-- v0.30.0 / migration 0023. spectral_rescued and spectral_period on
+-- beacon_history. spectral_rescued=1 when Lomb-Scargle rescued the
+-- beacon that day; spectral_period is the dominant period in seconds.
+-- Both update alongside peak-characterisation columns (severity, sub-axis
+-- scores). DEFAULT 0 — pre-0023 rows and non-spectral beacons read as
+-- "not rescued." The evolution chart marks rescued days with a distinct
+-- indicator.
+ALTER TABLE beacon_history ADD COLUMN spectral_rescued INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE beacon_history ADD COLUMN spectral_period  REAL    NOT NULL DEFAULT 0;
 
 -- Users live in a separate file (/data/users.db, sometimes co-located):
 CREATE TABLE users (...);

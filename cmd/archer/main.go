@@ -73,6 +73,9 @@ func main() {
 	// migration + connection-cap setup or schema-mismatch / WAL
 	// double-writer bugs become possible.
 	st.InitDB(us.DB())
+	if err := st.CheckIntegrity(); err != nil {
+		log.Fatalf("database integrity check failed — restore from backup: %v", err)
+	}
 	broker := server.NewBroker()
 	srv := server.New(st, us, broker, *webDir, *logsDir, *authKeys)
 

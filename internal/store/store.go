@@ -240,6 +240,32 @@ func (s *Store) InitDB(db *sql.DB) {
 	s.loadNotifications()
 }
 
+// CheckIntegrity runs PRAGMA integrity_check and returns an error if
+// SQLite reports any corruption. Called at startup so a corrupted
+// volume (host crash, disk full during write) surfaces immediately
+// rather than producing confusing runtime behavior.
+func (s *Store) CheckIntegrity() error {
+	rows, err := s.db.Query(`PRAGMA integrity_check`)
+	if err != nil {
+		return fmt.Errorf("integrity_check: %w", err)
+	}
+	defer rows.Close()
+	var problems []string
+	for rows.Next() {
+		var msg string
+		if err := rows.Scan(&msg); err != nil {
+			return fmt.Errorf("integrity_check scan: %w", err)
+		}
+		if msg != "ok" {
+			problems = append(problems, msg)
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("database corruption detected:\n%s", strings.Join(problems, "\n"))
+	}
+	return nil
+}
+
 // loadNotifications rehydrates the in-memory notification queue from
 // the persistent table. notifCounter is seeded from MAX(id) so the
 // next AddAlarm or SetFindings bell emission assigns an ID strictly

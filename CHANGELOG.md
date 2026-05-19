@@ -30,6 +30,74 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Added
+
+- **Service-account tokens for `/api/sensors/health`.** Admin-generated
+  `X-Archer-Token` tokens (32-byte random, `archer_` prefix, stored only
+  as their SHA-256 hash — raw credential shown once on creation) allow
+  external monitoring tools (Prometheus, Nagios) to scrape
+  `/api/sensors/health` without a browser session. Tokens are managed in
+  a new Settings tile: list, generate (with label), revoke. Migration 0022
+  adds the `service_tokens` table. Closes NEW-100 carry-forward.
+- **Rsync-dead alarm.** A dedicated alarm fires when a sensor's HMAC
+  checkin is alive but rsync has stopped landing log files — the inverse
+  of the pre-existing sensor-staleness alarm. Fires when
+  `LastSeenAt − lastLogMTime` exceeds `rsync_stale_threshold_hours`
+  (default 4 h, configurable). Closes NEW-102 carry-forward.
+- **Alerting thresholds operator-tunable.** `sensor_stale_threshold_hours`
+  (was hardcoded 2 h), `feed_stale_threshold_hours` (was 24 h), and the
+  new `rsync_stale_threshold_hours` (default 4 h) are now Settings knobs
+  surfaced in the UI. Closes the heartbeat-threshold-tunability loose end.
+- **Privilege separation: archer process drops to uid 1001.** `entrypoint.sh`
+  now starts sshd as root (Quiver's `authorized_keys` / rrsync sandbox
+  requires it), then drops to uid 1001 (`archer` user) before execing the
+  archer binary. Dockerfile adds the `archer` user at uid 1001 with correct
+  ownership on `/data`, `/logs`, and `/data/tls`. Closes the container
+  privilege-separation design task (semgrep `missing-user` ×2 from v0.25.1).
+- **Spectral-rescue days on 30-day beacon evolution chart.** Migration 0023
+  adds `spectral_rescued` (0/1) and `spectral_period` (seconds, 0 = period
+  not resolved) columns to `beacon_history`. The analyzer stamps these on
+  each peak when the Lomb-Scargle path fires; the evolution chart marks
+  rescued days so analysts can see which days relied on spectral detection.
+  Closes NEW-90 (the deliberately deferred half of the v0.25.0 scope call).
+- **Sectioned key/value detail pane.** The finding detail pane now renders
+  as a structured, sectioned key/value layout instead of a flat text block,
+  improving readability for complex findings with many fields.
+
+### Fixed
+
+- **NEW-91 case B2.** A fresh per-run correlation contributor ID
+  numerically equal to a historical persisted ID would mis-translate,
+  causing the corr chip to show a wrong sibling count or point to the
+  wrong finding. Fixed with a separate-slice approach: historical
+  contributor IDs are tracked independently of the fresh ID space so
+  no numeric collision is possible. Closes NEW-91 fully.
+- **Orphaned Host Risk Score rows deleted on sensor purge.** When a sensor
+  was purged, HRS rows whose contributions came entirely from that sensor
+  were left orphaned (cosmetic stale risk score for the host). Those rows
+  are now deleted as part of the purge path.
+- **Smart-quote substitution corrupting HTML attributes.** macOS/browser
+  smart-quote substitution in certain text inputs was corrupting `data-`
+  attribute values generated from user input (e.g. the allowlist dialog).
+  A normalization pass now strips curly quotes before injecting values
+  into HTML attributes; the allowlist dialog broken by the original
+  substitution is also repaired.
+
+### Added (operational hardening)
+
+- **DB integrity check on startup.** `Store.CheckIntegrity` runs
+  `PRAGMA integrity_check` immediately after migrations and before
+  accepting any traffic. A corrupt result (host crash, disk-full
+  mid-write) logs the SQLite error and aborts startup with a clear
+  "restore from backup" message rather than letting the server limp
+  along on corrupt state. `TestCheckIntegrity_FreshDB` asserts the
+  invariant that a fresh migrated DB is clean.
+
+### Schema
+
+- Migration 0022: `CREATE TABLE service_tokens (id, label, token_hash UNIQUE, created_at, created_by)`
+- Migration 0023: `ALTER TABLE beacon_history ADD COLUMN spectral_rescued INTEGER NOT NULL DEFAULT 0` + `ADD COLUMN spectral_period REAL NOT NULL DEFAULT 0`
+
 ## [v0.29.0] — 2026-05-19
 
 ### Added

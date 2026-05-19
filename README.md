@@ -224,7 +224,7 @@ archer/
 │   │   ├── disk_usage.go       # /api/disk-usage with 5-minute server-side cache
 │   │   ├── watch.go            # Watch scheduler — two-tier cadence, dataset fingerprint skip
 │   │   ├── watch_heartbeat.go  # watch.heartbeat SSE tick (60s) for the top-bar dot
-│   │   ├── sensor_heartbeat.go # Sensor staleness scan, /api/sensors/health, 2h alarm
+│   │   ├── sensor_heartbeat.go # Sensor staleness scan, /api/sensors/health, stale + rsync-dead alarms
 │   │   ├── feed_health.go      # Feed reliability alarm — ≥3 consecutive failures or 24h staleness
 │   │   ├── ti_crossnote.go     # TI cross-annotation — pointer-notes onto sibling findings
 │   │   ├── audit.go            # Audit emission helpers; audit_log writes
@@ -245,7 +245,7 @@ archer/
 │       ├── beacon_history.go   # beacon_history table (UPSERT) for the 30-day evolution chart
 │       ├── userstore.go        # User accounts, sessions
 │       ├── migrate.go          # Forward-only migration runner; tracks schema_migrations
-│       └── migrations/         # NNNN_*.sql migrations (0001 → 0016)
+│       └── migrations/         # NNNN_*.sql migrations (0001 → 0023)
 └── web/
     ├── templates/
     │   ├── index.html          # Single-page application shell
@@ -1140,10 +1140,11 @@ is unchanged — still `/api/pair-allowlist`.
 
 The bell fires for new findings with **`score >= 95`** — the top-tier confidence bucket the scoring formulas were calibrated to reach. The initial v0.17.0 cut at `>= 99` over-corrected (excluded most CRITICAL TI hits); v0.17.1 lowered the floor to 95 after operator feedback. Previous behaviour (CRITICAL severity or any TI type, regardless of score) fired often enough that operators learned to ignore the bell. `Host Risk Score` is still excluded — it's a per-host roll-up, not a discrete event, and the underlying network detections have already generated their own notifications. The bell also gates on the active allowlist + suppressions (v0.18.1 NEW-111): findings whose src or dst is hidden from the table at emit time skip the bell entirely, and adding an IP to the allowlist / suppression dismisses any active notification whose row would now be invisible.
 
-Beyond detection findings, the bell also surfaces two operational alarms (each `Notification` carries a `kind` field — `finding`, `sensor`, or `feed`; empty reads as `finding` for backward compat):
+Beyond detection findings, the bell also surfaces three operational alarms (each `Notification` carries a `kind` field — `finding`, `sensor`, or `feed`; empty reads as `finding` for backward compat):
 
-- **`kind=sensor`** — sensor heartbeat alarm. Emitted when an enrolled sensor's `last_seen_at` (or rsync log mtime, whichever is later) is more than 2h old. Transition-edge dedup: one alarm per staleness episode, cleared when the sensor checks in again. The **Jump** button opens the Sensors modal. External monitoring can read the same staleness state from [`GET /api/sensors/health`](#sensors).
-- **`kind=feed`** — feed reliability alarm. Emitted when an enabled feed has either `consecutive_failures >= 3` or has gone 24h without a successful refresh. Same transition-edge dedup. The **Jump** button opens the Feeds modal.
+- **`kind=sensor` / type `Sensor stale`** — heartbeat alarm. Emitted when an enrolled sensor's `last_seen_at` is older than the configurable `sensor_stale_threshold_hours` (default 2h). Transition-edge dedup: one alarm per staleness episode, cleared when the sensor checks in again. The **Jump** button opens the Sensors modal. External monitoring can read the same staleness state from [`GET /api/sensors/health`](#sensors).
+- **`kind=sensor` / type `Sensor rsync stopped`** — rsync-dead alarm. Emitted when a sensor is actively checking in (fresh `last_seen_at`) but the sensor's log directory mtime has not advanced in more than `rsync_stale_threshold_hours` (default 4h). Indicates a live sensor that has stopped pushing logs — rsync configuration or connectivity issue on the sensor side. Same transition-edge dedup and **Jump** → Sensors modal.
+- **`kind=feed`** — feed reliability alarm. Emitted when an enabled feed has either `consecutive_failures >= 3` or has gone `feed_stale_threshold_hours` (default 24h) without a successful refresh. Same transition-edge dedup. The **Jump** button opens the Feeds modal.
 
 Each notification has a **Jump** button. For `kind=finding` it lands the analyst on the page containing that finding, regardless of the active tab's filter, sort, pagination, or delta-mode state — clears every filter input (search, src/dst/port, severity, type, sensor, score floor, spectral-only, time range → All time, delta off), switches to the tab matching the finding's status, queries `/api/findings/{id}/position` to find the absolute offset under the cleared filter, fetches the page that contains it, and scrolls the row into view. Filters that the analyst had set are intentionally lost — the Jump is a "show me this finding now" action; rebuilding the filter is the cost of guaranteed visibility. For `kind=sensor` / `kind=feed` the Jump opens the corresponding modal so the operator can investigate the offending sensor or feed.
 
@@ -1195,7 +1196,7 @@ Endpoints powering the Sensors modal. Read endpoints are open to admin + analyst
 | Method | Path | Role | Description |
 |---|---|---|---|
 | `GET` | `/api/sensors` | Analyst+ | List every sensor row (any status), most recent enrollment first |
-| `GET` | `/api/sensors/health` | Any | Per-sensor staleness state for analyst-facing scripts inside the auth boundary: `{"sensors":[{"name":"...","last_seen_at":N,"stale":bool,"stale_for_seconds":N,"stale_threshold_sec":7200}]}`. Same 2h threshold the bell heartbeat alarm uses. Skips disenrolled sensors; never-reported sensors render with `stale=false` (the clock hasn't started). Requires a session cookie — not directly consumable by Prometheus/Nagios-style scrape tooling; that use case is on the roadmap once a service-account token surface lands. |
+| `GET` | `/api/sensors/health` | Any / `X-Archer-Token` | Per-sensor staleness state for scrape tooling and analyst-facing scripts: `{"sensors":[{"name":"...","last_seen_at":N,"stale":bool,"stale_for_seconds":N,"stale_threshold_sec":N}]}`. `stale_threshold_sec` reflects the configurable `sensor_stale_threshold_hours` (default 2h). Skips disenrolled sensors; never-reported sensors render with `stale=false` (the clock hasn't started). Accepts a session cookie or an `X-Archer-Token` service-account token — suitable for Prometheus/Nagios scraping. |
 | `GET` | `/api/sensors/info` | Admin | `{"tls_fingerprint":"...","sensor_facing_host":"...","effective_host":"..."}` for rendering install one-liners |
 | `PUT` | `/api/sensors/host` | Admin | `{"host":"192.0.2.10"}` (or `"host:port"`); set the sensor-facing override that install one-liners target |
 | `GET` | `/api/sensors/tokens` | Admin | List enrollment tokens (used + unused) |
@@ -1206,6 +1207,18 @@ Endpoints powering the Sensors modal. Read endpoints are open to admin + analyst
 | `POST` | `/api/sensors/schedule` | Admin | `{"id":N,"hour":0,"minute":N}` reassigns the push minute (hour is unused under hourly mode but accepted for backward compat) |
 | `GET` | `/api/sensors/unauthorized` | Analyst+ | List recent unrecognized checkin attempts |
 | `POST` | `/api/sensors/unauthorized/dismiss` | Admin | `{"id":N}` removes an unauthorized-attempt row |
+
+### Service-Account Tokens
+
+Machine-to-machine tokens for endpoints that must be reachable by scrape tooling (Prometheus, Nagios, shell scripts) that cannot hold a browser session. Currently accepted by `GET /api/sensors/health` via the `X-Archer-Token` request header.
+
+Tokens are generated as `archer_<40-hex-chars>`. The raw value is returned once at creation and never stored — the database holds only the SHA-256 hash. Each token has a label and is tied to the admin who created it.
+
+| Method | Path | Role | Description |
+|---|---|---|---|
+| `GET` | `/api/service-tokens` | Admin | `[{"id":N,"label":"...","created_at":N,"created_by":"..."},...]` — raw token never included. |
+| `POST` | `/api/service-tokens` | Admin | `{"label":"..."}` — creates a token; returns `{"id":N,"label":"...","token":"archer_...","created_at":N,"created_by":"..."}`. Raw token returned once only. Audit-logged. |
+| `DELETE` | `/api/service-tokens/{id}` | Admin | Revokes and removes the token. Audit-logged. |
 
 ### Quiver (sensor-facing, no session auth)
 

@@ -496,10 +496,17 @@ once per day regardless of how many incremental ticks happen.
 
 **The API.** `GET /api/findings/{id}/history` returns
 `[{day_utc, max_score, max_score_at, last_score, last_score_at,
-severity, ts_score, ds_score, hist_score, dur_score}, ...]`
-sorted ascending. Returns `[]` (not 404) for non-Beaconing types
-so the SPA can call unconditionally on any finding-detail open.
-See `docs/API.md` for the full shape.
+severity, ts_score, ds_score, hist_score, dur_score,
+spectral_rescued, spectral_period}, ...]`
+sorted ascending. `spectral_rescued` is `1` when the Lomb-Scargle
+periodogram rescued the beacon that day (ts sub-axis fell below
+`SpectralRescueThreshold` but the periodogram found a significant
+dominant period); `spectral_period` is the dominant period in seconds
+(`0` means not rescued or period was not resolved). The evolution chart
+marks rescued days with a distinct indicator so the analyst can
+distinguish spectral-only days from full-score days. Returns `[]` (not
+404) for non-Beaconing types so the SPA can call unconditionally on any
+finding-detail open. See `docs/API.md` for the full shape.
 
 **The chart.** SVG-rendered in the detail pane immediately below
 the action buttons. Five lines:
