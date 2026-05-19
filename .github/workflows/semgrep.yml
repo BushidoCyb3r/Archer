@@ -48,6 +48,8 @@ jobs:
           semgrep \
             --config p/golang \
             --config p/secrets \
+            --config p/bash \
+            --config p/docker \
             --sarif \
             --output semgrep.sarif \
             --error \
