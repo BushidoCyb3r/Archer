@@ -78,6 +78,12 @@ const (
 	// finding, note, audit row, sensor secret, and user credential
 	// hash — an exfil-via-backup attempt has to leave a row here.
 	ActionDBBackup = "db_backup"
+
+	// Service-account tokens — machine-to-machine credentials for
+	// /api/sensors/health (Prometheus, Nagios). Stored as SHA-256
+	// hashes; the raw credential is shown once on creation.
+	ActionServiceTokenCreate = "service_token_create"
+	ActionServiceTokenRevoke = "service_token_revoke"
 )
 
 // knownAuditActions is the authoritative set of action names the
@@ -126,4 +132,6 @@ var knownAuditActions = map[string]struct{}{
 	ActionAnalyzeResume:             {},
 	ActionAnalyzeReset:              {},
 	ActionDBBackup:                  {},
+	ActionServiceTokenCreate:        {},
+	ActionServiceTokenRevoke:        {},
 }

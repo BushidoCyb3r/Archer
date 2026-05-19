@@ -1248,6 +1248,22 @@
         <div id="disk-usage-content" style="font-family:ui-monospace,monospace;font-size:11px;line-height:1.65;color:var(--fg-dim)">Loading…</div>
       </div>
     </div>
+    <div class="settings-group" id="service-tokens-section" style="display:none">
+      <div class="settings-group-title">Service Tokens</div>
+      <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
+        Bearer tokens for <code>/api/sensors/health</code> — pass as <code>X-Archer-Token: &lt;token&gt;</code>. Intended for Prometheus, Nagios, or any scraper that can't use a browser session. Tokens are shown once on creation and are not recoverable.
+      </div>
+      <div id="service-token-list" style="margin-bottom:8px"></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="dlg-input" id="service-token-label" type="text" placeholder="Token label (e.g. prometheus-scraper)" style="flex:1">
+        <button class="dlg-btn secondary" id="service-token-create-btn" type="button">Generate</button>
+      </div>
+      <div id="service-token-new" style="display:none;margin-top:10px;padding:10px;background:var(--bg-alt,#1a1a2e);border:1px solid var(--accent);border-radius:4px;font-size:0.9em">
+        <div style="color:var(--fg-dim);margin-bottom:6px">Copy this token now — it will not be shown again.</div>
+        <code id="service-token-value" style="word-break:break-all;font-size:0.95em"></code>
+      </div>
+      <span id="service-token-status" style="margin-top:6px;display:block;font-size:0.85em;color:var(--fg-dim)"></span>
+    </div>
     <div class="settings-group">
       <div class="settings-group-title">Backup</div>
       <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">

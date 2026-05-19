@@ -2849,6 +2849,11 @@
       _populateSettings(cfg);
       _populateArchive(archive);
       _refreshDiskUsage(); // populates the Disk Usage row and the warning banner
+      if (_currentUser && _currentUser.role === 'admin') {
+        const sec = document.getElementById('service-tokens-section');
+        if (sec) sec.style.display = '';
+        _loadServiceTokens();
+      }
       dlg.showModal();
     });
     document.getElementById('settings-cancel').addEventListener('click', () => dlg.close());
@@ -3070,6 +3075,68 @@
       });
     }
   }
+
+  // ── Service tokens ──────────────────────────────────────────────────────────
+
+  async function _loadServiceTokens() {
+    const list   = document.getElementById('service-token-list');
+    const status = document.getElementById('service-token-status');
+    if (!list) return;
+    try {
+      const tokens = await api('/api/service-tokens');
+      if (!tokens.length) {
+        list.innerHTML = '<div style="color:var(--fg-dim);font-size:0.9em">No tokens yet.</div>';
+        return;
+      }
+      list.innerHTML = tokens.map(t => {
+        const d = new Date(t.created_at * 1000).toLocaleDateString();
+        return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:0.9em">
+          <span style="flex:1;font-family:monospace">${_esc(t.label)}</span>
+          <span style="color:var(--fg-dim)">${_esc(t.created_by)} · ${d}</span>
+          <button class="dlg-btn secondary" data-revoke-id="${t.id}" type="button" style="padding:2px 8px">Revoke</button>
+        </div>`;
+      }).join('');
+      list.querySelectorAll('[data-revoke-id]').forEach(btn => {
+        btn.addEventListener('click', () => _revokeServiceToken(parseInt(btn.dataset.revokeId, 10)));
+      });
+    } catch (e) {
+      if (status) status.textContent = 'Failed to load tokens.';
+    }
+  }
+
+  async function _revokeServiceToken(id) {
+    const status = document.getElementById('service-token-status');
+    try {
+      await api(`/api/service-tokens/${id}`, { method: 'DELETE' });
+      if (status) { status.textContent = 'Token revoked.'; setTimeout(() => { status.textContent = ''; }, 3000); }
+      _loadServiceTokens();
+    } catch (e) {
+      if (status) status.textContent = 'Revoke failed: ' + e;
+    }
+  }
+
+  (function _initServiceTokenCreate() {
+    const btn = document.getElementById('service-token-create-btn');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      const labelEl = document.getElementById('service-token-label');
+      const newBox  = document.getElementById('service-token-new');
+      const valEl   = document.getElementById('service-token-value');
+      const status  = document.getElementById('service-token-status');
+      const label   = labelEl ? labelEl.value.trim() : '';
+      if (!label) { if (status) status.textContent = 'Enter a label first.'; return; }
+      try {
+        const res = await api('/api/service-tokens', { method: 'POST', body: JSON.stringify({ label }) });
+        if (labelEl) labelEl.value = '';
+        if (newBox)  newBox.style.display = '';
+        if (valEl)   valEl.textContent = res.token || '';
+        if (status)  { status.textContent = 'Token created.'; setTimeout(() => { status.textContent = ''; }, 5000); }
+        _loadServiceTokens();
+      } catch (e) {
+        if (status) status.textContent = 'Create failed: ' + e;
+      }
+    });
+  })();
 
   function _humanBytes(n) {
     if (!n) return '0 B';

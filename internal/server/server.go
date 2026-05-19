@@ -345,7 +345,7 @@ func (s *Server) routes() {
 	// Sensors modal — read=any authenticated; admin-only writes enforced
 	// inside each handler.
 	s.mux.Handle("/api/sensors", any(s.handleSensorsList))
-	s.mux.Handle("/api/sensors/health", any(s.handleSensorsHealth))
+	s.mux.Handle("/api/sensors/health", s.tokenOrSession(s.handleSensorsHealth))
 	s.mux.Handle("/api/sensors/info", any(s.handleSensorsInfo))
 	s.mux.Handle("/api/sensors/host", any(s.handleSensorsHost))
 	s.mux.Handle("/api/sensors/tokens", any(s.handleSensorsTokens))
@@ -355,6 +355,11 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/sensors/schedule", any(s.handleSensorSchedule))
 	s.mux.Handle("/api/sensors/unauthorized", any(s.handleUnauthorizedList))
 	s.mux.Handle("/api/sensors/unauthorized/dismiss", any(s.handleUnauthorizedDismiss))
+
+	// Service-account tokens — admin only; used by external monitoring
+	// tools (Prometheus, Nagios) to authenticate against /api/sensors/health.
+	s.mux.Handle("/api/service-tokens", admin(s.handleServiceTokens))
+	s.mux.Handle("/api/service-tokens/", admin(s.handleServiceTokenItem))
 
 	// Export / Import — analyst+
 	s.mux.Handle("/api/export/json", any(s.handleExportJSON))
