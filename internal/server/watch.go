@@ -374,6 +374,14 @@ func (s *Server) launchIncrementalAnalysis(files []string) {
 		// In a single-sensor deployment that left those TI Hits with
 		// Sensor="" in the Sensors column, which read as a bug even
 		// though the data was correct. defaultSensor closes the gap.
+		//
+		// When files is empty (rsync outage, crash-loop gap) sensorSet
+		// is also empty and the file-derived path can't set a default.
+		// AnalyzeTIOnly still emits TI Hits from DB-resident IPs, so
+		// fall back to the enrolled sensor list in that case — if
+		// exactly one sensor is enrolled the attribution is unambiguous.
+		// Without this fallback those findings land with Sensor="" and
+		// survive a future sensor purge.
 		if logsDir != "" {
 			sensorSet := make(map[string]struct{})
 			for _, fp := range files {
@@ -384,6 +392,16 @@ func (s *Server) launchIncrementalAnalysis(files []string) {
 			if len(sensorSet) == 1 {
 				for s := range sensorSet {
 					az.SetDefaultSensor(s)
+				}
+			} else if len(sensorSet) == 0 {
+				var enrolled []string
+				for _, sn := range s.store.GetSensors() {
+					if sn.Status == "enrolled" {
+						enrolled = append(enrolled, sn.Name)
+					}
+				}
+				if len(enrolled) == 1 {
+					az.SetDefaultSensor(enrolled[0])
 				}
 			}
 		}
@@ -665,6 +683,16 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) bool {
 			if len(sensorSet) == 1 {
 				for s := range sensorSet {
 					az.SetDefaultSensor(s)
+				}
+			} else if len(sensorSet) == 0 {
+				var enrolled []string
+				for _, sn := range s.store.GetSensors() {
+					if sn.Status == "enrolled" {
+						enrolled = append(enrolled, sn.Name)
+					}
+				}
+				if len(enrolled) == 1 {
+					az.SetDefaultSensor(enrolled[0])
 				}
 			}
 		}
