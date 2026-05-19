@@ -347,9 +347,11 @@ func TestCorrelate_ThisRunContributorRetainsCorrelationsWhenHistoricalTwinAlsoFi
 	if len(bcn.Correlations) == 0 {
 		t.Fatalf("invariant violated: this-run Beaconing has empty Correlations after correlateFindings — historical fingerprint-twin override silently cleared it")
 	}
+	// Historical-only DNS Tunneling (ID 92, no fresh twin) must appear as
+	// sentinel -92 in Correlations slices before SetFindings translation.
 	hasDNS, hasCorr := false, false
 	for _, id := range bcn.Correlations {
-		if id == 92 {
+		if id == -92 {
 			hasDNS = true
 		}
 		if id == corr.ID {
@@ -357,20 +359,21 @@ func TestCorrelate_ThisRunContributorRetainsCorrelationsWhenHistoricalTwinAlsoFi
 		}
 	}
 	if !hasDNS {
-		t.Errorf("Beaconing.Correlations = %v; missing historical DNS Tunneling ID (92)", bcn.Correlations)
+		t.Errorf("Beaconing.Correlations = %v; missing historical DNS Tunneling sentinel (-92)", bcn.Correlations)
 	}
 	if !hasCorr {
 		t.Errorf("Beaconing.Correlations = %v; missing the new Correlated Activity row ID (%d)", bcn.Correlations, corr.ID)
 	}
 
-	// The Correlated Activity row's Correlations list must include the
-	// THIS-RUN Beaconing's fresh ID (not the historical 47), because
-	// fingerprint dedup prefers first-seen and a.findings is iterated
-	// first. SetFindings's translation handles fresh→persisted later.
-	hasThisRun := false
+	// The Correlated Activity row must include the this-run Beaconing's
+	// fresh ID (not historical 47) and the historical DNS sentinel (-92).
+	hasThisRun, hasDNSSentinel := false, false
 	for _, id := range corr.Correlations {
 		if id == bcn.ID {
 			hasThisRun = true
+		}
+		if id == -92 {
+			hasDNSSentinel = true
 		}
 		if id == 47 {
 			t.Errorf("Correlated Activity.Correlations = %v; contains historical Beaconing ID 47 — fingerprint dedup should have collapsed it onto fresh ID %d", corr.Correlations, bcn.ID)
@@ -378,6 +381,9 @@ func TestCorrelate_ThisRunContributorRetainsCorrelationsWhenHistoricalTwinAlsoFi
 	}
 	if !hasThisRun {
 		t.Errorf("Correlated Activity.Correlations = %v; missing the this-run Beaconing ID (%d)", corr.Correlations, bcn.ID)
+	}
+	if !hasDNSSentinel {
+		t.Errorf("Correlated Activity.Correlations = %v; missing historical DNS Tunneling sentinel (-92)", corr.Correlations)
 	}
 }
 
@@ -480,6 +486,64 @@ func findOne(t *testing.T, findings []model.Finding, typ string) *model.Finding 
 	}
 	t.Fatalf("no finding of type %q", typ)
 	return nil
+}
+
+// TestCorrelate_HistoricalOnlyContributorEmitsSentinel codifies NEW-91
+// case B2: a historical-only contributor (no fresh twin) whose persisted
+// ID numerically equals a fresh per-run ID must be stored as a negative
+// sentinel in Correlations slices so the SetFindings translation pass can
+// distinguish it from the fresh ID and avoid mis-mapping it.
+func TestCorrelate_HistoricalOnlyContributorEmitsSentinel(t *testing.T) {
+	a := New(config.Default(), "", nil, nil)
+	// This-run Beaconing gets fresh ID 1. No DNS Tunneling this run.
+	a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 85, Timestamp: "2026-05-12 09:00:00 UTC"})
+	// Historical DNS Tunneling with persisted ID = 1, the same as the
+	// fresh Beaconing. This is the B2 collision: a fresh ID and a
+	// historical persisted ID share the same numeric value.
+	a.SetFindingsProvider(&stubFindingsProvider{findings: []model.Finding{
+		{ID: 1, Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 60, Timestamp: "2026-05-11 09:00:00 UTC"},
+	}})
+
+	a.correlateFindings()
+
+	var corr *model.Finding
+	for i := range a.findings {
+		if a.findings[i].Type == model.TypeCorrelatedActivity {
+			corr = &a.findings[i]
+		}
+	}
+	if corr == nil {
+		t.Fatal("expected a Correlated Activity finding; got none")
+	}
+
+	// Historical DNS Tunneling (persisted ID=1, same value as fresh Beaconing
+	// ID=1) must appear as sentinel -1 in corr.Correlations before
+	// SetFindings translation. If it appeared as positive 1, the translation
+	// pass would map it via freshToPersisted[1] to whatever persisted ID the
+	// Beaconing receives — silently referencing the wrong finding.
+	bcn := findOne(t, a.findings, "Beaconing")
+	hasSentinel := false
+	for _, id := range corr.Correlations {
+		if id == -1 {
+			hasSentinel = true
+		}
+		if id == 1 && id != bcn.ID {
+			t.Errorf("Correlated Activity.Correlations = %v; contains positive 1 for the historical DNS — should be sentinel -1 (B2 fix)", corr.Correlations)
+		}
+	}
+	if !hasSentinel {
+		t.Errorf("Correlated Activity.Correlations = %v; missing historical DNS Tunneling sentinel (-1) for B2 collision", corr.Correlations)
+	}
+	// Beaconing's fresh ID must be the positive value in corr.Correlations.
+	hasFresh := false
+	for _, id := range corr.Correlations {
+		if id == bcn.ID {
+			hasFresh = true
+		}
+	}
+	if !hasFresh {
+		t.Errorf("Correlated Activity.Correlations = %v; missing this-run Beaconing fresh ID (%d)", corr.Correlations, bcn.ID)
+	}
 }
 
 func sameInts(a, b []int) bool {

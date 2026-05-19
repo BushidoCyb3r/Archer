@@ -1728,6 +1728,132 @@ func TestAddSuppression_DismissesHiddenFindingNotifications(t *testing.T) {
 	}
 }
 
+// TestSetFindings_NEW91_CaseB2_HistoricalIDCollision codifies NEW-91 case B2:
+// a historical finding's persisted ID equals a fresh per-run ID. Without the
+// negative-sentinel fix, the translation pass maps the historical contributor
+// reference via freshToPersisted to an unrelated finding's persisted ID.
+//
+// Invariant: after SetFindings, a CA whose Correlations slice carries a
+// negative sentinel (-N) for a historical contributor must resolve to that
+// contributor's persisted ID N, not to whatever ID the fresh finding with
+// the same numeric value N was assigned.
+func TestSetFindings_NEW91_CaseB2_HistoricalIDCollision(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s := New(config.Default())
+	s.InitDB(db)
+
+	// Seed store with one historical Beaconing. SetFindings assigns
+	// persisted IDs starting above maxExistingID (0), so this gets ID 1.
+	s.SetFindings([]model.Finding{
+		{ID: 99, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "80",
+			Score: 70, Severity: model.SevHigh, Timestamp: "2026-01-01 00:00:00"},
+	})
+	// Verify the seeded ID is 1 (maxExistingID was 0 → first new ID is 1).
+	seeded := s.GetFindings()
+	if len(seeded) != 1 || seeded[0].ID != 1 {
+		t.Fatalf("seed: expected persisted ID 1, got %v", seeded)
+	}
+
+	// Second run: the analyzer assigns fresh IDs starting at 1 each run.
+	// The fresh Beaconing (different DstPort → different fingerprint) gets
+	// fresh ID 1, colliding with the historical Beaconing's persisted ID 1.
+	// The CA's Correlations carries:
+	//   -1 (negative sentinel for the historical Beaconing, persisted ID 1)
+	//    2 (fresh DNS Tunneling, to be translated to its persisted ID)
+	// After translation:
+	//   -1 → abs=1, historicalIDs[1]=true → 1 (the historical finding) ✓
+	//    2 → freshToPersisted[2] → new persisted ID for DNS Tunneling ✓
+	// Without the fix, -1 would be passed as +1 and freshToPersisted[1]
+	// would return the fresh Beaconing's new persisted ID — wrong finding.
+	s.SetFindings([]model.Finding{
+		// Fresh Beaconing: fresh ID 1, different fingerprint (DstPort 443).
+		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+			Score: 80, Severity: model.SevHigh, Timestamp: "2026-01-02 00:00:00"},
+		// Fresh DNS Tunneling: fresh ID 2.
+		{ID: 2, Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.1.1.1",
+			Score: 60, Severity: model.SevMedium, Timestamp: "2026-01-02 00:00:00"},
+		// CA: fresh ID 3. Correlations: -1 (historical Beaconing sentinel) + 2 (DNS).
+		{ID: 3, Type: model.TypeCorrelatedActivity, SrcIP: "10.0.0.1", DstIP: "1.1.1.1",
+			Score: 85, Severity: model.SevCritical, Timestamp: "2026-01-02 00:00:00",
+			Correlations: []int{-1, 2}},
+	})
+
+	all := s.GetFindings()
+
+	// Find the CA row.
+	var ca *model.Finding
+	for i := range all {
+		if all[i].Type == model.TypeCorrelatedActivity {
+			ca = &all[i]
+			break
+		}
+	}
+	if ca == nil {
+		t.Fatal("Correlated Activity finding not found after SetFindings")
+	}
+
+	// Find the fresh Beaconing (DstPort 443) and the historical Beaconing
+	// (DstPort 80, preserved because its fingerprint didn't re-fire).
+	var freshBcn, histBcn *model.Finding
+	for i := range all {
+		if all[i].Type == "Beaconing" && all[i].DstPort == "443" {
+			freshBcn = &all[i]
+		}
+		if all[i].Type == "Beaconing" && all[i].DstPort == "80" {
+			histBcn = &all[i]
+		}
+	}
+	if freshBcn == nil {
+		t.Fatal("fresh Beaconing (port 443) not found")
+	}
+	if histBcn == nil {
+		t.Fatal("historical Beaconing (port 80) not found after preservation")
+	}
+	if histBcn.ID != 1 {
+		t.Fatalf("historical Beaconing persisted ID = %d, want 1", histBcn.ID)
+	}
+
+	// The CA's Correlations must reference the historical Beaconing (ID=3)
+	// and the fresh DNS Tunneling — NOT the fresh Beaconing's persisted ID.
+	hasHistorical, hasDNS := false, false
+	for _, id := range ca.Correlations {
+		if id == histBcn.ID { // 3
+			hasHistorical = true
+		}
+		if freshBcn != nil && id == freshBcn.ID {
+			// The fresh Beaconing (port 443) must NOT be in CA.Correlations —
+			// it was not a contributor. Pre-fix, -3 was mis-translated via
+			// freshToPersisted[3] to the fresh Beaconing's persisted ID.
+			t.Errorf("CA.Correlations = %v; contains fresh Beaconing ID %d — B2 mis-translation: historical sentinel -3 was mapped to freshToPersisted[3] instead of persisted ID 3", ca.Correlations, freshBcn.ID)
+		}
+	}
+	// Find DNS Tunneling persisted ID.
+	for i := range all {
+		if all[i].Type == "DNS Tunneling" {
+			for _, id := range ca.Correlations {
+				if id == all[i].ID {
+					hasDNS = true
+				}
+			}
+		}
+	}
+	if !hasHistorical {
+		t.Errorf("CA.Correlations = %v; missing historical Beaconing persisted ID 1", ca.Correlations)
+	}
+	if !hasDNS {
+		t.Errorf("CA.Correlations = %v; missing DNS Tunneling persisted ID", ca.Correlations)
+	}
+}
+
 // TestDeleteOrphanedHostRiskScores verifies that HRS findings whose src_ip
 // has no remaining non-rollup findings are removed after a sensor purge, while
 // HRS backed by a second sensor's findings survive.

@@ -676,7 +676,17 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 		}
 		translated := make([]int, 0, len(findings[i].Correlations))
 		for _, id := range findings[i].Correlations {
-			if persistedID, ok := freshToPersisted[id]; ok {
+			if id < 0 {
+				// Negative sentinel from correlate.go: historical-only
+				// contributor. Negate to recover the persisted ID (NEW-91
+				// case B2 — positive historical IDs that equal a fresh ID
+				// would be mis-translated via freshToPersisted without this
+				// branch).
+				absID := -id
+				if historicalIDs[absID] {
+					translated = append(translated, absID)
+				}
+			} else if persistedID, ok := freshToPersisted[id]; ok {
 				translated = append(translated, persistedID)
 			} else if historicalIDs[id] {
 				translated = append(translated, id)

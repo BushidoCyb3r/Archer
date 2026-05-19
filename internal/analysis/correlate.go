@@ -140,7 +140,15 @@ func (a *Analyzer) correlateFindings() {
 		// nothing for correctness.
 		fp := f.Fingerprint()
 		if _, seen := pd.idsByFingerprint[fp]; !seen {
-			pd.idsByFingerprint[fp] = f.ID
+			id := f.ID
+			if isHistorical {
+				// Negate historical-only IDs so the translation pass in
+				// SetFindings can distinguish them from same-valued fresh
+				// per-run IDs (NEW-91 case B2). Only applies when the
+				// fingerprint has no fresh twin (first-seen wins above).
+				id = -id
+			}
+			pd.idsByFingerprint[fp] = id
 		}
 		if f.Score > pd.maxScore {
 			pd.maxScore = f.Score
@@ -198,11 +206,18 @@ func (a *Analyzer) correlateFindings() {
 		if len(pd.types) < minTypes {
 			continue
 		}
-		// Materialize the contributing IDs from the fingerprint-dedup
-		// map. Sort for stable Detail string + stable Correlations
-		// slice ordering across re-runs on identical input.
+		// Materialize contributing IDs. findingIDs uses absolute values
+		// (for the stable Detail string and CA Fingerprint). contributorIDs
+		// carries the raw values from idsByFingerprint — historical-only
+		// contributors are negative sentinels so SetFindings's translation
+		// can tell them apart from same-valued fresh IDs (NEW-91 case B2).
 		findingIDs := make([]int, 0, len(pd.idsByFingerprint))
+		contributorIDs := make([]int, 0, len(pd.idsByFingerprint))
 		for _, id := range pd.idsByFingerprint {
+			contributorIDs = append(contributorIDs, id)
+			if id < 0 {
+				id = -id
+			}
 			findingIDs = append(findingIDs, id)
 		}
 		sort.Ints(findingIDs)
@@ -246,13 +261,6 @@ func (a *Analyzer) correlateFindings() {
 		for i, id := range findingIDs {
 			idStrs[i] = strconv.Itoa(id)
 		}
-
-		// Snapshot the contributors before add() runs so the new
-		// correlation row's Correlations field can list every
-		// contributing ID. The contributors' own Correlations get
-		// the same list plus the new row's ID.
-		contributorIDs := make([]int, len(findingIDs))
-		copy(contributorIDs, findingIDs)
 
 		a.add(model.Finding{
 			Type:     model.TypeCorrelatedActivity,
