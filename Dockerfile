@@ -44,7 +44,8 @@ RUN apk add --no-cache ca-certificates tzdata openssh-server tini rsync rrsync s
     && chmod 700 /home/quiver/.ssh \
     && chmod 600 /home/quiver/.ssh/authorized_keys \
     && chmod 700 /run/sshd \
-    && adduser -D -u 1001 -H -s /sbin/nologin archer
+    && adduser -D -u 1001 -H -s /sbin/nologin archer \
+    && addgroup quiver archer
 
 # rrsync ships in Alpine's rsync package but the canonical path varies
 # between 3.x point releases (3.18 dropped it under /usr/bin, some prior

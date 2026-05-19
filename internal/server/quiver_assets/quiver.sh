@@ -221,7 +221,7 @@ else
 fi
 
 echo "$files" | timeout --kill-after=60 7080 $NICE_CMD \
-    rsync -avRq --timeout=60 \
+    rsync -avRqO --no-perms --timeout=60 \
         -e "ssh ${SSH_OPTS}" \
         --files-from=- ./ \
         "quiver@${ARCHER_HOST}:" \

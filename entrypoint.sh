@@ -19,13 +19,13 @@ chmod 644 /etc/ssh/keys/ssh_host_*_key.pub
 # Idempotent: existing contents are left alone.
 mkdir -p /home/quiver/.ssh
 [ -f /home/quiver/.ssh/authorized_keys ] || touch /home/quiver/.ssh/authorized_keys
-# archer (uid 1001) owns both the directory and the file so it can write
-# authorized_keys directly (AppendAuthKey) and atomically via a sibling
-# temp file + rename (RemoveAuthKey). sshd_config sets StrictModes no so
-# sshd accepts the non-quiver owner; sshd reads the file as root anyway.
-chown -R archer:archer /home/quiver/.ssh
-chmod 700 /home/quiver/.ssh
-chmod 600 /home/quiver/.ssh/authorized_keys
+# archer:archer ownership throughout: archer writes, and quiver reads via
+# the archer supplementary group (addgroup quiver archer in Dockerfile).
+# matchParentOwner in authorized_keys.go re-chowns the file after each
+# write; it can only succeed when the target gid is in archer's group set.
+chown archer:archer /home/quiver/.ssh /home/quiver/.ssh/authorized_keys
+chmod 750 /home/quiver/.ssh
+chmod 640 /home/quiver/.ssh/authorized_keys
 
 # Start sshd in the foreground of a background subshell. tini (PID 1) reaps
 # this when Archer exits, so we don't have to chase signals manually.
@@ -56,6 +56,10 @@ fi
 # Hand /data and /logs to the archer user before dropping privileges.
 # On first start after upgrade these dirs are root-owned; this is the
 # one-time migration. Idempotent on subsequent starts.
-chown -R archer:archer /data /logs
+chown -R archer:archer /data
+# Only chown the /logs root, not sensor subdirs. Sensor subdirs are
+# archer:archer 775 so rrsync (quiver, with archer as supplementary group)
+# can push into them; a recursive chown here would clobber that.
+chown archer:archer /logs
 
 exec su-exec archer /app/archer "$@"

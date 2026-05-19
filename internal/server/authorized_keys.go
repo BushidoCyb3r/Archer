@@ -19,11 +19,9 @@ import (
 )
 
 // matchParentOwner chowns path to whoever owns its parent directory.
-// Archer runs as a non-root user (uid 1001); the entrypoint pre-chowns
-// authorized_keys to that user so this call is a no-op at runtime.
-// It remains here for environments where archer runs as root (dev,
-// bare-metal installs) so sshd's privilege-separated reader can open
-// the file as the quiver user. Chown failures are silently ignored.
+// In the container the parent is /home/quiver/.ssh (archer:archer), so
+// this sets authorized_keys to archer:archer after every write. Chown
+// failures are silently ignored.
 func matchParentOwner(path string) {
 	fi, err := os.Stat(filepath.Dir(path))
 	if err != nil {
@@ -71,7 +69,7 @@ func AppendAuthKey(path, line string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("authkeys: mkdir: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o640)
 	if err != nil {
 		return fmt.Errorf("authkeys: open: %w", err)
 	}
@@ -109,7 +107,7 @@ func RemoveAuthKey(path, line string) error {
 	// Atomic replace: write to a sibling temp file and rename. sshd never
 	// observes a half-written authorized_keys this way.
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(strings.Join(out, "\n")), 0o600); err != nil {
+	if err := os.WriteFile(tmp, []byte(strings.Join(out, "\n")), 0o640); err != nil {
 		return fmt.Errorf("authkeys: write tmp: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {

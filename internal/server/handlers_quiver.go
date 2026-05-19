@@ -20,7 +20,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/store"
@@ -517,27 +516,17 @@ func sourceIP(r *http.Request) string {
 	return ip
 }
 
-// ensureSensorLogDir creates /logs/<name>/ for an enrolling sensor and
-// chowns it to whoever owns the authorized_keys parent directory. That
-// parent is /home/quiver/.ssh in the bundled image, which means the new
-// dir ends up writable by the same uid sshd's privilege-separated
-// process drops to before exec'ing rrsync. Without this step rrsync's
-// chroot setup fails on first push with FileNotFoundError.
+// ensureSensorLogDir creates /logs/<name>/ for an enrolling sensor.
+// os.Chmod is called explicitly because os.MkdirAll applies the process
+// umask and would strip the group-write bit. 0775 gives the quiver user
+// (a member of the archer group via Dockerfile addgroup) write access so
+// rrsync can create date-tree subdirectories on first push.
 func (s *Server) ensureSensorLogDir(name string) error {
 	dir := filepath.Join(s.logsDir, name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	if s.authKeysPath == "" {
-		return nil
-	}
-	fi, err := os.Stat(filepath.Dir(s.authKeysPath))
-	if err != nil {
-		return nil
-	}
-	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
-		_ = os.Chown(dir, int(st.Uid), int(st.Gid))
-	}
+	_ = os.Chmod(dir, 0o775)
 	return nil
 }
 
