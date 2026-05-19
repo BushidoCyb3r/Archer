@@ -1,0 +1,23 @@
+#!/bin/sh
+# Install: cp hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+#
+# Rejects commits that introduce Unicode curly/smart quotes (U+201C / U+201D)
+# into HTML template files. Editors with smart-quote substitution enabled will
+# silently corrupt HTML attribute delimiters, breaking element IDs and classes
+# without any parse error.
+
+staged=$(git diff --cached --name-only | grep -E '\.(html|tmpl)$')
+[ -z "$staged" ] && exit 0
+
+if git diff --cached -- '*.html' '*.tmpl' | python3 -c "
+import sys
+data = sys.stdin.read()
+if '“' in data or '”' in data:
+    sys.exit(1)
+"; then
+    exit 0
+fi
+
+echo "error: curly/smart quotes (“ ”) found in staged HTML — your editor"
+echo "       substituted them for straight ASCII quotes. Replace with plain \" before committing."
+exit 1
