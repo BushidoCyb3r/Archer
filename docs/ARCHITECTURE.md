@@ -38,9 +38,16 @@ Inside the container:
   pushes via `rrsync` jail.
 - **SQLite at `/data/archer.db`** holds findings, config, allowlist/IOC,
   suppressions, sensors, users.
-- **Logs at `/logs/<sensor>/...`** are read-only to the analyzer,
-  writable to the archive worker.
-- **Archive at `/data/archive/...`** holds aged-out logs.
+- **Logs at `/logs/<sensor>/YYYY-MM-DD/...`** are read-only to the
+  analyzer, writable to the archive worker. The top-level sensor dir is
+  `archer:archer 02775` (setgid so new subdirs inherit the `archer`
+  group); `entrypoint.sh` chowns date-tree subdirs to `archer:archer
+  0775` at startup because rsync creates them as the sensor push user
+  (`quiver`, uid 1000).
+- **Archive at `/data/archive/<sensor>/YYYY-MM-DD/...`** holds aged-out
+  logs. The worker determines file age from the `YYYY-MM-DD` path segment
+  (not mtime, which rsync may not preserve across the `/logs` bind-mount
+  → `/data` volume boundary).
 
 Architectural shape:
 

@@ -217,6 +217,35 @@ Old `quiver.sh` used `exec 200>"$LOCK"` for flock fd setup. Dash (Debian's `/bin
 
 `/var/lock` on RHEL/Oracle is root-owned 0755 — the `quiver` user can't write there. Current builds use `/var/lib/quiver/quiver.lock` which is created at install time. Fix on the sensor: `sudo sed -i 's|/var/lock/quiver.lock|/var/lib/quiver/quiver.lock|' /usr/local/bin/quiver.sh`.
 
+### Archive reports "0 archived" / `permission denied` on source removal
+
+The archive worker runs as the `archer` user (uid 1001). Zeek date-tree
+subdirectories (`YYYY-MM-DD/`) are created by rsync running as `quiver`
+(uid 1000) and land `quiver:quiver 0755`. `archer` cannot delete files
+from those directories; the archive copies every file to `/data/archive`
+successfully, then fails `os.Remove(src)` with `permission denied` and
+counts every file as skipped.
+
+`entrypoint.sh` fixes this automatically at container startup by chowning
+all depth-2 log dirs to `archer:archer 0775`. If you hit this after
+upgrading (old container image, new code not yet applied), rebuild:
+
+```bash
+docker compose up -d --build
+```
+
+If a previous failed archive run left orphaned copies in both `/logs` and
+`/data/archive`, clean up the duplicates after rebuilding:
+
+```bash
+docker exec archer sh -c '
+find /logs -mindepth 3 -type f | while IFS= read -r src; do
+    dst="/data/archive/${src#/logs/}"
+    [ -f "$dst" ] && rm "$src"
+done
+'
+```
+
 ### `quiver: no Zeek log directory found`
 
 Expected on hosts that aren't running Zeek, or where Zeek logs live somewhere unusual. Set `LOCAL_LOGS_DIR=/your/path` in `/etc/quiver/config` and re-run. Or if Zeek is in one of the standard places (Security Onion: `/nsm/zeek/logs`, default Zeek: `/opt/zeek/logs`, `/usr/local/zeek/logs`), the script picks it up automatically.
