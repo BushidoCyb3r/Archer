@@ -165,7 +165,11 @@ func cvScore(connHist []int) float64 {
 	return 1.0 - cv
 }
 
-// bimodalScore detects whether the histogram shows bimodal distribution.
+// bimodalScore scores histogram coverage: returns the fraction of populated
+// buckets that meet the minimum-activity floor (modeSensitivity × peak count).
+// High when many time buckets are active (persistent coverage); low when
+// activity is sparse or spiky. Used as an alternate regularity signal
+// alongside cvScore — caller takes max(cv, bm).
 func bimodalScore(freqCount map[int]int, totalBars int, modeSensitivity float64) float64 {
 	if totalBars < 11 || len(freqCount) < 2 {
 		return 0
