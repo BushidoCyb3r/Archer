@@ -28,6 +28,38 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.30.1] — 2026-05-20
+
+### Fixed
+
+- **sshd/rrsync privilege separation broken after v0.30.0 su-exec drop.**
+  Several interacting bugs left enrollment and rsync non-functional once
+  archer dropped to uid 1001:
+  - `authorized_keys` was not readable by the quiver SSH user because sshd
+    reads it as the authenticating user (quiver, uid 1000), not root.
+  - `RemoveAuthKey` and `AppendAuthKey` used mode `0600`, stripping the
+    group-read bit on every atomic rewrite.
+  - `ensureSensorLogDir` used a stat-based chown to set the sensor log dir
+    owner — silently failing because archer cannot chown to a gid outside
+    its group set, leaving the dir at `0755` (umask stripped group-write).
+  - rrsync (running as quiver) could not `utimes()` or `chmod` the root
+    target directory it doesn't own, causing rc=23 on every push.
+  - Fix: add quiver to the archer group in the Dockerfile; use
+    `archer:archer 640` for authorized_keys (quiver reads via group
+    membership); use explicit `os.Chmod(0775)` in `ensureSensorLogDir`
+    to bypass umask; add `-O --no-perms` to the rsync invocation in
+    `quiver.sh`; stop recursively chowning `/logs` in entrypoint so
+    sensor subdirs survive restarts.
+- **TI Hit findings missing sensor tag when rsync gap produces empty file
+  set.** When an analysis tick fires with no new log files (e.g. during an
+  rsync outage), `sensorSet` is empty and `SetDefaultSensor` is never
+  called, so TI Hit findings are written with `sensor=""`. These survive
+  a subsequent sensor purge because the purge query matches on
+  `sensor LIKE 'name%'`. Fixed: fall back to the enrolled sensor list
+  when the file-derived set is empty and exactly one sensor is enrolled.
+
+---
+
 ## [v0.30.0] — 2026-05-19
 
 ### Added
