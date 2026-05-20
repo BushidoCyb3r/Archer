@@ -50,6 +50,7 @@ var logTypesForFinding = map[string][]string{
 	"Suspicious File Download": {"http", "files"},
 	"Suspicious URL":           {"http"},
 	"DNS Tunneling":            {"dns"},
+	"DNS Subdomain DGA":        {"dns"},
 	"DNS NXDOMAIN Flood":       {"dns"},
 	"DNS Beaconing":            {"dns"},
 	"Suspicious TLD":           {"dns"},

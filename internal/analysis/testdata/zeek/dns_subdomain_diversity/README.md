@@ -1,9 +1,8 @@
 # dns_subdomain_diversity
 
-Exercises the **DNS Tunneling** detector via the subdomain-diversity
-path — many unique subdomains under one apex from a single source,
-indicating an algorithmically-driven query stream rather than human
-browsing.
+Exercises the **DNS Subdomain DGA** detector — many unique subdomains
+under one apex from a single source, indicating an algorithmically-
+driven query stream rather than human browsing.
 
 ## Inputs
 
@@ -14,7 +13,6 @@ browsing.
 
 ## Findings produced
 
-- `DNS Tunneling` (MEDIUM) — primary target. The Detail string
-  identifies this as the subdomain-diversity variant ("High subdomain
-  diversity — apex: …") versus the per-query variant in
-  `dns_tunneling/`.
+- `DNS Subdomain DGA` (MEDIUM) — primary target. Detail: "High
+  subdomain diversity — apex: …". Distinct from the per-query
+  `DNS Tunneling` findings in `dns_tunneling/`.

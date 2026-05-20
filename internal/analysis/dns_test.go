@@ -76,19 +76,19 @@ func TestDNSBeaconing_ClosesCadenceGap(t *testing.T) {
 	}
 }
 
-// TestDNSBeaconing_DefersHighDiversityToTunneling codifies the
-// diversity-gate invariant: a high-subdomain-diversity apex is
-// exfil-shaped and owned by DNS Tunneling, so DNS Beaconing must not
-// also fire on it even when the cadence is perfectly regular (the
-// dns_subdomain_diversity fixture is exactly that — 50 unique
-// subdomains, 1s spacing). Without the gate, pure timing regularity
-// would double-emit a HIGH finding on the same evidence.
-func TestDNSBeaconing_DefersHighDiversityToTunneling(t *testing.T) {
+// TestDNSBeaconing_DefersHighDiversityToDGA codifies the diversity-gate
+// invariant: a high-subdomain-diversity apex is exfil-shaped and owned
+// by DNS Subdomain DGA, so DNS Beaconing must not also fire on it even
+// when the cadence is perfectly regular (the dns_subdomain_diversity
+// fixture is exactly that — 50 unique subdomains, 1s spacing). Without
+// the gate, pure timing regularity would double-emit a HIGH finding on
+// the same evidence.
+func TestDNSBeaconing_DefersHighDiversityToDGA(t *testing.T) {
 	a := newDNSTestAnalyzer()
 	findings := a.Analyze([]string{"testdata/zeek/dns_subdomain_diversity/dns.log"})
 
-	if !hasFindingType(findings, "DNS Tunneling") {
-		t.Fatalf("setup: DNS Tunneling should fire on the diversity fixture; got: %v", findingTypes(findings))
+	if !hasFindingType(findings, "DNS Subdomain DGA") {
+		t.Fatalf("setup: DNS Subdomain DGA should fire on the diversity fixture; got: %v", findingTypes(findings))
 	}
 	if hasFindingType(findings, "DNS Beaconing") {
 		t.Error("DNS Beaconing fired on a high-diversity apex — the diversity gate is not holding")

@@ -371,9 +371,11 @@ var ScoreExplanations = map[string]string{
 	"Off-Hours Transfer": "Score = 45 + log10(MB+1)×12, capped at 78\n" +
 		"Flags external transfers > min_MB outside business hours (UTC).",
 
-	"DNS Tunneling": "Per-query: long label, high entropy, deep nesting, TXT/NULL type.\n" +
-		"Diversity: >N unique subdomains per apex with high average entropy.\n" +
+	"DNS Tunneling": "Per-query: long label, high entropy, or deep nesting per query.\n" +
 		"Tools: iodine, DNScat2, dns2tcp",
+
+	"DNS Subdomain DGA": ">N unique subdomains under a single apex with high average entropy.\n" +
+		"Shape: DGA/fast-flux C2 rotating subdomains; distinct from per-query tunneling.",
 
 	"DNS NXDOMAIN Flood": "Score = 45 + log10(count)×15, capped at 85\n" +
 		"High NXDOMAIN rate = DGA malware cycling through generated domains.",

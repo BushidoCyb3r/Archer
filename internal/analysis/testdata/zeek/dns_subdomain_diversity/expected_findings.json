@@ -1,6 +1,6 @@
 [
   {
-    "type": "DNS Tunneling",
+    "type": "DNS Subdomain DGA",
     "severity": "MEDIUM",
     "score": 69,
     "src_ip": "192.168.2.50",
