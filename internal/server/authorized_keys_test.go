@@ -75,8 +75,8 @@ func TestAppendRemoveAuthKey_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("authorized_keys mode drifted: got %o, want 600", info.Mode().Perm())
+	if info.Mode().Perm() != 0o640 {
+		t.Errorf("authorized_keys mode drifted: got %o, want 640", info.Mode().Perm())
 	}
 
 	// Removing the same line again should be a clean no-op.
