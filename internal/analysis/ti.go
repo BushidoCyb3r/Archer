@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math"
 	"net"
 	"net/http"
@@ -153,6 +152,7 @@ type tiDomainObs struct {
 	proto string // "dns" | "http" | "finding"
 	qtype string // dns only
 	uri   string // http only — first URI we saw this src request from this host
+	port  string // http only — actual resp port; falls back to "80" in emit if empty
 	count int
 }
 
@@ -179,6 +179,7 @@ func (a *Analyzer) checkTI(files []string) {
 	conns := filterFiles(files, "conn")
 	dnsLogs := filterFiles(files, "dns")
 	httpLogs := filterFiles(files, "http")
+	sslLogs := filterFiles(files, "ssl")
 
 	// ── Phase A: dst-only collection ───────────────────────────────────────
 	dstIPSet := make(map[string]bool)
@@ -426,12 +427,15 @@ func (a *Analyzer) checkTI(files []string) {
 			if ts > 0 && (cur.ts == 0 || ts < cur.ts) {
 				cur.ts = ts
 			}
+			if proto == "ssl" && cur.proto == "conn" {
+				cur.proto = proto
+			}
 			return
 		}
 		bySrc[src] = &tiIPObs{port: port, ts: ts, proto: proto, count: 1}
 	}
 
-	addDomainObs := func(dst, src, qtype, proto, uri string, ts float64) {
+	addDomainObs := func(dst, src, qtype, proto, uri, port string, ts float64) {
 		if !winnerDomains[dst] || src == "" {
 			return
 		}
@@ -452,7 +456,7 @@ func (a *Analyzer) checkTI(files []string) {
 			}
 			return
 		}
-		bySrc[src] = &tiDomainObs{ts: ts, proto: proto, qtype: qtype, uri: uri, count: 1}
+		bySrc[src] = &tiDomainObs{ts: ts, proto: proto, qtype: qtype, uri: uri, port: port, count: 1}
 	}
 
 	// Source 1 (targeted): conn.log, only for winning dsts.
@@ -466,6 +470,22 @@ func (a *Analyzer) checkTI(files []string) {
 			port := fmt.Sprint(parser.GetInt(rec, "id.resp_p"))
 			ts := parser.GetFloat(rec, "ts")
 			addIPObs(dst, src, port, "conn", ts)
+			return true
+		})
+	})
+
+	// Source 1b (targeted): ssl.log, only for winning IPs. Runs after the
+	// conn scan so the conn→ssl proto upgrade in addIPObs fires correctly.
+	a.parallelEach(sslLogs, func(path string) {
+		a.parseLog(path, func(rec map[string]any) bool {
+			dst := parser.GetStr(rec, "id.resp_h")
+			if !winnerIPs[dst] {
+				return true
+			}
+			src := parser.GetStr(rec, "id.orig_h")
+			port := fmt.Sprint(parser.GetInt(rec, "id.resp_p"))
+			ts := parser.GetFloat(rec, "ts")
+			addIPObs(dst, src, port, "ssl", ts)
 			return true
 		})
 	})
@@ -486,7 +506,7 @@ func (a *Analyzer) checkTI(files []string) {
 			src := parser.GetStr(rec, "id.orig_h")
 			qtype := parser.GetStr(rec, "qtype_name")
 			ts := parser.GetFloat(rec, "ts")
-			addDomainObs(q, src, qtype, "dns", "", ts)
+			addDomainObs(q, src, qtype, "dns", "", "", ts)
 			return true
 		})
 	})
@@ -520,7 +540,7 @@ func (a *Analyzer) checkTI(files []string) {
 				src := parser.GetStr(rec, "id.orig_h")
 				uri := parser.GetStr(rec, "uri")
 				ts := parser.GetFloat(rec, "ts")
-				addDomainObs(host, src, "", "http", uri, ts)
+				addDomainObs(host, src, "", "http", uri, fmt.Sprint(parser.GetInt(rec, "id.resp_p")), ts)
 			}
 			return true
 		})
@@ -554,7 +574,7 @@ func (a *Analyzer) checkTI(files []string) {
 		if isIP {
 			addIPObs(dst, src, f.DstPort, "finding", 0)
 		} else {
-			addDomainObs(dst, src, "", "finding", "", 0)
+			addDomainObs(dst, src, "", "finding", "", "", 0)
 		}
 	}
 	a.mu.RUnlock()
@@ -661,12 +681,14 @@ func (a *Analyzer) checkTI(files []string) {
 		} else {
 			for src, obs := range dstDomains[h.dst] {
 				detail := h.detail + tiDomainEvidence(obs.proto, obs.qtype, obs.uri, obs.count)
-				port := ""
-				switch obs.proto {
-				case "dns":
-					port = "53"
-				case "http":
-					port = "80"
+				port := obs.port
+				if port == "" {
+					switch obs.proto {
+					case "dns":
+						port = "53"
+					case "http":
+						port = "80"
+					}
 				}
 				ts := nowTS
 				if obs.ts > 0 {
@@ -740,6 +762,8 @@ func tiDomainEvidence(proto, qtype, uri string, count int) string {
 // pickN returns up to limit keys from a string-keyed set. Used to rate-cap
 // the OTX/AbuseIPDB API loops: those services have free-tier quotas a
 // single analysis run can chew through, so we sample rather than enumerate.
+// Map iteration order is non-deterministic — the sample varies across runs
+// on the same dataset; that is intentional.
 func pickN(m map[string]bool, limit int) []string {
 	out := make([]string, 0, limit)
 	for k := range m {
@@ -803,8 +827,7 @@ func (a *Analyzer) fetchURLhaus(client *http.Client) (ips, hosts map[string]bool
 		a.recordTIError(source, fmt.Errorf("HTTP %d", resp.StatusCode))
 		return
 	}
-	body, _ := io.ReadAll(resp.Body)
-	sc := bufio.NewScanner(strings.NewReader(string(body)))
+	sc := bufio.NewScanner(resp.Body)
 	for sc.Scan() {
 		line := sc.Text()
 		if strings.HasPrefix(line, "#") {
