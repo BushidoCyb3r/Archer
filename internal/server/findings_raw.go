@@ -65,7 +65,6 @@ var logTypesForFinding = map[string][]string{
 	"TI Hit (IP)":              {"conn", "http", "ssl"},
 	"TI Hit (Domain)":          {"dns", "http"},
 	"TI Hit (Hash)":            {"files", "http"},
-	"TI Hit (JA3)":             {"ssl"},
 	"Threat Intel Hit":         {"conn", "http", "dns", "ssl"}, // legacy pre-v0.7.0
 	"Host Risk Score":          {"conn", "http", "dns", "ssl"}, // cross-detector roll-up
 	"Correlated Activity":      {"conn", "http", "dns", "ssl"}, // cross-detector roll-up
