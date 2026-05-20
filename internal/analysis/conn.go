@@ -452,9 +452,6 @@ func (a *Analyzer) analyzeConn(files []string) {
 		durScore := durationScoreFromHourMap(st.hourMap, st.minTs, st.maxTs, w.min, w.max, 6)
 
 		score := clamp(int(100*(tsScore*0.25+dsScore*0.25+hScore*0.25+durScore*0.25)), 1, 100)
-		if score < 1 {
-			continue
-		}
 
 		var sev model.Severity
 		if score >= 80 {
