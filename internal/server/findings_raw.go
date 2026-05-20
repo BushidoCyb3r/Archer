@@ -54,7 +54,7 @@ var logTypesForFinding = map[string][]string{
 	"DNS NXDOMAIN Flood":       {"dns"},
 	"DNS Beaconing":            {"dns"},
 	"Suspicious TLD":           {"dns"},
-	"DoH Bypass":               {"dns"},
+	"DoH Bypass":               {"ssl"},
 	"Malicious JA3":            {"ssl"},
 	"Weak TLS":                 {"ssl"},
 	"SSL No-SNI":               {"ssl"},

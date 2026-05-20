@@ -42,6 +42,13 @@ relevant, `### Detection changes` in each release entry.
   includes the resolver hostname (e.g. `dns.google`) for analyst
   confirmation.
 
+- **DoH Bypass raw-log pivot was looking in the wrong log file.** The
+  `logTypesForFinding` map in the raw-log pivot endpoint had `"DoH Bypass"`
+  mapped to `{"dns"}`. Because DoH connections are HTTPS sessions (never in
+  `dns.log`), the `/api/findings/{id}/raw` endpoint returned no records for
+  DoH Bypass findings. Corrected to `{"ssl"}` to match where the detector
+  now reads.
+
 ### Detection changes
 
 - **DoH Bypass now fires correctly.** Previously the finding was never
