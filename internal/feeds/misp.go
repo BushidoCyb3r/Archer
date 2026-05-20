@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -109,7 +110,9 @@ func NewMISPClient(baseURL, apiKey string, tlsSkipVerify, allowInternal bool, qu
 	}
 	if queryFilterJSON != "" {
 		var f map[string]any
-		if err := json.Unmarshal([]byte(queryFilterJSON), &f); err == nil {
+		if err := json.Unmarshal([]byte(queryFilterJSON), &f); err != nil {
+			log.Printf("feeds: misp: query_filter_json is not valid JSON (%v) — filter ignored", err)
+		} else {
 			c.QueryFilter = f
 		}
 	}
@@ -255,10 +258,8 @@ type mispTag struct {
 	Name string `json:"name"`
 }
 
-// mispResponse covers both response shapes MISP can return: the legacy
-// `{"response":{"Attribute":[...]}}` envelope and the newer
-// `{"response":[{"Attribute":{...}}, ...]}` array shape. The adapter
-// handles both transparently.
+// mispResponse is the envelope shape for MISP's attributes/restSearch
+// endpoint: `{"response":{"Attribute":[...]}}`.
 type mispResponse struct {
 	Response struct {
 		Attribute []mispAttribute `json:"Attribute"`

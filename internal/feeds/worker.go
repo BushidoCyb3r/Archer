@@ -113,8 +113,9 @@ func (w *Worker) reconcile(ctx context.Context) {
 
 	// Sweep up loops for feeds that no longer exist.
 	w.mu.Lock()
-	for id := range w.cancels {
+	for id, cancel := range w.cancels {
 		if !live[id] {
+			cancel()
 			delete(w.cancels, id)
 			delete(w.versions, id)
 		}
