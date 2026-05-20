@@ -34,7 +34,6 @@ var KnownBadJA3 = map[string]string{
 	"a0e9f5192cc6583673b72155f5a851c1": "Cobalt Strike SMB",
 	"e7d705a3286e19ea42f587b344ee6865": "Metasploit/Meterpreter",
 	"bc6c386f480f367c02e5d7c0f31d6b3b": "Meterpreter reverse",
-	"6d4a5f8b3a7c9e1d2f0b4a8c3e5f7d9a": "C2 framework generic",
 	"1aa7bf3b03eb4b20e561a3c9fe46e04a": "Cobalt Strike v4",
 	"b386946a5a44d1ddcc843bc75336dfce": "Sliver C2",
 	"6bea65232daa92d19e56f2a8c62b2ebf": "Cobalt Strike Malleable",
