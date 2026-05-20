@@ -12,6 +12,7 @@ func (a *Analyzer) analyzeSSL(files []string) {
 	seenJA3 := make(map[[3]string]bool)
 	seenNoSNI := make(map[[3]string]bool)
 	seenWeakTLS := make(map[[3]string]bool)
+	seenDoH := make(map[[2]string]bool)
 
 	sslFiles := filterFiles(files, "ssl")
 	for _, f := range sslFiles {
@@ -90,6 +91,31 @@ func (a *Analyzer) analyzeSSL(files []string) {
 						DstIP:      dst,
 						DstPort:    portStr,
 						Detail:     fmt.Sprintf("Deprecated TLS version: %s", version),
+						Timestamp:  fmtTS(ts),
+						SourceFile: f,
+					})
+				}
+			}
+
+			// DoH Bypass: TLS to a known public DoH resolver on port 443.
+			// ssl.log is the correct source — DoH is an HTTPS session, not
+			// a DNS transaction, so it never appears in dns.log.
+			if dstPort == 443 && DoHIPs[dst] {
+				key := [2]string{src, dst}
+				if !seenDoH[key] {
+					seenDoH[key] = true
+					detail := fmt.Sprintf("DNS-over-HTTPS to known resolver %s — evades DNS logging", dst)
+					if sni != "" {
+						detail = fmt.Sprintf("DNS-over-HTTPS to known resolver %s (%s) — evades DNS logging", dst, sni)
+					}
+					a.add(model.Finding{
+						Type:       "DoH Bypass",
+						Severity:   model.SevMedium,
+						Score:      62,
+						SrcIP:      src,
+						DstIP:      dst,
+						DstPort:    portStr,
+						Detail:     detail,
 						Timestamp:  fmtTS(ts),
 						SourceFile: f,
 					})

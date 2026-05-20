@@ -92,39 +92,17 @@ func (a *Analyzer) analyzeDNS(files []string) {
 	nxFirst := make(map[string]float64)
 	seenTunnel := make(map[[2]string]bool)
 	seenTLD := make(map[[2]string]bool)
-	seenDoH := make(map[[2]string]bool)
 
 	dnsFiles := filterFiles(files, "dns")
 	for _, f := range dnsFiles {
 		a.parseLog(f, func(rec map[string]any) bool {
 			src := parser.GetStr(rec, "id.orig_h")
-			dst := parser.GetStr(rec, "id.resp_h")
 			query := strings.TrimRight(strings.ToLower(parser.GetStr(rec, "query")), ".")
 			rcode := parser.GetStr(rec, "rcode_name")
 			ts := parser.GetFloat(rec, "ts")
 
 			if src == "" || query == "" {
 				return true
-			}
-
-			// DoH Bypass: TLS to known resolver on port 443
-			dstPort := parser.GetInt(rec, "id.resp_p")
-			if dstPort == 443 && DoHIPs[dst] {
-				key := [2]string{src, dst}
-				if !seenDoH[key] {
-					seenDoH[key] = true
-					a.add(model.Finding{
-						Type:       "DoH Bypass",
-						Severity:   model.SevMedium,
-						Score:      62,
-						SrcIP:      src,
-						DstIP:      dst,
-						DstPort:    "443",
-						Detail:     fmt.Sprintf("DNS-over-HTTPS to known resolver %s — evades DNS logging", dst),
-						Timestamp:  fmtTS(ts),
-						SourceFile: f,
-					})
-				}
 			}
 
 			// NXDOMAIN flood

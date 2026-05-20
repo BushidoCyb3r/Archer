@@ -28,6 +28,30 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.30.2] — 2026-05-20
+
+### Fixed
+
+- **DoH Bypass detector was dead code.** The detector lived in `analyzeDNS`
+  and read `dns.log`, but DNS-over-HTTPS connections are HTTPS sessions —
+  they never appear in `dns.log`, only in `ssl.log`. The check for
+  `dstPort == 443` inside the DNS parse loop could never fire on real Zeek
+  output. Moved the detector to `analyzeSSL` where DoH connections actually
+  land. Finding type, score (62), and severity (Medium) are unchanged.
+  SNI enrichment added: when `server_name` is present the detail now
+  includes the resolver hostname (e.g. `dns.google`) for analyst
+  confirmation.
+
+### Detection changes
+
+- **DoH Bypass now fires correctly.** Previously the finding was never
+  produced on standard Zeek output because `dns.log` does not contain
+  HTTPS sessions. Existing suppressions or allowlist entries for this
+  finding type remain valid; no re-grounding of baselines is needed since
+  the finding was not previously triggering.
+
+---
+
 ## [v0.30.1] — 2026-05-20
 
 ### Fixed

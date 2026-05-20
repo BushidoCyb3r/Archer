@@ -6,7 +6,7 @@
     "src_ip": "192.168.2.10",
     "dst_ip": "8.8.8.8",
     "dst_port": "443",
-    "detail": "DNS-over-HTTPS to known resolver 8.8.8.8 — evades DNS logging",
+    "detail": "DNS-over-HTTPS to known resolver 8.8.8.8 (dns.google) — evades DNS logging",
     "timestamp": "2024-01-15 12:00:00"
   }
 ]

@@ -717,9 +717,12 @@ Categorical match against a curated list of free / abused TLDs (`.tk`, `.ml`,
 
 ### 9.5 DoH Bypass
 
-A connection on port 443 to an IP in `DoHIPs` (Cloudflare 1.1.1.1, Google
+A TLS session on port 443 to an IP in `DoHIPs` (Cloudflare 1.1.1.1, Google
 8.8.8.8, Quad9, NextDNS, etc.) is DNS-over-HTTPS, which evades on-prem DNS
-logging. Score 62, severity Medium.
+logging. Score 62, severity Medium. Source: `ssl.log` (DoH is an HTTPS
+session — it never appears in `dns.log`). When the SNI field is present,
+the detail includes the resolver hostname (e.g. `dns.google`) so the analyst
+can confirm resolver identity without a separate lookup.
 
 ### 9.6 DNS Beaconing — query-cadence on (src, apex)
 
