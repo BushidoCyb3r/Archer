@@ -492,6 +492,7 @@ func (s *Store) DeleteFindingsBySensorPrefix(prefix string) {
 		}
 	}
 	s.findings = out
+	s.rebuildFindingsIdx()
 }
 
 // DeleteOrphanedHostRiskScores removes Host Risk Score findings whose
@@ -529,12 +530,13 @@ func (s *Store) DeleteOrphanedHostRiskScores() {
 		out = append(out, f)
 	}
 	s.findings = out
+	s.rebuildFindingsIdx()
 }
 
-// FingerprintSSHPubkey returns the SHA256 of the base64-encoded key blob
-// portion of an SSH public key line, in the colon-separated hex form that
-// `ssh-keygen -lf` produces. We expose it so handlers can show admins the
-// same fingerprint they'd see from a manual ssh-keygen run.
+// FingerprintSSHPubkey returns the standard-base64-encoded SHA256 of the key
+// blob portion of an SSH public key line. Note: this does NOT match
+// ssh-keygen -lf output, which uses unpadded base64 with a "SHA256:" prefix.
+// The stored value is display-only; it is not used for any security check.
 func FingerprintSSHPubkey(line string) string {
 	parts := strings.Fields(strings.TrimSpace(line))
 	if len(parts) < 2 {
