@@ -28,6 +28,28 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.30.4] — 2026-05-20
+
+### Fixed
+
+- **Archive worker failed to delete source logs after moving them.**
+  Zeek date-tree subdirectories (`YYYY-MM-DD/`) are created by rsync
+  running as the sensor push user (quiver, UID 1000). Those dirs landed
+  `quiver:quiver 0755`, and the archive worker runs as the `archer` user
+  (UID 1001) which has no write permission on them. Every run copied
+  files to `/data/archive` successfully then hit `permission denied` on
+  `os.Remove(src)`, counted every file as skipped, and reported 0 archived.
+
+  Three changes together fix it: `entrypoint.sh` now chowns and chmods
+  all depth-2 log dirs to `archer:archer 0775` at container startup;
+  `ensureSensorLogDir` sets the setgid bit (`02775`) on newly enrolled
+  sensor dirs so future date subdirs inherit the `archer` group; and the
+  archive age check now uses the `YYYY-MM-DD` directory segment as the
+  authoritative log date rather than file mtime, which rsync does not
+  always preserve across mount-point boundaries.
+
+---
+
 ## [v0.30.3] — 2026-05-20
 
 ### Fixed
