@@ -331,6 +331,14 @@ func (a *Analyzer) analyzeDNS(files []string) {
 		if len(data.subs) < a.cfg.DNSUniqueSubdomainMin {
 			continue
 		}
+		// Both paths emit Type "DNS Tunneling" on the same (src, apex, port 53)
+		// fingerprint. A tunnel that triggers per-query heuristics AND diversity
+		// would produce two findings with identical fingerprints, causing a
+		// SetFindings ID collision and a silent transaction rollback. Per-query
+		// already captured the apex; skip redundant diversity emit.
+		if seenTunnel[[2]string{k.src, k.apex}] {
+			continue
+		}
 		sample := make([]float64, 0, len(data.subs))
 		for s := range data.subs {
 			sample = append(sample, shannonEntropy(s))
@@ -440,9 +448,6 @@ func (a *Analyzer) analyzeDNS(files []string) {
 		// Composition: timing 0.5, inverse-diversity 0.25, coverage
 		// 0.25 — the slice's stated split, pinned by the golden.
 		score := clamp(int(100*(tsScore*0.5+divScore*0.25+coverage*0.25)), 1, 100)
-		if score < 1 {
-			continue
-		}
 		sev := model.SevHigh
 		if score >= 80 {
 			sev = model.SevCritical
