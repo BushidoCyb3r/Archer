@@ -32,6 +32,7 @@ const (
 	IndicatorDomain IndicatorType = "domain"
 	IndicatorCIDR   IndicatorType = "cidr"
 	IndicatorHash   IndicatorType = "hash"
+	IndicatorJA3    IndicatorType = "ja3"
 )
 
 // Feed is the operator-configured upstream-source row from the `feeds`

@@ -40,6 +40,7 @@ var mispAttributeTypes = []string{
 	"ip-src", "ip-dst",
 	"domain", "hostname",
 	"md5", "sha1", "sha256",
+	"ja3-fingerprint-md5",
 }
 
 // MISPClient adapts a single MISP instance to the Adapter interface.
@@ -470,6 +471,14 @@ func normalizeMISPAttribute(a mispAttribute) (Indicator, bool) {
 			return Indicator{}, false
 		}
 		typ = IndicatorHash
+	case "ja3-fingerprint-md5":
+		// JA3 fingerprints are 32-char MD5 hex strings. Kept in a
+		// dedicated bucket (IndicatorJA3) so they aren't accidentally
+		// matched against file hashes in files.log.
+		if !validHash(val) {
+			return Indicator{}, false
+		}
+		typ = IndicatorJA3
 	default:
 		return Indicator{}, false
 	}

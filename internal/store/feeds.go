@@ -411,8 +411,8 @@ func (s *Store) ListFeedIndicators(feedID int64) []feeds.Indicator {
 // EnabledFeedIndicators returns one SourcedIndicators bucket per
 // enabled feed. Indicators are typed: ip → IPs, cidr → CIDRs (parsed
 // once here so the caller doesn't re-parse on every match check),
-// domain → Domains (lowercased to make match insensitive to case),
-// hash → skipped (no analyzer field today carries a hash candidate).
+// domain → Domains (lowercased), hash → Hashes (lowercased, consumed
+// by checkFileHashes), ja3 → JA3s (lowercased, consumed by checkJA3TI).
 //
 // Tags are carried alongside on the Tags map keyed by indicator value.
 // The analyzer surfaces them in finding Detail when present so the
@@ -464,6 +464,7 @@ func (s *Store) buildEnabledFeedIndicators() []feeds.SourcedIndicators {
 			IPs:     make(map[string]bool),
 			Domains: make(map[string]bool),
 			Hashes:  make(map[string]bool),
+			JA3s:    make(map[string]bool),
 			Tags:    make(map[string][]string),
 		}
 		for _, ind := range inds {
@@ -482,13 +483,15 @@ func (s *Store) buildEnabledFeedIndicators() []feeds.SourcedIndicators {
 				bucket.Domains[strings.ToLower(val)] = true
 			case feeds.IndicatorHash:
 				bucket.Hashes[strings.ToLower(val)] = true
+			case feeds.IndicatorJA3:
+				bucket.JA3s[strings.ToLower(val)] = true
 			default:
 				continue
 			}
 			if len(ind.Tags) > 0 {
 				key := val
 				switch ind.Type {
-				case feeds.IndicatorDomain, feeds.IndicatorHash:
+				case feeds.IndicatorDomain, feeds.IndicatorHash, feeds.IndicatorJA3:
 					key = strings.ToLower(val)
 				}
 				bucket.Tags[key] = ind.Tags

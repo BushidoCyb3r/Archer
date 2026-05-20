@@ -24,6 +24,7 @@ type SourcedIndicators struct {
 	CIDRs   []*net.IPNet    // CIDR containment
 	Domains map[string]bool // exact domain match (caller lowercases)
 	Hashes  map[string]bool // exact hex match (caller lowercases)
+	JA3s    map[string]bool // ja3-fingerprint-md5 hex strings (lowercased)
 	Tags    map[string][]string
 }
 

@@ -217,6 +217,7 @@ const (
 	TypeTIHitIP       = "TI Hit (IP)"
 	TypeTIHitDomain   = "TI Hit (Domain)"
 	TypeTIHitHash     = "TI Hit (Hash)"
+	TypeTIHitJA3      = "TI Hit (JA3)"
 	TypeSuspiciousURL = "Suspicious URL"
 	TypeTIHitLegacy   = "Threat Intel Hit" // pre-v0.7.0 — kept recognized so old DBs still classify correctly
 )
@@ -259,7 +260,7 @@ func IsRollupType(t string) bool {
 // classified consistently.
 func IsThreatIntelType(t string) bool {
 	switch t {
-	case TypeTIHitIP, TypeTIHitDomain, TypeTIHitHash, TypeSuspiciousURL, TypeTIHitLegacy:
+	case TypeTIHitIP, TypeTIHitDomain, TypeTIHitHash, TypeTIHitJA3, TypeSuspiciousURL, TypeTIHitLegacy:
 		return true
 	}
 	return false
@@ -411,6 +412,7 @@ var ScoreExplanations = map[string]string{
 	"TI Hit (IP)":     "Score: 97-99 (CRITICAL) for FeodoTracker / URLhaus | variable for OTX/AbuseIPDB | 90 (HIGH) for MISP/OpenCTI feed IP/CIDR matches.",
 	"TI Hit (Domain)": "Score: 97 (CRITICAL) for URLhaus host matches | 90 (HIGH) for MISP/OpenCTI feed domain matches.",
 	"TI Hit (Hash)":   "Score: 90 (HIGH). md5 / sha1 / sha256 from files.log matched against MISP/OpenCTI hash indicators.",
+	"TI Hit (JA3)":    "Score: 90 (HIGH). ja3-fingerprint-md5 from ssl.log matched against MISP/OpenCTI JA3 indicators.",
 
 	"Host Risk Score": "Composite weighted sum, capped at 99\n" +
 		"Beaconing +30 | HTTP Beaconing +28 | CS URI +40 | C2 URI Pattern +38\n" +

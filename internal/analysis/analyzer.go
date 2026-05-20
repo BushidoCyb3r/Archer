@@ -349,10 +349,11 @@ func (a *Analyzer) Analyze(files []string) []model.Finding {
 	<-feedsDone // ensure prefetch is complete
 	a.sendStatus("Running threat intelligence checks…")
 	var wg3 sync.WaitGroup
-	wg3.Add(3)
+	wg3.Add(4)
 	go func() { defer wg3.Done(); a.checkSuspiciousURLs(files) }()
 	go func() { defer wg3.Done(); a.checkTI(files) }()
 	go func() { defer wg3.Done(); a.checkFileHashes(files) }()
+	go func() { defer wg3.Done(); a.checkJA3TI(files) }()
 	wg3.Wait()
 	a.sendProgress(88, "Threat Intel")
 
@@ -418,10 +419,11 @@ func (a *Analyzer) AnalyzeTIOnly(files []string) []model.Finding {
 
 	a.sendStatus("Scanning archive against IOC list and TI feeds…")
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 	go func() { defer wg.Done(); a.checkSuspiciousURLs(files) }()
 	go func() { defer wg.Done(); a.checkTI(files) }()
 	go func() { defer wg.Done(); a.checkFileHashes(files) }()
+	go func() { defer wg.Done(); a.checkJA3TI(files) }()
 	wg.Wait()
 	a.sendProgress(100, "Complete")
 

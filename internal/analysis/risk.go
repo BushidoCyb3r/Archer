@@ -35,6 +35,7 @@ var riskWeights = map[string]int{
 	"TI Hit (IP)":       35,
 	"TI Hit (Domain)":   35,
 	"TI Hit (Hash)":     35,
+	"TI Hit (JA3)":      35,
 	"Threat Intel Hit":  35, // legacy pre-v0.7.0; pre-rename findings still in DB still contribute
 	"Data Exfiltration": 25,
 	"Lateral Movement":  20,
