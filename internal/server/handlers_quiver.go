@@ -518,15 +518,17 @@ func sourceIP(r *http.Request) string {
 
 // ensureSensorLogDir creates /logs/<name>/ for an enrolling sensor.
 // os.Chmod is called explicitly because os.MkdirAll applies the process
-// umask and would strip the group-write bit. 0775 gives the quiver user
-// (a member of the archer group via Dockerfile addgroup) write access so
-// rrsync can create date-tree subdirectories on first push.
+// umask and would strip the group-write and setgid bits. 02775 gives the
+// quiver user (archer supplementary group) write access so rrsync can
+// create date-tree subdirectories, and the setgid bit causes those new
+// subdirs to inherit the archer group so the archive worker can later
+// delete source files from them.
 func (s *Server) ensureSensorLogDir(name string) error {
 	dir := filepath.Join(s.logsDir, name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	_ = os.Chmod(dir, 0o775)
+	_ = os.Chmod(dir, 0o2775)
 	return nil
 }
 

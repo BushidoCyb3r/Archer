@@ -57,9 +57,18 @@ fi
 # On first start after upgrade these dirs are root-owned; this is the
 # one-time migration. Idempotent on subsequent starts.
 chown -R archer:archer /data
-# Only chown the /logs root, not sensor subdirs. Sensor subdirs are
-# archer:archer 775 so rrsync (quiver, with archer as supplementary group)
-# can push into them; a recursive chown here would clobber that.
+# Only chown the /logs root and sensor-level dirs, not the date-tree
+# subdirs inside them. Sensor-level dirs are archer:archer 2775 so
+# rrsync (quiver, with archer as supplementary group) can push into them
+# and new date subdirs inherit the archer group via the setgid bit.
 chown archer:archer /logs
+find /logs -maxdepth 1 -mindepth 1 -type d -exec chown archer:archer {} + 2>/dev/null || true
+# Date-level subdirs (YYYY-MM-DD) are created by rsync running as the
+# sensor's push user (UID 1000 → quiver in this container). chown them
+# to archer:archer and ensure group-write so the archive worker can
+# delete source files after moving them to /data/archive.
+find /logs -mindepth 2 -maxdepth 2 -type d \
+    -exec chown archer:archer {} + \
+    -exec chmod 775 {} + 2>/dev/null || true
 
 exec su-exec archer /app/archer "$@"

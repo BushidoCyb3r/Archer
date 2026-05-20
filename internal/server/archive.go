@@ -51,9 +51,27 @@ type ArchiveResult struct {
 	Err            string `json:"error,omitempty"`
 }
 
-// runArchive moves files under logsDir whose mtime is older than `afterDays`
-// into archiveDir, preserving the directory layout. If pruneFindings is set,
-// findings with a Timestamp older than the cutoff are also removed.
+// dirDateFromPath returns the time.Time encoded in the first YYYY-MM-DD
+// path segment, plus true. Zeek stores rotated logs under date-named
+// subdirectories (/logs/<sensor>/YYYY-MM-DD/...), so this gives the actual
+// log date independent of file mtime — which rsync does not always preserve
+// when crossing mount-point boundaries. Returns false if no date segment
+// is found; the caller falls back to mtime.
+func dirDateFromPath(path string) (time.Time, bool) {
+	for _, seg := range strings.Split(filepath.ToSlash(path), "/") {
+		if t, err := time.Parse("2006-01-02", seg); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// runArchive moves files under logsDir older than `afterDays` into
+// archiveDir, preserving the directory layout. Age is determined by the
+// YYYY-MM-DD segment in the path when present (the Zeek date-tree structure)
+// and falls back to file mtime for logs without that structure. If
+// pruneFindings is set, findings with a Timestamp older than the cutoff
+// are also removed.
 //
 // dryRun reports what would be moved/pruned without touching anything on
 // disk or in the findings table — used to power the "preview before
@@ -84,7 +102,12 @@ func (s *Server) runArchive(afterDays int, pruneFindings, dryRun bool, triggered
 			strings.HasSuffix(name, ".ndjson")) {
 			return nil
 		}
-		if !info.ModTime().Before(cutoff) {
+		logDate, hasDate := dirDateFromPath(path)
+		if hasDate {
+			if !logDate.Before(cutoff) {
+				return nil
+			}
+		} else if !info.ModTime().Before(cutoff) {
 			return nil
 		}
 		rel, err := filepath.Rel(s.logsDir, path)
