@@ -28,6 +28,29 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.30.3] — 2026-05-20
+
+### Fixed
+
+- **DoH Bypass raw-log pivot scanned dns.log instead of ssl.log.**
+  `logTypesForFinding` mapped `"DoH Bypass"` to `{"dns"}`. Because DoH
+  connections are HTTPS sessions that never appear in `dns.log`, the
+  `/api/findings/{id}/raw` pivot returned no records. Corrected to `{"ssl"}`.
+
+- **Synthetic JA3 hash removed from `KnownBadJA3`.** The entry
+  `6d4a5f8b3a7c9e1d2f0b4a8c3e5f7d9a` (labeled "C2 framework generic") is
+  not present in any public JA3 threat intel database and its byte pattern
+  is consistent with a manually constructed value rather than a real TLS
+  ClientHello fingerprint. It could never have matched real traffic.
+
+### Detection changes
+
+- **Malicious JA3 detector no longer checks one synthetic hash.** The
+  removed hash was never firing on real Zeek output so no analyst baselines
+  are affected.
+
+---
+
 ## [v0.30.2] — 2026-05-20
 
 ### Fixed
