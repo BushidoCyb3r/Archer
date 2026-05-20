@@ -110,11 +110,11 @@ func RunMigrations(db *sql.DB) error {
 	}
 
 	// Foreign keys must be explicitly enabled per-connection in SQLite.
-	// Phase 7's feed_indicators table relies on ON DELETE CASCADE; the
-	// users.db connection sets MaxOpenConns=1 so this PRAGMA holds for
-	// the connection's lifetime. Older migrations didn't depend on FK
-	// enforcement so this is safe to enable retroactively on existing
-	// installs.
+	// Phase 7's feed_indicators table relies on ON DELETE CASCADE.
+	// NewUserStore sets MaxOpenConns(1) on this pool before calling
+	// RunMigrations, so this PRAGMA holds for the connection's lifetime.
+	// Older migrations didn't depend on FK enforcement so this is safe
+	// to enable retroactively on existing installs.
 	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
 		return fmt.Errorf("enable foreign keys: %w", err)
 	}
