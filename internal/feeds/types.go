@@ -88,12 +88,13 @@ type Feed struct {
 	// that feed only. Per-feed scope means a typo in another feed's
 	// URL still can't reach internal space.
 	AllowInternal bool
-	// QueryFilterJSON is a JSON object string merged into every MISP
-	// restSearch request body. Useful operator keys: tags, event_id,
-	// org, threat_level_id, category. Archer's required keys (type,
-	// to_ids, deleted, limit, page, returnFormat, timestamp) always
-	// overwrite whatever the operator sets. Empty means no extra filter.
-	// Ignored for non-MISP feeds.
+	// QueryFilterJSON is a JSON object string that scopes the upstream
+	// fetch. For MISP feeds it is merged into every /attributes/restSearch
+	// request body (Archer's required pagination/type keys always
+	// overwrite). For OpenCTI feeds it must be a FilterGroup JSON object
+	// passed as the `filters` argument on the GraphQL indicators query;
+	// when the fetch is incremental a modified > since filter is AND-ed
+	// in automatically. Empty means no extra filter.
 	QueryFilterJSON string
 	CreatedAt       int64
 	UpdatedAt       int64

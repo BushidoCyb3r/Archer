@@ -487,12 +487,137 @@ manageable without scoping. Add a filter only when you see:
 - Fetch times > 2 minutes
 - MISP host CPU spiking during Archer refresh
 
-### Filter doesn't apply to OpenCTI
+---
 
-The **MISP query filter** field is hidden in the dialog when source type
-is OpenCTI and is ignored at the adapter layer for OpenCTI feeds. The
-field is stored in the DB regardless of source type but has no effect
-on OpenCTI fetches.
+## OpenCTI query filter
+
+### What it is
+
+Each OpenCTI feed accepts the same **query filter** JSON field as MISP,
+but the format and semantics differ. For OpenCTI the value must be an
+OpenCTI `FilterGroup` object — the same shape the OpenCTI UI uses
+internally. It is passed as the `filters` argument to the `indicators`
+GraphQL query on every fetch.
+
+Requires OpenCTI ≥ 5.12. The `FilterGroup` input type was introduced in
+that release; earlier versions used a flat filters array that this
+adapter does not support. Check **Settings → About** in your OpenCTI
+instance to confirm the version before adding a filter.
+
+### FilterGroup format
+
+```json
+{
+  "mode": "and",
+  "filters": [
+    {"key": "<field>", "values": ["<value>", ...], "operator": "<op>"}
+  ],
+  "filterGroups": []
+}
+```
+
+| Field | Values |
+|---|---|
+| `mode` | `"and"` — all entries must match (recommended); `"or"` — any entry must match |
+| `filters[].key` | See key reference below |
+| `filters[].values` | Array of strings |
+| `filters[].operator` | `"eq"` (equals), `"not_eq"`, `"gt"`, `"gte"`, `"lt"`, `"lte"` |
+| `filterGroups` | Nested filter groups for compound logic. Leave as `[]` for simple use. |
+
+### How the merge works
+
+| Condition | What gets sent as `filters` |
+|---|---|
+| `since == 0`, no query filter | Nothing — `filters` arg omitted entirely |
+| `since > 0`, no query filter | AND group: `modified > ISO(since)` |
+| `since == 0`, query filter set | The operator's FilterGroup as-is |
+| `since > 0`, query filter set | AND-wrap: `modified > ISO(since)` in `filters[]`; operator's FilterGroup in `filterGroups[]` |
+
+The `modified > since` injection means incremental fetches only pull
+indicators touched since the last sync, the same behaviour MISP's
+`timestamp` parameter provides.
+
+### Key reference
+
+| Key | Operator(s) | Notes |
+|---|---|---|
+| `x_opencti_main_observable_type` | `eq`, `not_eq` | The primary type-scoping key. Values: `IPv4-Addr`, `IPv6-Addr`, `Domain-Name`, `Hostname`, `StixFile`. |
+| `confidence` | `gte`, `gt`, `lte`, `lt`, `eq` | Pass the threshold as a string: `"80"`, not `80`. Range 0–100. |
+| `revoked` | `eq` | Use `"false"` to exclude revoked indicators. |
+| `modified` | `gt`, `gte` | ISO-8601 timestamp string. Handled automatically by incremental refresh — only add to `query_filter_json` when you want a permanent floor on full pulls. |
+
+Observable types outside the table (`Url`, `Email-Addr`, `User-Account`,
+etc.) are silently skipped by the adapter regardless of the filter —
+Archer has no matcher for those shapes, so fetching them just wastes
+transfer.
+
+### Prebuilt filters
+
+**Network indicators only — IPs and domains, no file hashes**
+```json
+{"mode":"and","filters":[{"key":"x_opencti_main_observable_type","values":["IPv4-Addr","IPv6-Addr","Domain-Name","Hostname"],"operator":"eq"}],"filterGroups":[]}
+```
+The most useful first filter. Teams whose Zeek deployment doesn't yield
+`files.log` hash hits can skip `StixFile` entirely and cut OpenCTI
+fetch volume.
+
+**IPs only**
+```json
+{"mode":"and","filters":[{"key":"x_opencti_main_observable_type","values":["IPv4-Addr","IPv6-Addr"],"operator":"eq"}],"filterGroups":[]}
+```
+
+**Domains only**
+```json
+{"mode":"and","filters":[{"key":"x_opencti_main_observable_type","values":["Domain-Name","Hostname"],"operator":"eq"}],"filterGroups":[]}
+```
+
+**File hashes only**
+```json
+{"mode":"and","filters":[{"key":"x_opencti_main_observable_type","values":["StixFile"],"operator":"eq"}],"filterGroups":[]}
+```
+
+**High-confidence indicators (≥ 80)**
+```json
+{"mode":"and","filters":[{"key":"confidence","values":["80"],"operator":"gte"}],"filterGroups":[]}
+```
+Removes low-confidence entries that generate noisy findings. Adjust
+the threshold to match your threat-intel team's QA bar.
+
+**High-confidence network indicators — IPs and domains, confidence ≥ 80**
+```json
+{"mode":"and","filters":[{"key":"x_opencti_main_observable_type","values":["IPv4-Addr","IPv6-Addr","Domain-Name","Hostname"],"operator":"eq"},{"key":"confidence","values":["80"],"operator":"gte"}],"filterGroups":[]}
+```
+Most selective starting point for a shared, noisy OpenCTI tenant.
+
+**Exclude revoked indicators**
+```json
+{"mode":"and","filters":[{"key":"revoked","values":["false"],"operator":"eq"}],"filterGroups":[]}
+```
+Useful when your OpenCTI team actively revokes obsolete indicators.
+Without this, revoked entries persist in the Archer matcher until they
+age out naturally.
+
+**Permanent date floor — indicators modified in the last 90 days (full pulls)**
+```json
+{"mode":"and","filters":[{"key":"modified","values":["2024-01-01T00:00:00Z"],"operator":"gt"}],"filterGroups":[]}
+```
+Replace the timestamp with the actual floor you want. Note: incremental
+fetches scope by the last-synced timestamp automatically regardless —
+this filter only affects full pulls where `since == 0`.
+
+### When to leave it empty
+
+If you control the entire OpenCTI tenant and its indicator quality is
+high, leave the filter blank. The adapter already skips unsupported
+observable types automatically, so they add minimal overhead — fetched
+from the server but dropped during normalization. Add a filter when:
+
+- The `⚠ truncated` badge appears (100 k indicator cap hit) — add a
+  type scope to cut volume
+- OpenCTI is a shared tenant with low-confidence or irrelevant
+  indicator sets
+- You're seeing noisy TI Hit findings and want to raise the
+  confidence floor
 
 ---
 
@@ -546,6 +671,11 @@ unrecognized `x_opencti_main_observable_type` (anything outside
 `IPv4-Addr`, `IPv6-Addr`, `Domain-Name`, `Hostname`, `StixFile`) are
 silently skipped — they don't break the fetch, they just don't produce
 matchable indicators in Archer.
+
+Incremental fetches (any tick after the first full pull) automatically
+scope by the last-synced timestamp, so only indicators modified since
+the previous fetch are transferred. The **OpenCTI query filter** section
+above covers how to narrow by type or confidence on top of that.
 
 ### STIX pattern parsing
 
@@ -661,10 +791,15 @@ indicates more data, the feed row's `last_fetch_truncated` flag is set
 and the Feeds dialog renders a yellow `⚠ truncated` badge next to the
 indicator count.
 
-To resolve: add or tighten the **MISP query filter** (timestamp +
-category scoping is usually enough — see the query filter section
-above). For OpenCTI, narrow the indicator query or raise the adapter's
-`PageLimit` constant in source.
+To resolve:
+
+- **MISP**: add or tighten the **MISP query filter** (timestamp +
+  category scoping is usually enough — see the MISP query filter
+  section above).
+- **OpenCTI**: add an **OpenCTI query filter** scoping by
+  `x_opencti_main_observable_type` or `confidence` — see the prebuilt
+  filters in the OpenCTI query filter section above. As a last resort,
+  raise the `PageLimit` constant in `internal/feeds/opencti.go`.
 
 ---
 

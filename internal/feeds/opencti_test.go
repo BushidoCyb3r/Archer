@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // openCTIPage1 covers the four normalized indicator types plus three
@@ -72,7 +73,7 @@ func TestOpenCTIClient_Fetch_ParsesAndNormalizes(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewOpenCTIClient(srv.URL, "test-token", false, true)
+	c := NewOpenCTIClient(srv.URL, "test-token", false, true, "")
 	res, err := c.Fetch(context.Background(), 0)
 	if err != nil {
 		t.Fatalf("Fetch returned error: %v", err)
@@ -158,7 +159,7 @@ func TestOpenCTIClient_Fetch_FollowsPagination(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewOpenCTIClient(srv.URL, "tok", false, true)
+	c := NewOpenCTIClient(srv.URL, "tok", false, true, "")
 	c.PageSize = 1
 	res, err := c.Fetch(context.Background(), 0)
 	if err != nil {
@@ -189,7 +190,7 @@ func TestOpenCTIClient_Fetch_PageLimitGuard(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewOpenCTIClient(srv.URL, "tok", false, true)
+	c := NewOpenCTIClient(srv.URL, "tok", false, true, "")
 	c.PageLimit = 3
 	_, err := c.Fetch(context.Background(), 0)
 	if err != nil {
@@ -207,7 +208,7 @@ func TestOpenCTIClient_Fetch_PropagatesGraphQLError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewOpenCTIClient(srv.URL, "tok", false, true)
+	c := NewOpenCTIClient(srv.URL, "tok", false, true, "")
 	_, err := c.Fetch(context.Background(), 0)
 	if err == nil {
 		t.Fatalf("expected graphql error, got nil")
@@ -223,7 +224,7 @@ func TestOpenCTIClient_Fetch_PropagatesHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewOpenCTIClient(srv.URL, "tok", false, true)
+	c := NewOpenCTIClient(srv.URL, "tok", false, true, "")
 	_, err := c.Fetch(context.Background(), 0)
 	if err == nil {
 		t.Fatalf("expected HTTP 403 error, got nil")
@@ -248,6 +249,157 @@ func TestOpenCTIClient_Fetch_RejectsEmptyConfig(t *testing.T) {
 				t.Errorf("expected error for %s, got nil", tt.name)
 			}
 		})
+	}
+}
+
+// emptyPage is a minimal GraphQL response for filter-only tests that
+// don't need actual indicator data.
+const emptyPage = `{"data":{"indicators":{"edges":[],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}`
+
+func TestOpenCTIClient_Fetch_SinceFilter(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, emptyPage)
+	}))
+	defer srv.Close()
+
+	since := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC).Unix()
+	c := NewOpenCTIClient(srv.URL, "tok", false, true, "")
+	if _, err := c.Fetch(context.Background(), since); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	var req struct {
+		Variables struct {
+			Filters struct {
+				Mode    string `json:"mode"`
+				Filters []struct {
+					Key      string   `json:"key"`
+					Values   []string `json:"values"`
+					Operator string   `json:"operator"`
+				} `json:"filters"`
+			} `json:"filters"`
+		} `json:"variables"`
+	}
+	if err := json.Unmarshal(gotBody, &req); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+	fg := req.Variables.Filters
+	if fg.Mode != "and" {
+		t.Errorf("filters.mode = %q, want and", fg.Mode)
+	}
+	if len(fg.Filters) == 0 {
+		t.Fatalf("filters.filters empty — since filter not sent")
+	}
+	f0 := fg.Filters[0]
+	if f0.Key != "modified" {
+		t.Errorf("filters[0].key = %q, want modified", f0.Key)
+	}
+	if f0.Operator != "gt" {
+		t.Errorf("filters[0].operator = %q, want gt", f0.Operator)
+	}
+	if len(f0.Values) == 0 || !strings.HasPrefix(f0.Values[0], "2024-01-01T00:00:00") {
+		t.Errorf("filters[0].values = %v, want 2024-01-01T00:00:00... prefix", f0.Values)
+	}
+}
+
+func TestOpenCTIClient_Fetch_QueryFilter(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, emptyPage)
+	}))
+	defer srv.Close()
+
+	filterJSON := `{"mode":"and","filters":[{"key":"x_opencti_main_observable_type","values":["IPv4-Addr"],"operator":"eq"}],"filterGroups":[]}`
+	c := NewOpenCTIClient(srv.URL, "tok", false, true, filterJSON)
+	if _, err := c.Fetch(context.Background(), 0); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	var req struct {
+		Variables struct {
+			Filters map[string]any `json:"filters"`
+		} `json:"variables"`
+	}
+	if err := json.Unmarshal(gotBody, &req); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+	if req.Variables.Filters == nil {
+		t.Fatal("variables.filters not set when query_filter_json provided")
+	}
+	if req.Variables.Filters["mode"] != "and" {
+		t.Errorf("filters.mode = %v, want and", req.Variables.Filters["mode"])
+	}
+}
+
+func TestOpenCTIClient_Fetch_SinceAndQueryFilterCombined(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, emptyPage)
+	}))
+	defer srv.Close()
+
+	filterJSON := `{"mode":"and","filters":[{"key":"x_opencti_main_observable_type","values":["IPv4-Addr"],"operator":"eq"}],"filterGroups":[]}`
+	since := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC).Unix()
+	c := NewOpenCTIClient(srv.URL, "tok", false, true, filterJSON)
+	if _, err := c.Fetch(context.Background(), since); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	var req struct {
+		Variables struct {
+			Filters struct {
+				Mode    string `json:"mode"`
+				Filters []struct {
+					Key string `json:"key"`
+				} `json:"filters"`
+				FilterGroups []map[string]any `json:"filterGroups"`
+			} `json:"filters"`
+		} `json:"variables"`
+	}
+	if err := json.Unmarshal(gotBody, &req); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+	fg := req.Variables.Filters
+	if fg.Mode != "and" {
+		t.Errorf("top-level mode = %q, want and", fg.Mode)
+	}
+	if len(fg.Filters) == 0 || fg.Filters[0].Key != "modified" {
+		t.Errorf("top-level filters should contain modified key: %v", fg.Filters)
+	}
+	if len(fg.FilterGroups) == 0 {
+		t.Errorf("top-level filterGroups should contain operator filter, got none")
+	}
+}
+
+func TestOpenCTIClient_Fetch_NoFiltersWhenBothAbsent(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, emptyPage)
+	}))
+	defer srv.Close()
+
+	c := NewOpenCTIClient(srv.URL, "tok", false, true, "")
+	if _, err := c.Fetch(context.Background(), 0); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	var req struct {
+		Variables map[string]any `json:"variables"`
+	}
+	if err := json.Unmarshal(gotBody, &req); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+	if _, ok := req.Variables["filters"]; ok {
+		t.Errorf("variables.filters should be absent when since==0 and no query filter")
 	}
 }
 

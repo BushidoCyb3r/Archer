@@ -525,7 +525,7 @@ func (s *Server) buildFeedAdapter(f feeds.Feed) (feeds.Adapter, error) {
 	case feeds.SourceMISP:
 		return feeds.NewMISPClient(f.URL, f.APIKey, f.TLSSkipVerify, f.AllowInternal, f.QueryFilterJSON), nil
 	case feeds.SourceOpenCTI:
-		return feeds.NewOpenCTIClient(f.URL, f.APIKey, f.TLSSkipVerify, f.AllowInternal), nil
+		return feeds.NewOpenCTIClient(f.URL, f.APIKey, f.TLSSkipVerify, f.AllowInternal, f.QueryFilterJSON), nil
 	default:
 		return nil, fmt.Errorf("unsupported feed source_type: %q", f.SourceType)
 	}

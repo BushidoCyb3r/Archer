@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // OpenCTIClient adapts a single OpenCTI instance to the Adapter
@@ -33,6 +35,10 @@ type OpenCTIClient struct {
 	// that's 100k indicators per fetch — enough for most internal-team
 	// deployments.
 	PageLimit int
+	// QueryFilter holds the operator's per-feed FilterGroup, pre-parsed
+	// from Feed.QueryFilterJSON. Merged into every Fetch request alongside
+	// any since-derived modified filter. Nil means no extra filter.
+	QueryFilter map[string]any
 }
 
 // NewOpenCTIClient constructs a client with safe defaults: 30s
@@ -40,24 +46,72 @@ type OpenCTIClient struct {
 // disables certificate verification on the upstream HTTPS request —
 // opt-in per feed for internal OpenCTI deployments running self-signed
 // or internal-CA certs. allowInternal=true loosens the CheckRedirect
-// SSRF guard for internal OpenCTI URLs.
-func NewOpenCTIClient(baseURL, apiKey string, tlsSkipVerify, allowInternal bool) *OpenCTIClient {
-	return &OpenCTIClient{
+// SSRF guard for internal OpenCTI URLs. queryFilterJSON is an optional
+// OpenCTI FilterGroup JSON object (empty = no filter); if non-empty and
+// valid it is parsed into QueryFilter and merged into every Fetch request.
+func NewOpenCTIClient(baseURL, apiKey string, tlsSkipVerify, allowInternal bool, queryFilterJSON string) *OpenCTIClient {
+	c := &OpenCTIClient{
 		BaseURL:   strings.TrimRight(baseURL, "/"),
 		APIKey:    apiKey,
 		HTTP:      httpClientWithTLS(tlsSkipVerify, allowInternal),
 		PageSize:  1000,
 		PageLimit: 100,
 	}
+	if queryFilterJSON != "" {
+		var f map[string]any
+		if err := json.Unmarshal([]byte(queryFilterJSON), &f); err != nil {
+			log.Printf("feeds: opencti: query_filter_json is not valid JSON (%v) — filter ignored", err)
+		} else {
+			c.QueryFilter = f
+		}
+	}
+	return c
 }
 
 // Source satisfies Adapter.Source.
 func (c *OpenCTIClient) Source() SourceType { return SourceOpenCTI }
 
+// buildFilters assembles the GraphQL FilterGroup for a Fetch call. Four
+// cases:
+//   - since == 0, no QueryFilter → nil (omit filters from variables)
+//   - since > 0, no QueryFilter → simple AND group with modified filter
+//   - since == 0, QueryFilter set → operator filter passed as-is
+//   - both → AND-wrap: modified filter in filters[], operator filter in filterGroups[]
+func (c *OpenCTIClient) buildFilters(since int64) map[string]any {
+	var sinceFilter map[string]any
+	if since > 0 {
+		sinceFilter = map[string]any{
+			"key":      "modified",
+			"values":   []string{time.Unix(since, 0).UTC().Format(time.RFC3339)},
+			"operator": "gt",
+		}
+	}
+	switch {
+	case sinceFilter == nil && c.QueryFilter == nil:
+		return nil
+	case sinceFilter != nil && c.QueryFilter == nil:
+		return map[string]any{
+			"mode":         "and",
+			"filters":      []any{sinceFilter},
+			"filterGroups": []any{},
+		}
+	case sinceFilter == nil:
+		return c.QueryFilter
+	default:
+		return map[string]any{
+			"mode":         "and",
+			"filters":      []any{sinceFilter},
+			"filterGroups": []any{c.QueryFilter},
+		}
+	}
+}
+
 // openCTIQuery is the GraphQL query the adapter sends. Pinned to the
 // fields we actually consume; OpenCTI's schema is stable for these.
-const openCTIQuery = `query Indicators($first: Int, $after: ID) {
-  indicators(first: $first, after: $after) {
+// $filters is the optional FilterGroup input — nil when no operator
+// filter is set and since == 0; OpenCTI ignores the argument when null.
+const openCTIQuery = `query Indicators($first: Int, $after: ID, $filters: FilterGroup) {
+  indicators(first: $first, after: $after, filters: $filters) {
     edges {
       cursor
       node {
@@ -138,16 +192,10 @@ func stixValue(pattern string) string {
 // accumulated set is returned alongside the error so partial
 // progress isn't lost.
 //
-// The since argument is accepted to satisfy the Adapter interface
-// but currently ignored — OpenCTI's GraphQL Indicators query has
-// cursor pagination that doesn't have the offset-degradation
-// problem MISP's restSearch suffers from, so the urgency to add
-// incremental support is lower. When this lands, the GraphQL
-// filter shape is `filters: [{key: "modified", values: [...],
-// operator: "gt"}]`.
+// When since > 0, a modified > ISO(since) filter is AND-ed with any
+// operator QueryFilter via the GraphQL FilterGroup input. On full
+// fetches (since == 0) the QueryFilter is applied alone if set.
 func (c *OpenCTIClient) Fetch(ctx context.Context, since int64) (FetchResult, error) {
-	_ = since
-
 	if c.BaseURL == "" {
 		return FetchResult{}, fmt.Errorf("opencti: empty base URL")
 	}
@@ -158,10 +206,14 @@ func (c *OpenCTIClient) Fetch(ctx context.Context, since int64) (FetchResult, er
 	out := make([]Indicator, 0, c.PageSize)
 	truncated := false
 	var cursor string
+	pageFilters := c.buildFilters(since)
 	for page := 0; page < c.PageLimit; page++ {
 		vars := map[string]any{"first": c.PageSize}
 		if cursor != "" {
 			vars["after"] = cursor
+		}
+		if pageFilters != nil {
+			vars["filters"] = pageFilters
 		}
 
 		body, err := json.Marshal(openCTIRequest{Query: openCTIQuery, Variables: vars})
