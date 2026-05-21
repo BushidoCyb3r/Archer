@@ -1871,15 +1871,9 @@ func (s *Server) launchTIOnly(files []string) bool {
 		}
 
 		wasCancelled := az.Ctx().Err() != nil
-		newCount := 0
-		for _, f := range findings {
-			if f.IsNew {
-				newCount++
-			}
-		}
 		data, _ := json.Marshal(map[string]any{
 			"count":     len(findings),
-			"new_count": newCount,
+			"new_count": s.store.CountNewFindings(),
 			"cancelled": wasCancelled,
 		})
 		s.broker.Publish(SSEEvent{Type: "done", Data: string(data)})

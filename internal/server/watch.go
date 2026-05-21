@@ -445,15 +445,9 @@ func (s *Server) launchIncrementalAnalysis(files []string) {
 			s.store.SetLastAnalysisTime(startedAt)
 		}
 
-		newCount := 0
-		for _, f := range findings {
-			if f.IsNew {
-				newCount++
-			}
-		}
 		data, _ := json.Marshal(map[string]any{
 			"count":       len(findings),
-			"new_count":   newCount,
+			"new_count":   s.store.CountNewFindings(),
 			"cancelled":   wasCancelled,
 			"incremental": true,
 		})
@@ -754,15 +748,9 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) bool {
 			}
 		}
 
-		newCount := 0
-		for _, f := range findings {
-			if f.IsNew {
-				newCount++
-			}
-		}
 		data, _ := json.Marshal(map[string]any{
 			"count":     len(findings),
-			"new_count": newCount,
+			"new_count": s.store.CountNewFindings(),
 			"cancelled": wasCancelled,
 		})
 		s.broker.Publish(SSEEvent{Type: "done", Data: string(data)})

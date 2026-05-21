@@ -1653,3 +1653,14 @@ func (s *Store) TryStartAnalysis() bool {
 	s.analyzing = true
 	return true
 }
+
+// CountNewFindings returns the number of findings currently marked
+// is_new=1 in the DB. Used to populate the done-event new_count so
+// the analysis-complete modal always matches what the delta button shows
+// — including is_new findings from the previous full pass that an
+// incremental run didn't regenerate and therefore didn't count.
+func (s *Store) CountNewFindings() int {
+	var n int
+	s.db.QueryRow(`SELECT COUNT(*) FROM findings WHERE is_new=1`).Scan(&n)
+	return n
+}
