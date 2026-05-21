@@ -20,15 +20,15 @@ const openCTIPage1 = `{
   "data": {
     "indicators": {
       "edges": [
-        {"cursor":"c1","node":{"id":"indicator--ip4","pattern":"[ipv4-addr:value = '203.0.113.1']","x_opencti_main_observable_type":"IPv4-Addr","objectLabel":{"edges":[{"node":{"value":"tlp:white"}}]}}},
-        {"cursor":"c2","node":{"id":"indicator--ip6","pattern":"[ipv6-addr:value = '2001:db8::1']","x_opencti_main_observable_type":"IPv6-Addr","objectLabel":{"edges":[]}}},
-        {"cursor":"c3","node":{"id":"indicator--cidr","pattern":"[ipv4-addr:value = '10.0.0.0/8']","x_opencti_main_observable_type":"IPv4-Addr","objectLabel":{"edges":[]}}},
-        {"cursor":"c4","node":{"id":"indicator--dom","pattern":"[domain-name:value = 'evil.test']","x_opencti_main_observable_type":"Domain-Name","objectLabel":{"edges":[{"node":{"value":"campaign:trickbot"}}]}}},
-        {"cursor":"c5","node":{"id":"indicator--host","pattern":"[hostname:value = 'c2.evil.test']","x_opencti_main_observable_type":"Hostname","objectLabel":{"edges":[]}}},
-        {"cursor":"c6","node":{"id":"indicator--hash","pattern":"[file:hashes.MD5 = 'd41d8cd98f00b204e9800998ecf8427e']","x_opencti_main_observable_type":"StixFile","objectLabel":{"edges":[]}}},
-        {"cursor":"c7","node":{"id":"indicator--url","pattern":"[url:value = 'http://evil.test/path']","x_opencti_main_observable_type":"Url","objectLabel":{"edges":[]}}},
-        {"cursor":"c8","node":{"id":"indicator--bad","pattern":"[ipv4-addr:value = 'not-an-ip']","x_opencti_main_observable_type":"IPv4-Addr","objectLabel":{"edges":[]}}},
-        {"cursor":"c9","node":{"id":"indicator--noval","pattern":"[ipv4-addr:value = ]","x_opencti_main_observable_type":"IPv4-Addr","objectLabel":{"edges":[]}}}
+        {"cursor":"c1","node":{"id":"indicator--ip4","pattern":"[ipv4-addr:value = '203.0.113.1']","x_opencti_main_observable_type":"IPv4-Addr","objectLabel":[{"value":"tlp:white"}]}},
+        {"cursor":"c2","node":{"id":"indicator--ip6","pattern":"[ipv6-addr:value = '2001:db8::1']","x_opencti_main_observable_type":"IPv6-Addr","objectLabel":[]}},
+        {"cursor":"c3","node":{"id":"indicator--cidr","pattern":"[ipv4-addr:value = '10.0.0.0/8']","x_opencti_main_observable_type":"IPv4-Addr","objectLabel":[]}},
+        {"cursor":"c4","node":{"id":"indicator--dom","pattern":"[domain-name:value = 'evil.test']","x_opencti_main_observable_type":"Domain-Name","objectLabel":[{"value":"campaign:trickbot"}]}},
+        {"cursor":"c5","node":{"id":"indicator--host","pattern":"[hostname:value = 'c2.evil.test']","x_opencti_main_observable_type":"Hostname","objectLabel":[]}},
+        {"cursor":"c6","node":{"id":"indicator--hash","pattern":"[file:hashes.MD5 = 'd41d8cd98f00b204e9800998ecf8427e']","x_opencti_main_observable_type":"StixFile","objectLabel":[]}},
+        {"cursor":"c7","node":{"id":"indicator--url","pattern":"[url:value = 'http://evil.test/path']","x_opencti_main_observable_type":"Url","objectLabel":[]}},
+        {"cursor":"c8","node":{"id":"indicator--bad","pattern":"[ipv4-addr:value = 'not-an-ip']","x_opencti_main_observable_type":"IPv4-Addr","objectLabel":[]}},
+        {"cursor":"c9","node":{"id":"indicator--noval","pattern":"[ipv4-addr:value = ]","x_opencti_main_observable_type":"IPv4-Addr","objectLabel":[]}}
       ],
       "pageInfo": {"hasNextPage": false, "endCursor": "c6"}
     }
@@ -40,7 +40,7 @@ const openCTIPagedPage1 = `{
   "data": {
     "indicators": {
       "edges": [
-        {"cursor":"p1","node":{"id":"indicator--p1","pattern":"[ipv4-addr:value = '203.0.113.10']","x_opencti_main_observable_type":"IPv4-Addr","objectLabel":{"edges":[]}}}
+        {"cursor":"p1","node":{"id":"indicator--p1","pattern":"[ipv4-addr:value = '203.0.113.10']","x_opencti_main_observable_type":"IPv4-Addr","objectLabel":[]}}
       ],
       "pageInfo": {"hasNextPage": true, "endCursor": "AFTER_PAGE_1"}
     }
@@ -51,7 +51,7 @@ const openCTIPagedPage2 = `{
   "data": {
     "indicators": {
       "edges": [
-        {"cursor":"p2","node":{"id":"indicator--p2","pattern":"[ipv4-addr:value = '203.0.113.20']","x_opencti_main_observable_type":"IPv4-Addr","objectLabel":{"edges":[]}}}
+        {"cursor":"p2","node":{"id":"indicator--p2","pattern":"[ipv4-addr:value = '203.0.113.20']","x_opencti_main_observable_type":"IPv4-Addr","objectLabel":[]}}
       ],
       "pageInfo": {"hasNextPage": false, "endCursor": "AFTER_PAGE_2"}
     }
@@ -183,7 +183,7 @@ func TestOpenCTIClient_Fetch_PageLimitGuard(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{
 			"data": {"indicators": {
-				"edges": [{"cursor":"x","node":{"id":"i--inf","pattern":"[ipv4-addr:value = '1.1.1.1']","x_opencti_main_observable_type":"IPv4-Addr","objectLabel":{"edges":[]}}}],
+				"edges": [{"cursor":"x","node":{"id":"i--inf","pattern":"[ipv4-addr:value = '1.1.1.1']","x_opencti_main_observable_type":"IPv4-Addr","objectLabel":[]}}],
 				"pageInfo": {"hasNextPage": true, "endCursor": "always-more"}
 			}}
 		}`)

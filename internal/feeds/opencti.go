@@ -119,9 +119,7 @@ const openCTIQuery = `query Indicators($first: Int, $after: ID, $filters: Filter
         pattern
         x_opencti_main_observable_type
         objectLabel {
-          edges {
-            node { value }
-          }
+          value
         }
       }
     }
@@ -145,12 +143,8 @@ type openCTIResponse struct {
 					ID                         string `json:"id"`
 					Pattern                    string `json:"pattern"`
 					XOpenCTIMainObservableType string `json:"x_opencti_main_observable_type"`
-					ObjectLabel                struct {
-						Edges []struct {
-							Node struct {
-								Value string `json:"value"`
-							} `json:"node"`
-						} `json:"edges"`
+					ObjectLabel []struct {
+						Value string `json:"value"`
 					} `json:"objectLabel"`
 				} `json:"node"`
 			} `json:"edges"`
@@ -287,12 +281,8 @@ func normalizeOpenCTINode(node struct {
 	ID                         string `json:"id"`
 	Pattern                    string `json:"pattern"`
 	XOpenCTIMainObservableType string `json:"x_opencti_main_observable_type"`
-	ObjectLabel                struct {
-		Edges []struct {
-			Node struct {
-				Value string `json:"value"`
-			} `json:"node"`
-		} `json:"edges"`
+	ObjectLabel                []struct {
+		Value string `json:"value"`
 	} `json:"objectLabel"`
 }) (Indicator, bool) {
 	val := stixValue(node.Pattern)
@@ -329,10 +319,10 @@ func normalizeOpenCTINode(node struct {
 		return Indicator{}, false
 	}
 
-	tags := make([]string, 0, len(node.ObjectLabel.Edges))
-	for _, e := range node.ObjectLabel.Edges {
-		if e.Node.Value != "" {
-			tags = append(tags, e.Node.Value)
+	tags := make([]string, 0, len(node.ObjectLabel))
+	for _, l := range node.ObjectLabel {
+		if l.Value != "" {
+			tags = append(tags, l.Value)
 		}
 	}
 
