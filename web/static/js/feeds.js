@@ -131,7 +131,25 @@ const Feeds = (() => {
 
   function _syncQueryFilterVisibility() {
     const st = document.getElementById('feeds-edit-source-type').value;
-    document.getElementById('feeds-edit-query-filter-wrap').style.display = st === 'misp' ? '' : 'none';
+    const wrap = document.getElementById('feeds-edit-query-filter-wrap');
+    const label = document.getElementById('feeds-edit-query-filter-label');
+    const ta = document.getElementById('feeds-edit-query-filter');
+    const help = document.getElementById('feeds-edit-query-filter-help');
+    wrap.style.display = (st === 'misp' || st === 'opencti') ? '' : 'none';
+    if (st === 'opencti') {
+      label.textContent = 'OpenCTI query filter (FilterGroup JSON, optional)';
+      ta.placeholder = '{"mode":"and","filters":[{"key":"x_opencti_main_observable_type","values":["IPv4-Addr","IPv6-Addr","Domain-Name","Hostname"],"operator":"eq"}],"filterGroups":[]}';
+      help.innerHTML = 'Passed as the <code>filters</code> argument on the GraphQL indicators query.' +
+        ' When incremental, a <code>modified &gt; since</code> filter is AND-ed in automatically.' +
+        ' Prebuilt filters: see docs/FEEDS.md. Leave empty for no additional filter.';
+    } else {
+      label.textContent = 'MISP query filter (JSON, optional)';
+      ta.placeholder = '{"tags":["tlp:red"]}';
+      help.innerHTML = 'Merged into every restSearch request. Useful keys: <code>tags</code>, <code>event_id</code>,' +
+        ' <code>org</code>, <code>threat_level_id</code>, <code>category</code>.' +
+        ‘ Archer’s pagination, type-sharding, and IDS-flag keys always take precedence.’ +
+        ' Leave empty for no additional filter.';
+    }
   }
 
   function _openEditDialog(feed) {

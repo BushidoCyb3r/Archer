@@ -865,11 +865,11 @@
       Other feeds keep the guard in place.
     </div>
     <div id="feeds-edit-query-filter-wrap" style="margin-top:10px;display:none">
-      <label style="font-size:11px;color:var(--fg-dim);display:block;margin-bottom:4px">MISP query filter (JSON, optional)</label>
+      <label id="feeds-edit-query-filter-label" style="font-size:11px;color:var(--fg-dim);display:block;margin-bottom:4px">MISP query filter (JSON, optional)</label>
       <textarea id="feeds-edit-query-filter" class="dlg-input" rows="4"
         placeholder='{"tags":["tlp:red"]}'
         style="width:100%;font-family:monospace;font-size:11px;resize:vertical"></textarea>
-      <div style="font-size:11px;color:var(--fg-dim);margin-top:4px">
+      <div id="feeds-edit-query-filter-help" style="font-size:11px;color:var(--fg-dim);margin-top:4px">
         Merged into every restSearch request. Useful keys: <code>tags</code>, <code>event_id</code>,
         <code>org</code>, <code>threat_level_id</code>, <code>category</code>.
         Archer's pagination, type-sharding, and IDS-flag keys always take precedence.
