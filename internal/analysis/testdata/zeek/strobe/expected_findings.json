@@ -15,7 +15,7 @@
     "score": 88,
     "src_ip": "192.168.1.20",
     "dst_ip": "203.0.113.30",
-    "detail": "Multi-stage activity on (192.168.1.20 → 203.0.113.30): Beaconing, Strobe | Contributing finding IDs: 1, 2",
+    "detail": "Multi-stage activity on (192.168.1.20 → 203.0.113.30) — Beaconing, Strobe | Contributing finding IDs: 1, 2",
     "timestamp": "2024-01-15 12:00:00"
   },
   {

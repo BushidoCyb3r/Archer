@@ -5,7 +5,7 @@
     "score": 90,
     "src_ip": "192.168.8.30",
     "dst_ip": "198.51.100.99",
-    "detail": "Multi-stage activity on (192.168.8.30 → 198.51.100.99): Suspicious File Download, Suspicious URL | Contributing finding IDs: 1, 2",
+    "detail": "Multi-stage activity on (192.168.8.30 → 198.51.100.99) — Suspicious File Download, Suspicious URL | Contributing finding IDs: 1, 2",
     "timestamp": "2024-01-15 12:00:15"
   },
   {

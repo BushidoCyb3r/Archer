@@ -269,7 +269,7 @@ func (a *Analyzer) correlateFindings() {
 			SrcIP:    key.src,
 			DstIP:    key.dst,
 			Sensor:   key.sensor,
-			Detail: fmt.Sprintf("Multi-stage activity on (%s → %s): %s | Contributing finding IDs: %s",
+			Detail: fmt.Sprintf("Multi-stage activity on (%s → %s) — %s | Contributing finding IDs: %s",
 				key.src, key.dst, strings.Join(typeList, ", "), strings.Join(idStrs, ", ")),
 			Timestamp:    pd.earliestTS,
 			Correlations: contributorIDs,
