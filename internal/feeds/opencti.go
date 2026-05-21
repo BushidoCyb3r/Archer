@@ -143,7 +143,7 @@ type openCTIResponse struct {
 					ID                         string `json:"id"`
 					Pattern                    string `json:"pattern"`
 					XOpenCTIMainObservableType string `json:"x_opencti_main_observable_type"`
-					ObjectLabel []struct {
+					ObjectLabel                []struct {
 						Value string `json:"value"`
 					} `json:"objectLabel"`
 				} `json:"node"`

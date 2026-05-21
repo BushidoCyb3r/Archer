@@ -28,6 +28,64 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.31.0] — 2026-05-21
+
+### Added
+
+- **OpenCTI feed filtering and incremental `since` support.** The feeds
+  configuration now accepts an optional `query_filter_json` field for
+  OpenCTI sources, passed as the `filters` variable in every GraphQL
+  `indicators` query. Supports the full OpenCTI `FilterGroup` format
+  (`{"mode":"and","filters":[...],"filterGroups":[]}`). When both a
+  `since` timestamp and an operator-supplied filter are present they are
+  AND-combined in a `filterGroups` wrapper so neither overrides the other.
+  `docs/FEEDS.md` has the full filter reference and seven prebuilt
+  `FilterGroup` snippets for common feed shapes (network observables,
+  file hashes, payload delivery, etc.).
+
+- **Feeds edit dialog shows the query filter field for OpenCTI sources.**
+  The query filter textarea now appears and relabels itself when the
+  source type is set to `opencti`, with placeholder text and inline help
+  appropriate for `FilterGroup` JSON. Previously the field was only
+  revealed for MISP sources.
+
+### Fixed
+
+- **Analysis completion modal reported 0 new findings during incremental
+  TI-only passes.** The `new_count` metric was derived from the in-memory
+  findings slice populated during each run. Incremental TI passes only
+  regenerate TI findings, so non-TI findings with `is_new=1` from prior
+  full passes were invisible to the counter — the modal showed 0 even
+  while the delta button showed active new findings. All three call sites
+  (full pass, incremental pass, on-demand analyze) now query
+  `SELECT COUNT(*) FROM findings WHERE is_new=1` directly, matching the
+  count the delta button displays.
+
+- **Feeds JS module failed to load after query filter field update.** A
+  smart-quote substitution in the source edit corrupted string literals
+  in `_syncQueryFilterVisibility` (ASCII `'` replaced with U+2018/U+2019),
+  producing a syntax error that prevented the entire feeds module from
+  parsing.
+
+- **OpenCTI `objectLabel` GraphQL query failed on flat-array schema.**
+  The query used an `edges { node { value } }` connection fragment, but
+  some OpenCTI deployments expose `objectLabel` as a flat `[Label]` array
+  rather than a `LabelConnection`. Updated the query, response struct, and
+  normalizer to use the flat form.
+
+### Detection changes
+
+- **Correlated Activity detail string separator changed from `: ` to ` — `.**
+  The segment between the host pair and the detector type list now uses an
+  em-dash instead of a colon. The colon caused `_parseDetail` in the UI to
+  split the entire line into an oversized key with no value, overlapping
+  the detail pane. Existing `Correlated Activity` findings will have their
+  `Detail` field updated on the next full analysis pass (fingerprints are
+  stable — only the Detail string changes). Analysts with saved searches or
+  scripts that match on the old `: ` format should update them.
+
+---
+
 ## [v0.30.4] — 2026-05-20
 
 ### Fixed
@@ -6004,7 +6062,12 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.30.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.31.0...HEAD
+[v0.31.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.30.4...v0.31.0
+[v0.30.4]: https://github.com/BushidoCyb3r/Archer/compare/v0.30.3...v0.30.4
+[v0.30.3]: https://github.com/BushidoCyb3r/Archer/compare/v0.30.2...v0.30.3
+[v0.30.2]: https://github.com/BushidoCyb3r/Archer/compare/v0.30.1...v0.30.2
+[v0.30.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.30.0...v0.30.1
 [v0.30.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.29.0...v0.30.0
 [v0.29.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.28.0...v0.29.0
 [v0.28.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.27.2...v0.28.0
