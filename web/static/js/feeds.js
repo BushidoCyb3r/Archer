@@ -147,7 +147,7 @@ const Feeds = (() => {
       ta.placeholder = '{"tags":["tlp:red"]}';
       help.innerHTML = 'Merged into every restSearch request. Useful keys: <code>tags</code>, <code>event_id</code>,' +
         ' <code>org</code>, <code>threat_level_id</code>, <code>category</code>.' +
-        ‘ Archer’s pagination, type-sharding, and IDS-flag keys always take precedence.’ +
+        ' Pagination, type-sharding, and IDS-flag keys always take precedence.' +
         ' Leave empty for no additional filter.';
     }
   }
