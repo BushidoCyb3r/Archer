@@ -28,6 +28,24 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.33.1] — 2026-05-22
+
+### Fixed
+
+- **Overlapping text in finding detail pane for all finding types.** The
+  key/value layout in the detail tab now wraps correctly under all content
+  widths. `.ds-key` column widened to 128 px with `word-break: break-word`
+  (replacing the previous `white-space: nowrap` which caused key text to
+  bleed into the value column). `.ds-val` gains `overflow-wrap: anywhere`
+  and `min-width: 0` to allow the flex cell to shrink below its content
+  size. Pipe-delimited segments whose label portion exceeds 28 characters
+  are now rendered full-width rather than as a structured key/value row,
+  preventing long sentence fragments (e.g. "URLhaus malware distribution
+  host", "High subdomain diversity — apex") from being misidentified as
+  key labels.
+
+---
+
 ## [v0.33.0] — 2026-05-22
 
 ### Security
@@ -6226,7 +6244,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.33.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.33.1...HEAD
+[v0.33.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.33.0...v0.33.1
 [v0.33.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.32.0...v0.33.0
 [v0.32.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.31.0...v0.32.0
 [v0.31.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.30.4...v0.31.0
