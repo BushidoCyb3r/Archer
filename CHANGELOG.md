@@ -28,6 +28,94 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.32.0] — 2026-05-22
+
+### Fixed
+
+- **Analysis slot races across all mutation paths.** A cluster of
+  concurrent-operation races eliminated across import, archive run,
+  archive scan, sensor enrollment, disenroll, and purge:
+  - `setFindingsImpl` no longer releases the analysis slot. Only the
+    goroutine or handler that claimed the slot via `TryStartAnalysis`
+    releases it via `SetAnalyzing(false)`. Pre-fix, the import path
+    released the slot inside `setFindingsImpl` before the handler
+    returned, allowing a watch tick or user click to claim it and
+    spawn a parallel analysis goroutine.
+  - Import, archive run (non-dry-run), archive scan, enrollment,
+    disenroll, and purge all claim the slot before mutating shared
+    state. They are now mutually exclusive with one another and with
+    analysis runs.
+  - The fingerprint-skip path in the watch scheduler published no
+    `done` SSE event after releasing the slot, leaving a window where
+    a new operation could claim the slot before subscribers processed
+    the skip. Fixed by publishing `status` and `done` (with
+    `"skipped": true`) while the slot is still held.
+
+- **Sensor lifecycle races eliminated.** Disenroll now claims the slot
+  before setting sensor status to `"disenrolling"`, so a 409 leaves
+  the sensor in `"enrolled"` with the Disenroll button visible.
+  Enrollment claims the slot before `CreateSensor` so a concurrent
+  disenroll cannot target the newly inserted row before filesystem
+  setup completes. Enrollment follows a DB-row-first sequence with a
+  full rollback chain; a failed `RemoveAuthKey` during rollback is
+  logged with both errors and surfaces a 500 body telling the operator
+  which sensor requires manual `authorized_keys` cleanup. Disenroll
+  and purge re-read the sensor row via `GetSensorByID` after claiming
+  the slot to avoid acting on a stale in-memory snapshot.
+
+- **Import notification atomicity.** Pre-fix, import called
+  `SetFindings` (which marks incoming findings `IsNew=true` and
+  creates notifications) and then attempted to dismiss the resulting
+  notifications in a second operation — a TOCTOU window between the
+  two store calls. Fixed by adding an `emitNotifications bool`
+  parameter to `setFindingsImpl`; the import path passes `false`,
+  suppressing `IsNew` and notification creation atomically within the
+  single lock hold.
+
+- **Stale notifications after findings pruned or cleared.**
+  `dismissOrphanedFindingNotificationsLocked` is now wired into all
+  four code paths that remove findings: `ClearFindings`,
+  `PruneFindingsBefore`, `DeleteFindingsBySensorPrefix`, and
+  `DeleteOrphanedHostRiskScores`. Bell notifications referencing
+  purged finding IDs are dismissed in the same store transaction that
+  removes the finding rows.
+
+- **Raw-log pivot domain matching.** DNS log files now match the
+  `query` field (exact match or subdomain) when the finding's
+  `DstIP` is a hostname rather than a routable IP. HTTP log files
+  match the `host` request header. Previously both fell through to an
+  `id.resp_h` comparison that always missed name-based findings,
+  returning an empty raw-log set.
+
+### Detection changes
+
+- **HTTP Beaconing findings now include `dst_port`.** The `uriGroup`
+  and `beaconKey` types carry a `port` field that gates URI footprint
+  aggregation per destination port. Cross-port combinations (e.g.
+  `80` and `8080` to the same host) are no longer merged into a
+  single beacon, eliminating false footprint inflation in multi-port
+  deployments. Findings emit `"dst_port"` in their `Detail` payload.
+  Operators with scripts parsing HTTP Beaconing detail fields will see
+  the new field; existing saved findings are unaffected until the next
+  full re-analysis.
+
+### Changed
+
+- **`/api/analyze/status` gains a `blocked` field.** When the
+  analysis slot is held by a non-cancellable operation (import,
+  archive run, archive scan, enrollment, disenroll, purge), the
+  response returns `"running": true, "blocked": true`. Stop/Pause
+  controls are hidden during blocked state; a poll restores the
+  correct UI state when the slot is released.
+- **SSE `done` event gains a `skipped` field.** When the watch
+  scheduler skips a full pass because the dataset fingerprint is
+  unchanged, it now emits `{"type":"done","data":{"skipped":true,...}}`
+  rather than only a `status` message. The frontend treats `skipped`
+  as a no-op completion — the Analyze button is restored without
+  opening the analysis-complete modal or refreshing findings.
+
+---
+
 ## [v0.31.0] — 2026-05-21
 
 ### Added
@@ -6063,6 +6151,7 @@ The baseline detection behavior is the in-tree state at this cut.
   tooling that parsed the literal as a sentinel needs a one-line update.
 
 [Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.31.0...HEAD
+[v0.32.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.31.0...v0.32.0
 [v0.31.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.30.4...v0.31.0
 [v0.30.4]: https://github.com/BushidoCyb3r/Archer/compare/v0.30.3...v0.30.4
 [v0.30.3]: https://github.com/BushidoCyb3r/Archer/compare/v0.30.2...v0.30.3
