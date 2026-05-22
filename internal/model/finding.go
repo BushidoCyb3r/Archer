@@ -300,23 +300,24 @@ func (f Finding) Fingerprint() Fingerprint {
 	return Fingerprint{Type: f.Type, SrcIP: f.SrcIP, DstIP: f.DstIP, DstPort: f.DstPort}
 }
 
-// Notification is a UI alert surfaced through the bell icon. Kind
-// disambiguates what the operator is being told about:
-//   - "finding" carries a FindingID; the Jump button navigates to
-//     that finding in the table. Emitted when a new finding scores
-//     >= 99 (previously: every CRITICAL/TI finding, which was
-//     noisy enough that operators learned to ignore the bell).
-//   - "sensor" carries a Target (sensor name); the Jump button
-//     opens the Sensors modal. Emitted when a sensor's last_seen
-//     crosses the staleness threshold.
-//   - "feed" carries a Target (feed name); the Jump button opens
-//     the Feeds modal. Emitted when a feed's consecutive_failures
-//     or staleness crosses the unhealthy threshold.
+// Notification is a UI alert. Kind controls where it surfaces:
+//   - "finding" surfaces in the bell panel. Carries a FindingID; the
+//     Jump button navigates to that finding in the table. Emitted when
+//     a new finding scores >= 95 (previously every CRITICAL/TI finding,
+//     which was noisy enough that operators learned to ignore the bell).
+//   - "sensor" surfaces as a count badge on the Sensors nav button.
+//     Carries a Target (sensor name); clicking the button opens the
+//     Sensors modal and clears the badge. Emitted when a sensor's
+//     last_seen crosses the staleness threshold.
+//   - "feed" surfaces as a count badge on the Feeds nav button.
+//     Carries a Target (feed name); clicking the button opens the
+//     Feeds modal and clears the badge. Emitted when a feed's
+//     consecutive_failures or staleness crosses the unhealthy threshold.
 //
 // Empty Kind reads as "finding" for backward compat with notifications
 // persisted before the field existed. Detail is a human-readable
-// description rendered under the type/severity line — sensor/feed
-// alarms populate it; finding alarms leave it empty.
+// description — sensor/feed alarms populate it; finding alarms leave
+// it empty.
 type Notification struct {
 	ID        int    `json:"id"`
 	Kind      string `json:"kind,omitempty"`

@@ -118,9 +118,10 @@ A new finding's life:
    the [Storage](#storage) section.
 5. **TI cross-annotation runs.** `crossAnnotateNewTIHits` walks new TI
    hits and adds analyst notes to sibling findings on the same IP.
-6. **Notifications fire.** Critical-severity new findings emit
-   `notification` SSE events, dropping into the analyst UI's bell.
-   `Host Risk Score` is suppressed (it's a roll-up).
+6. **Notifications fire.** New findings with `score >= 95` emit
+   `notification` SSE events. Finding notifications surface in the
+   bell panel; sensor/feed alarms surface as badges on their nav
+   buttons. `Host Risk Score` is suppressed (it's a roll-up).
 7. **`done` SSE event fires.** UI re-fetches `/api/findings` and
    re-renders. Watch ticks include `incremental: true` so the UI
    distinguishes them from full passes.
@@ -259,14 +260,16 @@ CREATE TABLE unauthorized_attempts (...);
 
 -- v0.17.1 NEW-98 / migration 0014. Notifications persist across server
 -- restart so a finding that rang the bell at T isn't lost if Archer
--- restarts at T+5 minutes. Kind disambiguates row meaning:
---   'finding' carries FindingID + SrcIP/DstIP/DstPort; Jump scrolls
---     to the row in the findings table.
---   'sensor' carries Target=sensor name; Jump opens the Sensors modal.
---   'feed'   carries Target=feed name;   Jump opens the Feeds modal.
+-- restarts at T+5 minutes. Kind controls where the alert surfaces:
+--   'finding' carries FindingID + SrcIP/DstIP/DstPort; surfaces in
+--     the bell panel; Jump scrolls to the row in the findings table.
+--   'sensor' carries Target=sensor name; surfaces as a badge on the
+--     Sensors nav button; opening the modal clears the badge.
+--   'feed'   carries Target=feed name; surfaces as a badge on the
+--     Feeds nav button; opening the modal clears the badge.
 -- Empty Kind reads as 'finding' (pre-v0.17.0 persisted rows).
 -- Dismissed is a soft delete — the row stays for forensic purposes
--- but the bell ignores dismissed=1.
+-- but the bell and button badges ignore dismissed=1.
 CREATE TABLE notifications (
     id         INTEGER PRIMARY KEY,
     kind       TEXT DEFAULT '',         -- 'finding'/'sensor'/'feed' or empty
@@ -445,7 +448,8 @@ whose row would be invisible in the table. NEW-111 (v0.18.1) — the
 matching cleanup pass `dismissHiddenFindingNotificationsLocked` runs
 from `SetAllowlist` and `AddSuppression` to mark already-emitted
 finding notifications dismissed when their src or dst is now hidden.
-Sensor and feed alarms have no src/dst IPs and pass through unchanged.
+Sensor and feed alarms have no src/dst IPs and pass through unchanged
+(they surface on their nav buttons, not the bell).
 
 After the merge persists, `SetFindings` also writes one row per
 Beaconing / HTTP Beaconing / DNS Beaconing finding to `beacon_history`, keyed by

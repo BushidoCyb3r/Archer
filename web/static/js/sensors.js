@@ -454,8 +454,7 @@ const Sensors = (() => {
   }
 
   // open is the public entry point used by both the Sensors button
-  // click handler and the bell-notification jump dispatch for
-  // Kind=sensor alarms. Refreshes the data sources the modal reads
+  // click handler and the Kind=sensor alarm badge on the nav button. Refreshes the data sources the modal reads
   // from, then shows the dialog. Dismisses any pending sensor alarms
   // so the button badge clears — opening the modal is the acknowledgment.
   async function open() {

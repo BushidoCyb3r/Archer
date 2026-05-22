@@ -464,8 +464,8 @@ the sensor heartbeat alarm reads `lastLogMTime` from the directory
 on first scan. The directory's mtime is whatever the last write
 was — often months stale. With the freshly-enrolled sensor's
 `last_seen_at=0`, `max(0, stale_mtime) = stale_mtime`, which is
-older than the `sensor_stale_threshold_hours` threshold (default 2h). The bell fires a false-positive
-"sensor offline" alarm at the first 5-min tick after enrollment.
+older than the `sensor_stale_threshold_hours` threshold (default 2h). A false-positive
+"sensor offline" alarm fires (appearing on the Sensors button badge) at the first 5-min tick after enrollment.
 NEW-104 in the twenty-third audit round. Mitigation is a single
 command before the re-enrollment install runs:
 
@@ -560,48 +560,57 @@ minimum — see the scope note in the hardening section.
 ## Health monitoring
 
 v0.17.0 added three operational health surfaces. They share the same
-bell + SSE pipe as detection findings; the `kind` field on each
-`Notification` row tells the UI (and any external consumer of
-`/api/notifications`) what the alarm is about.
+SSE pipe as detection findings; the `kind` field on each `Notification`
+row tells the UI (and any external consumer of `/api/notifications`)
+what the alarm is about and where it surfaces.
 
-### Bell (in-UI)
+### Bell (in-UI) — finding alarms only
 
-- **Finding alarms.** `kind=finding`. Fire on new findings with
-  `score >= 95`. Before v0.17.0 the gate was "CRITICAL severity or
-  any TI type, regardless of score" — that fired often enough that
-  operators learned to ignore the bell. v0.17.0 first cut the
-  threshold at `>= 99`, but that over-corrected — discrete-tier
-  detectors that score below 99 by design (URLhaus 96, Malicious
-  JA3 95) stayed silent. v0.17.1 NEW-99 lowered the floor to 95
-  so high-confidence TI hits ring through. v0.18.1 NEW-111 added
-  an allowlist/suppression gate on top: notifications whose src
-  or dst would be hidden from the table at emit time skip the
-  bell entirely, and dismiss in-place when an admin later adds
-  the matching entry.
+`kind=finding`. Fires on new findings with `score >= 95`. Before
+v0.17.0 the gate was "CRITICAL severity or any TI type, regardless of
+score" — that fired often enough that operators learned to ignore the
+bell. v0.17.0 first cut the threshold at `>= 99`, but that
+over-corrected — discrete-tier detectors that score below 99 by design
+(URLhaus 96, Malicious JA3 95) stayed silent. v0.17.1 NEW-99 lowered
+the floor to 95 so high-confidence TI hits ring through. v0.18.1
+NEW-111 added an allowlist/suppression gate: notifications whose src or
+dst would be hidden from the table at emit time skip the bell entirely,
+and dismiss in-place when an admin later adds the matching entry.
+
+The bell's **Jump** button navigates to the finding row (clearing
+filters so pagination and delta-mode can't exclude it).
+
+### Sensors button badge — sensor alarms
+
+A count badge on the **Sensors** nav button signals sensor health
+issues. Clicking the button opens the Sensors modal and clears the
+badge (opening the modal is the acknowledgment).
+
 - **Sensor heartbeat alarm.** `kind=sensor`, `type=Sensor stale`, `target=<sensor name>`.
   Fires when an enrolled sensor's `last_seen_at` is older than
   `sensor_stale_threshold_hours` (default 2h, configurable in Settings).
-  One alarm per staleness episode — transition-edge dedup means the bell doesn't
-  re-fire every 5min while the sensor stays silent. Recovery
-  (sensor checks in again) clears the dedup flag, so a future
-  re-staleness fires a fresh alarm. Disenrolled sensors and
-  never-reported sensors are skipped.
+  One alarm per staleness episode — transition-edge dedup means the badge
+  doesn't increment every 5min while the sensor stays silent. Recovery
+  (sensor checks in again) clears the dedup flag so a future re-staleness
+  fires a fresh alarm. Disenrolled and never-reported sensors are skipped.
 - **Rsync-dead alarm.** `kind=sensor`, `type=Sensor rsync stopped`, `target=<sensor name>`.
   Fires when a sensor is actively checking in (fresh `last_seen_at`) but
   its log directory mtime has not advanced in more than
   `rsync_stale_threshold_hours` (default 4h, configurable). Indicates a
-  live sensor whose rsync is broken — network or config issue on the sensor
-  side. Same transition-edge dedup as the heartbeat alarm.
+  live sensor whose rsync is broken. Same transition-edge dedup as the
+  heartbeat alarm.
+
+### Feeds button badge — feed alarms
+
+A count badge on the **Feeds** nav button signals feed health issues.
+Clicking the button opens the Feeds modal and clears the badge.
+
 - **Feed reliability alarm.** `kind=feed`, `target=<feed name>`.
   Fires when an enabled feed has either `consecutive_failures >= 3`
-  (the refresh worker bumps the counter on every error and resets
-  it on every success) or has gone longer than `feed_stale_threshold_hours`
+  (the refresh worker bumps the counter on every error and resets it on
+  every success) or has gone longer than `feed_stale_threshold_hours`
   (default 24h, configurable) since the last successful refresh. Same
   transition-edge dedup as the sensor alarms.
-
-The bell's **Jump** button is kind-aware: `finding` jumps to the
-finding row (clearing filters); `sensor` opens the Sensors modal;
-`feed` opens the Feeds modal.
 
 ### Watch heartbeat indicator
 
@@ -640,7 +649,7 @@ returns:
 }
 ```
 
-Same staleness threshold and signal as the in-UI bell alarm, so an
+Same staleness threshold and signal as the in-UI Sensors button badge alarm, so an
 analyst-facing script in the auth boundary (a hunt-team dashboard
 tile, an incident-response triage shell helper) sees what the
 operator sees. Disenrolled sensors are skipped from the response;

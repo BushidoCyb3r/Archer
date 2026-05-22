@@ -277,8 +277,8 @@ const Feeds = (() => {
   }
 
   // open is the public entry point used by both the Feeds button
-  // click handler and the bell-notification jump dispatch for
-  // Kind=feed alarms. Dismisses any pending feed alarms so the
+  // click handler and the Kind=feed alarm badge on the nav button.
+  // Dismisses any pending feed alarms so the
   // button badge clears — opening the modal is the acknowledgment.
   async function open() {
     if (typeof Notifications !== 'undefined') Notifications.dismissByKind('feed');
