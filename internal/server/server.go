@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/analysis"
-	"github.com/BushidoCyb3r/Archer/internal/feeds"
 	model "github.com/BushidoCyb3r/Archer/internal/model"
 	"github.com/BushidoCyb3r/Archer/internal/store"
 )
@@ -25,20 +24,19 @@ var scoreExplanationsMap = model.ScoreExplanations
 
 // Server holds all server dependencies.
 type Server struct {
-	store            *store.Store
-	users            *store.UserStore
-	broker           *Broker
-	webDir           string
-	logsDir          string
-	authKeysPath     string
-	mux              *http.ServeMux
-	analyzerMu       sync.Mutex
-	activeAnalyzer   *analysis.Analyzer
-	analysisWg       sync.WaitGroup
-	watchMu          sync.Mutex
-	watchCancel      context.CancelFunc
-	feedWorkerCancel context.CancelFunc
-	tlsFingerprint   string
+	store          *store.Store
+	users          *store.UserStore
+	broker         *Broker
+	webDir         string
+	logsDir        string
+	authKeysPath   string
+	mux            *http.ServeMux
+	analyzerMu     sync.Mutex
+	activeAnalyzer *analysis.Analyzer
+	analysisWg     sync.WaitGroup
+	watchMu        sync.Mutex
+	watchCancel    context.CancelFunc
+	tlsFingerprint string
 	// Disk-usage cache: walking /logs and /data/archive can take seconds
 	// on large deployments, so memoize the result and refresh on a short
 	// TTL. The cache is invalidated implicitly by the timestamp check.
@@ -91,25 +89,7 @@ func New(st *store.Store, us *store.UserStore, broker *Broker, webDir, logsDir, 
 	// NEW-39. The done channel is never closed — eviction runs for
 	// the process lifetime, same shape as the other prune loops.
 	s.rateLimit.startEvictionLoop(make(chan struct{}))
-	// Auto-cadence feed refresh is intentionally off. With large feeds
-	// (100k+ MISP indicators) the periodic CPU cost of an unattended
-	// fetch was visible in the dashboard. Feeds are now refreshed
-	// synchronously at the start of every full-pass watch tick (see
-	// triggerWatchAnalysis → refreshFeedsBeforeFullPass) so indicators
-	// stay current without a separate background worker. Re-enable
-	// here if a deployment wants the old per-feed cadence.
-	// s.startFeedWorker()
 	return s
-}
-
-// startFeedWorker runs the per-feed fetcher loop in a goroutine that
-// outlives this call. Currently NOT called — see the comment in New
-// above. Kept around so re-enabling is a one-line change.
-func (s *Server) startFeedWorker() {
-	w := feeds.NewWorker(s.store, s.buildFeedAdapter)
-	ctx, cancel := context.WithCancel(context.Background())
-	s.feedWorkerCancel = cancel
-	go w.Run(ctx)
 }
 
 // Shutdown stops the watch loop, cancels any in-flight analysis, and waits
