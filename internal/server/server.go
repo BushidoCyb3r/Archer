@@ -34,6 +34,7 @@ type Server struct {
 	mux              *http.ServeMux
 	analyzerMu       sync.Mutex
 	activeAnalyzer   *analysis.Analyzer
+	analysisWg       sync.WaitGroup
 	watchMu          sync.Mutex
 	watchCancel      context.CancelFunc
 	feedWorkerCancel context.CancelFunc
@@ -109,6 +110,29 @@ func (s *Server) startFeedWorker() {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.feedWorkerCancel = cancel
 	go w.Run(ctx)
+}
+
+// Shutdown stops the watch loop, cancels any in-flight analysis, and waits
+// for the analysis goroutine to finish (up to 30 seconds). Called by main on
+// SIGTERM/SIGINT before draining HTTP connections.
+func (s *Server) Shutdown() {
+	s.stopWatch()
+	s.analyzerMu.Lock()
+	az := s.activeAnalyzer
+	s.analyzerMu.Unlock()
+	if az != nil {
+		az.Cancel()
+	}
+	done := make(chan struct{})
+	go func() {
+		s.analysisWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		slog.Warn("shutdown: analysis goroutine did not finish within 30s")
+	}
 }
 
 // startPruneLoop runs fn once immediately, then every interval, in a

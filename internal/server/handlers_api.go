@@ -1844,7 +1844,9 @@ func (s *Server) launchTIOnly(files []string) bool {
 		}
 	}()
 
+	s.analysisWg.Add(1)
 	go func() {
+		defer s.analysisWg.Done()
 		// Archive scan reuses the /logs/<sensor>/<date>/ layout under
 		// /data/archive — so passing archiveDir as the analyzer's path
 		// root yields the same sensor names that the live tree would.
@@ -1887,19 +1889,20 @@ func (s *Server) launchTIOnly(files []string) bool {
 
 		findings := az.AnalyzeTIOnly(files)
 
-		// SetFindingsIncremental (not SetFindings) so the rollup
-		// purge inside setFindingsImpl is skipped. The archive scan
-		// is a TI-only pass — running it shouldn't drop the live
-		// store's Correlated Activity / Host Risk Score rows just
-		// because this run didn't regenerate them.
-		newNotifs := s.store.SetFindingsIncremental(findings)
-		s.crossAnnotateNewTIHits(findings)
-		for _, n := range newNotifs {
-			nData, _ := json.Marshal(n)
-			s.broker.Publish(SSEEvent{Type: "notification", Data: string(nData)})
-		}
-
 		wasCancelled := az.Ctx().Err() != nil
+		if !wasCancelled {
+			// SetFindingsIncremental (not SetFindings) so the rollup
+			// purge inside setFindingsImpl is skipped. The archive scan
+			// is a TI-only pass — running it shouldn't drop the live
+			// store's Correlated Activity / Host Risk Score rows just
+			// because this run didn't regenerate them.
+			newNotifs := s.store.SetFindingsIncremental(findings)
+			s.crossAnnotateNewTIHits(findings)
+			for _, n := range newNotifs {
+				nData, _ := json.Marshal(n)
+				s.broker.Publish(SSEEvent{Type: "notification", Data: string(nData)})
+			}
+		}
 		data, _ := json.Marshal(map[string]any{
 			"count":     len(findings),
 			"new_count": s.store.CountNewFindings(),

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -52,18 +53,8 @@ func main() {
 		}
 	}
 
-	// Log any terminating signal with a full goroutine stack dump before exit,
-	// so silent container deaths become visible in `docker logs`.
 	sigCh := make(chan os.Signal, 4)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP, syscall.SIGQUIT)
-	go func() {
-		sig := <-sigCh
-		buf := make([]byte, 1<<20)
-		n := runtime.Stack(buf, true)
-		slog.Info("received signal — stack dump follows", "signal", sig)
-		fmt.Fprintf(os.Stderr, "%s", buf[:n])
-		os.Exit(128 + int(sig.(syscall.Signal)))
-	}()
 
 	cfg := config.Default()
 	st := store.New(cfg)
@@ -135,8 +126,40 @@ func main() {
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
-	if err := httpSrv.ListenAndServeTLS(certPath, keyPath); err != nil {
+	listenErr := make(chan error, 1)
+	go func() {
+		if err := httpSrv.ListenAndServeTLS(certPath, keyPath); err != nil && err != http.ErrServerClosed {
+			listenErr <- err
+		}
+	}()
+
+	// Block until a signal or listener failure.
+	select {
+	case err := <-listenErr:
 		slog.Error("HTTPS listener failed", "err", err)
 		os.Exit(1)
+	case sig := <-sigCh:
+		// SIGQUIT is intentional: dump goroutine stacks for debugging, then
+		// shut down gracefully. SIGTERM/SIGINT/SIGHUP are operational stops.
+		if sig == syscall.SIGQUIT {
+			buf := make([]byte, 1<<20)
+			n := runtime.Stack(buf, true)
+			slog.Info("received signal — stack dump follows", "signal", sig)
+			fmt.Fprintf(os.Stderr, "%s", buf[:n])
+		} else {
+			slog.Info("shutting down", "signal", sig)
+		}
+	}
+
+	// Cancel any in-flight analysis and wait for it to finish before
+	// draining HTTP connections — prevents a partial Analyze() result
+	// from being flushed into SetFindings and silently dropping rollup
+	// findings that the cancelled run never regenerated.
+	srv.Shutdown()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer shutdownCancel()
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		slog.Warn("HTTP shutdown timed out", "err", err)
 	}
 }

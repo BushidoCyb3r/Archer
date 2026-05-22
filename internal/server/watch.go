@@ -354,7 +354,9 @@ func (s *Server) launchIncrementalAnalysis(files []string) {
 	s.broker.Publish(SSEEvent{Type: "status", Data: string(announce)})
 
 	logsDir := s.logsDir
+	s.analysisWg.Add(1)
 	go func() {
+		defer s.analysisWg.Done()
 		az := analysis.New(cfg, logsDir, progressCh, statusCh)
 		// Match against MISP/OpenCTI indicators on incremental ticks
 		// using whatever's currently in the DB — no fetch. The watch
@@ -424,22 +426,21 @@ func (s *Server) launchIncrementalAnalysis(files []string) {
 		startedAt := time.Now().UTC()
 		findings := az.AnalyzeTIOnly(files)
 
-		// SetFindingsIncremental (rather than SetFindings) so the
-		// rollup-purge branch in setFindingsImpl is skipped — this
-		// pass didn't run correlateFindings or aggregateRisk, so
-		// every existing Correlated Activity and Host Risk Score
-		// row's fingerprint is absent from newFPSet by definition.
-		// Calling SetFindings here used to silently drop them all
-		// every 6 hours, leaving a rollup hole between full passes.
-		newNotifs := s.store.SetFindingsIncremental(findings)
-		s.crossAnnotateNewTIHits(findings)
-		for _, n := range newNotifs {
-			nData, _ := json.Marshal(n)
-			s.broker.Publish(SSEEvent{Type: "notification", Data: string(nData)})
-		}
-
 		wasCancelled := az.Ctx().Err() != nil
 		if !wasCancelled {
+			// SetFindingsIncremental (rather than SetFindings) so the
+			// rollup-purge branch in setFindingsImpl is skipped — this
+			// pass didn't run correlateFindings or aggregateRisk, so
+			// every existing Correlated Activity and Host Risk Score
+			// row's fingerprint is absent from newFPSet by definition.
+			// Calling SetFindings here used to silently drop them all
+			// every 6 hours, leaving a rollup hole between full passes.
+			newNotifs := s.store.SetFindingsIncremental(findings)
+			s.crossAnnotateNewTIHits(findings)
+			for _, n := range newNotifs {
+				nData, _ := json.Marshal(n)
+				s.broker.Publish(SSEEvent{Type: "notification", Data: string(nData)})
+			}
 			// Incremental updates the "any run" timestamp only — does NOT
 			// touch the full-run timestamp, so tomorrow's first tick still
 			// triggers a full pass. Uses startedAt for the same reason as
@@ -651,7 +652,9 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool, preStart 
 	}
 
 	logsDir := s.logsDir
+	s.analysisWg.Add(1)
 	go func() {
+		defer s.analysisWg.Done()
 		az := analysis.New(cfg, logsDir, progressCh, statusCh)
 		az.SetFeedProvider(s.store)
 		az.SetFindingsProvider(s.store)
@@ -724,15 +727,14 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool, preStart 
 		startedAt := time.Now().UTC()
 		findings := az.Analyze(files)
 
-		newNotifs := s.store.SetFindings(findings)
-		s.crossAnnotateNewTIHits(findings)
-		for _, n := range newNotifs {
-			nData, _ := json.Marshal(n)
-			s.broker.Publish(SSEEvent{Type: "notification", Data: string(nData)})
-		}
-
 		wasCancelled := az.Ctx().Err() != nil
 		if !wasCancelled {
+			newNotifs := s.store.SetFindings(findings)
+			s.crossAnnotateNewTIHits(findings)
+			for _, n := range newNotifs {
+				nData, _ := json.Marshal(n)
+				s.broker.Publish(SSEEvent{Type: "notification", Data: string(nData)})
+			}
 			s.store.SetLastAnalysisFingerprint(s.datasetFingerprint(files))
 			// SetLastFullAnalysisTime uses the completion time so the
 			// full-vs-incremental day gate (UTC YearDay comparison) reflects
