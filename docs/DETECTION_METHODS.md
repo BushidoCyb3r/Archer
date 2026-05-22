@@ -990,6 +990,14 @@ OTX/AbuseIPDB are rate-capped per analysis run because both have free-tier
 quotas an analyst's box can chew through quickly on a busy day. Feodo,
 URLhaus, MISP, and OpenCTI are bulk fetches, so cap doesn't apply.
 
+**IPv6 IOC matching.** IP-shaped entries in all three match surfaces
+(IOC list, operator allowlist, MISP/OpenCTI feed matchers) are
+canonicalized via `net.ParseIP().String()` before storage and lookup.
+A non-canonical IPv6 form in an IOC list (e.g.
+`2606:4700:4700:0:0:0:0:1111`) matches the compressed form Zeek emits
+(`2606:4700:4700::1111`) and vice versa. IPv4 and domain entries are
+unaffected. (Added v0.33.0.)
+
 ### 12.4 Emit shape — one TI Hit per (src, dst, port)
 
 A feed match emits **one TI Hit finding per distinct `(src, dst, port)`

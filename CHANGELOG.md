@@ -28,6 +28,82 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.33.0] — 2026-05-22
+
+### Security
+
+- **Shell command injection gap in sensor-facing host validation.** The
+  metachar filter in `handleQuiverInstallScript` now rejects space and
+  tab in addition to the existing set. A `SensorFacingHostOverride`
+  containing a space could slip through the previous filter and be
+  written unquoted into `install.sh`, causing the injected command to
+  execute on every sensor's cron tick. `install.sh` heredoc now also
+  quotes `ARCHER_HOST="${ARCHER_HOST}"` as defense-in-depth.
+
+- **TI escalation HTTP client followed cross-host redirects.** The client
+  now refuses cross-host redirects (`http.ErrUseLastResponse`) so API
+  keys (`X-Api-Key`, `x-apikey`, `X-OTX-API-KEY`, `Key`, `key`, Censys
+  Basic auth) are never forwarded to a redirected host. `dst` values are
+  `url.PathEscape`/`url.QueryEscape`'d before URL interpolation.
+
+### Fixed
+
+- **feedMatcher cache could install a stale compiled matcher.** A
+  generation counter per feed prevents a concurrent `invalidateFeedMatcher`
+  (triggered by a feed refresh while an analysis is in flight) from
+  leaving a stale matcher in place after the double-checked rebuild.
+  On generation mismatch the result is returned for the current call only;
+  the next caller rebuilds from current indicators.
+
+- **authorized_keys key type not validated.** `BuildAuthKeyLine` now
+  checks the key type against the set of known SSH types (`ssh-ed25519`,
+  `ssh-rsa`, `ecdsa-sha2-nistp256/384/521`, `sk-ssh-ed25519@openssh.com`,
+  `sk-ecdsa-sha2-nistp256@openssh.com`) before writing to the file. An
+  unrecognised type falls through to the malformed-key path — sshd
+  rejects the line.
+
+- **`loadFindings` partial load could silently destroy analyst work.**
+  `loadFindings` now checks `rows.Err()` after iteration and tracks any
+  scan or iteration failure in a `findingsLoadOK` flag. `saveFindings`
+  refuses the destructive `DELETE+reinsert` when the flag is false,
+  preventing a partially-loaded in-memory set from overwriting
+  analyst-curated status, notes, and escalations.
+
+- **`CountNewFindings` lacked the nil-DB guard and read lock** every
+  sibling method holds. Fixed to be consistent.
+
+- **Decompression bomb in Zeek log parser.** Gzipped logs now feed
+  through a 4 GiB `io.LimitReader` before the scanner. A crafted `.gz`
+  that expands to billions of short lines previously processed without
+  a ceiling.
+
+- **`preBeaconRecs` grew unbounded on crafted HTTP logs.** The
+  pre-beacon record accumulator in `analyzeHTTP` is capped at 500,000
+  keys. Crafted logs with millions of unique `(host, uri)` pairs that
+  never accumulate enough connections to promote past the lazy threshold
+  can no longer exhaust memory for a file pass.
+
+- **XLSX export appended plaintext error text into an already-started
+  binary response.** Mid-stream `xf.Write` failures now log via
+  `log.Printf` and return without writing to the response body.
+
+- **Audit-log pagination broke when `?count` exceeded 500.** The handler
+  now clamps `count` to 500 before calling `ListAuditLog`, keeping the
+  next-page cursor invariant (`len(entries) == count`) sound.
+
+### Detection changes
+
+- **IPv6 IOC and allowlist matching now canonicalizes both sides.**
+  `match.Compile` and `match.Matches` normalize IP-shaped entries via
+  `net.ParseIP().String()`. A non-canonical IPv6 form in an IOC list or
+  allowlist (e.g. `2606:4700:4700:0:0:0:0:1111`) now correctly matches
+  the compressed form Zeek emits (`2606:4700:4700::1111`) and vice versa.
+  IPv4 and domain entries are unaffected. Operators with IPv6 IOC or
+  allowlist entries that were silently failing to match should re-analyze
+  after upgrading.
+
+---
+
 ## [v0.32.0] — 2026-05-22
 
 ### Fixed
@@ -6150,7 +6226,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.31.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.33.0...HEAD
+[v0.33.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.32.0...v0.33.0
 [v0.32.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.31.0...v0.32.0
 [v0.31.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.30.4...v0.31.0
 [v0.30.4]: https://github.com/BushidoCyb3r/Archer/compare/v0.30.3...v0.30.4
