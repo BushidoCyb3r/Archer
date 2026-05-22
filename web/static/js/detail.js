@@ -72,7 +72,11 @@ const Detail = (() => {
     if (!detail) return '';
     return detail.split('|').map(s => s.trim()).filter(Boolean).map(seg => {
       const colon = seg.indexOf(':');
-      if (colon > 0) {
+      // Only treat text before the colon as a key label when it is short
+      // enough to fit the key column without overflowing. Segments where
+      // the label portion is a long phrase (e.g. "Contributing finding IDs",
+      // "URLhaus malware distribution host") render full-width instead.
+      if (colon > 0 && colon <= 28) {
         const k = seg.slice(0, colon).trim();
         const v = seg.slice(colon + 1).trim();
         return _row(k, _esc(v), true);

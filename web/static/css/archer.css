@@ -1145,13 +1145,15 @@ body.dock-resizing {
 .ds-row + .ds-row { margin-top: 1px; }
 .ds-key {
   flex-shrink: 0;
-  width: 108px;
+  width: 128px;
   color: var(--fg-dim);
-  white-space: nowrap;
+  word-break: break-word;
 }
 .ds-val {
   color: var(--fg-primary);
-  word-break: break-all;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .ds-val.mono { font-family: inherit; }
 .ds-explain {
