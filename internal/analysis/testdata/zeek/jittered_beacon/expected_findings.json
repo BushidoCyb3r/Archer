@@ -6,7 +6,7 @@
     "src_ip": "192.168.1.50",
     "dst_ip": "198.51.100.77",
     "dst_port": "443",
-    "detail": "Connections: 20 | Mean interval: 58.1s | CV: 0.40 | Score components: ts=0.68 ds=0.97 hist=0.00 dur=0.00",
+    "detail": "Connections: 20 | Mean interval: 58.1s | CV: 0.40 | Score components: ts=0.68 ds=0.97 hist=0.00 dur=0.00 | ts_layers: raw=0.68 mm=0.00 ent=0.65",
     "timestamp": "2024-01-15 12:00:13"
   },
   {

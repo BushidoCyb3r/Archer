@@ -358,12 +358,15 @@ func (a *Analyzer) analyzeDNS(files []string) {
 		// (statistical → multimodal → entropy → spectral rescue).
 		// Inlined, not shared, so conn.go's proven path stays
 		// untouched; the golden fixture locks this behaviour.
-		tsScore := statisticalScore(ivs, 1.0)
-		if mm := intervalMultimodalScore(ivs); mm > tsScore {
-			tsScore = mm
+		tsRaw := statisticalScore(ivs, 1.0)
+		tsMM := intervalMultimodalScore(ivs)
+		tsEnt := intervalEntropyScore(ivs)
+		tsScore := tsRaw
+		if tsMM > tsScore {
+			tsScore = tsMM
 		}
-		if eh := intervalEntropyScore(ivs); eh > tsScore {
-			tsScore = eh
+		if tsEnt > tsScore {
+			tsScore = tsEnt
 		}
 		var spectralRescued bool
 		var spectralResult SpectralResult
@@ -427,8 +430,8 @@ func (a *Analyzer) analyzeDNS(files []string) {
 		ivMedian := fmedian(ivs)
 		ivCV := intervalCV(ivs, ivMean)
 
-		detail := fmt.Sprintf("DNS queries: %d | Unique subdomains: %d | Mean interval: %.1fs | CV: %.2f | Score: ts=%.2f div=%.2f cov=%.2f",
-			bs.count, subCount, ivMean, ivCV, tsScore, divScore, coverage)
+		detail := fmt.Sprintf("DNS queries: %d | Unique subdomains: %d | Mean interval: %.1fs | CV: %.2f | Score: ts=%.2f div=%.2f cov=%.2f | ts_layers: raw=%.2f mm=%.2f ent=%.2f",
+			bs.count, subCount, ivMean, ivCV, tsScore, divScore, coverage, tsRaw, tsMM, tsEnt)
 		if spectralRescued {
 			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (dominant period %.1fs, power %.1f, FAP threshold %.1f)",
 				spectralResult.Score, spectralResult.Period, spectralResult.RawPower, a.cfg.SpectralFAPThreshold)
@@ -459,6 +462,9 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			SampleSize:      bs.count,
 			SpectralRescued: spectralRescued,
 			SpectralPeriod:  spectralResult.Period,
+			TSRaw:           tsRaw,
+			TSMultimodal:    tsMM,
+			TSEntropy:       tsEnt,
 		})
 	}
 }

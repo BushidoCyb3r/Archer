@@ -394,22 +394,25 @@ func (a *Analyzer) analyzeConn(files []string) {
 		byteVals := make([]float64, len(st.byteVals))
 		copy(byteVals, st.byteVals)
 
-		tsScore := statisticalScore(ivs, 1.0)
+		tsRaw := statisticalScore(ivs, 1.0)
 		// Multimodal augmentation: rescue beacons whose intervals
 		// cluster around 2-4 distinct values (heartbeat + tasking,
 		// idle + active, etc.) — those would otherwise be penalised
 		// by Bowley + MAD on the raw distribution. max() so
 		// single-mode beacons (where the helper returns 0) are
 		// unaffected.
-		if mm := intervalMultimodalScore(ivs); mm > tsScore {
-			tsScore = mm
-		}
+		tsMM := intervalMultimodalScore(ivs)
 		// Entropy augmentation: rescue jittered single-mode beacons
 		// where MAD looks bad but every interval still lands in the
 		// same one or two log2 buckets. Orthogonal to the other two
 		// timing-axis paths.
-		if eh := intervalEntropyScore(ivs); eh > tsScore {
-			tsScore = eh
+		tsEnt := intervalEntropyScore(ivs)
+		tsScore := tsRaw
+		if tsMM > tsScore {
+			tsScore = tsMM
+		}
+		if tsEnt > tsScore {
+			tsScore = tsEnt
 		}
 		// Spectral augmentation: frequency-domain rescue for the
 		// class of beacons the Bowley/MAD/multimodal/entropy paths
@@ -468,7 +471,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 		copy(tsData, st.tsData)
 		sort.Slice(tsData, func(i, j int) bool { return tsData[i][0] < tsData[j][0] })
 
-		detail := fmt.Sprintf("Connections: %d | Mean interval: %.1fs | CV: %.2f | Score components: ts=%.2f ds=%.2f hist=%.2f dur=%.2f", totalObserved, ivMean, ivCV, tsScore, dsScore, hScore, durScore)
+		detail := fmt.Sprintf("Connections: %d | Mean interval: %.1fs | CV: %.2f | Score components: ts=%.2f ds=%.2f hist=%.2f dur=%.2f | ts_layers: raw=%.2f mm=%.2f ent=%.2f", totalObserved, ivMean, ivCV, tsScore, dsScore, hScore, durScore, tsRaw, tsMM, tsEnt)
 		if spectralRescued {
 			// Surface the full spectral diagnostics so the calibration
 			// loop is tight: an operator triaging spectral-rescued
@@ -527,6 +530,9 @@ func (a *Analyzer) analyzeConn(files []string) {
 			SampleSize:      totalObserved,
 			SpectralRescued: spectralRescued,
 			SpectralPeriod:  spectralResult.Period,
+			TSRaw:           tsRaw,
+			TSMultimodal:    tsMM,
+			TSEntropy:       tsEnt,
 		})
 	}
 

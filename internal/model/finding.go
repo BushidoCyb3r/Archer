@@ -152,6 +152,13 @@ type Finding struct {
 	// /api/findings response; the history endpoint surfaces them instead.
 	SpectralRescued bool    `json:"-"`
 	SpectralPeriod  float64 `json:"-"`
+	// TSRaw / TSMultimodal / TSEntropy are the individual timing-axis
+	// layer scores captured before max() collapse. In-memory only —
+	// written to beacon_history (migration 0024) for longitudinal layer
+	// validation. json:"-" keeps them out of the /api/findings response.
+	TSRaw        float64 `json:"-"`
+	TSMultimodal float64 `json:"-"`
+	TSEntropy    float64 `json:"-"`
 }
 
 // URIStat is one request path and the number of requests an HTTP

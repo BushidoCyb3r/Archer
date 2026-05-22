@@ -435,12 +435,15 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 		ivMedian := fmedian(ivs)
 		ivCV := intervalCV(ivs, ivMean)
 
-		tsScore := statisticalScore(ivs, 1.0)
-		if mm := intervalMultimodalScore(ivs); mm > tsScore {
-			tsScore = mm
+		tsRaw := statisticalScore(ivs, 1.0)
+		tsMM := intervalMultimodalScore(ivs)
+		tsEnt := intervalEntropyScore(ivs)
+		tsScore := tsRaw
+		if tsMM > tsScore {
+			tsScore = tsMM
 		}
-		if eh := intervalEntropyScore(ivs); eh > tsScore {
-			tsScore = eh
+		if tsEnt > tsScore {
+			tsScore = tsEnt
 		}
 		// Spectral rescue — same shape as the conn-level Beaconing
 		// path. C2-over-HTTP is the same fingerprint as conn-level
@@ -488,7 +491,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 		copy(tsData, st.tsData)
 		sort.Slice(tsData, func(i, j int) bool { return tsData[i][0] < tsData[j][0] })
 
-		detail := fmt.Sprintf("Requests: %d | Host: %s | URI: %s | Score: ts=%.2f ds=%.2f hist=%.2f dur=%.2f", totalObserved, bk.host, bk.uri, tsScore, dsScore, hScore, durScore)
+		detail := fmt.Sprintf("Requests: %d | Host: %s | URI: %s | Score: ts=%.2f ds=%.2f hist=%.2f dur=%.2f | ts_layers: raw=%.2f mm=%.2f ent=%.2f", totalObserved, bk.host, bk.uri, tsScore, dsScore, hScore, durScore, tsRaw, tsMM, tsEnt)
 		if spectralRescued {
 			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (dominant period %.1fs, power %.1f, FAP threshold %.1f)",
 				spectralResult.Score, spectralResult.Period, spectralResult.RawPower, a.cfg.SpectralFAPThreshold)
@@ -516,6 +519,9 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 			SampleSize:      totalObserved,
 			SpectralRescued: spectralRescued,
 			SpectralPeriod:  spectralResult.Period,
+			TSRaw:           tsRaw,
+			TSMultimodal:    tsMM,
+			TSEntropy:       tsEnt,
 		})
 	}
 }

@@ -51,6 +51,9 @@ type BeaconHistoryRow struct {
 	DurScore        float64 `json:"dur_score"`
 	SpectralRescued bool    `json:"spectral_rescued"`
 	SpectralPeriod  float64 `json:"spectral_period,omitempty"`
+	TSRaw           float64 `json:"ts_raw"`
+	TSMultimodal    float64 `json:"ts_mm"`
+	TSEntropy       float64 `json:"ts_ent"`
 }
 
 // saveBeaconHistory writes one beacon_history row per this-run
@@ -126,8 +129,10 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
              host, uri,
              max_score, max_score_at, last_score, last_score_at,
              severity, ts_score, ds_score, hist_score, dur_score,
-             spectral_rescued, spectral_period, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             spectral_rescued, spectral_period,
+             ts_raw, ts_mm, ts_ent,
+             created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(fingerprint, day_utc) DO UPDATE SET
             last_score       = excluded.last_score,
             last_score_at    = excluded.last_score_at,
@@ -139,7 +144,10 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
             hist_score       = CASE WHEN ` + peakWin + ` THEN excluded.hist_score      ELSE hist_score      END,
             dur_score        = CASE WHEN ` + peakWin + ` THEN excluded.dur_score       ELSE dur_score       END,
             spectral_rescued = CASE WHEN ` + peakWin + ` THEN excluded.spectral_rescued ELSE spectral_rescued END,
-            spectral_period  = CASE WHEN ` + peakWin + ` THEN excluded.spectral_period  ELSE spectral_period  END
+            spectral_period  = CASE WHEN ` + peakWin + ` THEN excluded.spectral_period  ELSE spectral_period  END,
+            ts_raw           = CASE WHEN ` + peakWin + ` THEN excluded.ts_raw           ELSE ts_raw           END,
+            ts_mm            = CASE WHEN ` + peakWin + ` THEN excluded.ts_mm            ELSE ts_mm            END,
+            ts_ent           = CASE WHEN ` + peakWin + ` THEN excluded.ts_ent           ELSE ts_ent           END
     `)
 	if err != nil {
 		_ = tx.Rollback()
@@ -179,6 +187,9 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
 			f.DurScore,
 			spectralRescued,
 			f.SpectralPeriod,
+			f.TSRaw,
+			f.TSMultimodal,
+			f.TSEntropy,
 			now,
 		)
 		if err != nil {
@@ -212,7 +223,8 @@ func (s *Store) BeaconHistory(key string) []BeaconHistoryRow {
 	rows, err := s.db.Query(`
         SELECT day_utc, max_score, max_score_at, last_score, last_score_at,
                severity, ts_score, ds_score, hist_score, dur_score,
-               spectral_rescued, spectral_period
+               spectral_rescued, spectral_period,
+               ts_raw, ts_mm, ts_ent
         FROM beacon_history
         WHERE fingerprint = ?
           AND day_utc >= ?
@@ -234,6 +246,7 @@ func (s *Store) BeaconHistory(key string) []BeaconHistoryRow {
 			&r.Severity,
 			&r.TSScore, &r.DSScore, &r.HistScore, &r.DurScore,
 			&spectralRescued, &r.SpectralPeriod,
+			&r.TSRaw, &r.TSMultimodal, &r.TSEntropy,
 		); err != nil {
 			log.Printf("store: beacon_history scan: %v", err)
 			continue

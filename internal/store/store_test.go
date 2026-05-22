@@ -1255,6 +1255,87 @@ func TestPurgeBeaconHistory(t *testing.T) {
 	}
 }
 
+// TestBeaconHistory_TSLayers codifies the migration-0024 contract:
+// TSRaw / TSMultimodal / TSEntropy round-trip through saveBeaconHistory
+// and BeaconHistory, follow the peakWin gate (not updated on a
+// lower-composite-score pass; updated on a higher-composite-score
+// pass), and are written for all three beacon finding types.
+func TestBeaconHistory_TSLayers(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s := New(config.Default())
+	s.InitDB(db)
+
+	today := time.Now().UTC().Format("2006-01-02")
+
+	readLayers := func(key string) (tsRaw, tsMM, tsEnt float64) {
+		err := db.QueryRow(
+			`SELECT ts_raw, ts_mm, ts_ent FROM beacon_history WHERE fingerprint=? AND day_utc=?`,
+			key, today,
+		).Scan(&tsRaw, &tsMM, &tsEnt)
+		if err != nil {
+			t.Fatalf("read ts_layers for %s: %v", key, err)
+		}
+		return
+	}
+
+	for _, tc := range []struct {
+		findingType string
+		srcIP       string
+		dstIP       string
+	}{
+		{"Beaconing", "10.0.0.1", "1.1.1.1"},
+		{"HTTP Beaconing", "10.0.0.2", "1.1.1.2"},
+		{"DNS Beaconing", "10.0.0.3", "apex.example.com"},
+	} {
+		t.Run(tc.findingType, func(t *testing.T) {
+			f := model.Finding{
+				Type: tc.findingType, SrcIP: tc.srcIP, DstIP: tc.dstIP, DstPort: "443",
+				Score: 72, Severity: model.SevHigh, Timestamp: "2026-05-22 09:00:00",
+				TSScore: 0.70, DSScore: 0.60, HistScore: 0.50, DurScore: 0.40,
+				TSRaw: 0.55, TSMultimodal: 0.70, TSEntropy: 0.30,
+			}
+			s.SetFindings([]model.Finding{f})
+
+			// Round-trip: values written on first pass.
+			raw, mm, ent := readLayers(f.BeaconHistoryKey())
+			if raw != 0.55 || mm != 0.70 || ent != 0.30 {
+				t.Errorf("first write: got raw=%.2f mm=%.2f ent=%.2f, want 0.55 0.70 0.30", raw, mm, ent)
+			}
+
+			// peakWin hold: lower composite score must not update the layers.
+			lower := f
+			lower.Score = 60
+			lower.TSRaw, lower.TSMultimodal, lower.TSEntropy = 0.99, 0.99, 0.99
+			s.SetFindings([]model.Finding{lower})
+
+			raw, mm, ent = readLayers(f.BeaconHistoryKey())
+			if raw != 0.55 || mm != 0.70 || ent != 0.30 {
+				t.Errorf("peakWin hold: layers changed on lower-score pass: raw=%.2f mm=%.2f ent=%.2f", raw, mm, ent)
+			}
+
+			// peakWin update: higher composite score must update the layers.
+			higher := f
+			higher.Score = 85
+			higher.TSRaw, higher.TSMultimodal, higher.TSEntropy = 0.80, 0.85, 0.45
+			s.SetFindings([]model.Finding{higher})
+
+			raw, mm, ent = readLayers(f.BeaconHistoryKey())
+			if raw != 0.80 || mm != 0.85 || ent != 0.45 {
+				t.Errorf("peakWin update: layers not updated on higher-score pass: raw=%.2f mm=%.2f ent=%.2f", raw, mm, ent)
+			}
+		})
+	}
+}
+
 // current run isn't authoritative (the source logs may have been
 // archived but the historical observation is still valid). Same
 // guarantee as before the rollup-purge change.
