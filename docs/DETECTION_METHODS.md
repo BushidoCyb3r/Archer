@@ -192,7 +192,8 @@ Beaconing finding's Detail string gets a tag:
 ```
 Connections: 200 | Mean interval: 60.4s | CV: 0.32 |
 Score components: ts=0.62 ds=0.85 hist=0.71 dur=0.40 |
-Spectral rescue: period≈60.3s
+ts_layers: raw=0.31 mm=0.12 ent=0.08 |
+Spectral rescued: score=0.62 (dominant period 60.3s, ...)
 ```
 
 So an analyst triaging the finding can see which signal drove
@@ -200,6 +201,16 @@ the timing score. A beacon at CV ≈ 0.5 that scored High via
 spectral rescue is operationally different from one that scored
 High via Bowley + MAD: the former is more likely deliberately
 jittered C2, the latter more likely tight automation.
+
+As of v0.34.0, all three pre-spectral layer scores are always
+surfaced in the detail string (`ts_layers: raw=X mm=Y ent=Z`)
+regardless of which layer won. `raw` is the Bowley + MAD score,
+`mm` is the multimodal score (non-zero only when the interval
+distribution clusters around 2–4 distinct values), and `ent` is
+the entropy score (non-zero when intervals land in a small number
+of log₂ buckets despite high variance). These values are also
+stored in `beacon_history` (migration 0024) so longitudinal
+layer analysis is possible across the 30-day retention window.
 
 **CPU cost.** ~4 ms per pair on a 200-timestamp reservoir against
 the 2000-point grid. Combined with the rescue-only gate, a hunt-
@@ -282,7 +293,8 @@ A finding might read:
 
 ```
 Connections: 1287 | Mean interval: 60.3s | CV: 0.04 |
-Score components: ts=0.97 ds=0.95 hist=0.91 dur=1.00
+Score components: ts=0.97 ds=0.95 hist=0.91 dur=1.00 |
+ts_layers: raw=0.97 mm=0.00 ent=0.91
 ```
 
 - **CV** here is the coefficient of variation of the *intervals* themselves
@@ -290,6 +302,9 @@ Score components: ts=0.97 ds=0.95 hist=0.91 dur=1.00
   `CV = stddev(intervals) / mean(intervals)`. Below ~0.1 is suspiciously
   regular; above ~1.0 is human-driven.
 - The four sub-scores tell you which axis dominated.
+- **ts_layers** breaks down the timing score: `raw` (Bowley + MAD),
+  `mm` (multimodal rescue), `ent` (entropy rescue). The composed `ts`
+  is the max of these three plus spectral if it fired.
 
 As of v0.25.0 the detail pane renders a **structured triage header**
 above this raw line — jitter % (the interval CV as a percentage),

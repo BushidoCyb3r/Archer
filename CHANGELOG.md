@@ -28,6 +28,27 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.34.0] — 2026-05-22
+
+### Added
+
+- **Per-layer tsScore breakdown for beacon timing-axis validation.**
+  All three beacon finding types (Beaconing, HTTP Beaconing, DNS
+  Beaconing) now include `| ts_layers: raw=X mm=Y ent=Z` in their
+  detail string, surfacing the individual raw Bowley/MAD, multimodal,
+  and entropy layer scores before the `max()` collapse. Analysts can
+  see which timing-axis layer drove each detection during live hunts
+  without re-running analysis.
+
+  Migration 0024 adds `ts_raw`, `ts_mm`, and `ts_ent` columns to
+  `beacon_history` under the same `peakWin` update gate as the
+  existing sub-scores, enabling longitudinal layer analysis across
+  the 30-day retention window. The `/api/findings/{id}/history`
+  response gains three new fields (`ts_raw`, `ts_mm`, `ts_ent`) on
+  each history row.
+
+---
+
 ## [v0.33.1] — 2026-05-22
 
 ### Fixed
@@ -6244,7 +6265,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.33.1...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.34.0...HEAD
+[v0.34.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.33.1...v0.34.0
 [v0.33.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.33.0...v0.33.1
 [v0.33.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.32.0...v0.33.0
 [v0.32.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.31.0...v0.32.0
