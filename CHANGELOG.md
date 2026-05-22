@@ -28,6 +28,35 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.36.0] — 2026-05-22
+
+### Added
+
+- **Graceful shutdown on SIGTERM/SIGINT.** The process now cancels any
+  in-flight analysis, waits up to 30 seconds for it to finish, then
+  calls `http.Server.Shutdown` to drain active HTTP connections before
+  exiting. SIGQUIT retains the goroutine stack dump for debugging.
+  A partial-flush bug is fixed in the same pass: `SetFindings`,
+  `SetFindingsIncremental`, cross-annotation, and analysis timestamps are
+  now all gated on `!cancelled` across all three analysis paths
+  (`launchAnalysisWithOptions`, `launchIncrementalAnalysis`,
+  `launchTIOnly`). A kill mid-pass no longer flushes partial results
+  through `SetFindings`, which previously would have purged rollup
+  findings (Host Risk Score, Correlated Activity) that the cancelled
+  run never regenerated.
+
+### Changed
+
+- **Removed dead `startFeedWorker`.** The per-feed auto-cadence
+  background goroutine was disabled when feeds moved to synchronous
+  refresh before each watch full-pass. The method, its commented-out
+  call site, and the unused `feedWorkerCancel` struct field have been
+  removed. Feed refresh behaviour is unchanged — `refreshFeedsBeforeFullPass`
+  and the per-row manual `POST /api/feeds/{id}/refresh` remain the
+  only fetch paths.
+
+---
+
 ## [v0.35.1] — 2026-05-22
 
 ### Changed

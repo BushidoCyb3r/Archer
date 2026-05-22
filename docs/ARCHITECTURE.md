@@ -89,7 +89,7 @@ else is goroutines.
 | Analyzer | `handleAnalyze` / watch tick | per-run; cancellable |
 | Archive worker | `handleArchiveRun` / post-watch | per-run |
 | Disk-usage refresh | first `/api/disk-usage` call | per-call (5-min cache) |
-| Signal handler (stack dump) | `main.go` | program lifetime |
+| Signal handler (graceful shutdown) | `main.go` | program lifetime |
 
 `tini` (PID 1) reaps zombies and forwards signals so sshd dies cleanly
 when archer exits. `entrypoint.sh` is the supervised process: it starts
@@ -641,12 +641,12 @@ return launchIncrementalAnalysis(filteredFiles)
 MISP / OpenCTI feeds — every enabled feed is refreshed in parallel
 under a 10-minute cap, status updates per-feed, failures log without
 blocking analysis. The auto-cadence feed worker (`internal/feeds/worker.go`)
-is intentionally not started (see `server.go`'s `New` comment); the
-watch tick drives refresh. Admins can also trigger an on-demand
-single-feed fetch via `POST /api/feeds/{id}/refresh` (10-minute hard
-cap, detached from the request context so a browser disconnect
-doesn't cancel an in-flight pull — v0.19.0). Incremental ticks
-consult whatever's already in `feed_indicators` without re-fetching.
+exists but is not wired into `server.New` — the watch tick drives refresh
+instead. Admins can also trigger an on-demand single-feed fetch via
+`POST /api/feeds/{id}/refresh` (10-minute hard cap, detached from the
+request context so a browser disconnect doesn't cancel an in-flight pull
+— v0.19.0). Incremental ticks consult whatever's already in
+`feed_indicators` without re-fetching.
 
 Manual "Discard findings & re-analyze" runs as a full pass and resets
 both timestamps so the cycle restarts cleanly.
