@@ -34,6 +34,23 @@ func TestBuildAuthKeyLine_HandlesMissingComment(t *testing.T) {
 	}
 }
 
+func TestBuildAuthKeyLine_RejectsUnknownKeyType(t *testing.T) {
+	// An unrecognised key type should not appear in the authorized_keys line.
+	// sshd will reject the line regardless; the goal is to keep
+	// attacker-chosen type strings out of the file.
+	line := BuildAuthKeyLine("sensor1", "unknown-type AAAAC3blob quiver@host")
+	if strings.Contains(line, "unknown-type") {
+		t.Errorf("unknown key type should not appear in authorized_keys line: %s", line)
+	}
+	// The blob and sensor marker must still be present so disenroll can clean up.
+	if !strings.Contains(line, "AAAAC3blob") {
+		t.Errorf("key blob should still be written for cleanup: %s", line)
+	}
+	if !strings.HasSuffix(line, "quiver-sensor1") {
+		t.Errorf("sensor marker should still be present: %s", line)
+	}
+}
+
 func TestAppendRemoveAuthKey_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "authorized_keys")

@@ -320,7 +320,7 @@ fi
 # ── Config and known_hosts ──────────────────────────────────────────────────
 
 cat > /etc/quiver/config <<CONF
-ARCHER_HOST=${ARCHER_HOST}
+ARCHER_HOST="${ARCHER_HOST}"
 ARCHER_HTTPS_PORT=${HTTPS_PORT}
 ARCHER_SSH_PORT=${SSH_PORT}
 ARCHER_TLS_FP=${TLS_FP}

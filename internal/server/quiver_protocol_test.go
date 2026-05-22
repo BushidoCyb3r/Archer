@@ -228,3 +228,14 @@ func TestHandleQuiverCheckin_RejectsMissingProtocolVersion(t *testing.T) {
 		t.Errorf("sensor_version should resolve to 1 for missing field; got %v", resp["sensor_version"])
 	}
 }
+
+func TestHandleQuiverInstallScript_RejectsHostWithSpace(t *testing.T) {
+	s := newQuiverTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/quiver/install.sh", nil)
+	req.Host = "archer /tmp/evil"
+	w := httptest.NewRecorder()
+	s.handleQuiverInstallScript(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("host with space should be rejected with 400; got %d body=%s", w.Code, w.Body.String())
+	}
+}

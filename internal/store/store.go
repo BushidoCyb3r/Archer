@@ -38,20 +38,22 @@ type Store struct {
 	// kept consistent with the slice — every place that assigns or
 	// rebuilds s.findings must also rebuild s.findingsIdx through
 	// rebuildFindingsIdx.
-	findings      []model.Finding
-	findingsIdx   map[int]int
-	allowlist     []string
-	iocList       []string
-	allowlistM    *match.Matcher           // cached compile of allowlist; rebuilt on Set
-	iocM          *match.Matcher           // cached compile of iocList; rebuilt on Set
-	feedMatchers  map[int64]*match.Matcher // per-feed cached compile; rebuilt on indicator write
-	suppressions  map[string]suppressionEntry
-	pairAllow     []model.PairAllowEntry
-	pairAllowIdx  map[string][]string // src\x00dst\x00port -> finding_types ("" = all)
-	notifications []model.Notification
-	notifCounter  int
-	config        config.Config
-	analyzing     bool
+	findings       []model.Finding
+	findingsIdx    map[int]int
+	allowlist      []string
+	iocList        []string
+	allowlistM     *match.Matcher           // cached compile of allowlist; rebuilt on Set
+	iocM           *match.Matcher           // cached compile of iocList; rebuilt on Set
+	feedMatchers   map[int64]*match.Matcher // per-feed cached compile; rebuilt on indicator write
+	feedMatcherGen map[int64]uint64         // invalidation generation counter; incremented on each cache drop
+	findingsLoadOK bool                     // false if loadFindings encountered any scan/iteration error
+	suppressions   map[string]suppressionEntry
+	pairAllow      []model.PairAllowEntry
+	pairAllowIdx   map[string][]string // src\x00dst\x00port -> finding_types ("" = all)
+	notifications  []model.Notification
+	notifCounter   int
+	config         config.Config
+	analyzing      bool
 
 	// Analyzer-side feed-bucket cache. EnabledFeedIndicators() rebuilds
 	// the typed SourcedIndicators slice on every call — that's a
@@ -85,11 +87,12 @@ type suppressionEntry struct {
 
 func New(cfg config.Config) *Store {
 	return &Store{
-		suppressions: make(map[string]suppressionEntry),
-		pairAllowIdx: make(map[string][]string),
-		feedMatchers: make(map[int64]*match.Matcher),
-		findingsIdx:  make(map[int]int),
-		config:       cfg,
+		suppressions:   make(map[string]suppressionEntry),
+		pairAllowIdx:   make(map[string][]string),
+		feedMatchers:   make(map[int64]*match.Matcher),
+		feedMatcherGen: make(map[int64]uint64),
+		findingsIdx:    make(map[int]int),
+		config:         cfg,
 	}
 }
 
@@ -365,8 +368,11 @@ func (s *Store) persistList(tbl string, items []string) {
 
 // loadFindings reads persisted findings from SQLite into s.findings.
 // Caller must hold s.mu (called from InitDB which holds it).
+// Sets s.findingsLoadOK=false on any scan or iteration error so
+// saveFindings refuses the destructive DELETE+reinsert on a partial load.
 func (s *Store) loadFindings() {
 	if s.db == nil {
+		s.findingsLoadOK = true
 		return
 	}
 	rows, err := s.db.Query(`SELECT id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size, ja3, ja4, top_uris FROM findings ORDER BY id`)
@@ -375,12 +381,14 @@ func (s *Store) loadFindings() {
 		return
 	}
 	defer rows.Close()
+	loadOK := true
 	for rows.Next() {
 		var f model.Finding
 		var iocMatch, isNew int
 		var intervals, tsData, notes, correlations, topURIs string
 		if err := rows.Scan(&f.ID, &f.Type, &f.Severity, &f.Score, &f.SrcIP, &f.DstIP, &f.DstPort, &f.Detail, &f.Timestamp, &f.SourceFile, &f.Status, &f.Analyst, &f.AnalystNote, &f.StatusTS, &iocMatch, &isNew, &f.Sensor, &intervals, &tsData, &notes, &correlations, &f.TSScore, &f.DSScore, &f.HistScore, &f.DurScore, &f.MeanInterval, &f.MedianInterval, &f.Jitter, &f.SampleSize, &f.JA3, &f.JA4, &topURIs); err != nil {
 			log.Printf("store: scan finding: %v", err)
+			loadOK = false
 			continue
 		}
 		f.IOCMatch = iocMatch == 1
@@ -419,6 +427,11 @@ func (s *Store) loadFindings() {
 		}
 		s.findings = append(s.findings, f)
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("store: load findings iteration error: %v", err)
+		loadOK = false
+	}
+	s.findingsLoadOK = loadOK
 	s.rebuildFindingsIdx()
 }
 
@@ -426,6 +439,10 @@ func (s *Store) loadFindings() {
 // Caller must hold s.mu.
 func (s *Store) saveFindings() {
 	if s.db == nil {
+		return
+	}
+	if !s.findingsLoadOK {
+		log.Printf("store: saveFindings refused — initial load was incomplete; findings not overwritten")
 		return
 	}
 	tx, err := s.db.Begin()
@@ -1034,6 +1051,7 @@ func (s *Store) feedMatcher(feedID int64) *match.Matcher {
 		s.mu.RUnlock()
 		return m
 	}
+	gen := s.feedMatcherGen[feedID]
 	s.mu.RUnlock()
 
 	// Read indicators outside the lock — ListFeedIndicators acquires
@@ -1053,6 +1071,13 @@ func (s *Store) feedMatcher(feedID int64) *match.Matcher {
 		s.mu.Unlock()
 		return existing
 	}
+	// If an invalidation ran while we were building (gen changed),
+	// don't cache our stale result — return it for this call only;
+	// the next caller will rebuild from current indicators.
+	if s.feedMatcherGen[feedID] != gen {
+		s.mu.Unlock()
+		return m
+	}
 	s.feedMatchers[feedID] = m
 	s.mu.Unlock()
 	return m
@@ -1062,6 +1087,7 @@ func (s *Store) feedMatcher(feedID int64) *match.Matcher {
 // IOCSources / feedMatcher call rebuilds from current indicators.
 func (s *Store) invalidateFeedMatcher(feedID int64) {
 	s.mu.Lock()
+	s.feedMatcherGen[feedID]++
 	delete(s.feedMatchers, feedID)
 	s.mu.Unlock()
 }
@@ -1699,6 +1725,11 @@ func (s *Store) TryStartAnalysis() bool {
 // — including is_new findings from the previous full pass that an
 // incremental run didn't regenerate and therefore didn't count.
 func (s *Store) CountNewFindings() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.db == nil {
+		return 0
+	}
 	var n int
 	s.db.QueryRow(`SELECT COUNT(*) FROM findings WHERE is_new=1`).Scan(&n)
 	return n

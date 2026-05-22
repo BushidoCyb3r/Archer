@@ -34,6 +34,18 @@ func matchParentOwner(path string) {
 	_ = os.Chown(path, int(st.Uid), int(st.Gid))
 }
 
+// knownKeyTypes is the set of SSH public key type strings sshd accepts.
+// Any other value is treated as a malformed key — sshd will reject it.
+var knownKeyTypes = map[string]bool{
+	"ssh-rsa":                            true,
+	"ssh-ed25519":                        true,
+	"ecdsa-sha2-nistp256":                true,
+	"ecdsa-sha2-nistp384":                true,
+	"ecdsa-sha2-nistp521":                true,
+	"sk-ssh-ed25519@openssh.com":         true,
+	"sk-ecdsa-sha2-nistp256@openssh.com": true,
+}
+
 // BuildAuthKeyLine assembles the authorized_keys line for a sensor. The
 // pubkey argument is the public key blob the sensor sent at enrollment
 // (e.g. "ssh-ed25519 AAAA... quiver@hostname"). We strip any trailing
@@ -44,7 +56,12 @@ func BuildAuthKeyLine(sensorName, pubkey string) string {
 	keyType := ""
 	keyBlob := ""
 	if len(parts) >= 2 {
-		keyType, keyBlob = parts[0], parts[1]
+		if knownKeyTypes[parts[0]] {
+			keyType, keyBlob = parts[0], parts[1]
+		} else {
+			// Unrecognised key type — treat as malformed; sshd will reject it.
+			keyBlob = parts[1]
+		}
 	} else if len(parts) == 1 {
 		// Defensive — sensor sent a malformed key. We'll still write the
 		// line so disenroll has something concrete to remove later.

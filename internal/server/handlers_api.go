@@ -301,7 +301,7 @@ func sortFindings(findings []model.Finding, sortCol, sortDir string) {
 
 // parseListPagination reads ?limit and ?offset from the query string,
 // applies sane defaults (limit 1000, offset 0), and clamps to safe
-// bounds (limit max 5000, offset min 0). Anything unparseable falls
+// bounds (limit max 50000, offset min 0). Anything unparseable falls
 // back to the defaults rather than erroring — pagination should never
 // be the reason a request fails.
 func parseListPagination(q url.Values) (limit, offset int) {
@@ -732,7 +732,15 @@ func (s *Server) handleEscalate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]bool) {
 	cfg := s.store.GetConfig()
-	client := &http.Client{Timeout: 8 * time.Second}
+	client := &http.Client{
+		Timeout: 8 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > 0 && req.URL.Host != via[0].URL.Host {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
 	ts := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 	hitCount := 0
 
@@ -810,7 +818,7 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 		isIP := strings.Count(dst, ".") == 3
 
 		if svcs["crowdsec"] && cfg.CrowdSecAPIKey != "" && isIP {
-			if req, err := http.NewRequest("GET", fmt.Sprintf("https://cti.api.crowdsec.net/v2/smoke/%s", dst), nil); err == nil {
+			if req, err := http.NewRequest("GET", fmt.Sprintf("https://cti.api.crowdsec.net/v2/smoke/%s", url.PathEscape(dst)), nil); err == nil {
 				req.Header.Set("X-Api-Key", cfg.CrowdSecAPIKey)
 				if body, ok := doReq(req); ok {
 					var data struct {
@@ -840,9 +848,9 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 		}
 
 		if svcs["vt"] && cfg.VirusTotalAPIKey != "" {
-			vtURL := fmt.Sprintf("https://www.virustotal.com/api/v3/ip_addresses/%s", dst)
+			vtURL := fmt.Sprintf("https://www.virustotal.com/api/v3/ip_addresses/%s", url.PathEscape(dst))
 			if !isIP {
-				vtURL = fmt.Sprintf("https://www.virustotal.com/api/v3/domains/%s", dst)
+				vtURL = fmt.Sprintf("https://www.virustotal.com/api/v3/domains/%s", url.PathEscape(dst))
 			}
 			if req, err := http.NewRequest("GET", vtURL, nil); err == nil {
 				req.Header.Set("x-apikey", cfg.VirusTotalAPIKey)
@@ -875,9 +883,9 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 		}
 
 		if svcs["otx"] && cfg.OTXAPIKey != "" {
-			otxURL := fmt.Sprintf("https://otx.alienvault.com/api/v1/indicators/IPv4/%s/general", dst)
+			otxURL := fmt.Sprintf("https://otx.alienvault.com/api/v1/indicators/IPv4/%s/general", url.PathEscape(dst))
 			if !isIP {
-				otxURL = fmt.Sprintf("https://otx.alienvault.com/api/v1/indicators/domain/%s/general", dst)
+				otxURL = fmt.Sprintf("https://otx.alienvault.com/api/v1/indicators/domain/%s/general", url.PathEscape(dst))
 			}
 			if req, err := http.NewRequest("GET", otxURL, nil); err == nil {
 				req.Header.Set("X-OTX-API-KEY", cfg.OTXAPIKey)
@@ -908,7 +916,7 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 		}
 
 		if svcs["abuseipdb"] && cfg.AbuseIPDBAPIKey != "" && isIP {
-			if req, err := http.NewRequest("GET", fmt.Sprintf("https://api.abuseipdb.com/api/v2/check?ipAddress=%s&maxAgeInDays=90", dst), nil); err == nil {
+			if req, err := http.NewRequest("GET", fmt.Sprintf("https://api.abuseipdb.com/api/v2/check?ipAddress=%s&maxAgeInDays=90", url.QueryEscape(dst)), nil); err == nil {
 				req.Header.Set("Key", cfg.AbuseIPDBAPIKey)
 				req.Header.Set("Accept", "application/json")
 				if body, ok := doReq(req); ok {
@@ -943,7 +951,7 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 		// malicious` is the rare hit. Works unauthenticated; an optional key
 		// raises the rate limit but isn't required.
 		if svcs["greynoise"] && isIP {
-			if req, err := http.NewRequest("GET", fmt.Sprintf("https://api.greynoise.io/v3/community/%s", dst), nil); err == nil {
+			if req, err := http.NewRequest("GET", fmt.Sprintf("https://api.greynoise.io/v3/community/%s", url.PathEscape(dst)), nil); err == nil {
 				if cfg.GreyNoiseAPIKey != "" {
 					req.Header.Set("key", cfg.GreyNoiseAPIKey)
 				}
@@ -989,7 +997,7 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 		// was last observed. Useful context to attach to the finding without
 		// generating a hit/clean verdict on its own.
 		if svcs["censys"] && cfg.CensysAPIID != "" && cfg.CensysAPISecret != "" && isIP {
-			if req, err := http.NewRequest("GET", fmt.Sprintf("https://search.censys.io/api/v2/hosts/%s", dst), nil); err == nil {
+			if req, err := http.NewRequest("GET", fmt.Sprintf("https://search.censys.io/api/v2/hosts/%s", url.PathEscape(dst)), nil); err == nil {
 				req.SetBasicAuth(cfg.CensysAPIID, cfg.CensysAPISecret)
 				req.Header.Set("Accept", "application/json")
 				if body, ok := doReq(req); ok {

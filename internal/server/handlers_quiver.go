@@ -78,7 +78,7 @@ func (s *Server) handleQuiverInstallScript(w http.ResponseWriter, r *http.Reques
 	// crafted Host header or a malformed SensorFacingHost override
 	// trips this gate. Defense in depth — the realistic abuse path
 	// already requires a privileged attacker position.
-	if strings.ContainsAny(host, "\"'`$;\\\n\r<>|&") {
+	if strings.ContainsAny(host, " \t\"'`$;\\\n\r<>|&") {
 		http.Error(w, "invalid sensor-facing host", http.StatusBadRequest)
 		return
 	}
