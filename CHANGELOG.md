@@ -28,6 +28,21 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.35.0] — 2026-05-22
+
+### Added
+
+- **Structured logging via `log/slog`.** All `log.Printf` calls across
+  `internal/store/`, `internal/server/`, `internal/feeds/`, and
+  `cmd/archer/main.go` migrated to `log/slog` with a text handler wired
+  at startup. Each log line now carries a level (`INFO`, `WARN`, `ERROR`)
+  and named key-value fields (e.g. `id=142 err="unexpected end of JSON"`).
+  Output format remains human-readable in `docker logs`; error paths are
+  now distinguishable from informational events without grepping message
+  text. No API, schema, detection-semantics, or Quiver protocol changes.
+
+---
+
 ## [v0.34.0] — 2026-05-22
 
 ### Added
@@ -6265,7 +6280,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.34.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.35.0...HEAD
+[v0.35.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.34.0...v0.35.0
 [v0.34.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.33.1...v0.34.0
 [v0.33.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.33.0...v0.33.1
 [v0.33.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.32.0...v0.33.0

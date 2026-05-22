@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -510,7 +510,7 @@ func (s *Server) refreshAllFeedsForWatch(ctx context.Context) {
 			// based on the cadence — most ticks are cheap incrementals;
 			// the periodic full keeps the aging window honest.
 			if _, _, err := s.runFeedFetch(ctx, feed, false); err != nil {
-				log.Printf("watch: feed refresh failed for %s: %v", feed.Name, err)
+				slog.Warn("watch: feed refresh failed", "feed", feed.Name, "err", err)
 			}
 		}(f)
 	}

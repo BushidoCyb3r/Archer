@@ -2,7 +2,7 @@ package feeds
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -233,9 +233,9 @@ func (w *Worker) tick(ctx context.Context, feedID int64) {
 	_ = w.store.UpdateFeed(done)
 
 	if res.Truncated {
-		log.Printf("feeds: %s/%s — added %d, refreshed %d (TRUNCATED at adapter cap)", f.SourceType, f.Name, added, refreshed)
+		slog.Info("feeds: fetch complete (truncated at adapter cap)", "source_type", f.SourceType, "name", f.Name, "added", added, "refreshed", refreshed)
 	} else {
-		log.Printf("feeds: %s/%s — added %d, refreshed %d", f.SourceType, f.Name, added, refreshed)
+		slog.Info("feeds: fetch complete", "source_type", f.SourceType, "name", f.Name, "added", added, "refreshed", refreshed)
 	}
 }
 
@@ -252,7 +252,7 @@ func (w *Worker) recordError(f Feed, msg string) {
 	f.LastError = msg
 	f.Status = "error"
 	_ = w.store.UpdateFeed(f)
-	log.Printf("feeds: %s/%s — %s", f.SourceType, f.Name, msg)
+	slog.Error("feeds: fetch error", "source_type", f.SourceType, "name", f.Name, "msg", msg)
 }
 
 // versionSig captures the fields whose change requires a loop

@@ -6,7 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 )
 
@@ -75,14 +75,14 @@ func (s *Store) ListServiceTokens() []ServiceToken {
 		`SELECT id, label, created_at, created_by FROM service_tokens ORDER BY id`,
 	)
 	if err != nil {
-		log.Printf("store: list service tokens: %v", err)
+		slog.Error("store: list service tokens", "err", err)
 		return out
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var t ServiceToken
 		if err := rows.Scan(&t.ID, &t.Label, &t.CreatedAt, &t.CreatedBy); err != nil {
-			log.Printf("store: scan service token: %v", err)
+			slog.Error("store: scan service token", "err", err)
 			continue
 		}
 		out = append(out, t)
@@ -98,7 +98,7 @@ func (s *Store) RevokeServiceToken(id int64) bool {
 	}
 	res, err := s.db.Exec(`DELETE FROM service_tokens WHERE id=?`, id)
 	if err != nil {
-		log.Printf("store: revoke service token: %v", err)
+		slog.Error("store: revoke service token", "err", err)
 		return false
 	}
 	n, _ := res.RowsAffected()

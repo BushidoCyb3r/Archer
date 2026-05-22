@@ -15,7 +15,7 @@ package store
 import (
 	"crypto/sha256"
 	"encoding/base64"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -120,7 +120,7 @@ func (s *Store) GetSensors() []Sensor {
 	                                schedule_hour, schedule_minute, last_seen_at, last_files, last_bytes
 	                         FROM sensors ORDER BY enrolled_at DESC, id DESC`)
 	if err != nil {
-		log.Printf("store: GetSensors: %v", err)
+		slog.Error("store: GetSensors", "err", err)
 		return nil
 	}
 	defer rows.Close()
@@ -297,7 +297,7 @@ func (s *Store) ListEnrollmentTokens() []EnrollmentToken {
 	                                COALESCE(consumed_by,'')  AS consumed_by
 	                         FROM enrollment_tokens ORDER BY created_at DESC, id DESC`)
 	if err != nil {
-		log.Printf("store: ListEnrollmentTokens: %v", err)
+		slog.Error("store: ListEnrollmentTokens", "err", err)
 		return nil
 	}
 	defer rows.Close()
@@ -430,7 +430,7 @@ func (s *Store) ListUnauthorizedAttempts() []UnauthorizedAttempt {
 	}
 	rows, err := s.db.Query(`SELECT id, name, source_ip, first_seen, last_seen, attempt_count, pinned FROM unauthorized_attempts ORDER BY last_seen DESC`)
 	if err != nil {
-		log.Printf("store: ListUnauthorizedAttempts: %v", err)
+		slog.Warn("store: ListUnauthorizedAttempts", "err", err)
 		return nil
 	}
 	defer rows.Close()
@@ -469,7 +469,7 @@ func (s *Store) PruneUnauthorizedAttempts(retention time.Duration) int64 {
 	cutoff := time.Now().Add(-retention).Unix()
 	res, err := s.db.Exec(`DELETE FROM unauthorized_attempts WHERE pinned=0 AND last_seen < ?`, cutoff)
 	if err != nil {
-		log.Printf("store: PruneUnauthorizedAttempts: %v", err)
+		slog.Warn("store: PruneUnauthorizedAttempts", "err", err)
 		return 0
 	}
 	n, _ := res.RowsAffected()
@@ -488,7 +488,7 @@ func (s *Store) RetagFindings(oldName, newName string) {
 		return
 	}
 	if _, err := s.db.Exec(`UPDATE findings SET sensor=? WHERE sensor=?`, newName, oldName); err != nil {
-		log.Printf("store: RetagFindings: %v", err)
+		slog.Error("store: RetagFindings", "err", err)
 		return
 	}
 	// Mirror the change in the in-memory slice so the UI reflects it
@@ -510,7 +510,7 @@ func (s *Store) DeleteFindingsBySensorPrefix(prefix string) {
 		return
 	}
 	if _, err := s.db.Exec(`DELETE FROM findings WHERE sensor LIKE ?`, prefix+"%"); err != nil {
-		log.Printf("store: DeleteFindingsBySensorPrefix: %v", err)
+		slog.Error("store: DeleteFindingsBySensorPrefix", "err", err)
 		return
 	}
 	out := s.findings[:0]
@@ -542,7 +542,7 @@ func (s *Store) DeleteOrphanedHostRiskScores() {
 			WHERE type NOT IN ('Host Risk Score', 'Correlated Activity')
 			AND src_ip != ''
 		)`); err != nil {
-		log.Printf("store: DeleteOrphanedHostRiskScores: %v", err)
+		slog.Error("store: DeleteOrphanedHostRiskScores", "err", err)
 		return
 	}
 	backed := make(map[string]bool)

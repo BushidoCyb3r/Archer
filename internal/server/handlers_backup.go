@@ -3,7 +3,7 @@ package server
 import (
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -36,14 +36,14 @@ func (s *Server) handleAdminBackup(w http.ResponseWriter, r *http.Request) {
 	// on the server.
 	tmpFile, err := os.CreateTemp("", "archer-backup-*.db")
 	if err != nil {
-		log.Printf("backup: temp file create failed: %v", err)
+		slog.Error("backup: temp file create failed", "err", err)
 		http.Error(w, "backup setup failed", http.StatusInternalServerError)
 		return
 	}
 	tmpPath := tmpFile.Name()
 	tmpFile.Close()
 	if err := os.Remove(tmpPath); err != nil {
-		log.Printf("backup: pre-VACUUM unlink failed: %v", err)
+		slog.Error("backup: pre-VACUUM unlink failed", "err", err)
 		http.Error(w, "backup setup failed", http.StatusInternalServerError)
 		return
 	}
@@ -51,14 +51,14 @@ func (s *Server) handleAdminBackup(w http.ResponseWriter, r *http.Request) {
 
 	db := s.users.DB()
 	if _, err := db.ExecContext(r.Context(), "VACUUM INTO ?", tmpPath); err != nil {
-		log.Printf("backup: VACUUM INTO failed: %v", err)
+		slog.Error("backup: VACUUM INTO failed", "err", err)
 		http.Error(w, "backup snapshot failed", http.StatusInternalServerError)
 		return
 	}
 
 	f, err := os.Open(tmpPath)
 	if err != nil {
-		log.Printf("backup: open snapshot failed: %v", err)
+		slog.Error("backup: open snapshot failed", "err", err)
 		http.Error(w, "backup open failed", http.StatusInternalServerError)
 		return
 	}
@@ -80,7 +80,7 @@ func (s *Server) handleAdminBackup(w http.ResponseWriter, r *http.Request) {
 		// Client disconnect mid-stream is a benign cause; log and move
 		// on. Headers are already sent so we can't usefully error the
 		// response.
-		log.Printf("backup: stream interrupted: %v", err)
+		slog.Error("backup: stream interrupted", "err", err)
 		return
 	}
 

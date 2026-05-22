@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"regexp"
@@ -60,7 +60,7 @@ func NewOpenCTIClient(baseURL, apiKey string, tlsSkipVerify, allowInternal bool,
 	if queryFilterJSON != "" {
 		var f map[string]any
 		if err := json.Unmarshal([]byte(queryFilterJSON), &f); err != nil {
-			log.Printf("feeds: opencti: query_filter_json is not valid JSON (%v) — filter ignored", err)
+			slog.Warn("feeds: opencti: query_filter_json is not valid JSON — filter ignored", "err", err)
 		} else {
 			c.QueryFilter = f
 		}

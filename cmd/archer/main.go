@@ -2,7 +2,8 @@ package main
 
 import (
 	"flag"
-	"log"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,6 +18,8 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
+
 	// Single TLS listener for everyone — admins, analysts, viewers,
 	// AND sensors. Pre-v0.14.5 Archer ran a plain HTTP listener on
 	// :8080 for the UI and a TLS listener on :8443 for sensors;
@@ -57,7 +60,8 @@ func main() {
 		sig := <-sigCh
 		buf := make([]byte, 1<<20)
 		n := runtime.Stack(buf, true)
-		log.Printf("=== received signal %v ===\n%s=== end stack dump ===", sig, buf[:n])
+		slog.Info("received signal — stack dump follows", "signal", sig)
+		fmt.Fprintf(os.Stderr, "%s", buf[:n])
 		os.Exit(128 + int(sig.(syscall.Signal)))
 	}()
 
@@ -74,13 +78,15 @@ func main() {
 	// double-writer bugs become possible.
 	st.InitDB(us.DB())
 	if err := st.CheckIntegrity(); err != nil {
-		log.Fatalf("database integrity check failed — restore from backup: %v", err)
+		slog.Error("database integrity check failed — restore from backup", "err", err)
+		os.Exit(1)
 	}
 	broker := server.NewBroker()
 	srv := server.New(st, us, broker, *webDir, *logsDir, *authKeys)
 
 	if *tlsAddr == "" {
-		log.Fatal("--tls-addr is required (Archer is HTTPS-only as of v0.14.5; the plaintext :8080 listener was removed in NEW-49)")
+		slog.Error("--tls-addr is required (Archer is HTTPS-only as of v0.14.5; the plaintext :8080 listener was removed in NEW-49)")
+		os.Exit(1)
 	}
 	if *tlsDir == "" {
 		*tlsDir = filepath.Join(*dataDir, "tls")
@@ -92,11 +98,12 @@ func main() {
 		// fallback now; admin auth requires TLS, so the only
 		// correct response to "we can't bootstrap TLS" is to
 		// surface the error and refuse to start.
-		log.Fatalf("TLS bootstrap failed: %v", err)
+		slog.Error("TLS bootstrap failed", "err", err)
+		os.Exit(1)
 	}
 	srv.SetTLSFingerprint(fp)
-	log.Printf("Archer HTTPS listening on %s  (cert fingerprint sha256//%s)", *tlsAddr, fp)
-	log.Printf("  web: %s  logs: %s", *webDir, *logsDir)
+	slog.Info("Archer HTTPS listening", "addr", *tlsAddr, "fingerprint", fp)
+	slog.Info("startup", "web_dir", *webDir, "logs_dir", *logsDir)
 
 	// Pre-v0.14.9 the HTTPS listener was the bare http.ListenAndServeTLS
 	// convenience wrapper, which builds an http.Server with zero
@@ -129,6 +136,7 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 	if err := httpSrv.ListenAndServeTLS(certPath, keyPath); err != nil {
-		log.Fatal(err)
+		slog.Error("HTTPS listener failed", "err", err)
+		os.Exit(1)
 	}
 }

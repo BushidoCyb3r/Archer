@@ -14,7 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -269,7 +269,7 @@ func (s *Server) handleQuiverEnroll(w http.ResponseWriter, r *http.Request) {
 	// from the authorized_keys parent dir's owner).
 	if err := s.ensureSensorLogDir(finalName); err != nil {
 		if rkErr := RemoveAuthKey(s.authKeysPath, authLine); rkErr != nil {
-			log.Printf("enroll: authorized_keys rollback failed for %s: %v — manual removal required", finalName, rkErr)
+			slog.Error("enroll: authorized_keys rollback failed — manual removal required", "sensor", finalName, "err", rkErr)
 			_ = s.store.DeleteSensor(id)
 			_ = s.store.ResetEnrollmentToken(tok.ID)
 			jsonError(w, "could not create sensor logs dir ("+err.Error()+") and authorized_keys rollback failed ("+rkErr.Error()+") — remove entry for "+finalName+" from authorized_keys manually", http.StatusInternalServerError)

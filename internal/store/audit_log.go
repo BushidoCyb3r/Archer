@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 )
 
@@ -61,7 +61,7 @@ func (s *Store) LogAuditEvent(e AuditEntry) {
 		e.BeforeValue, e.AfterValue, e.Details, e.SourceIP,
 	)
 	if err != nil {
-		log.Printf("audit_log: write failed for action=%s actor=%s: %v", e.Action, e.ActorEmail, err)
+		slog.Error("audit_log: write failed", "action", e.Action, "actor", e.ActorEmail, "err", err)
 	}
 }
 
@@ -107,7 +107,7 @@ func (s *Store) ListAuditLog(cursor int64, count int) []AuditEntry {
 		)
 	}
 	if err != nil {
-		log.Printf("audit_log: list failed: %v", err)
+		slog.Error("audit_log: list failed", "err", err)
 		return nil
 	}
 	defer rows.Close()

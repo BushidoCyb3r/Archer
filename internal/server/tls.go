@@ -21,7 +21,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
-	"log"
+	"log/slog"
 	"math/big"
 	"net"
 	"os"
@@ -77,7 +77,7 @@ func EnsureTLS(dir string) (certPath, keyPath, fingerprint string, err error) {
 			// the auto-regen treatment because they're the only
 			// known-broken-for-browsers case.
 			if ed25519AutoGen(certPath, keyPath) {
-				log.Printf("server: regenerating Ed25519 TLS cert at %s with ECDSA P-256 (browsers don't support Ed25519 server certs — see CHANGELOG v0.14.6)", certPath)
+				slog.Info("server: regenerating Ed25519 TLS cert with ECDSA P-256 (browsers don't support Ed25519 server certs — see CHANGELOG v0.14.6)", "path", certPath)
 				if err = removeOldCertPair(certPath, keyPath); err != nil {
 					return
 				}
@@ -134,7 +134,7 @@ func EnsureTLS(dir string) (certPath, keyPath, fingerprint string, err error) {
 		return
 	}
 	fingerprint = pinnedPubkeyFromDER(der)
-	log.Printf("server: generated self-signed TLS cert at %s (ECDSA P-256, sha256//%s)", certPath, fingerprint)
+	slog.Info("server: generated self-signed TLS cert", "path", certPath, "fingerprint", fingerprint)
 	return
 }
 

@@ -31,7 +31,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
-	"log"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -133,7 +133,7 @@ func RunMigrations(db *sql.DB) error {
 		return fmt.Errorf("enable WAL journaling: %w", err)
 	}
 	if !strings.EqualFold(jm, "wal") {
-		log.Printf("store: WARN — requested WAL journaling, got %q (filesystem may not support it)", jm)
+		slog.Warn("store: WAL journaling unavailable", "got", jm)
 	}
 
 	// Ensure the tracking table exists before we look at it. Idempotent.
@@ -177,7 +177,7 @@ func RunMigrations(db *sql.DB) error {
 				return fmt.Errorf("bootstrap-stamp version 1: %w", err)
 			}
 			applied[1] = true
-			log.Printf("store: existing install detected — schema migration 0001 stamped without re-running")
+			slog.Info("store: existing install detected — schema migration 0001 stamped without re-running")
 		}
 	}
 
@@ -189,7 +189,7 @@ func RunMigrations(db *sql.DB) error {
 		if err := applyMigration(db, m); err != nil {
 			return err
 		}
-		log.Printf("store: applied schema migration %04d (%s)", m.version, m.name)
+		slog.Info("store: applied schema migration", "version", m.version, "name", m.name)
 	}
 	return nil
 }

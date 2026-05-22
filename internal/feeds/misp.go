@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -111,7 +111,7 @@ func NewMISPClient(baseURL, apiKey string, tlsSkipVerify, allowInternal bool, qu
 	if queryFilterJSON != "" {
 		var f map[string]any
 		if err := json.Unmarshal([]byte(queryFilterJSON), &f); err != nil {
-			log.Printf("feeds: misp: query_filter_json is not valid JSON (%v) — filter ignored", err)
+			slog.Warn("feeds: misp: query_filter_json is not valid JSON — filter ignored", "err", err)
 		} else {
 			c.QueryFilter = f
 		}

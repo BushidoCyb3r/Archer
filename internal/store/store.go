@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -173,7 +173,7 @@ func (s *Store) InitDB(db *sql.DB) {
 		// from user input.
 		rows, err := db.Query(`SELECT entry FROM ` + tbl + ` ORDER BY rowid`) // nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query -- constant table identifier, internal callers only
 		if err != nil {
-			log.Printf("store: cannot load %s: %v", tbl, err)
+			slog.Warn("store: cannot load table", "table", tbl, "err", err)
 			return nil
 		}
 		defer rows.Close()
@@ -209,13 +209,13 @@ func (s *Store) InitDB(db *sql.DB) {
 	var cfgJSON string
 	if err := db.QueryRow(`SELECT config FROM settings WHERE id = 1`).Scan(&cfgJSON); err == nil {
 		if err := json.Unmarshal([]byte(cfgJSON), &s.config); err != nil {
-			log.Printf("store: corrupt settings, using defaults: %v", err)
+			slog.Warn("store: corrupt settings, using defaults", "err", err)
 		}
 	}
 
 	now := time.Now().Unix()
 	if _, err := db.Exec(`DELETE FROM suppressions WHERE expiry <= ?`, now); err != nil {
-		log.Printf("store: prune suppressions: %v", err)
+		slog.Warn("store: prune suppressions", "err", err)
 	}
 	if rows, err := db.Query(`SELECT target, expiry, detail FROM suppressions`); err == nil {
 		defer rows.Close()
@@ -291,7 +291,7 @@ func (s *Store) loadNotifications() {
 	                                dismissed
 	                         FROM notifications ORDER BY id`)
 	if err != nil {
-		log.Printf("store: cannot load notifications: %v", err)
+		slog.Warn("store: cannot load notifications", "err", err)
 		return
 	}
 	defer rows.Close()
@@ -331,7 +331,7 @@ func (s *Store) persistNotification(n model.Notification) {
 		time.Now().Unix(),
 	)
 	if err != nil {
-		log.Printf("store: persist notification %d: %v", n.ID, err)
+		slog.Error("store: persist notification", "id", n.ID, "err", err)
 	}
 }
 
@@ -346,23 +346,23 @@ func (s *Store) persistList(tbl string, items []string) {
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
-		log.Printf("store: persist %s begin: %v", tbl, err)
+		slog.Error("store: persist list begin", "table", tbl, "err", err)
 		return
 	}
 	if _, err := tx.Exec(`DELETE FROM ` + tbl); err != nil {
 		tx.Rollback()
-		log.Printf("store: persist %s delete: %v", tbl, err)
+		slog.Error("store: persist list delete", "table", tbl, "err", err)
 		return
 	}
 	for _, e := range items {
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO `+tbl+` (entry) VALUES (?)`, e); err != nil {
 			tx.Rollback()
-			log.Printf("store: persist %s insert: %v", tbl, err)
+			slog.Error("store: persist list insert", "table", tbl, "err", err)
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		log.Printf("store: persist %s commit: %v", tbl, err)
+		slog.Error("store: persist list commit", "table", tbl, "err", err)
 	}
 }
 
@@ -377,7 +377,7 @@ func (s *Store) loadFindings() {
 	}
 	rows, err := s.db.Query(`SELECT id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size, ja3, ja4, top_uris FROM findings ORDER BY id`)
 	if err != nil {
-		log.Printf("store: load findings: %v", err)
+		slog.Error("store: load findings", "err", err)
 		return
 	}
 	defer rows.Close()
@@ -387,7 +387,7 @@ func (s *Store) loadFindings() {
 		var iocMatch, isNew int
 		var intervals, tsData, notes, correlations, topURIs string
 		if err := rows.Scan(&f.ID, &f.Type, &f.Severity, &f.Score, &f.SrcIP, &f.DstIP, &f.DstPort, &f.Detail, &f.Timestamp, &f.SourceFile, &f.Status, &f.Analyst, &f.AnalystNote, &f.StatusTS, &iocMatch, &isNew, &f.Sensor, &intervals, &tsData, &notes, &correlations, &f.TSScore, &f.DSScore, &f.HistScore, &f.DurScore, &f.MeanInterval, &f.MedianInterval, &f.Jitter, &f.SampleSize, &f.JA3, &f.JA4, &topURIs); err != nil {
-			log.Printf("store: scan finding: %v", err)
+			slog.Error("store: scan finding", "err", err)
 			loadOK = false
 			continue
 		}
@@ -395,17 +395,17 @@ func (s *Store) loadFindings() {
 		f.IsNew = isNew == 1
 		if intervals != "" {
 			if err := json.Unmarshal([]byte(intervals), &f.Intervals); err != nil {
-				log.Printf("store: finding %d: corrupt intervals data: %v", f.ID, err)
+				slog.Warn("store: corrupt finding intervals", "id", f.ID, "err", err)
 			}
 		}
 		if tsData != "" {
 			if err := json.Unmarshal([]byte(tsData), &f.TSData); err != nil {
-				log.Printf("store: finding %d: corrupt ts_data: %v", f.ID, err)
+				slog.Warn("store: corrupt finding ts_data", "id", f.ID, "err", err)
 			}
 		}
 		if notes != "" {
 			if err := json.Unmarshal([]byte(notes), &f.Notes); err != nil {
-				log.Printf("store: finding %d: corrupt notes: %v", f.ID, err)
+				slog.Warn("store: corrupt finding notes", "id", f.ID, "err", err)
 			}
 		}
 		// NEW-72: Correlations persists across restarts so the "+N corr"
@@ -414,7 +414,7 @@ func (s *Store) loadFindings() {
 		// rows) decodes to a nil slice — matches the pre-feature shape.
 		if correlations != "" {
 			if err := json.Unmarshal([]byte(correlations), &f.Correlations); err != nil {
-				log.Printf("store: finding %d: corrupt correlations: %v", f.ID, err)
+				slog.Warn("store: corrupt finding correlations", "id", f.ID, "err", err)
 			}
 		}
 		// top_uris (migration 0020): the HTTP-beacon path footprint.
@@ -422,13 +422,13 @@ func (s *Store) loadFindings() {
 		// findings) decodes to a nil slice — the pre-feature shape.
 		if topURIs != "" {
 			if err := json.Unmarshal([]byte(topURIs), &f.TopURIs); err != nil {
-				log.Printf("store: finding %d: corrupt top_uris: %v", f.ID, err)
+				slog.Warn("store: corrupt finding top_uris", "id", f.ID, "err", err)
 			}
 		}
 		s.findings = append(s.findings, f)
 	}
 	if err := rows.Err(); err != nil {
-		log.Printf("store: load findings iteration error: %v", err)
+		slog.Error("store: load findings iteration error", "err", err)
 		loadOK = false
 	}
 	s.findingsLoadOK = loadOK
@@ -442,23 +442,23 @@ func (s *Store) saveFindings() {
 		return
 	}
 	if !s.findingsLoadOK {
-		log.Printf("store: saveFindings refused — initial load was incomplete; findings not overwritten")
+		slog.Warn("store: saveFindings refused — initial load was incomplete; findings not overwritten")
 		return
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
-		log.Printf("store: save findings begin: %v", err)
+		slog.Error("store: save findings begin", "err", err)
 		return
 	}
 	if _, err := tx.Exec(`DELETE FROM findings`); err != nil {
 		tx.Rollback()
-		log.Printf("store: save findings delete: %v", err)
+		slog.Error("store: save findings delete", "err", err)
 		return
 	}
 	stmt, err := tx.Prepare(`INSERT INTO findings (id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size, ja3, ja4, top_uris) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		tx.Rollback()
-		log.Printf("store: save findings prepare: %v", err)
+		slog.Error("store: save findings prepare", "err", err)
 		return
 	}
 	defer stmt.Close()
@@ -490,12 +490,12 @@ func (s *Store) saveFindings() {
 			f.JA3, f.JA4, string(topURIs),
 		); err != nil {
 			tx.Rollback()
-			log.Printf("store: save findings insert: %v", err)
+			slog.Error("store: save findings insert", "err", err)
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		log.Printf("store: save findings commit: %v", err)
+		slog.Error("store: save findings commit", "err", err)
 	}
 }
 
@@ -857,7 +857,7 @@ func (s *Store) UpdateFinding(id int, status model.Status, analyst, note, status
 	if s.db != nil {
 		if _, err := s.db.Exec(`UPDATE findings SET status=?, analyst=?, analyst_note=?, status_ts=? WHERE id=?`,
 			string(status), analyst, note, statusTS, id); err != nil {
-			log.Printf("store: update finding %d: %v", id, err)
+			slog.Error("store: update finding", "id", id, "err", err)
 		}
 	}
 	return before, true
@@ -907,7 +907,7 @@ func (s *Store) AddNote(id int, note model.Note) bool {
 	if s.db != nil {
 		notesJSON, _ := json.Marshal(s.findings[i].Notes)
 		if _, err := s.db.Exec(`UPDATE findings SET notes=? WHERE id=?`, string(notesJSON), id); err != nil {
-			log.Printf("store: add note to finding %d: %v", id, err)
+			slog.Error("store: add note to finding", "id", id, "err", err)
 		}
 	}
 	return true
@@ -925,7 +925,7 @@ func (s *Store) SetConfig(cfg config.Config) {
 	if s.db != nil {
 		cfgJSON, _ := json.Marshal(cfg)
 		if _, err := s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON)); err != nil {
-			log.Printf("store: persist settings: %v", err)
+			slog.Error("store: persist settings", "err", err)
 		}
 	}
 	s.mu.Unlock()
@@ -943,7 +943,7 @@ func (s *Store) persistConfig() {
 	}
 	cfgJSON, _ := json.Marshal(s.config)
 	if _, err := s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON)); err != nil {
-		log.Printf("store: persist settings: %v", err)
+		slog.Error("store: persist settings", "err", err)
 	}
 }
 
@@ -1097,7 +1097,7 @@ func (s *Store) AddSuppression(target string, expiry time.Time, detail string) {
 	s.suppressions[target] = suppressionEntry{Expiry: expiry, Detail: detail}
 	if s.db != nil {
 		if _, err := s.db.Exec(`INSERT OR REPLACE INTO suppressions (target, expiry, detail) VALUES (?, ?, ?)`, target, expiry.Unix(), detail); err != nil {
-			log.Printf("store: persist suppression: %v", err)
+			slog.Error("store: persist suppression", "err", err)
 		}
 	}
 	// Stale-notification cleanup — see SetAllowlist for rationale.
@@ -1111,7 +1111,7 @@ func (s *Store) RemoveSuppression(target string) {
 	delete(s.suppressions, target)
 	if s.db != nil {
 		if _, err := s.db.Exec(`DELETE FROM suppressions WHERE target = ?`, target); err != nil {
-			log.Printf("store: remove suppression: %v", err)
+			slog.Error("store: remove suppression", "err", err)
 		}
 	}
 	s.mu.Unlock()
@@ -1254,7 +1254,7 @@ func (s *Store) RemovePairAllow(id int64) {
 	defer s.mu.Unlock()
 	if s.db != nil {
 		if _, err := s.db.Exec(`DELETE FROM pair_allowlist WHERE id = ?`, id); err != nil {
-			log.Printf("store: remove pair allow %d: %v", id, err)
+			slog.Error("store: remove pair allow", "id", id, "err", err)
 			return
 		}
 	}
@@ -1315,7 +1315,7 @@ func (s *Store) dismissHiddenFindingNotificationsLocked() {
 	if s.db != nil && len(dismissedIDs) > 0 {
 		for _, id := range dismissedIDs {
 			if _, err := s.db.Exec(`UPDATE notifications SET dismissed = 1 WHERE id = ?`, id); err != nil {
-				log.Printf("store: persist dismiss-on-hidden notification %d: %v", id, err)
+				slog.Error("store: persist dismiss-on-hidden notification", "id", id, "err", err)
 			}
 		}
 	}
@@ -1342,7 +1342,7 @@ func (s *Store) dismissOrphanedFindingNotificationsLocked() {
 	if s.db != nil {
 		for _, id := range dismissedIDs {
 			if _, err := s.db.Exec(`UPDATE notifications SET dismissed = 1 WHERE id = ?`, id); err != nil {
-				log.Printf("store: dismiss orphaned notification %d: %v", id, err)
+				slog.Warn("store: dismiss orphaned notification", "id", id, "err", err)
 			}
 		}
 	}
@@ -1374,7 +1374,7 @@ func (s *Store) PruneExpiredSuppressions() int {
 	}
 	if pruned > 0 && s.db != nil {
 		if _, err := s.db.Exec(`DELETE FROM suppressions WHERE expiry <= ?`, now.Unix()); err != nil {
-			log.Printf("store: prune expired suppressions: %v", err)
+			slog.Warn("store: prune expired suppressions", "err", err)
 		}
 	}
 	return pruned
@@ -1414,7 +1414,7 @@ func (s *Store) DismissNotification(id int) {
 			s.notifications[i].Dismissed = true
 			if s.db != nil {
 				if _, err := s.db.Exec(`UPDATE notifications SET dismissed = 1 WHERE id = ?`, id); err != nil {
-					log.Printf("store: persist dismiss notification %d: %v", id, err)
+					slog.Error("store: persist dismiss notification", "id", id, "err", err)
 				}
 			}
 			return
@@ -1430,7 +1430,7 @@ func (s *Store) DismissAllNotifications() {
 	}
 	if s.db != nil {
 		if _, err := s.db.Exec(`UPDATE notifications SET dismissed = 1 WHERE dismissed = 0`); err != nil {
-			log.Printf("store: persist dismiss all notifications: %v", err)
+			slog.Error("store: persist dismiss all notifications", "err", err)
 		}
 	}
 }

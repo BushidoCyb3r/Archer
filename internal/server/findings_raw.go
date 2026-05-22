@@ -2,7 +2,7 @@ package server
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -255,7 +255,7 @@ func (s *Server) handleFindingRaw(w http.ResponseWriter, r *http.Request, id int
 					// fleet; one bad file should not blank the whole search.
 					// Log it so an operator inspecting server logs can spot
 					// the file that needs investigation.
-					log.Printf("findings_raw: parser failed on %s: %v", j.path, err)
+					slog.Warn("findings_raw: parser failed", "path", j.path, "err", err)
 				}
 			}
 		}()

@@ -2,7 +2,7 @@ package server
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"sync"
@@ -121,7 +121,7 @@ func (s *Server) startFeedWorker() {
 // flagged. Behavior is identical to the loops it replaces: same
 // run-at-boot-then-tick shape, same no-graceful-shutdown contract.
 func startPruneLoop(name string, interval time.Duration, fn func()) {
-	log.Printf("server: prune loop %q started (interval %s)", name, interval)
+	slog.Info("server: prune loop started", "name", name, "interval", interval)
 	go func() {
 		fn()
 		t := time.NewTicker(interval)

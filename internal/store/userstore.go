@@ -4,7 +4,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,12 +63,14 @@ type UserStore struct {
 
 func NewUserStore(dataDir string) *UserStore {
 	if err := os.MkdirAll(dataDir, 0o750); err != nil {
-		log.Fatalf("userstore: cannot create data dir %s: %v", dataDir, err)
+		slog.Error("userstore: cannot create data dir", "path", dataDir, "err", err)
+		os.Exit(1)
 	}
 	dbPath := filepath.Join(dataDir, "archer.db")
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		log.Fatalf("userstore: cannot open database %s: %v", dbPath, err)
+		slog.Error("userstore: cannot open database", "path", dbPath, "err", err)
+		os.Exit(1)
 	}
 	db.SetMaxOpenConns(1) // SQLite is single-writer
 
@@ -78,7 +80,8 @@ func NewUserStore(dataDir string) *UserStore {
 	// hits a missing column. Failure is fatal — a half-applied schema
 	// would otherwise yield mysterious runtime errors downstream.
 	if err := RunMigrations(db); err != nil {
-		log.Fatalf("userstore: schema migrations failed: %v", err)
+		slog.Error("userstore: schema migrations failed", "err", err)
+		os.Exit(1)
 	}
 
 	us := &UserStore{

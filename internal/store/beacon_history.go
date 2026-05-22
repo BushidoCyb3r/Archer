@@ -2,7 +2,7 @@ package store
 
 import (
 	"database/sql"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/model"
@@ -95,7 +95,7 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
 
 	tx, err := s.db.Begin()
 	if err != nil {
-		log.Printf("store: beacon_history begin tx: %v", err)
+		slog.Error("store: beacon_history begin tx", "err", err)
 		return
 	}
 	// NEW-84 fixed here. The reachable case: the DGA augmentation
@@ -151,7 +151,7 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
     `)
 	if err != nil {
 		_ = tx.Rollback()
-		log.Printf("store: beacon_history prepare: %v", err)
+		slog.Error("store: beacon_history prepare", "err", err)
 		return
 	}
 	defer stmt.Close()
@@ -193,12 +193,12 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
 			now,
 		)
 		if err != nil {
-			log.Printf("store: beacon_history insert: %v", err)
+			slog.Error("store: beacon_history insert", "err", err)
 			continue
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		log.Printf("store: beacon_history commit: %v", err)
+		slog.Error("store: beacon_history commit", "err", err)
 	}
 }
 
@@ -231,7 +231,7 @@ func (s *Store) BeaconHistory(key string) []BeaconHistoryRow {
         ORDER BY day_utc ASC
     `, key, cutoff)
 	if err != nil {
-		log.Printf("store: beacon_history query: %v", err)
+		slog.Error("store: beacon_history query", "err", err)
 		return nil
 	}
 	defer rows.Close()
@@ -248,7 +248,7 @@ func (s *Store) BeaconHistory(key string) []BeaconHistoryRow {
 			&spectralRescued, &r.SpectralPeriod,
 			&r.TSRaw, &r.TSMultimodal, &r.TSEntropy,
 		); err != nil {
-			log.Printf("store: beacon_history scan: %v", err)
+			slog.Error("store: beacon_history scan", "err", err)
 			continue
 		}
 		r.SpectralRescued = spectralRescued != 0
@@ -269,7 +269,7 @@ func (s *Store) PurgeBeaconHistory() int64 {
 	cutoff := time.Now().UTC().AddDate(0, 0, -BeaconHistoryRetentionDays).Format("2006-01-02")
 	res, err := s.db.Exec(`DELETE FROM beacon_history WHERE day_utc < ?`, cutoff)
 	if err != nil {
-		log.Printf("store: beacon_history purge: %v", err)
+		slog.Error("store: beacon_history purge", "err", err)
 		return 0
 	}
 	n, _ := res.RowsAffected()
@@ -322,7 +322,7 @@ func (s *Store) SuggestedPairAllowlist() []model.SuggestedAllowEntry {
         ORDER BY day_count DESC, peak_score DESC
     `, SuggestMinDays)
 	if err != nil {
-		log.Printf("store: suggested pair allowlist: %v", err)
+		slog.Error("store: suggested pair allowlist", "err", err)
 		return nil
 	}
 	defer rows.Close()
@@ -333,7 +333,7 @@ func (s *Store) SuggestedPairAllowlist() []model.SuggestedAllowEntry {
 			&e.FindingType, &e.SrcIP, &e.DstIP, &e.DstPort,
 			&e.DayCount, &e.FirstSeen, &e.LastSeen, &e.PeakScore, &e.AckedBy,
 		); err != nil {
-			log.Printf("store: suggested pair allowlist scan: %v", err)
+			slog.Error("store: suggested pair allowlist scan", "err", err)
 			continue
 		}
 		out = append(out, e)
@@ -359,7 +359,7 @@ func (s *Store) beaconHistoryRowSnapshot(key, day string) (maxScore int, lastSco
 		return 0, 0, false
 	}
 	if err != nil {
-		log.Printf("store: beacon_history lookup: %v", err)
+		slog.Error("store: beacon_history lookup", "err", err)
 		return 0, 0, false
 	}
 	return maxScore, lastScore, true

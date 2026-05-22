@@ -3,7 +3,7 @@ package server
 import (
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -135,7 +135,7 @@ func (s *Server) runArchive(afterDays int, pruneFindings, dryRun bool, triggered
 			return nil
 		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			log.Printf("archive: mkdir %s: %v", filepath.Dir(dst), err)
+			slog.Warn("archive: mkdir failed", "path", filepath.Dir(dst), "err", err)
 			res.Skipped++
 			return nil
 		}
@@ -144,7 +144,7 @@ func (s *Server) runArchive(afterDays int, pruneFindings, dryRun bool, triggered
 			return nil
 		}
 		if err := moveFile(path, dst); err != nil {
-			log.Printf("archive: move %s → %s: %v", path, dst, err)
+			slog.Warn("archive: move failed", "src", path, "dst", dst, "err", err)
 			res.Skipped++
 			return nil
 		}
@@ -167,8 +167,12 @@ func (s *Server) runArchive(afterDays int, pruneFindings, dryRun bool, triggered
 
 	if !dryRun {
 		s.store.RecordArchiveRun(res.FilesArchived, res.BytesArchived, res.FindingsPruned, triggeredBy)
-		log.Printf("archive: %d files (%d bytes) relocated, %d skipped, %d findings pruned (by %s)",
-			res.FilesArchived, res.BytesArchived, res.Skipped, res.FindingsPruned, triggeredBy)
+		slog.Info("archive: run complete",
+			"relocated", res.FilesArchived,
+			"bytes", res.BytesArchived,
+			"skipped", res.Skipped,
+			"pruned", res.FindingsPruned,
+			"initiator", triggeredBy)
 	}
 	return res
 }

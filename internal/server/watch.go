@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
@@ -624,7 +624,7 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool, preStart 
 	}
 
 	if warn := s.preflightMemoryWarning(files); warn != "" {
-		log.Printf("preflight: %s", warn)
+		slog.Warn("preflight", "msg", warn)
 		msg, _ := json.Marshal(map[string]string{"msg": warn})
 		s.broker.Publish(SSEEvent{Type: "status", Data: string(msg)})
 	}
@@ -752,7 +752,7 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool, preStart 
 				if arc := s.store.GetArchive(); arc.Enabled {
 					res := s.runArchive(arc.AfterDays, arc.PruneFindingsOnArchive, false, "scheduled")
 					if res.Err != "" {
-						log.Printf("archive: %s", res.Err)
+						slog.Warn("archive worker error", "err", res.Err)
 					}
 				}
 			}
