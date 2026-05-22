@@ -30,6 +30,9 @@ func (s *Server) handleAuditLog(w http.ResponseWriter, r *http.Request) {
 	if count <= 0 {
 		count = 100
 	}
+	if count > 500 {
+		count = 500
+	}
 
 	entries := s.store.ListAuditLog(cursor, count)
 	total := s.store.CountAuditLog()

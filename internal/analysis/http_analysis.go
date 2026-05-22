@@ -92,6 +92,10 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 	// the lazy-init replay only repaired the timing axis. Stashing
 	// (ts, origB, respB) lets the replay also touch byteVals,
 	// hourMap, tsData, firstTs, minTs.
+	// Capped to prevent unbounded growth from crafted logs with millions of
+	// unique (host, uri) pairs that never accumulate enough connections to
+	// promote past the lazy threshold.
+	const maxPreBeaconKeys = 500_000
 	preBeaconRecs := make(map[beaconKey][]preBeaconRec)
 
 	seenUA := make(map[[2]string]bool)
@@ -279,7 +283,9 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 				bk := beaconKey{sensor, src, dst, portStr, host, uri}
 				beaconCounts[bk]++
 				if beaconCounts[bk] < beaconLazyMinConn {
-					preBeaconRecs[bk] = append(preBeaconRecs[bk], preBeaconRec{ts: ts, origB: origB, respB: respB})
+					if len(preBeaconRecs) < maxPreBeaconKeys {
+						preBeaconRecs[bk] = append(preBeaconRecs[bk], preBeaconRec{ts: ts, origB: origB, respB: respB})
+					}
 				} else {
 					st := beacon[bk]
 					if st == nil {

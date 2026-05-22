@@ -37,6 +37,9 @@ func Compile(entries []string) *Matcher {
 			m.cidrs = append(m.cidrs, ipnet)
 			continue
 		}
+		if ip := net.ParseIP(e); ip != nil {
+			e = ip.String()
+		}
 		m.exact[e] = true
 	}
 	return m
@@ -49,7 +52,11 @@ func (m *Matcher) Matches(candidate string) bool {
 	if m == nil || candidate == "" {
 		return false
 	}
-	if m.exact[candidate] {
+	key := candidate
+	if ip := net.ParseIP(candidate); ip != nil {
+		key = ip.String()
+	}
+	if m.exact[key] {
 		return true
 	}
 	if len(m.cidrs) == 0 {

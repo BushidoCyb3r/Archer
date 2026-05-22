@@ -26,7 +26,7 @@ func ParseLog(path string, yield func(rec map[string]any) bool) error {
 			return err
 		}
 		defer gz.Close()
-		r = gz
+		r = io.LimitReader(gz, 4<<30) // 4 GiB ceiling; no real Zeek log approaches this
 	}
 
 	sc := bufio.NewScanner(r)

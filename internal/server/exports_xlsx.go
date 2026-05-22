@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"sort"
@@ -103,9 +104,7 @@ func (s *Server) handleExportXLSX(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="archer_%s.xlsx"`, time.Now().Format("20060102_150405")))
 	if err := xf.Write(w); err != nil {
-		// Body may already be partially written; the best we can do is
-		// log and abandon the response.
-		fmt.Fprintf(w, "\nexport failed: %v\n", err)
+		log.Printf("export: xlsx write: %v", err)
 	}
 }
 

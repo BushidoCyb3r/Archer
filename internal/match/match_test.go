@@ -60,3 +60,39 @@ func TestMatches_DomainCandidatesSkipCIDRWalk(t *testing.T) {
 		t.Errorf("IP candidate should still match the all-IPv4 CIDR")
 	}
 }
+
+func TestIPv6Canonicalization(t *testing.T) {
+	// Non-canonical IPv6 in the allowlist should match the canonical form
+	// Zeek emits, and vice versa. net.ParseIP normalises to the compressed
+	// form (::), so both directions must work.
+	nonCanonical := "2606:4700:4700:0:0:0:0:1111"
+	canonical := "2606:4700:4700::1111"
+
+	mNon := Compile([]string{nonCanonical})
+	if !mNon.Matches(canonical) {
+		t.Errorf("non-canonical allowlist entry should match canonical candidate")
+	}
+	if !mNon.Matches(nonCanonical) {
+		t.Errorf("non-canonical allowlist entry should match itself")
+	}
+
+	mCan := Compile([]string{canonical})
+	if !mCan.Matches(nonCanonical) {
+		t.Errorf("canonical allowlist entry should match non-canonical candidate")
+	}
+
+	// IPv4 must not be altered — canonical form is identical.
+	mIPv4 := Compile([]string{"1.2.3.4"})
+	if !mIPv4.Matches("1.2.3.4") {
+		t.Errorf("IPv4 exact match should still work after canonicalization")
+	}
+
+	// Domain entries must not be affected by IP canonicalization.
+	mDomain := Compile([]string{"example.com"})
+	if !mDomain.Matches("example.com") {
+		t.Errorf("domain entry should still match exactly")
+	}
+	if mDomain.Matches("EXAMPLE.COM") {
+		t.Errorf("domain match should not do case folding")
+	}
+}
