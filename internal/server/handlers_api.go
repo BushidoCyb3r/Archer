@@ -217,7 +217,7 @@ func (s *Server) handleAnalyzeResume(w http.ResponseWriter, r *http.Request) {
 //
 // Pagination: ?limit=N&offset=K page through the result. Default limit
 // is 1000 (the analyst-table sweet spot for hunt workflows that go
-// top-down by score); cap is 5000 (above that we'd be back to the
+// top-down by score); cap is 50000 (above that we'd be back to the
 // pre-pagination payload sizes). The total result-set size is
 // surfaced via X-Total-Count and X-Has-More response headers so the
 // UI can render an accurate "Load more" affordance without a second
