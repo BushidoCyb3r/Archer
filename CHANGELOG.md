@@ -28,6 +28,19 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.35.1] — 2026-05-22
+
+### Changed
+
+- **Sensor and feed health alarms moved from bell to nav buttons.**
+  Sensor alarms (`kind=sensor`) now appear as a count badge on the
+  **Sensors** button; feed alarms (`kind=feed`) appear on the **Feeds**
+  button. Opening the modal clears the badge. The bell panel and badge
+  now show finding alerts only (`score >= 95`), keeping operational
+  health signals visually separated from detection events.
+
+---
+
 ## [v0.35.0] — 2026-05-22
 
 ### Added
@@ -6280,7 +6293,8 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.35.0...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.35.1...HEAD
+[v0.35.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.35.0...v0.35.1
 [v0.35.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.34.0...v0.35.0
 [v0.34.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.33.1...v0.34.0
 [v0.33.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.33.0...v0.33.1
