@@ -24,32 +24,26 @@ const Notifications = (() => {
       ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
+  // Only finding-kind items appear in the bell panel. Sensor and feed
+  // alarms surface on their respective nav buttons instead.
+  function _findingItems() {
+    return _items.filter(n => (n.kind || 'finding') === 'finding');
+  }
+
   function _render() {
     const el = _list();
     el.innerHTML = '';
-    if (_items.length === 0) {
+    const items = _findingItems();
+    if (items.length === 0) {
       el.innerHTML = '<div style="padding:12px;color:var(--fg-dim);font-size:11px">No alerts</div>';
       return;
     }
-    _items.forEach(n => {
+    items.forEach(n => {
       const div = document.createElement('div');
       div.className = 'notif-item';
-      const kind = n.kind || 'finding';
-      // Finding alarms render src→dst:port; sensor/feed alarms render
-      // a human-readable Detail line ("Sensor lab-1 hasn't checked in
-      // for 2h 15m") supplied by the emitter. _sevColor returns from
-      // a fixed enum; not user-controlled so it doesn't need escaping.
-      // id is integer-coerced. Every other interpolation routes
-      // through _esc.
-      let body;
-      if (kind === 'finding') {
-        body = `<div class="notif-addr">${_esc(n.src_ip || '')} → ${_esc(n.dst_ip || '')} ${n.dst_port ? ':' + _esc(String(n.dst_port)) : ''}</div>`;
-      } else {
-        body = `<div class="notif-addr">${_esc(n.detail || n.target || '')}</div>`;
-      }
       div.innerHTML = `
         <div class="notif-sev" style="color:${_sevColor(n.severity)}">${_esc(n.severity)} — ${_esc(n.type)}</div>
-        ${body}
+        <div class="notif-addr">${_esc(n.src_ip || '')} → ${_esc(n.dst_ip || '')} ${n.dst_port ? ':' + _esc(String(n.dst_port)) : ''}</div>
         <div class="notif-actions">
           <button class="btn-jump" data-notif-id="${Number(n.id) || 0}">Jump</button>
           <button class="btn-dismiss-notif" data-id="${Number(n.id) || 0}">Dismiss</button>
@@ -65,20 +59,36 @@ const Notifications = (() => {
   function _updateBadge() {
     const b = _badge();
     const bell = _bellBtn();
-    if (_items.length === 0) {
+    const count = _findingItems().length;
+    if (count === 0) {
       b.classList.add('hidden');
       bell.classList.remove('has-alerts');
     } else {
-      b.textContent = _items.length > 99 ? '99+' : _items.length;
+      b.textContent = count > 99 ? '99+' : count;
       b.classList.remove('hidden');
       bell.classList.add('has-alerts');
     }
+  }
+
+  function _updateButtonBadges() {
+    [['sensor', 'sensors-alarm-badge'], ['feed', 'feeds-alarm-badge']].forEach(([kind, elId]) => {
+      const el = document.getElementById(elId);
+      if (!el) return;
+      const count = _items.filter(n => (n.kind || 'finding') === kind).length;
+      if (count === 0) {
+        el.classList.add('hidden');
+      } else {
+        el.textContent = count > 99 ? '99+' : count;
+        el.classList.remove('hidden');
+      }
+    });
   }
 
   function add(n) {
     if (_items.find(x => x.id === n.id)) return;
     _items.unshift(n);
     _updateBadge();
+    _updateButtonBadges();
     if (_open) _render();
   }
 
@@ -92,6 +102,7 @@ const Notifications = (() => {
       body: JSON.stringify({action: 'dismiss', id: nid}),
     }).catch(() => {});
     _updateBadge();
+    _updateButtonBadges();
     _render();
   }
 
@@ -103,7 +114,15 @@ const Notifications = (() => {
       body: JSON.stringify({action: 'dismiss_all'}),
     }).catch(() => {});
     _updateBadge();
+    _updateButtonBadges();
     _render();
+  }
+
+  // Dismiss all notifications of a given kind. Called by Sensors.open()
+  // and Feeds.open() so opening the modal clears its alarm badge.
+  function dismissByKind(kind) {
+    const ids = _items.filter(n => (n.kind || 'finding') === kind).map(n => n.id);
+    ids.forEach(id => dismiss(id));
   }
 
   function toggle() {
@@ -141,9 +160,10 @@ const Notifications = (() => {
       .then(data => {
         if (Array.isArray(data)) data.filter(n => !n.dismissed).forEach(n => _items.push(n));
         _updateBadge();
+        _updateButtonBadges();
       })
       .catch(() => {});
   }
 
-  return { init, add, dismiss, dismissAll, close };
+  return { init, add, dismiss, dismissAll, dismissByKind, close };
 })();

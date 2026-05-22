@@ -456,8 +456,10 @@ const Sensors = (() => {
   // open is the public entry point used by both the Sensors button
   // click handler and the bell-notification jump dispatch for
   // Kind=sensor alarms. Refreshes the data sources the modal reads
-  // from, then shows the dialog.
+  // from, then shows the dialog. Dismisses any pending sensor alarms
+  // so the button badge clears — opening the modal is the acknowledgment.
   async function open() {
+    if (typeof Notifications !== 'undefined') Notifications.dismissByKind('sensor');
     await Promise.all([_loadInfo(), _loadDiskUsage()]);
     await refresh();
     const dlg = document.getElementById('sensors-dialog');

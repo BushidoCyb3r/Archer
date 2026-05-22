@@ -276,6 +276,20 @@ button, input, select, textarea {
   line-height: 1.4;
   vertical-align: middle;
 }
+.alarm-badge {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 5px;
+  background: var(--sev-high);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  vertical-align: middle;
+  pointer-events: none;
+}
+.alarm-badge.hidden { display: none; }
 
 /* User identity chip */
 #user-badge {
