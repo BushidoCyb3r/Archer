@@ -506,7 +506,7 @@ func (s *Store) GetFindings() []model.Finding {
 // set — the IsRollupType purge below treats absence as "the rollup is
 // stale" rather than "the rollup wasn't re-evaluated."
 func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
-	return s.setFindingsImpl(findings, true)
+	return s.setFindingsImpl(findings, true, true)
 }
 
 // SetFindingsIncremental is the partial-pipeline form of SetFindings.
@@ -524,7 +524,7 @@ func (s *Store) SetFindings(findings []model.Finding) []model.Notification {
 // and the analyst gets continuity between full passes instead of a
 // rollup hole every 6 hours.
 func (s *Store) SetFindingsIncremental(findings []model.Finding) []model.Notification {
-	return s.setFindingsImpl(findings, false)
+	return s.setFindingsImpl(findings, false, true)
 }
 
 // setFindingsImpl is the shared body for both public entry points.
@@ -532,7 +532,7 @@ func (s *Store) SetFindingsIncremental(findings []model.Finding) []model.Notific
 // preserve loop — true for full passes (the original behavior), false
 // for TI-only incrementals where rollup absence means "not evaluated
 // this pass" rather than "no longer valid."
-func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool) []model.Notification {
+func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool, emitNotifications bool) []model.Notification {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -652,7 +652,7 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 			// collide.
 			nextNewID++
 			findings[i].ID = nextNewID
-			findings[i].IsNew = true
+			findings[i].IsNew = emitNotifications
 		}
 		freshToPersisted[freshID] = findings[i].ID
 	}
@@ -753,11 +753,13 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 
 	s.findings = findings
 	s.rebuildFindingsIdx()
-	s.analyzing = false
 	s.saveFindings()
 	s.saveBeaconHistory(findings, newFPSet)
 
 	var newNotifs []model.Notification
+	if !emitNotifications {
+		return newNotifs
+	}
 	for _, f := range findings {
 		// Host Risk Score is an aggregate per-host roll-up that lives in
 		// the Hosts tab, not a discrete network event. Suppress it from
@@ -1293,6 +1295,41 @@ func (s *Store) dismissHiddenFindingNotificationsLocked() {
 	}
 }
 
+// dismissOrphanedFindingNotificationsLocked walks active finding-kind
+// notifications and dismisses any whose FindingID is no longer present in
+// findingsIdx. Must be called after rebuildFindingsIdx under the write lock.
+func (s *Store) dismissOrphanedFindingNotificationsLocked() {
+	var dismissedIDs []int
+	for i := range s.notifications {
+		n := &s.notifications[i]
+		if n.Dismissed {
+			continue
+		}
+		if n.Kind != "" && n.Kind != "finding" {
+			continue
+		}
+		if _, ok := s.findingsIdx[n.FindingID]; !ok {
+			n.Dismissed = true
+			dismissedIDs = append(dismissedIDs, n.ID)
+		}
+	}
+	if s.db != nil {
+		for _, id := range dismissedIDs {
+			if _, err := s.db.Exec(`UPDATE notifications SET dismissed = 1 WHERE id = ?`, id); err != nil {
+				log.Printf("store: dismiss orphaned notification %d: %v", id, err)
+			}
+		}
+	}
+}
+
+// SetFindingsForImport is like SetFindings but suppresses notification
+// creation and forces IsNew=false on all imported findings. Imported
+// findings are restored state, not newly detected events — they must not
+// ring the bell or appear as new in Delta mode.
+func (s *Store) SetFindingsForImport(findings []model.Finding) {
+	s.setFindingsImpl(findings, true, false)
+}
+
 // PruneExpiredSuppressions deletes every expired suppression in one
 // pass — single DELETE round trip plus one map walk under the write
 // lock. Called periodically from the server's sweep loop; safe to
@@ -1551,6 +1588,7 @@ func (s *Store) ClearFindings() int {
 	n := len(s.findings)
 	s.findings = nil
 	s.rebuildFindingsIdx()
+	s.dismissOrphanedFindingNotificationsLocked()
 	s.config.LastAnalysisFingerprint = ""
 	s.persistConfig()
 	s.saveFindings()
@@ -1612,6 +1650,7 @@ func (s *Store) PruneFindingsBefore(cutoff time.Time) int {
 	if dropped > 0 {
 		s.findings = kept
 		s.rebuildFindingsIdx()
+		s.dismissOrphanedFindingNotificationsLocked()
 		s.saveFindings()
 	}
 	return dropped

@@ -237,7 +237,7 @@ func (s *Server) triggerWatchAnalysis() {
 	// refreshing every tick (active hunt) instead of once a day.
 	if s.store.GetConfig().WatchAlwaysFull {
 		s.refreshFeedsBeforeFullPass()
-		s.launchAnalysisWithOptions(files, false)
+		s.launchAnalysisWithOptions(files, false, nil)
 		return
 	}
 
@@ -265,7 +265,7 @@ func (s *Server) triggerWatchAnalysis() {
 		// disabled. The prune loop runs unconditional on watch
 		// config, so the watch path no longer needs to invoke it.
 		s.refreshFeedsBeforeFullPass()
-		s.launchAnalysisWithOptions(files, false)
+		s.launchAnalysisWithOptions(files, false, nil)
 		return
 	}
 
@@ -277,7 +277,7 @@ func (s *Server) triggerWatchAnalysis() {
 	if lastRun.IsZero() {
 		// Defensive: shouldn't happen if lastFull is set, but if it does
 		// fall through to a full run rather than silently skipping.
-		s.launchAnalysisWithOptions(files, false)
+		s.launchAnalysisWithOptions(files, false, nil)
 		return
 	}
 	cutoff := lastRun.Add(-5 * time.Minute)
@@ -328,8 +328,10 @@ func (s *Server) refreshFeedsBeforeFullPass() {
 // connection is independently meaningful), so a small file subset is
 // safe — unlike Beaconing or HTTP analysis which need the long window.
 func (s *Server) launchIncrementalAnalysis(files []string) {
+	if !s.store.TryStartAnalysis() {
+		return
+	}
 	cfg := s.store.GetConfig()
-	s.store.SetAnalyzing(true)
 	progressCh := make(chan analysis.ProgressEvent, 32)
 	statusCh := make(chan string, 32)
 
@@ -411,6 +413,7 @@ func (s *Server) launchIncrementalAnalysis(files []string) {
 		s.analyzerMu.Unlock()
 
 		defer func() {
+			s.store.SetAnalyzing(false)
 			s.analyzerMu.Lock()
 			s.activeAnalyzer = nil
 			s.analyzerMu.Unlock()
@@ -588,10 +591,10 @@ func (s *Server) scanLogsDir() []string {
 // a 409 Conflict; the watch scheduler doesn't need to react since its
 // outer guard already checks IsAnalyzing. Audit 2026-05-10 NEW-31.
 func (s *Server) launchAnalysis(files []string) bool {
-	return s.launchAnalysisWithOptions(files, true)
+	return s.launchAnalysisWithOptions(files, true, nil)
 }
 
-func (s *Server) launchAnalysisWithOptions(files []string, force bool) bool {
+func (s *Server) launchAnalysisWithOptions(files []string, force bool, preStart func()) bool {
 	// Atomic check-and-set claim on the analysis slot. Pre-NEW-31
 	// callers separately checked IsAnalyzing then later called
 	// SetAnalyzing(true), leaving a TOCTOU window where a near-
@@ -612,8 +615,10 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) bool {
 	if !force {
 		fp := s.datasetFingerprint(files)
 		if fp != "" && fp == s.store.GetLastAnalysisFingerprint() {
-			s.store.SetAnalyzing(false)
 			s.broker.Publish(SSEEvent{Type: "status", Data: `{"msg":"No changes since last analysis — skipping."}`})
+			skipped, _ := json.Marshal(map[string]any{"count": 0, "new_count": 0, "cancelled": false, "skipped": true})
+			s.broker.Publish(SSEEvent{Type: "done", Data: string(skipped)})
+			s.store.SetAnalyzing(false)
 			return true
 		}
 	}
@@ -640,6 +645,10 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) bool {
 			s.broker.Publish(SSEEvent{Type: "status", Data: string(data)})
 		}
 	}()
+
+	if preStart != nil {
+		preStart()
+	}
 
 	logsDir := s.logsDir
 	go func() {
@@ -696,6 +705,7 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool) bool {
 		s.analyzerMu.Unlock()
 
 		defer func() {
+			s.store.SetAnalyzing(false)
 			s.analyzerMu.Lock()
 			s.activeAnalyzer = nil
 			s.analyzerMu.Unlock()

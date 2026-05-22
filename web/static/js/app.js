@@ -1559,8 +1559,9 @@
         _logsDir = data.logs_dir;
         _setLogsDirHint(_logsDir);
       }
+      _logsAvailable = sensors.length > 0;
       const btn = document.getElementById('analyze-btn');
-      if (btn) btn.disabled = sensors.length === 0;
+      if (btn && !_slotBusy) btn.disabled = !_logsAvailable;
 
       container.innerHTML = '';
       if (sensors.length === 0) {
@@ -1598,8 +1599,10 @@
         container.appendChild(wrap);
       });
     } catch (_) {
-      const btn = document.getElementById('analyze-btn');
-      if (btn) btn.disabled = true;
+      if (!_logsAvailable && !_slotBusy) {
+        const btn = document.getElementById('analyze-btn');
+        if (btn) btn.disabled = true;
+      }
     }
   }
 
@@ -1633,10 +1636,13 @@
   }
 
   let _paused = false;
+  let _slotBusy = false;
+  let _logsAvailable = false;
 
   function _setAnalyzing(active) {
+    _slotBusy = active;
     const btn = document.getElementById('analyze-btn');
-    if (btn) btn.disabled = active;
+    if (btn) btn.disabled = active ? true : !_logsAvailable;
     document.getElementById('analysis-controls').style.display = active ? 'flex' : 'none';
     // Reset Stop/Pause buttons to their default labels and enabled state
     // every time analysis starts or finishes, so a partial-state from a
@@ -1650,18 +1656,49 @@
     }
   }
 
+  function _applyRunningState(st) {
+    _setAnalyzing(true);
+    if (st.paused) {
+      _paused = true;
+      document.getElementById('pause-btn').textContent = 'Resume';
+      setStatus('Analysis paused — click Resume to continue');
+    } else {
+      setStatus('Analysis in progress…');
+    }
+  }
+
+  // Sets the UI to maintenance state and polls /api/analyze/status every 2 s
+  // until the slot is free, then restores the correct UI state (idle or
+  // running). Shared by _syncAnalyzeState (page load) and the 409 catch in
+  // _kickAnalyze (click during maintenance).
+  function _startMaintenancePoll() {
+    _slotBusy = true;
+    const btn = document.getElementById('analyze-btn');
+    if (btn) btn.disabled = true;
+    document.getElementById('analysis-controls').style.display = 'none';
+    setStatus('Maintenance in progress…');
+    const poll = setInterval(async () => {
+      try {
+        const s2 = await api('/api/analyze/status');
+        if (s2.blocked) return;
+        clearInterval(poll);
+        if (s2.running) {
+          _applyRunningState(s2);
+        } else {
+          _setAnalyzing(false);
+          setStatus('');
+        }
+      } catch (_) {}
+    }, 2000);
+  }
+
   async function _syncAnalyzeState() {
     try {
       const s = await api('/api/analyze/status');
-      if (s.running) {
-        _setAnalyzing(true);
-        if (s.paused) {
-          _paused = true;
-          document.getElementById('pause-btn').textContent = 'Resume';
-          setStatus('Analysis paused — click Resume to continue');
-        } else {
-          setStatus('Analysis in progress…');
-        }
+      if (s.blocked) {
+        _startMaintenancePoll();
+      } else if (s.running) {
+        _applyRunningState(s);
       }
     } catch (_) {}
   }
@@ -1683,7 +1720,19 @@
         });
       } catch (e) {
         if (String(e).includes('already running') || String(e).includes('409')) {
-          setStatus('Analysis already running');
+          try {
+            const st = await api('/api/analyze/status');
+            if (st.blocked) {
+              _startMaintenancePoll();
+            } else if (!st.running) {
+              _setAnalyzing(false);
+              setStatus('');
+            } else {
+              _applyRunningState(st);
+            }
+          } catch (_) {
+            setStatus('Analysis already running');
+          }
         } else {
           setStatus('Analysis failed: ' + e);
           _setAnalyzing(false);
@@ -1764,6 +1813,10 @@
 
     SSE.on('done', async evt => {
       _setAnalyzing(false);
+      if (evt.skipped) {
+        setStatus('No changes since last analysis — skipped');
+        return;
+      }
       document.getElementById('progress-bar').value = evt.cancelled ? 0 : 100;
       setStatus(evt.cancelled
         ? `Analysis stopped — ${evt.count || 0} partial findings`
@@ -2942,11 +2995,23 @@
           } else {
             resetStatus.textContent = `Cleared ${res.findings_cleared||0} finding(s); analysis started.`;
             resetStatus.style.color = 'var(--accent)';
+            _setAnalyzing(true);
             dlg.close();
           }
         } catch (e) {
-          resetStatus.textContent = 'Error: ' + e;
-          resetStatus.style.color = 'var(--sev-high, #c66)';
+          if (String(e).includes('already running') || String(e).includes('in progress') || String(e).includes('409')) {
+            resetStatus.textContent = 'Server busy — try again';
+            resetStatus.style.color = 'var(--sev-high, #c66)';
+            try {
+              const st = await api('/api/analyze/status');
+              if (st.blocked) { _startMaintenancePoll(); }
+              else if (st.running) { _applyRunningState(st); }
+              else { _setAnalyzing(false); }
+            } catch (_) {}
+          } else {
+            resetStatus.textContent = 'Error: ' + e;
+            resetStatus.style.color = 'var(--sev-high, #c66)';
+          }
         }
         resetBtn.disabled = false;
       });
@@ -3063,10 +3128,22 @@
           } else {
             runStatus.textContent = `Scanning ${res.files || 0} archived file(s) — progress shown in the analysis status row.`;
             runStatus.style.color = 'var(--accent)';
+            _setAnalyzing(true);
           }
         } catch (e) {
-          runStatus.textContent = 'Scan error: ' + e;
-          runStatus.style.color = 'var(--sev-high, #c66)';
+          if (String(e).includes('already') || String(e).includes('in progress') || String(e).includes('409')) {
+            runStatus.textContent = 'Server busy — try again';
+            runStatus.style.color = 'var(--sev-high, #c66)';
+            try {
+              const st = await api('/api/analyze/status');
+              if (st.blocked) { _startMaintenancePoll(); }
+              else if (st.running) { _applyRunningState(st); }
+              else { _setAnalyzing(false); }
+            } catch (_) {}
+          } else {
+            runStatus.textContent = 'Scan error: ' + e;
+            runStatus.style.color = 'var(--sev-high, #c66)';
+          }
         }
         // The scan runs in the background; the existing SSE flow handles
         // progress + done. We re-enable the button immediately so the

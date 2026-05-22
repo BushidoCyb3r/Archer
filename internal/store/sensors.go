@@ -134,6 +134,34 @@ func (s *Store) GetSensors() []Sensor {
 	return out
 }
 
+// GetSensorByID returns the sensor row with the given primary-key ID,
+// regardless of status. Used after slot claim to get a fresh snapshot.
+func (s *Store) GetSensorByID(id int64) (Sensor, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.db == nil {
+		return Sensor{}, false
+	}
+	row := s.db.QueryRow(`SELECT id, name,
+	                             COALESCE(host,'')           AS host,
+	                             COALESCE(source_ip,'')      AS source_ip,
+	                             enrolled_at,
+	                             COALESCE(enrolled_by,'')    AS enrolled_by,
+	                             status,
+	                             COALESCE(pubkey_fp,'')      AS pubkey_fp,
+	                             COALESCE(authkey_line,'')   AS authkey_line,
+	                             COALESCE(checkin_secret,'') AS checkin_secret,
+	                             schedule_hour, schedule_minute, last_seen_at, last_files, last_bytes
+	                      FROM sensors WHERE id=?`, id)
+	var sn Sensor
+	if err := row.Scan(&sn.ID, &sn.Name, &sn.Host, &sn.SourceIP, &sn.EnrolledAt, &sn.EnrolledBy,
+		&sn.Status, &sn.PubkeyFP, &sn.AuthKeyLine, &sn.CheckinSecret,
+		&sn.ScheduleHour, &sn.ScheduleMinute, &sn.LastSeenAt, &sn.LastFiles, &sn.LastBytes); err != nil {
+		return Sensor{}, false
+	}
+	return sn, true
+}
+
 // GetActiveSensorByName returns the currently-enrolled sensor with this
 // name, or (Sensor{}, false). Used by the checkin endpoint to decide
 // enrolled / disenrolled / unknown.
@@ -493,6 +521,7 @@ func (s *Store) DeleteFindingsBySensorPrefix(prefix string) {
 	}
 	s.findings = out
 	s.rebuildFindingsIdx()
+	s.dismissOrphanedFindingNotificationsLocked()
 }
 
 // DeleteOrphanedHostRiskScores removes Host Risk Score findings whose
@@ -531,6 +560,7 @@ func (s *Store) DeleteOrphanedHostRiskScores() {
 	}
 	s.findings = out
 	s.rebuildFindingsIdx()
+	s.dismissOrphanedFindingNotificationsLocked()
 }
 
 // FingerprintSSHPubkey returns the standard-base64-encoded SHA256 of the key

@@ -16,9 +16,9 @@ import (
 const httpBeaconTopURICap = 8
 
 // uriGroup identifies one HTTP-beacon destination — the (sensor,src,
-// dst,host) tuple whose request paths share a footprint. Distinct from
+// dst,port,host) tuple whose request paths share a footprint. Distinct from
 // the (Type,src,dst,port) fingerprint that dedups findings.
-type uriGroup struct{ sensor, src, dst, host string }
+type uriGroup struct{ sensor, src, dst, port, host string }
 
 // uriFootprintEntry is one beacon-shaped path observed for a group,
 // fed to topURIFootprint after the caller applies the beacon gate.
@@ -83,7 +83,7 @@ func csChecksum8(uri string) int {
 }
 
 func (a *Analyzer) analyzeHTTP(files []string) {
-	type beaconKey struct{ sensor, src, dst, host, uri string }
+	type beaconKey struct{ sensor, src, dst, port, host, uri string }
 	beaconCounts := make(map[beaconKey]int)
 	beacon := make(map[beaconKey]*httpBeaconState)
 
@@ -276,7 +276,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 			// Lazy-create per-key state after a minimum count to keep
 			// high-cardinality low-count keys at O(1) memory.
 			if uri != "" && host != "" {
-				bk := beaconKey{sensor, src, dst, host, uri}
+				bk := beaconKey{sensor, src, dst, portStr, host, uri}
 				beaconCounts[bk]++
 				if beaconCounts[bk] < beaconLazyMinConn {
 					preBeaconRecs[bk] = append(preBeaconRecs[bk], preBeaconRec{ts: ts, origB: origB, respB: respB})
@@ -404,7 +404,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 			continue
 		}
 		fpEntries = append(fpEntries, uriFootprintEntry{
-			group: uriGroup{bk.sensor, bk.src, bk.dst, bk.host},
+			group: uriGroup{bk.sensor, bk.src, bk.dst, bk.port, bk.host},
 			uri:   bk.uri, count: beaconCounts[bk],
 		})
 	}
@@ -493,12 +493,13 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 			Score:           score,
 			SrcIP:           bk.src,
 			DstIP:           bk.dst,
+			DstPort:         bk.port,
 			Detail:          detail,
 			Timestamp:       fmtTS(st.firstTs),
 			TSData:          tsData,
 			Hostname:        bk.host,
 			URI:             bk.uri,
-			TopURIs:         footprint[uriGroup{bk.sensor, bk.src, bk.dst, bk.host}],
+			TopURIs:         footprint[uriGroup{bk.sensor, bk.src, bk.dst, bk.port, bk.host}],
 			TSScore:         tsScore,
 			DSScore:         dsScore,
 			HistScore:       hScore,

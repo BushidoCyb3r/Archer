@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -96,12 +97,10 @@ func (s *Server) handleQuiverInstallScript(w http.ResponseWriter, r *http.Reques
 
 // handleQuiverEnroll is what the sensor POSTs to during the install
 // one-liner. Validates the token, the requested name, and the supplied
-// public key, then writes the authorized_keys line and the sensor row in
-// one transaction-ish sequence. Failure halfway through can leave a
-// sensor row without an authorized_keys line; we treat that as a UI-side
-// concern (the sensor will checkin and look healthy from the server's
-// view but its rsync will fail at sshd, prompting the operator to
-// disenroll/re-enroll).
+// public key, then creates the sensor row, writes the authorized_keys
+// line, and creates /logs/<name>/ under the analysis slot so the sequence
+// is serialized with concurrent disenroll/purge. Each step rolls back the
+// previous ones on failure so no partial state is left behind.
 func (s *Server) handleQuiverEnroll(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -224,22 +223,18 @@ func (s *Server) handleQuiverEnroll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	authLine := BuildAuthKeyLine(finalName, req.Pubkey)
-	if err := AppendAuthKey(s.authKeysPath, authLine); err != nil {
+
+	// Claim the analysis slot so enrollment is serialized with concurrent
+	// disenroll/purge. Without the slot a disenroll can observe the just-
+	// created row, mark it disenrolling/disenrolled, and clear the
+	// authorized_keys line before enrollment writes it — leaving a row in
+	// "disenrolled" state with a live auth key but no server-side record.
+	if !s.store.TryStartAnalysis() {
 		_ = s.store.ResetEnrollmentToken(tok.ID)
-		jsonError(w, "could not write authorized_keys: "+err.Error(), http.StatusInternalServerError)
+		jsonError(w, "server busy, retry enrollment", http.StatusConflict)
 		return
 	}
-	// rrsync chroots into /logs/<name>/ on the first push; if the dir
-	// doesn't exist its lock_or_die opens a missing path and the rsync
-	// connection drops with FileNotFoundError. Create it here, owned by
-	// the same uid that runs rrsync (the user sshd drops to, derived
-	// from the authorized_keys parent dir's owner).
-	if err := s.ensureSensorLogDir(finalName); err != nil {
-		_ = RemoveAuthKey(s.authKeysPath, authLine)
-		_ = s.store.ResetEnrollmentToken(tok.ID)
-		jsonError(w, "could not create sensor logs dir: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	defer s.store.SetAnalyzing(false)
 
 	sensor := store.Sensor{
 		Name:           finalName,
@@ -255,16 +250,36 @@ func (s *Server) handleQuiverEnroll(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := s.store.CreateSensor(sensor)
 	if err != nil {
-		// Roll back the authorized_keys append so the sensor isn't left
-		// with implicit access without a server-side row to disenroll.
-		// Reset the enrollment token too so the operator can retry
-		// without minting a new one. Audit 2026-05-10 NEW-19.
-		_ = RemoveAuthKey(s.authKeysPath, authLine)
 		_ = s.store.ResetEnrollmentToken(tok.ID)
 		jsonError(w, "could not record sensor: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	sensor.ID = id
+
+	if err := AppendAuthKey(s.authKeysPath, authLine); err != nil {
+		_ = s.store.DeleteSensor(id)
+		_ = s.store.ResetEnrollmentToken(tok.ID)
+		jsonError(w, "could not write authorized_keys: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// rrsync chroots into /logs/<name>/ on the first push; if the dir
+	// doesn't exist its lock_or_die opens a missing path and the rsync
+	// connection drops with FileNotFoundError. Create it here, owned by
+	// the same uid that runs rrsync (the user sshd drops to, derived
+	// from the authorized_keys parent dir's owner).
+	if err := s.ensureSensorLogDir(finalName); err != nil {
+		if rkErr := RemoveAuthKey(s.authKeysPath, authLine); rkErr != nil {
+			log.Printf("enroll: authorized_keys rollback failed for %s: %v — manual removal required", finalName, rkErr)
+			_ = s.store.DeleteSensor(id)
+			_ = s.store.ResetEnrollmentToken(tok.ID)
+			jsonError(w, "could not create sensor logs dir ("+err.Error()+") and authorized_keys rollback failed ("+rkErr.Error()+") — remove entry for "+finalName+" from authorized_keys manually", http.StatusInternalServerError)
+			return
+		}
+		_ = s.store.DeleteSensor(id)
+		_ = s.store.ResetEnrollmentToken(tok.ID)
+		jsonError(w, "could not create sensor logs dir: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	// Live event for the Sensors modal: the parent table can refresh
 	// in place, and the still-open enrollment dialog can swap its

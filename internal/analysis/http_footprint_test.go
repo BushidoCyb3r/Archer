@@ -16,8 +16,8 @@ import (
 // default decodes to). Asserting every axis means a refactor of the
 // sort, the cap, or the grouping can't silently regress one.
 func TestTopURIFootprint(t *testing.T) {
-	gA := uriGroup{"s1", "10.0.0.1", "1.1.1.1", "evil.example"}
-	gB := uriGroup{"s1", "10.0.0.9", "1.1.1.1", "evil.example"} // different src → different group
+	gA := uriGroup{"s1", "10.0.0.1", "1.1.1.1", "80", "evil.example"}
+	gB := uriGroup{"s1", "10.0.0.9", "1.1.1.1", "80", "evil.example"} // different src → different group
 	entries := []uriFootprintEntry{
 		{gA, "/a", 50},
 		{gA, "/b", 300},

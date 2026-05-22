@@ -122,8 +122,8 @@ func (s *Server) handleAnalyzeReset(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "no logs found in /logs", http.StatusBadRequest)
 		return
 	}
-	cleared := s.store.ClearFindings()
-	if !s.launchAnalysis(files) {
+	var cleared int
+	if !s.launchAnalysisWithOptions(files, true, func() { cleared = s.store.ClearFindings() }) {
 		jsonError(w, "analysis already running", http.StatusConflict)
 		return
 	}
@@ -150,10 +150,13 @@ func (s *Server) handleAnalyzeStatus(w http.ResponseWriter, r *http.Request) {
 	az := s.activeAnalyzer
 	s.analyzerMu.Unlock()
 
-	running := az != nil
-	paused := running && az.IsPaused()
+	hasAnalyzer := az != nil
+	slotHeld := s.store.IsAnalyzing()
+	running := hasAnalyzer || slotHeld
+	paused := hasAnalyzer && az.IsPaused()
+	blocked := slotHeld && !hasAnalyzer
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]bool{"running": running, "paused": paused})
+	json.NewEncoder(w).Encode(map[string]bool{"running": running, "paused": paused, "blocked": blocked})
 }
 
 // handleAnalyzeCancel stops the running analysis.
@@ -638,6 +641,10 @@ func (s *Server) handleFindingPosition(w http.ResponseWriter, r *http.Request, i
 // unconditionally — its Community API works without a key (rate-limited),
 // so the service is always available regardless of config state.
 func (s *Server) handleTIServices(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	cfg := s.store.GetConfig()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{
@@ -1264,6 +1271,8 @@ func (s *Server) handleAllowlist(w http.ResponseWriter, r *http.Request) {
 			Details: listEditAuditDetail(added, removed),
 		})
 		jsonOK(w)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -1297,6 +1306,8 @@ func (s *Server) handleIOC(w http.ResponseWriter, r *http.Request) {
 			Details: listEditAuditDetail(added, removed),
 		})
 		jsonOK(w)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -1359,6 +1370,8 @@ func (s *Server) handleSuppressions(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 		jsonOK(w)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -1743,6 +1756,13 @@ func (s *Server) handleArchiveRun(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req)
 	}
 
+	if !req.DryRun {
+		if !s.store.TryStartAnalysis() {
+			jsonError(w, "analysis in progress", http.StatusConflict)
+			return
+		}
+		defer s.store.SetAnalyzing(false)
+	}
 	triggeredBy := me.DisplayName()
 	if req.DryRun {
 		triggeredBy = "" // preview never gets recorded, but be explicit
@@ -1849,6 +1869,7 @@ func (s *Server) launchTIOnly(files []string) bool {
 		s.analyzerMu.Unlock()
 
 		defer func() {
+			s.store.SetAnalyzing(false)
 			s.analyzerMu.Lock()
 			s.activeAnalyzer = nil
 			s.analyzerMu.Unlock()
@@ -1997,8 +2018,9 @@ func spreadsheetSafe(v string) string {
 }
 
 // handleImportJSON accepts a previously-exported Archer state bundle and
-// replaces the in-memory findings + (optionally) allowlist/IOC list with
-// the imported content. Admin-only — see /api/import route comment for
+// clears existing findings before inserting the imported set, making import
+// a true replace. Allowlist and IOC list are updated only when the imported
+// bundle includes them. Admin-only — see /api/import route comment for
 // why analysts can't reach this surface.
 //
 // Two boundary defenses on top of the role gate. First, the body is
@@ -2063,7 +2085,13 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request) {
 		}
 		payload.Findings[i].Correlations = translated
 	}
-	s.store.SetFindings(payload.Findings)
+	if !s.store.TryStartAnalysis() {
+		jsonError(w, "analysis in progress", http.StatusConflict)
+		return
+	}
+	defer s.store.SetAnalyzing(false)
+	cleared := s.store.ClearFindings()
+	s.store.SetFindingsForImport(payload.Findings)
 	if len(payload.Allowlist) > 0 {
 		s.store.SetAllowlist(payload.Allowlist)
 	}
@@ -2073,9 +2101,10 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request) {
 	s.recordAudit(r, "finding_import", auditEvent{
 		TargetType: "import",
 		Details: map[string]any{
-			"findings":  len(payload.Findings),
-			"allowlist": len(payload.Allowlist),
-			"ioc_list":  len(payload.IOCList),
+			"findings_imported": len(payload.Findings),
+			"findings_cleared":  cleared,
+			"allowlist":         len(payload.Allowlist),
+			"ioc_list":          len(payload.IOCList),
 		},
 	})
 	jsonOK(w)

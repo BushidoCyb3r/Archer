@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -202,12 +203,41 @@ func (s *Server) handleFindingRaw(w http.ResponseWriter, r *http.Request, id int
 					}
 					mu.Unlock()
 					src := parser.GetStr(rec, "id.orig_h")
-					dst := parser.GetStr(rec, "id.resp_h")
 					if f.SrcIP != "" && src != f.SrcIP {
 						return true
 					}
-					if f.DstIP != "" && dst != f.DstIP {
-						return true
+					if f.DstIP != "" {
+						// For domain-valued DstIP (not a valid IP address), id.resp_h
+						// is useless — it's a resolver or server IP, not the domain.
+						// Match against the protocol-appropriate name field instead.
+						if net.ParseIP(f.DstIP) == nil {
+							switch j.logType {
+							case "dns":
+								// query field holds the full queried name; match exact
+								// or subdomain of the apex stored in DstIP.
+								query := strings.TrimRight(strings.ToLower(parser.GetStr(rec, "query")), ".")
+								target := strings.ToLower(f.DstIP)
+								if query != target && !strings.HasSuffix(query, "."+target) {
+									return true
+								}
+							case "http":
+								// host header holds the domain; strip the port suffix
+								// (host:port form) before comparing.
+								host := parser.GetStr(rec, "host")
+								if i := strings.LastIndex(host, ":"); i >= 0 && strings.Count(host, ":") == 1 {
+									host = host[:i]
+								}
+								if !strings.EqualFold(host, f.DstIP) {
+									return true
+								}
+							default:
+								if dst := parser.GetStr(rec, "id.resp_h"); dst != f.DstIP {
+									return true
+								}
+							}
+						} else if dst := parser.GetStr(rec, "id.resp_h"); dst != f.DstIP {
+							return true
+						}
 					}
 					rec["_source_file"] = j.path
 					rec["_log_type"] = j.logType

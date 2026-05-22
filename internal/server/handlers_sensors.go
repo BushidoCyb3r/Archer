@@ -218,6 +218,27 @@ func (s *Server) handleSensorDisenroll(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "sensor is not currently enrolled", http.StatusConflict)
 		return
 	}
+	// Claim the analysis slot before marking disenrolling. If the claim
+	// fails, the sensor stays enrolled with the Disenroll button visible.
+	// The handler still accepts disenrolling on retry to recover from a
+	// crash mid-disenroll (slot is not held across restarts).
+	if !s.store.TryStartAnalysis() {
+		jsonError(w, "analysis in progress", http.StatusConflict)
+		return
+	}
+	defer s.store.SetAnalyzing(false)
+	// Re-read the sensor under the slot so all subsequent operations use
+	// current DB state, not the snapshot taken before the claim.
+	fresh, ok := s.store.GetSensorByID(sn.ID)
+	if !ok {
+		jsonError(w, "sensor not found", http.StatusNotFound)
+		return
+	}
+	if fresh.Status != "enrolled" && fresh.Status != "disenrolling" {
+		jsonError(w, "sensor is not currently enrolled", http.StatusConflict)
+		return
+	}
+	sn = fresh
 	if err := s.store.SetSensorStatus(sn.ID, "disenrolling"); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -278,6 +299,21 @@ func (s *Server) handleSensorPurge(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "sensor must be disenrolled before purge", http.StatusConflict)
 		return
 	}
+	if !s.store.TryStartAnalysis() {
+		jsonError(w, "analysis in progress", http.StatusConflict)
+		return
+	}
+	defer s.store.SetAnalyzing(false)
+	fresh, ok := s.store.GetSensorByID(sn.ID)
+	if !ok {
+		jsonError(w, "sensor not found", http.StatusNotFound)
+		return
+	}
+	if fresh.Status != "disenrolled" {
+		jsonError(w, "sensor must be disenrolled before purge", http.StatusConflict)
+		return
+	}
+	sn = fresh
 	s.purgeSensorLogs(sn.Name)
 	s.store.DeleteFindingsBySensorPrefix(sn.Name + ":disenrolled-")
 	s.store.DeleteOrphanedHostRiskScores()
