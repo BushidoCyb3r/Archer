@@ -182,23 +182,45 @@ subtracts the expected mean contribution of the window shape
 (E[cos(ωt)] = sinc(ωW/2)·cos(ω·t_center) and the equivalent sine
 term). This correction is exactly zero when the window contains a
 near-integer number of cycles (sinc(kπ) = 0), so real periodic
-signals are unaffected; only the leakage artifact is removed.
+signals are unaffected. The correction *reduces* but does not *zero*
+peaks at non-integer ratios — real long-period structure in traffic
+(e.g., weekday/weekend rhythms in high-frequency local traffic) can
+still cross FAP=12 after correction.
 
-**Plausibility gate.** After the periodogram identifies its
-dominant peak, that peak's period is compared to the pair's median
-inter-arrival interval (`ivMedian`). A lower-bound gate rejects any
-peak shorter than `ivMedian/5`: if the period is shorter than
-one-fifth of the typical gap between connections, it is almost
-certainly burst-structure noise — the host connects in rapid bursts,
-and the periodogram is finding the intra-burst rhythm rather than
-the beacon cadence. The gate is lower-bound only; there is no upper
-bound. Burst-connect beacons (C2 that opens several connections in a
-short burst then goes quiet for hours) have a legitimate spectral
-period far above `ivMedian`, and an upper bound would block those
-real detections. When the gate rejects the only strong peak, the
-pair still emits a beacon finding via the statistical path (without
-the spectral score boost), and the blocked count is recorded in
-`analysis_stats` for longitudinal visibility.
+**Plausibility gate and span cap.** Two independent mechanisms bound
+what counts as a plausible beacon period:
+
+1. **Lower-bound gate (`ivMedian/5`).** A peak shorter than
+   one-fifth of the median inter-arrival interval is burst-structure
+   noise — the periodogram is finding intra-burst rhythm, not beacon
+   cadence. The gate is lower-bound only; there is no upper bound.
+   Burst-connect beacons (C2 that opens several connections in a burst
+   then goes quiet for hours) have a legitimate spectral period far
+   above `ivMedian`, and an upper bound would block those detections.
+
+2. **Span cap (`window/3`, internal).** A period longer than one
+   third of the observation window is supported by fewer than three
+   complete cycles. This cap is the primary suppressor of very-long-
+   period leakage artifacts when observation windows are short (29–43
+   days for 1 Ms-class artifacts). The DC-correction reduces but does
+   not zero these peaks; the span cap excludes them from the plausible
+   range. As deployment windows grow, peaks that previously sat above
+   `window/3` slide into the plausible range — run `corpus-spotcheck.sh`
+   after each corpus extension to confirm the gate is still holding.
+
+When both mechanisms reject the only strong peak, the pair still
+emits a beacon finding via the statistical path (without the spectral
+score boost), and the blocked count is recorded in `analysis_stats`.
+
+**`[artifact Xs suppressed]` in the Detail line.** This tag appears
+when the rescue *succeeded* on a shorter plausible period AND a
+longer-period peak had higher raw power but was excluded by the span
+cap. It does not mean the artifact was blocked by the gate. It means:
+DC-correction did not zero it, the gate did not reject it, the span
+cap excluded it, and a weaker shorter-period signal won. If those
+pairs' observation windows grow until the artifact enters the plausible
+range, the artifact becomes the dominant rescue candidate. Check Section
+2 of `corpus-spotcheck.sh` on subsequent runs for this class.
 
 The path is gated to keep its CPU cost off the hot path:
 1. **`SpectralEnabled` flag** (default on). Operator can disable
@@ -403,6 +425,17 @@ out (sinc(π·σ/T) → 0). Above that threshold, the timing signal
 is effectively destroyed and rescuing it would risk flagging
 legitimate sporadic traffic. The histogram and bytes axes still
 contribute if those signals survive.
+
+Known false-positive class — long-period rescues on high-frequency
+local traffic: mDNS pairs (`_tcp.local`, `_udp.local`) with
+sub-30 s median intervals accumulate enough observations to produce
+genuine periodogram peaks at 6–10 day periods (weekday/weekend
+traffic rhythm), crossing FAP=12 after DC-correction. These produce
+spectral-rescued findings at score 95+ that are operationally
+benign. DC-correction cannot suppress them because the structure is
+real. Analyst response: allowlist the pair, or treat mDNS findings
+in the spectral-rescued set as noise unless TI hits, data-size
+regularity, or high persistence score provide additional support.
 
 ### 2.5 DGA hostname augmentation
 

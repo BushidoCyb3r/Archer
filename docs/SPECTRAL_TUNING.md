@@ -31,36 +31,60 @@ Otherwise: leave the knobs alone.
 
 ---
 
-## The plausibility gate
+## The plausibility gate and span cap
 
-The plausibility gate is not a tunable knob — it is a fixed correctness
-guard applied after the periodogram finds its dominant peak.
+Neither is a tunable knob — both are fixed correctness guards.
 
-**Rule:** the rescued period must be ≥ `ivMedian / 5`, where `ivMedian`
-is the pair's median inter-arrival interval. Any peak shorter than that
-threshold is classified as burst-structure noise and the rescue is blocked.
+### Lower-bound gate (`ivMedian / 5`)
 
-**Why lower-bound only.** An earlier version of the gate also had an upper
-bound, which inadvertently blocked burst-connect beacons: C2 implants that
-open several connections in a burst then go quiet for hours. Their true
-spectral period (the silence between bursts) is legitimately far above
-`ivMedian`, so an upper bound suppressed real detections. The lower bound
-is retained because a peak shorter than `ivMedian/5` has no plausible
-beacon interpretation — it is always intra-burst structure.
+A rescued period must be ≥ `ivMedian / 5`. Any peak shorter than that is
+burst-structure noise: the periodogram is finding intra-burst rhythm, not
+beacon cadence. The gate is lower-bound only — no upper bound — because
+burst-connect beacons (C2 that opens several connections in a burst then
+goes quiet for hours) have a legitimate spectral period far above `ivMedian`.
+An upper bound would suppress those real detections.
 
-**When a rescue is fully blocked.** If the plausibility gate rejects the
-only strong periodogram peak, the pair still emits a beacon finding via
-the statistical timing path — it just doesn't receive the spectral score
-boost. The blocked count is recorded per run in the `analysis_stats` table
-(migration 0025) and is visible in the `corpus-spotcheck.sh` Section 3
-advisory. Non-zero blocked counts are normal: daily management traffic and
-pollers with burst-connect patterns routinely land here. A sudden spike
-warrants checking whether a legitimately periodic pair is being
-systematically under-scored.
+### Span cap (`window / 3`, internal)
 
-**Validation.** After any analysis run, `bash corpus-spotcheck.sh` checks
-the live database and exits 0 when no rescued finding violates the gate.
-Run it after a full re-analysis whenever the spectral code changes.
+The scan also excludes periods longer than one-third of the observation
+window. A period that long is supported by fewer than three complete
+cycles, making statistical confidence marginal. This cap is the primary
+mechanism excluding very-long-period leakage artifacts when observation
+windows are short (29–43 days for 1 Ms-class artifacts). DC-correction
+reduces but does not zero these peaks; the span cap excludes them from
+the plausible range.
+
+**Important:** as deployment windows grow, peaks that previously sat above
+`window/3` enter the plausible range. A pair whose corpus-spotcheck Section
+2 row shows `[artifact 1.25Ms suppressed]` at a 30-day window may produce
+a 1.25 Ms rescue at a 45-day window if that peak retains higher power than
+the shorter plausible winner. Run `corpus-spotcheck.sh` after each corpus
+extension to confirm behavior hasn't changed.
+
+### The `[artifact Xs suppressed]` detail tag
+
+This tag means the rescue *succeeded* on a shorter period, and a longer
+peak with higher raw power was excluded by the span cap — not by the gate,
+not by DC-correction zeroing it. That longer peak crossed FAP=12 and
+outranked the winner on raw power; only the span cap kept it out. This is
+the class to watch in Section 2 of the spotcheck.
+
+### When a rescue is fully blocked
+
+If both mechanisms reject the only strong periodogram peak, the pair still
+emits a beacon finding via the statistical path — it just doesn't receive
+the spectral score boost. The blocked count is recorded per run in
+`analysis_stats` and appears in Section 3 of `corpus-spotcheck.sh`. Two
+populations contribute: low-ratio hits (ratio < 0.2, lower-bound gate)
+and high-ratio hits (ratio >> 1, span cap with < 3 cycles). Non-zero
+counts are normal. A sudden spike warrants checking whether a legitimately
+periodic pair is being systematically under-scored.
+
+### Validation
+
+After any analysis run: `bash corpus-spotcheck.sh`. Exit 0 means no rescued
+finding violates the lower-bound gate. Run it after every full re-analysis
+when the spectral code or corpus changes.
 
 ---
 
@@ -354,6 +378,16 @@ The rescue path has hard limits. No knob will recover these:
   The plausibility gate blocks these as burst-structure noise.
   They still emit beacon findings via the statistical path;
   only the spectral score boost is suppressed.
+- **High-frequency local traffic with genuine long-period structure.**
+  mDNS pairs (`_tcp.local`, `_udp.local`) and similar broadcast
+  traffic with sub-30 s median intervals accumulate enough
+  observations to produce real weekday/weekend periodogram peaks
+  at 6–10 day periods. These cross FAP=12 after DC-correction
+  because the structure is genuine, not an artifact. The detector
+  cannot distinguish "real weekly rhythm" from "weekly C2 cadence"
+  without additional signal. Allowlist known-benign mDNS pairs, or
+  confirm a spectral-rescued mDNS finding with a second axis
+  (TI hits, data-size regularity, persistence score) before acting.
 
 For these, lean on the other detectors (data exfiltration,
 lateral movement, TI hits, weird events) rather than trying to
