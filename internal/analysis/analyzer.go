@@ -505,10 +505,18 @@ func (a *Analyzer) enrichBeaconSNI() {
 			continue
 		}
 		for _, uid := range candidates {
-			if entry, ok2 := a.sslUIDIndex[uid]; ok2 && entry.serverName != "" {
+			entry, ok2 := a.sslUIDIndex[uid]
+			if !ok2 {
+				continue
+			}
+			if f.Hostname == "" && entry.serverName != "" {
 				f.Hostname = entry.serverName
+			}
+			if f.JA3 == "" && entry.ja3 != "" {
 				f.JA3 = entry.ja3
 				f.JA4 = entry.ja4
+			}
+			if f.Hostname != "" && f.JA3 != "" {
 				break
 			}
 		}

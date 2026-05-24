@@ -290,16 +290,27 @@ func IsBeaconType(t string) bool {
 }
 
 // Fingerprint uniquely identifies a finding for delta/baseline comparison.
+// Hostname and URI are only populated for HTTP Beaconing, where two beacons
+// to different hosts or paths on the same (src, dst, port, sensor) are
+// genuinely distinct findings with independent analyst state. All other types
+// leave them empty, preserving the existing identity contract.
 type Fingerprint struct {
-	Type    string
-	SrcIP   string
-	DstIP   string
-	DstPort string
-	Sensor  string
+	Type     string
+	SrcIP    string
+	DstIP    string
+	DstPort  string
+	Sensor   string
+	Hostname string
+	URI      string
 }
 
 func (f Finding) Fingerprint() Fingerprint {
-	return Fingerprint{Type: f.Type, SrcIP: f.SrcIP, DstIP: f.DstIP, DstPort: f.DstPort, Sensor: f.Sensor}
+	fp := Fingerprint{Type: f.Type, SrcIP: f.SrcIP, DstIP: f.DstIP, DstPort: f.DstPort, Sensor: f.Sensor}
+	if f.Type == "HTTP Beaconing" {
+		fp.Hostname = f.Hostname
+		fp.URI = f.URI
+	}
+	return fp
 }
 
 // Notification is a UI alert. Kind controls where it surfaces:

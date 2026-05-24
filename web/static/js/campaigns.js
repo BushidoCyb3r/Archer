@@ -202,7 +202,7 @@ const Campaigns = (() => {
       // Per-host beacon density (§2a). A host accounting for many of
       // the active beacons is a likely staging point — the pattern an
       // analyst catches instantly but a flat findings list buries.
-      if (f.type === 'Beaconing' || f.type === 'HTTP Beaconing') e.beaconCount++;
+      if (f.type === 'Beaconing' || f.type === 'HTTP Beaconing' || f.type === 'DNS Beaconing') e.beaconCount++;
       e.types.add(f.type || '');
       if (f.score > e.score) e.score = f.score;
       if ((SEV_ORDER[f.severity] ?? 99) < (SEV_ORDER[e.topSev] ?? 99)) e.topSev = f.severity;

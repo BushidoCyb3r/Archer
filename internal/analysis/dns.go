@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"sort"
 	"strings"
 
 	"golang.org/x/net/publicsuffix"
@@ -456,6 +457,10 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			}
 		}
 
+		tsData := make([][3]float64, len(bs.tsData))
+		copy(tsData, bs.tsData)
+		sort.Slice(tsData, func(i, j int) bool { return tsData[i][0] < tsData[j][0] })
+
 		// DSScore is left zero: DNS has no data-size axis, and the
 		// diversity axis is detector-internal (surfaced in Detail) —
 		// overloading the ds_score column would make §2e sub-score
@@ -472,6 +477,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			DstPort:         "53",
 			Detail:          detail,
 			Timestamp:       fmtTS(bs.firstTS),
+			TSData:          tsData,
 			Hostname:        k.apex,
 			TSScore:         tsScore,
 			HistScore:       hScore,

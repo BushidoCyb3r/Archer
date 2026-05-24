@@ -215,8 +215,8 @@ Two diagnostic charts open from the action footer:
   right-click or **Reset zoom** returns to auto-fit. PNG /
   JPEG export per view.
 - **Score Evolution** (its own dock tab next to TI Results,
-  keyboard `4`, gated on Beaconing / HTTP Beaconing) — 30-day
-  trajectory of the composite score plus the four sub-axes,
+  keyboard `4`, gated on Beaconing / HTTP Beaconing / DNS Beaconing) —
+  30-day trajectory of the composite score plus the four sub-axes,
   updated once per UTC day on the first full pass.
 
 **Step 4 — Read the chart, not the score.** The cadence chart
@@ -330,15 +330,15 @@ it survived across analysis runs via fingerprint merge). Read
 them. If someone's already acknowledged this exact pattern
 last quarter and the note explains why, your job is over.
 
-**Score evolution chart.** Beaconing / HTTP Beaconing findings
-get a dedicated **Score Evolution** dock tab (next to TI
+**Score evolution chart.** Beaconing / HTTP Beaconing / DNS Beaconing
+findings get a dedicated **Score Evolution** dock tab (next to TI
 Results, keyboard `4`) showing up to 30 daily snapshots of
 the composite score plus the four sub-axes (ts, ds, hist,
 dur). Promoted to its own tab at v0.18.4 — previously a
 sparkline inside the Detail pane. The chart updates once per
 UTC day, on the first full pass — so it's a *trend* view, not
 a real-time stream. The tab button only renders when the
-selected finding's type is Beaconing or HTTP Beaconing.
+selected finding's type is one of the three beacon types.
 
 Read it for trajectory rather than absolute value:
 

@@ -515,6 +515,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 			Type:            "HTTP Beaconing",
 			Severity:        sev,
 			Score:           score,
+			Sensor:          bk.sensor,
 			SrcIP:           bk.src,
 			DstIP:           bk.dst,
 			DstPort:         bk.port,

@@ -837,8 +837,10 @@ IP pairs, reused here.
 
 `score = clamp(100·(ts·0.5 + div·0.25 + cov·0.25), 1, 100)`; Critical
 ≥ 80, else High. DNS Beaconing carries the same structured triage
-fields as §2 (sample size, mean/median interval, jitter) and the
-`ts/hist/dur` sub-scores; `ds_score` is intentionally left zero (DNS
+fields as §2 (sample size, mean/median interval, jitter), the
+`ts/hist/dur` sub-scores, and the beacon chart TSData payload (the
+timing-scatter chart in the Beacon Chart dock tab is populated the same
+as conn and HTTP beacons). `ds_score` is intentionally left zero (DNS
 has no payload-size axis — the diversity axis is detector-internal and
 surfaced in the Detail string, not overloaded onto `ds_score`).
 

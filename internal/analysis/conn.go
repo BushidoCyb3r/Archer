@@ -29,6 +29,11 @@ const (
 	// lived pairs (n>2000), 2000 samples still provide 10× the SNR of the
 	// old 200-sample tsData path. 2000×8 bytes = 16 KB per pair.
 	spectralTsCap = 2000
+	// sniCandidateCap bounds the sniCandidates slice so high-connection
+	// beacons don't accumulate thousands of UIDs before enrichment.
+	// Pre-beacon UIDs (beaconLazyMinConn-1) plus the promotion UID are
+	// already below this; only post-promotion appends can hit the cap.
+	sniCandidateCap = 32
 	// maxPreBeaconKeys caps the pre-beacon stash the same way HTTP does.
 	// Crafted logs with millions of unique (src, dst) pairs that never
 	// reach beaconLazyMinConn would otherwise grow this map without bound.
@@ -68,6 +73,8 @@ type preBeaconRec struct {
 	origB float64
 	respB float64
 	uid   string
+	port  int
+	proto string
 }
 
 type beaconState struct {
@@ -303,11 +310,12 @@ func (a *Analyzer) analyzeConn(files []string) {
 			pairCounts[pk]++
 			if pairCounts[pk] < beaconLazyMinConn {
 				if _, ok := preBeaconRecs[pk]; ok || len(preBeaconRecs) < maxConnPreBeaconKeys {
-					preBeaconRecs[pk] = append(preBeaconRecs[pk], preBeaconRec{ts: ts, origB: origB, respB: respB, uid: uid})
+					preBeaconRecs[pk] = append(preBeaconRecs[pk], preBeaconRec{ts: ts, origB: origB, respB: respB, uid: uid, port: dstPort, proto: proto})
 				}
 				return true
 			}
 			st := beacon[pk]
+			wasNew := st == nil
 			if st == nil {
 				st = &beaconState{
 					hourMap:    make(map[int]int),
@@ -333,6 +341,12 @@ func (a *Analyzer) analyzeConn(files []string) {
 							st.firstTs = e.ts
 							if e.uid != "" {
 								st.firstUID = e.uid
+							}
+							if e.port != 0 {
+								st.firstPort = e.port
+							}
+							if e.proto != "" {
+								st.firstProto = e.proto
 							}
 						}
 						if st.minTs == 0 || e.ts < st.minTs {
@@ -402,6 +416,9 @@ func (a *Analyzer) analyzeConn(files []string) {
 				st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{ts, origB, respB}, beaconTsCap)
 				st.hourMap[int(ts)/3600]++
 				st.spectralTs, st.spectralTsSeen = reservoirAddF(st.spectralTs, st.spectralTsSeen, ts, spectralTsCap)
+			}
+			if !wasNew && uid != "" && len(st.sniCandidates) < sniCandidateCap {
+				st.sniCandidates = append(st.sniCandidates, uid)
 			}
 
 			return true

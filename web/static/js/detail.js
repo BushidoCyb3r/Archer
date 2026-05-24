@@ -41,7 +41,7 @@ const Detail = (() => {
   // no broken header. stddev is reconstructed mean × jitter (jitter is
   // the interval CV); that's the "± Ns" spread an analyst reads first.
   function _beaconTriage(f) {
-    const isBeacon = f.type === 'Beaconing' || f.type === 'HTTP Beaconing';
+    const isBeacon = f.type === 'Beaconing' || f.type === 'HTTP Beaconing' || f.type === 'DNS Beaconing';
     if (!isBeacon || !(f.sample_size > 0)) return [];
     const mean = f.mean_interval || 0;
     const cv   = f.jitter || 0;
@@ -199,7 +199,7 @@ const Detail = (() => {
     // responses are projected (no ts_data) and the row-click upgrade
     // fetch arrives a tick later, leaving the button momentarily
     // disabled if we gated on the field directly.
-    chartBtn.disabled = !(f.type === 'Beaconing' || f.type === 'HTTP Beaconing');
+    chartBtn.disabled = !(f.type === 'Beaconing' || f.type === 'HTTP Beaconing' || f.type === 'DNS Beaconing');
     if (rawBtn) {
       rawBtn.disabled = !(f.src_ip && f.dst_ip);
       rawBtn.dataset.findingId = f.id;
@@ -232,7 +232,7 @@ const Detail = (() => {
     // tab is active, snap back to Detail — clicking the Detail tab
     // button routes through the registered handler so behavior
     // matches an analyst clicking it themselves.
-    const hasEvolution = f.type === 'Beaconing' || f.type === 'HTTP Beaconing';
+    const hasEvolution = f.type === 'Beaconing' || f.type === 'HTTP Beaconing' || f.type === 'DNS Beaconing';
     const evolutionBtn = document.getElementById('evolution-tab-btn');
     if (evolutionBtn) {
       evolutionBtn.style.display = hasEvolution ? '' : 'none';

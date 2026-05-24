@@ -121,6 +121,53 @@ relevant, `### Detection changes` in each release entry.
   the default (10 / 8 / 20) instead of letting the backend reject it.
   Changed to `parseInt(..., 10)` so the actual parsed value is sent
   and backend validation surfaces correctly.
+- **HTTP Beaconing finding omitted Sensor.** The HTTP beacon state was
+  keyed by `bk.sensor` internally but the emitted finding did not set
+  `Sensor`. With `Fingerprint()` now including Sensor, HTTP beacons from
+  multi-sensor runs landed with `Sensor=""`, collapsing across sensors.
+  `Sensor: bk.sensor` added to the emit.
+- **Conn SNI candidates stopped at promotion record.** `sniCandidates`
+  was built only from pre-beacon records plus the promotion UID. Post-
+  promotion records (connection 4+) were never added, so a pair whose
+  first three connections lacked SNI but whose fourth had it would lose
+  hostname and DGA augmentation. Each post-promotion record now appends
+  its UID to `sniCandidates`.
+- **JA3/JA4 enrichment skipped when SNI was absent.** `enrichBeaconSNI`
+  gated all three fields (`Hostname`, `JA3`, `JA4`) on a non-empty
+  `server_name`. A TLS beacon with no SNI but with a JA3 fingerprint
+  lost JA3/JA4, breaking JA3-sibling pivots. Enrichment now tracks the
+  two goals independently: first non-empty `server_name` sets Hostname,
+  first non-empty `ja3` sets JA3/JA4, stopping when both are satisfied.
+- **Conn beacon firstPort/firstProto resolved from earliest connection.**
+  `preBeaconRec` did not carry `port` and `proto`, so the replay loop
+  could only update `firstTs`/`firstUID` when it found an earlier
+  connection — `firstPort` and `firstProto` always came from the
+  promotion record (connection #3). Both fields are now stored in
+  `preBeaconRec` and updated alongside `firstTs` during replay.
+- **HTTP Beaconing Fingerprint includes Hostname and URI.** Two HTTP
+  beacons to different hosts or paths on the same (src, dst, port,
+  sensor) previously shared a fingerprint; only the highest-scored
+  finding survived the in-batch dedup and was written to the DB —
+  the others were silently dropped. `Fingerprint()` now includes
+  `Hostname` and `URI` for `HTTP Beaconing`, giving each host/path
+  combo its own DB row and independent analyst state. Existing HTTP
+  Beaconing rows will not carry analyst notes forward across the first
+  analysis after upgrade (same fingerprint-change behaviour as the
+  Sensor field addition).
+- **DNS Beaconing now emits beacon chart data.** `TSData` was populated
+  in `dnsBeaconState` but never copied to the emitted finding. DNS
+  Beaconing findings now carry the same timing-scatter chart payload
+  as conn and HTTP beacons.
+- **Conn SNI candidate list capped at 32.** Post-promotion UIDs were
+  appended to `sniCandidates` without bound, growing linearly with
+  connection count. Cap matches the practical need: enrichment only
+  needs enough candidates to find one non-empty `server_name` and one
+  non-empty JA3.
+- **Promotion UID no longer double-appended to sniCandidates.** The
+  promotion record's UID was added once explicitly in the initialization
+  block and then a second time by the post-promotion path before the cap
+  was introduced. A `wasNew` flag now skips the post-path append for the
+  promotion record.
 
 ### Detection changes
 
@@ -135,6 +182,22 @@ relevant, `### Detection changes` in each release entry.
   `(sensor, src, apex)` and maintain per-sensor capture windows.
   Findings emitted per sensor carry `Sensor` explicitly, matching the
   behaviour of conn and HTTP beacons.
+
+- **DNS Beaconing promoted to first-class beacon in the UI.** With
+  `TSData` now emitted, the Beacon Chart button, context-menu chart
+  action, Score Evolution tab, structured beacon triage header, and
+  campaign host beacon-density counter were still gated on
+  `Beaconing` or `HTTP Beaconing` only. All five gates now include
+  `DNS Beaconing`. `beacon_evolution.js` already accepted it; the
+  rest of the UI was left behind.
+- **HTTP Beaconing upgrade compat covers all old fingerprint shapes.**
+  The store's compat logic only tried the zero-Sensor variant. For
+  HTTP Beaconing, old rows may have `Sensor` populated but lack
+  `Hostname`/`URI` (post-Sensor, pre-host/URI rows) or lack all
+  three (pre-Sensor rows). A dedicated `HTTP Beaconing` compat branch
+  now tries `{…, Sensor, "", ""}` then `{…, "", "", ""}` in order
+  so analyst notes survive the first re-analysis regardless of which
+  version the operator is upgrading from.
 
 - **DC-correction in the Lomb-Scargle periodogram.** The `rayleighPower`
   function now subtracts the expected cosine and sine means for a

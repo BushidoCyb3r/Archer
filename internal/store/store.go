@@ -663,6 +663,39 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 			findings[i].StatusTS = old.StatusTS
 			findings[i].Notes = old.Notes
 			findings[i].IsNew = false
+		} else if fp.Type == "HTTP Beaconing" && (fp.Hostname != "" || fp.URI != "") {
+			// Upgrade-compat path for HTTP Beaconing: Hostname and URI were
+			// added to Fingerprint after Sensor was. Old rows fall into two
+			// shapes depending on which version the operator is upgrading from:
+			//   post-Sensor, pre-host/URI: {Type, SrcIP, DstIP, DstPort, Sensor, "", ""}
+			//   pre-Sensor, pre-host/URI:  {Type, SrcIP, DstIP, DstPort, "", "", ""}
+			// Try both. The first match wins; its row is marked consumed so it
+			// isn't re-preserved as an orphan duplicate alongside the new row.
+			noHostFP := fp
+			noHostFP.Hostname = ""
+			noHostFP.URI = ""
+			noSensorFP := noHostFP
+			noSensorFP.Sensor = ""
+			var matched bool
+			for _, tryFP := range [2]model.Fingerprint{noHostFP, noSensorFP} {
+				if old, ok := existing[tryFP]; ok {
+					findings[i].ID = old.ID
+					findings[i].Status = old.Status
+					findings[i].Analyst = old.Analyst
+					findings[i].AnalystNote = old.AnalystNote
+					findings[i].StatusTS = old.StatusTS
+					findings[i].Notes = old.Notes
+					findings[i].IsNew = false
+					newFPSet[tryFP] = true
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				nextNewID++
+				findings[i].ID = nextNewID
+				findings[i].IsNew = emitNotifications
+			}
 		} else if fp.Sensor != "" {
 			// Upgrade-compat path: a finding that previously had Sensor=""
 			// (before sensor was included in Fingerprint) won't match the

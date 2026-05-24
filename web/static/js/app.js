@@ -3900,7 +3900,7 @@
       // (see handlers_api.go's listFinding), so we can't gate on its
       // presence here; type is a reliable proxy and always available.
       const chartItem = document.getElementById('ctx-chart');
-      const hasChart = !!(f && (f.type === 'Beaconing' || f.type === 'HTTP Beaconing'));
+      const hasChart = !!(f && (f.type === 'Beaconing' || f.type === 'HTTP Beaconing' || f.type === 'DNS Beaconing'));
       if (chartItem) chartItem.style.display = hasChart ? '' : 'none';
 
       // Campaign-only items: revealed when campaigns.js attached _campaign.

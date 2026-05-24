@@ -141,7 +141,7 @@ runs in the background overlapping phase 1; phases 2–4 are sequential.
 | 0 | Threat-intel feed prefetch. Built-in feeds (Feodo, URLhaus) fetch over the network; configured MISP/OpenCTI feeds load their cached indicators from SQLite via `FeedProvider`. Overlaps with phase 1. | `ti.go: prefetchFeeds` |
 | 1 | All log-type analyzers in parallel — they're independent. Conn (beacon/strobe/exfil/long-conn), DNS, SSL, X.509, Files, Weird, Notice. | `conn.go`, `dns.go`, `ssl.go`, `x509.go`, `files.go`, `weird.go`, `notice.go` |
 | 2 | HTTP analysis (sequential — needs `sslUIDIndex` populated by `analyzeSSL` in phase 1). | `http_analysis.go` |
-| 2.5 | DGA hostname augmentation. Post-Phase-2 sweep over Beaconing / HTTP Beaconing findings; bumps score (+15) and severity when the destination Hostname's SLD looks algorithmically generated (high entropy + low English bigram log-likelihood). | `dga.go: applyDGAScoring` |
+| 2.5 | SNI/JA3/JA4 enrichment for conn Beaconing — deferred here so `sslUIDIndex` is fully populated before the lookup. Then DGA hostname augmentation: sweep over Beaconing / HTTP Beaconing findings; bumps score (+15) and severity when the destination Hostname's SLD looks algorithmically generated (high entropy + low English bigram log-likelihood). | `analyzer.go: enrichBeaconSNI`, `dga.go: applyDGAScoring` |
 | 3 | URL + TI checks in parallel (need cached feeds from phase 0, plus the per-file dst sets). Two-phase TI scan: cheap dst-only sweep, then targeted per-source for "winners" only. | `ti.go`, `http_analysis.go: analyzeURLs` |
 | 3.5 | Cross-detector correlation. Walks emitted findings, groups by (sensor, src, dst), emits a Correlated Activity roll-up when ≥N distinct detector types fire on the same pair. Contributing findings get their sibling IDs in `Correlations`. Sees historical findings via `findingsProvider` (same NEW-67 union pattern aggregateRisk uses). | `correlate.go` |
 | 4 | Host risk scoring — composite per-host roll-up of all findings touching each host. Excludes roll-up types from the contributor set (HRS recursion + Correlated Activity double-counting). | `risk.go` |
@@ -412,9 +412,8 @@ There are two public entry points sharing one implementation
 
 A defensive in-batch fingerprint dedup runs at the top of
 `setFindingsImpl` (also v0.21.0): when two findings emitted in the
-same batch share `Fingerprint(Type, SrcIP, DstIP, DstPort)`, the
-highest-scored row wins and the duplicate is dropped before
-ID assignment. Without this guard, a multi-source TI Hit emit would
+same batch share the same `Fingerprint()`, the highest-scored row wins
+and the duplicate is dropped before ID assignment. Without this guard, a multi-source TI Hit emit would
 hand two findings the same carry-forward `old.ID`, the second
 `INSERT` would collide on the UNIQUE primary key, and the entire
 `saveFindings` transaction would roll back — losing every finding,
@@ -475,17 +474,21 @@ first-tick-of-UTC-day branch via `Store.PurgeBeaconHistory()`.
 Two identity functions on `model.Finding` with deliberately
 different granularity:
 
-- `Fingerprint()` is `{Type, SrcIP, DstIP, DstPort}` — what
-  SetFindings uses to preserve analyst state. Intentionally
-  coarse: one note per src→dst beacon family is what an analyst
-  wants regardless of how many (host, uri) variants share the
-  destination.
-- `BeaconHistoryKey()` adds `Hostname` and `URI` and joins with
-  ASCII Unit Separator (`\x1f`, never appears in URLs / hostnames
-  / IPs). Used by `beacon_history` to keep separate trend lines
-  for two HTTP beacons sharing a destination but going to
-  different `(host, uri)` — without that wider key, the chart
-  would mix signal on CDN-fronted destinations.
+- `Fingerprint()` is `{Type, SrcIP, DstIP, DstPort, Sensor}` for
+  all beacon types. For `HTTP Beaconing` it additionally includes
+  `Hostname` and `URI`, because two HTTP beacons to different hosts
+  or paths on the same (src, dst, port, sensor) are genuinely
+  distinct detections with independent analyst state — without this,
+  only the highest-scored (host, uri) pair would survive the in-batch
+  dedup and be written to the DB.
+- `BeaconHistoryKey()` is `{Type, SrcIP, DstIP, DstPort, Hostname, URI, Sensor}`
+  joined with ASCII Unit Separator (`\x1f`, never appears in URLs /
+  hostnames / IPs). Used by `beacon_history` to keep separate trend
+  lines for two HTTP beacons sharing a destination but going to
+  different `(host, uri)` — without that wider key, the chart would
+  mix signal on CDN-fronted destinations. Includes `Sensor` so two
+  Quiver collectors observing the same beacon pair maintain
+  independent history rows.
 
 The canonical-string form (not sha256-hashed) is deliberate —
 `beacon_history` rows can outlive their source finding by the
