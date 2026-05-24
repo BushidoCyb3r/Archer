@@ -45,19 +45,30 @@ import (
 //   - Press, W.H. & Rybicki, G.B. 1989. "Fast algorithm for spectral
 //     analysis of unevenly sampled data."
 
-// rayleighPower computes the Rayleigh (Schuster) periodogram power at
-// a single angular frequency omega. This is the right form for impulse
-// trains (timestamp periodicity, not amplitude periodicity):
+// rayleighPower computes the DC-corrected Rayleigh (Schuster) periodogram
+// power at a single angular frequency omega. This is the right form for
+// impulse trains (timestamp periodicity, not amplitude periodicity).
 //
-//	P(omega) = (1/N) * [(Σ cos(omega*t_k))^2 + (Σ sin(omega*t_k))^2]
+// Correction for finite-window spectral leakage. The naive Rayleigh
+// formula P = (cSum² + sSum²)/N assumes timestamps are uniformly
+// distributed over the observation window. For non-integer window/period
+// ratios, the mean of cos(ωt_k) over a uniform distribution is non-zero:
 //
-// Under the null hypothesis (random Poisson arrivals, no periodicity)
-// the power is exponentially distributed with mean 1.0, so a peak of
-// e.g. 12 means false-alarm probability ≈ exp(-12) ≈ 6e-6 per frequency
-// tested. With M=200 grid points, expected total FAP at threshold 12
-// is M·exp(-12) ≈ 0.001 — about one false alarm per thousand
-// background-noise pair evaluations, which matches Archer's
-// noise-tolerance budget.
+//	E[cos(ωt)] = sinc(ωW/2) · cos(ω·t_center)
+//
+// where sinc(x) = sin(x)/x and t_center = (t₀+t₀+W)/2. This bias is
+// ∝ N/(2k+1)² at the peaks T/(k+0.5) for integer k. For N=6500 events
+// over 9 months, the k=4 bias peak reaches power ≈34 at FAP=12 — a
+// systematic false-positive, not a statistical one. Subtracting the
+// expected means before computing power restores the Exp(1) null
+// distribution at all frequencies, including long-period ones.
+//
+// Under the corrected null (random arrivals, no periodicity) the power
+// is exponentially distributed with mean 1.0. A peak of e.g. 12 means
+// false-alarm probability ≈ exp(-12) ≈ 6e-6 per frequency tested. With
+// M=2000 grid points, expected total FAP at threshold 12 is M·exp(-12)
+// ≈ 0.012 — about one false alarm per 80 background pair evaluations at
+// this threshold.
 //
 // Why Rayleigh, not the more-general Lomb-Scargle with tau-adjustment.
 // The classical Lomb-Scargle adds a phase-reference shift (tau =
@@ -67,14 +78,15 @@ import (
 // impulse trains where every event has the same y_k = 1, tau is
 // degenerate at the fundamental of a uniformly-spaced signal —
 // sin² accumulates to zero, causing a divide-by-zero or numerical
-// flake. The Rayleigh form sidesteps this without losing detection
-// power: harmonics still appear at their true positions, the
+// flake. The DC-corrected Rayleigh form sidesteps this without losing
+// detection power: harmonics still appear at their true positions, the
 // fundamental wins for any signal with non-trivial jitter, and the
 // null-distribution mean-1 property holds.
 //
 // O(N) per call. Each timestamp is a unit-height impulse — we score
 // whether events cluster at a particular phase, not whether their
-// amplitude oscillates.
+// amplitude oscillates. Assumes timestamps are sorted so [0] is the
+// minimum and [n-1] is the maximum.
 func rayleighPower(timestamps []float64, omega float64) float64 {
 	n := len(timestamps)
 	if n < 4 {
@@ -85,7 +97,25 @@ func rayleighPower(timestamps []float64, omega float64) float64 {
 		cSum += math.Cos(omega * t)
 		sSum += math.Sin(omega * t)
 	}
-	return (cSum*cSum + sSum*sSum) / float64(n)
+	// DC-correction: subtract expected means for a uniform-distribution
+	// baseline over the observation window.
+	//   E[cos(ωt)] = sinc(ωW/2) · cos(ω·t_center)
+	//   E[sin(ωt)] = sinc(ωW/2) · sin(ω·t_center)
+	// where sinc(x) = sin(x)/x and t_center = t₀ + W/2.
+	t0 := timestamps[0]
+	halfW := (timestamps[n-1] - t0) / 2.0
+	omegaHalfW := omega * halfW
+	var sinc float64
+	if omegaHalfW < 1e-10 {
+		sinc = 1.0
+	} else {
+		sinc = math.Sin(omegaHalfW) / omegaHalfW
+	}
+	fn := float64(n)
+	tCenter := t0 + halfW
+	cSum -= fn * sinc * math.Cos(omega*tCenter)
+	sSum -= fn * sinc * math.Sin(omega*tCenter)
+	return (cSum*cSum + sSum*sSum) / fn
 }
 
 // SpectralResult is the per-pair output of spectralScore. Returned
@@ -93,22 +123,28 @@ func rayleighPower(timestamps []float64, omega float64) float64 {
 // remember the order; the Detail-string renderer in conn.go and
 // http_analysis.go uses Period and Power independently of Score.
 type SpectralResult struct {
-	// Score in [0, 1]. 0 = no periodicity above noise; 1 = strongly
-	// periodic, well past the false-alarm threshold. Linearly
+	// Score in [0, 1]. 0 = no plausible periodicity above noise; 1 =
+	// strongly periodic, well past the false-alarm threshold. Linearly
 	// proportional to log-confidence above the threshold, clamped at
-	// 1 once the peak is 2× the threshold.
+	// 1 once the peak is 2× the threshold. Based on the strongest
+	// peak within [minPlausiblePeriod, maxPlausiblePeriod].
 	Score float64
-	// Period in seconds at the spectral peak. Meaningful only when
-	// Score > 0 — below the FAP threshold the peak is noise.
+	// Period in seconds at the strongest plausible spectral peak.
+	// Meaningful only when Score > 0.
 	Period float64
-	// RawPower is the un-normalised Lomb-Scargle value at the peak,
-	// useful for logging and threshold calibration. Compare against
-	// FAPThreshold to understand "how far above noise" the peak sat.
+	// RawPower is the un-normalised Lomb-Scargle value at Period.
 	RawPower float64
+	// DominantPeriod is the overall strongest peak when it was outside
+	// the plausible range and therefore rejected. Zero when the
+	// dominant peak was plausible, or no above-threshold peak exists.
+	// Exposed so the call site can log the rejected artifact.
+	DominantPeriod float64
+	// DominantPower is the Lomb-Scargle power at DominantPeriod.
+	DominantPower float64
 }
 
 // spectralScore runs Lomb-Scargle over a logarithmically-spaced
-// period grid and returns the strongest peak and its score.
+// period grid and returns the strongest plausible peak and its score.
 //
 // Algorithm:
 //  1. Sort timestamps (Lomb-Scargle requires nothing of order but
@@ -118,17 +154,52 @@ type SpectralResult struct {
 //     ping is faster than that but isn't C2-relevant) to window/2
 //     (the Nyquist limit — can't reliably detect a period longer
 //     than half the observation span).
-//  3. 200 log-spaced periods. Log spacing matches how operators
+//  3. 2000 log-spaced periods. Log spacing matches how operators
 //     think about beacons (60s, 600s, 3600s — orders of magnitude
 //     apart matter more than absolute deltas).
-//  4. Evaluate Lomb-Scargle power at each period, track the peak.
-//  5. Compare peak to false-alarm threshold. Below threshold →
-//     return zero (the peak is noise). Above → return normalised
-//     score.
+//  4. Evaluate Lomb-Scargle power at each period. Track two running
+//     bests: the overall dominant peak, and the best peak within
+//     [minPlausiblePeriod, maxPlausiblePeriod].
+//  5. Score the plausible peak against the FAP threshold. If it
+//     clears, return a rescue. If the overall dominant peak was
+//     outside the plausible range, populate DominantPeriod so the
+//     call site can log the rejected artifact.
+//
+// minPlausiblePeriod is derived from the pair's median inter-arrival
+// interval at the call site: ivMedian/5. This is a lower bound only —
+// the gate is intentionally asymmetric.
+//
+// Two-sided plausibility bounds.
+//
+// Lower bound (minPlausiblePeriod): rejects burst-clustering artifacts
+// whose period is orders of magnitude shorter than the observed cadence.
+// A 5s clustering artifact in a stream with 43 000s median (ratio 1/8600)
+// is clearly implausible. Derived at the call site as ivMedian/5.
+//
+// Span-aware upper bound (window/3, internal): a period longer than one
+// third of the observation window is supported by fewer than three
+// complete cycles. The DC-correction in rayleighPower removes systematic
+// windowing-bias (which was the dominant source of spurious long-period
+// peaks). The window/3 floor is the residual minimum-cycles guard.
+// TestSpectralScore_PlausibilityGate_LongPeriodNoise validates that N=6500
+// uniform-random timestamps over 9 months produce no FAP-clearing peaks
+// in the plausible range with the corrected implementation.
+//
+// The span cap is intentionally separate from maxPlausiblePeriod. The
+// ivMedian×N symmetric gate blocked burst-connect beacons (a C2 that
+// connects 10 times in a burst then goes quiet for 23h has ivMedian≈360s
+// and true period≈86400s — ratio 240×). The span cap does not suppress
+// this: 10 daily cycles span 864 000s, so window/3 = 288 000s >> 86 400s.
+// Pass maxPlausiblePeriod <= 0 to skip the explicit upper bound (only the
+// span cap applies). Pass minPlausiblePeriod <= 0 to disable rescue.
 //
 // minObservations and fapThreshold are passed through from config so
 // operators can tune. Defaults documented in config.go.
-func spectralScore(timestamps []float64, minObservations int, fapThreshold float64) SpectralResult {
+func spectralScore(timestamps []float64, minObservations int, fapThreshold float64, minPlausiblePeriod, maxPlausiblePeriod float64) SpectralResult {
+	// Without a lower-bound reference point the rescue is unconstrained.
+	if minPlausiblePeriod <= 0 {
+		return SpectralResult{}
+	}
 	if len(timestamps) < minObservations {
 		return SpectralResult{}
 	}
@@ -154,15 +225,12 @@ func spectralScore(timestamps []float64, minObservations int, fapThreshold float
 		// nFreqs controls grid resolution. Peak width in the
 		// periodogram is ~ period/window (relative), so for a typical
 		// hunt session (W ≈ 3600..86400s) and beacon period 60s, the
-		// peak is 0.07% to 1.7% wide. 200 points across log(5..W/2)
-		// is too coarse — peaks get skipped between grid points. 2000
-		// points gives ~0.34% relative spacing, half the worst-case
-		// peak width, so the bestPower iteration reliably catches the
-		// peak. CPU cost stays bounded: 2000 grid × 200 reservoir =
-		// 400K trig pairs per pair, ~20 ms each on modern hardware.
-		// For 1000 pairs in a run that's 20 seconds of spectral work,
-		// gated to pairs where statistical scoring failed (see
-		// SpectralRescueThreshold in the call site).
+		// peak is 0.07% to 1.7% wide. 2000 points gives ~0.34%
+		// relative spacing, half the worst-case peak width, so the
+		// scan reliably catches the peak. CPU cost stays bounded:
+		// 2000 grid × 2000 reservoir = 4M trig pairs per pair,
+		// ~200ms each on modern hardware, gated to pairs where
+		// statistical scoring failed.
 		nFreqs = 2000
 	)
 	maxPeriod := window / 2.0
@@ -172,7 +240,18 @@ func spectralScore(timestamps []float64, minObservations int, fapThreshold float
 
 	logMin := math.Log(minPeriod)
 	logMax := math.Log(maxPeriod)
+	// Minimum-cycles floor: require at least 3 complete cycles to claim
+	// a period is real. Below this floor the periodogram sees fewer than
+	// 3 peaks to align, making statistical confidence marginal regardless
+	// of power. The DC-correction in rayleighPower handles the main
+	// windowing-bias source; this cap is the residual reliability guard.
+	maxReliablePeriod := window / 3.0
+	// Track both the overall dominant peak (may be an artifact) and the
+	// strongest peak within the plausible period range separately. This
+	// prevents a burst-clustering artifact from overshadowing a weaker
+	// but genuine periodic signal at a plausible cadence.
 	var bestPower, bestPeriod float64
+	var plausiblePower, plausiblePeriod float64
 	for i := 0; i < nFreqs; i++ {
 		p := math.Exp(logMin + (logMax-logMin)*float64(i)/float64(nFreqs-1))
 		omega := 2 * math.Pi / p
@@ -181,14 +260,24 @@ func spectralScore(timestamps []float64, minObservations int, fapThreshold float
 			bestPower = power
 			bestPeriod = p
 		}
+		aboveMin := p >= minPlausiblePeriod
+		belowMax := p <= maxReliablePeriod && (maxPlausiblePeriod <= 0 || p <= maxPlausiblePeriod)
+		if aboveMin && belowMax && power > plausiblePower {
+			plausiblePower = power
+			plausiblePeriod = p
+		}
 	}
 
-	if bestPower < fapThreshold {
-		// Peak is consistent with random Poisson arrivals; return
-		// the period (useful for debug) but score zero so the
-		// rescue pattern at the call site treats this as "no
-		// rescue."
-		return SpectralResult{Period: bestPeriod, RawPower: bestPower}
+	if plausiblePower < fapThreshold {
+		// No plausible periodic signal above noise.
+		res := SpectralResult{Period: plausiblePeriod, RawPower: plausiblePower}
+		// If a strong peak existed but was outside the plausible range,
+		// record it so the call site can log the rejected artifact.
+		if bestPower >= fapThreshold && bestPeriod != plausiblePeriod {
+			res.DominantPeriod = bestPeriod
+			res.DominantPower = bestPower
+		}
+		return res
 	}
 
 	// Normalise: linear from 0 at threshold to 1 at 2×threshold. A
@@ -196,9 +285,16 @@ func spectralScore(timestamps []float64, minObservations int, fapThreshold float
 	// to dominate the composite score, but a peak well past it
 	// should ceiling at the same 1.0 the statistical detector
 	// produces on a perfectly-regular beacon.
-	score := (bestPower - fapThreshold) / fapThreshold
+	score := (plausiblePower - fapThreshold) / fapThreshold
 	if score > 1.0 {
 		score = 1.0
 	}
-	return SpectralResult{Score: score, Period: bestPeriod, RawPower: bestPower}
+	res := SpectralResult{Score: score, Period: plausiblePeriod, RawPower: plausiblePower}
+	// If a stronger artifact peak exists outside the plausible range,
+	// record it for calibration diagnostics in the detail string.
+	if bestPeriod != plausiblePeriod && bestPower > plausiblePower {
+		res.DominantPeriod = bestPeriod
+		res.DominantPower = bestPower
+	}
+	return res
 }

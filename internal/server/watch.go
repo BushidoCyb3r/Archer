@@ -729,6 +729,9 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool, preStart 
 
 		wasCancelled := az.Ctx().Err() != nil
 		if !wasCancelled {
+			if blocked := az.SpectralBlockedCount(); blocked > 0 {
+				s.store.RecordSpectralBlocked(blocked)
+			}
 			newNotifs := s.store.SetFindings(findings)
 			s.crossAnnotateNewTIHits(findings)
 			for _, n := range newNotifs {

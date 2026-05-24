@@ -28,7 +28,8 @@ const Detail = (() => {
       const m = Math.floor(sec / 60), s = Math.round(sec % 60);
       return s ? `${m}m ${s}s` : `${m}m`;
     }
-    const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+    let h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+    if (m === 60) { h++; m = 0; }
     return m ? `${h}h ${String(m).padStart(2, '0')}m` : `${h}h`;
   }
 

@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"fmt"
+	"log/slog"
 	"math"
 	"strings"
 
@@ -68,16 +69,18 @@ func (a *Analyzer) analyzeDNS(files []string) {
 	// subdomain diversity is read from apexMap at emit time (same key)
 	// rather than re-tracked here.
 	type dnsBeaconState struct {
-		lastTS  float64
-		ivs     []float64
-		ivsSeen int
-		tsData  [][3]float64
-		tsSeen  int
-		hourMap map[int]int
-		minTS   float64
-		maxTS   float64
-		firstTS float64
-		count   int
+		lastTS         float64
+		ivs            []float64
+		ivsSeen        int
+		tsData         [][3]float64
+		tsSeen         int
+		hourMap        map[int]int
+		minTS          float64
+		maxTS          float64
+		firstTS        float64
+		count          int
+		spectralTs     []float64
+		spectralTsSeen int
 	}
 
 	apexMap := make(map[apexKey]*apexData)
@@ -168,6 +171,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 					bs.lastTS = ts
 					bs.tsData, bs.tsSeen = reservoirAddT(bs.tsData, bs.tsSeen, [3]float64{ts, 0, 0}, beaconTsCap)
 					bs.hourMap[int(ts)/3600]++
+					bs.spectralTs, bs.spectralTsSeen = reservoirAddF(bs.spectralTs, bs.spectralTsSeen, ts, spectralTsCap)
 					if bs.firstTS == 0 || ts < bs.firstTS {
 						bs.firstTS = ts
 					}
@@ -339,6 +343,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 	// Cobalt-Strike DNS C2 shape) slips DNS Tunneling (entropy/diversity
 	// too low) and conn-level Beaconing (IP-pair keyed, never consumes
 	// query timing). This closes that gap on the (src, apex) key.
+	var spectralBlockedCount int
 	for k, bs := range beaconApex {
 		if bs.count < a.cfg.DNSBeaconMinQueries || len(bs.ivs) < 3 {
 			continue
@@ -368,18 +373,26 @@ func (a *Analyzer) analyzeDNS(files []string) {
 		if tsEnt > tsScore {
 			tsScore = tsEnt
 		}
+
+		ivMean := fmean(ivs)
+		ivMedian := fmedian(ivs)
+
 		var spectralRescued bool
 		var spectralResult SpectralResult
-		if a.cfg.SpectralEnabled && tsScore < a.cfg.SpectralRescueThreshold && len(bs.tsData) >= a.cfg.SpectralMinObservations {
-			tsOnly := make([]float64, len(bs.tsData))
-			for i, row := range bs.tsData {
-				tsOnly[i] = row[0]
-			}
-			spec := spectralScore(tsOnly, a.cfg.SpectralMinObservations, a.cfg.SpectralFAPThreshold)
+		if a.cfg.SpectralEnabled && tsScore < a.cfg.SpectralRescueThreshold && len(bs.spectralTs) >= a.cfg.SpectralMinObservations {
+			spec := spectralScore(bs.spectralTs, a.cfg.SpectralMinObservations, a.cfg.SpectralFAPThreshold, ivMedian/5.0, 0)
 			if spec.Score > tsScore {
 				tsScore = spec.Score
 				spectralRescued = true
 				spectralResult = spec
+			} else if spec.DominantPeriod > 0 {
+				spectralBlockedCount++
+				slog.Debug("spectral artifact rejected",
+					"src", k.src, "dst", k.apex,
+					"artifact_period", spec.DominantPeriod,
+					"artifact_power", spec.DominantPower,
+					"median_interval", ivMedian,
+					"ratio", spec.DominantPeriod/ivMedian)
 			}
 		}
 
@@ -426,15 +439,18 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			sev = model.SevCritical
 		}
 
-		ivMean := fmean(ivs)
-		ivMedian := fmedian(ivs)
 		ivCV := intervalCV(ivs, ivMean)
 
 		detail := fmt.Sprintf("DNS queries: %d | Unique subdomains: %d | Mean interval: %.1fs | CV: %.2f | Score: ts=%.2f div=%.2f cov=%.2f | ts_layers: raw=%.2f mm=%.2f ent=%.2f",
 			bs.count, subCount, ivMean, ivCV, tsScore, divScore, coverage, tsRaw, tsMM, tsEnt)
 		if spectralRescued {
-			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (dominant period %.1fs, power %.1f, FAP threshold %.1f)",
-				spectralResult.Score, spectralResult.Period, spectralResult.RawPower, a.cfg.SpectralFAPThreshold)
+			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (period %.1fs, %.1f×median, power %.1f, FAP %.1f)",
+				spectralResult.Score, spectralResult.Period, spectralResult.Period/ivMedian,
+				spectralResult.RawPower, a.cfg.SpectralFAPThreshold)
+			if spectralResult.DominantPeriod > 0 {
+				detail += fmt.Sprintf(" [artifact %.1fs (%.0f×median) suppressed]",
+					spectralResult.DominantPeriod, spectralResult.DominantPeriod/ivMedian)
+			}
 		}
 
 		// DSScore is left zero: DNS has no data-size axis, and the
@@ -466,5 +482,9 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			TSMultimodal:    tsMM,
 			TSEntropy:       tsEnt,
 		})
+	}
+	if spectralBlockedCount > 0 {
+		slog.Info("spectral rescues fully blocked", "analyzer", "dns", "count", spectralBlockedCount)
+		a.spectralBlocked.Add(int64(spectralBlockedCount))
 	}
 }

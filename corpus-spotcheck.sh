@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+# corpus-spotcheck.sh — validates the spectral rescue plausibility gate
+# against live findings in the Archer database.
+#
+# The gate is lower-bound only: spectral_period >= median_interval/5.
+# There is no upper bound because burst-connect beacons (many connections
+# per burst, long silence between bursts) have true spectral periods that
+# are legitimately orders of magnitude above the median inter-arrival.
+#
+# Two checks:
+#   1. PASS/FAIL — any rescued finding with spectral_period below
+#      median_interval/5 is an artifact that slipped through the gate
+#      (gate too loose, or a novel artifact shape not covered by the
+#      lower-bound criterion).
+#   2. ADVISORY — rescued findings that also contain a suppressed artifact
+#      in the detail string. These fired on a plausible peak alongside a
+#      rejected shorter-period peak; a human should eyeball whether the
+#      suppressed period looks burst-shaped or beacon-shaped.
+#
+# What this script CANNOT check: findings where rescue was blocked entirely
+# because the only strong peak was below median/5. Those pairs still emit
+# a beacon finding (at reduced score, without the spectral rescue credit),
+# and the blocked artifact is logged at slog.Debug level at analysis time.
+# If you need to audit fully-blocked rescues, filter the Archer log for
+# "spectral artifact rejected".
+#
+# Usage:  bash corpus-spotcheck.sh [/path/to/archer.db]
+#         default path: /data/archer.db
+set -euo pipefail
+
+DB="${1:-/data/archer.db}"
+
+if [ ! -f "$DB" ]; then
+    echo "ERROR: database not found at $DB" >&2
+    exit 2
+fi
+
+# Spectral data lives in beacon_history. findings carries median_interval.
+# The rescues we care about are in findings.detail (new-code format after
+# re-analysis): "Spectral rescued: score=X (period Ys, N×median, ...)".
+# Pre-re-analysis (old-code detail format), there is no ratio in the
+# detail string — run analysis with the new code before using this script.
+
+TOTAL=$(sqlite3 "$DB" "
+  SELECT COUNT(*) FROM findings
+  WHERE detail LIKE '%Spectral rescued%'
+    AND median_interval > 0;
+")
+echo "Spectral-rescued findings with median_interval: $TOTAL"
+
+if [ "$TOTAL" -eq 0 ]; then
+    echo "PASS: no spectral-rescued findings to validate."
+    echo "      (If you expected rescues, run analysis with the current code first.)"
+    exit 0
+fi
+
+# ── Check 1: lower-bound plausibility (PASS/FAIL) ──────────────────────
+# Extract spectral_period from the new-format detail string:
+# "Spectral rescued: score=X.XX (period Ys, N×median, ...)"
+# Note: old-format detail has "dominant period Ys" — different keyword.
+# Run analysis with current code to populate the new format before running.
+
+VIOLATIONS=$(sqlite3 "$DB" "
+  WITH rescued AS (
+    SELECT id, type, src_ip, dst_ip, score, severity, median_interval,
+           CAST(
+             SUBSTR(detail,
+               INSTR(detail, 'period ') + 7,
+               INSTR(SUBSTR(detail, INSTR(detail, 'period ') + 7), 's') - 1
+             ) AS REAL
+           ) AS spectral_period
+    FROM findings
+    WHERE detail LIKE '%Spectral rescued%'
+      AND detail LIKE '% period %s,%'
+      AND median_interval > 0
+  )
+  SELECT COUNT(*) FROM rescued
+  WHERE spectral_period > 0
+    AND spectral_period < median_interval / 5.0;
+")
+
+echo "Gate violations (spectral_period < median/5): $VIOLATIONS"
+
+if [ "$VIOLATIONS" -gt 0 ]; then
+    echo ""
+    echo "FAIL: $VIOLATIONS rescued finding(s) have spectral_period below median/5:"
+    sqlite3 -column -header "$DB" "
+      WITH rescued AS (
+        SELECT id, type, src_ip, dst_ip, score, severity, median_interval,
+               CAST(
+                 SUBSTR(detail,
+                   INSTR(detail, 'period ') + 7,
+                   INSTR(SUBSTR(detail, INSTR(detail, 'period ') + 7), 's') - 1
+                 ) AS REAL
+               ) AS spectral_period
+        FROM findings
+        WHERE detail LIKE '%Spectral rescued%'
+          AND detail LIKE '% period %s,%'
+          AND median_interval > 0
+      )
+      SELECT id, src_ip, dst_ip, type, score,
+             ROUND(spectral_period, 1)       AS spectral_period,
+             ROUND(median_interval, 1)       AS median_interval,
+             ROUND(spectral_period / median_interval, 4) AS ratio
+      FROM rescued
+      WHERE spectral_period > 0
+        AND spectral_period < median_interval / 5.0
+      ORDER BY ratio ASC;"
+    echo ""
+    echo "Remediation: the plausibility gate (median/5 lower bound) is not blocking"
+    echo "these artifacts. Investigate the pair's connection pattern to understand"
+    echo "why the short-period artifact survives — the burst clustering may be real."
+    exit 1
+fi
+
+echo "PASS: all spectral-rescued findings have period >= median/5 (no artifacts slipping through)."
+
+# ── Check 2: suppressed artifacts alongside successful rescues (advisory) ──
+# These findings rescued on a plausible peak but also had a rejected
+# shorter-period artifact. A human should check whether the suppressed
+# period is clearly burst-shaped (artifact) or suspiciously beacon-shaped.
+
+SUPPRESSED=$(sqlite3 "$DB" "
+  SELECT COUNT(*) FROM findings
+  WHERE detail LIKE '%[artifact%suppressed]%';
+")
+
+if [ "$SUPPRESSED" -gt 0 ]; then
+    echo ""
+    echo "ADVISORY: $SUPPRESSED finding(s) rescued on a plausible peak but with a"
+    echo "suppressed artifact alongside. Eyeball these — confirm the suppressed"
+    echo "period is burst-shaped (artifact), not beacon-shaped (real detection missed):"
+    sqlite3 -column -header "$DB" "
+      SELECT id, src_ip, dst_ip, type, score,
+             ROUND(median_interval, 1) AS median_interval,
+             SUBSTR(detail,
+               INSTR(detail, '[artifact'),
+               INSTR(detail, 'suppressed]') - INSTR(detail, '[artifact') + 11
+             ) AS suppressed_peak
+      FROM findings
+      WHERE detail LIKE '%[artifact%suppressed]%'
+      ORDER BY score DESC
+      LIMIT 30;"
+    echo ""
+    echo "Rule of thumb: if suppressed_period is < median/100, it's burst-shaped."
+    echo "If suppressed_period is within an order of magnitude of median, investigate."
+fi
+
+# ── Check 3: fully-blocked rescues over recent runs (advisory) ───────────────
+# A fully-blocked rescue is a pair where the plausibility gate rejected the
+# ONLY strong periodogram peak. The pair still emits a beacon finding (at
+# reduced score, without spectral credit), but the spectral evidence was
+# suppressed. Accumulated across runs in analysis_stats so the trend is
+# visible without relying on log lines. Non-zero is not always a problem —
+# daily management traffic on long-lived sessions routinely lands here —
+# but a high count or a sudden spike warrants spot-checking whether any
+# legitimately periodic pair is being systematically under-scored.
+
+STATS_OK=$(sqlite3 "$DB" "
+  SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='analysis_stats';
+")
+
+if [ "$STATS_OK" -eq 0 ]; then
+    echo ""
+    echo "INFO: analysis_stats table not present — deploy current code and re-run."
+else
+    BLOCKED_TOTAL=$(sqlite3 "$DB" "
+      SELECT COALESCE(SUM(spectral_blocked), 0)
+      FROM (SELECT spectral_blocked FROM analysis_stats ORDER BY run_at DESC LIMIT 10);
+    ")
+    BLOCKED_RUNS=$(sqlite3 "$DB" "
+      SELECT COUNT(*) FROM (SELECT 1 FROM analysis_stats ORDER BY run_at DESC LIMIT 10);
+    ")
+    if [ "$BLOCKED_TOTAL" -gt 0 ]; then
+        echo ""
+        echo "ADVISORY: $BLOCKED_TOTAL fully-blocked spectral rescue(s) across the last"
+        echo "  $BLOCKED_RUNS recorded run(s). Pairs with only a short-period artifact"
+        echo "  (< ivMedian/5) still emit beacon findings but without spectral credit."
+        echo "  Per-run breakdown:"
+        sqlite3 -column -header "$DB" "
+          SELECT datetime(run_at, 'unixepoch') AS run_at, spectral_blocked
+          FROM analysis_stats
+          ORDER BY run_at DESC
+          LIMIT 10;"
+        echo ""
+        echo "To identify blocked pairs: docker logs archer 2>&1 |"
+        echo "  grep 'spectral artifact rejected' | tail -20"
+    else
+        echo "PASS: no fully-blocked spectral rescues in the last $BLOCKED_RUNS run(s)."
+    fi
+fi

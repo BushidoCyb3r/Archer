@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
@@ -66,12 +67,14 @@ type httpBeaconState struct {
 	// tsData feeds the Beacon Chart's Timeline / Interval / Bytes views.
 	// Reservoir-sampled (ts, origBytes, respBytes) triples — same shape
 	// the conn-level beacon detector emits, capped at beaconTsCap.
-	tsData  [][3]float64
-	tsSeen  int
-	hourMap map[int]int
-	minTs   float64
-	maxTs   float64
-	firstTs float64
+	tsData         [][3]float64
+	tsSeen         int
+	hourMap        map[int]int
+	minTs          float64
+	maxTs          float64
+	firstTs        float64
+	spectralTs     []float64
+	spectralTsSeen int
 }
 
 func csChecksum8(uri string) int {
@@ -328,6 +331,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 							st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{e.ts, e.origB, e.respB}, beaconTsCap)
 							if e.ts > 0 {
 								st.hourMap[int(e.ts)/3600]++
+								st.spectralTs, st.spectralTsSeen = reservoirAddF(st.spectralTs, st.spectralTsSeen, e.ts, spectralTsCap)
 							}
 						}
 						delete(preBeaconRecs, bk)
@@ -363,6 +367,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 					st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{ts, origB, respB}, beaconTsCap)
 					if ts > 0 {
 						st.hourMap[int(ts)/3600]++
+						st.spectralTs, st.spectralTsSeen = reservoirAddF(st.spectralTs, st.spectralTsSeen, ts, spectralTsCap)
 					}
 				}
 			}
@@ -417,6 +422,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 	footprint := topURIFootprint(fpEntries, httpBeaconTopURICap)
 
 	// ── HTTP Beaconing ────────────────────────────────────────────────────────
+	var spectralBlockedCount int
 	for bk, st := range beacon {
 		totalObserved := beaconCounts[bk]
 		if totalObserved < a.cfg.HTTPBeaconMinRequests {
@@ -452,16 +458,20 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 		// identical.
 		var spectralRescued bool
 		var spectralResult SpectralResult
-		if a.cfg.SpectralEnabled && tsScore < a.cfg.SpectralRescueThreshold && len(st.tsData) >= a.cfg.SpectralMinObservations {
-			tsOnly := make([]float64, len(st.tsData))
-			for i, row := range st.tsData {
-				tsOnly[i] = row[0]
-			}
-			spec := spectralScore(tsOnly, a.cfg.SpectralMinObservations, a.cfg.SpectralFAPThreshold)
+		if a.cfg.SpectralEnabled && tsScore < a.cfg.SpectralRescueThreshold && len(st.spectralTs) >= a.cfg.SpectralMinObservations {
+			spec := spectralScore(st.spectralTs, a.cfg.SpectralMinObservations, a.cfg.SpectralFAPThreshold, ivMedian/5.0, 0)
 			if spec.Score > tsScore {
 				tsScore = spec.Score
 				spectralRescued = true
 				spectralResult = spec
+			} else if spec.DominantPeriod > 0 {
+				spectralBlockedCount++
+				slog.Debug("spectral artifact rejected",
+					"src", bk.src, "dst", bk.dst,
+					"artifact_period", spec.DominantPeriod,
+					"artifact_power", spec.DominantPower,
+					"median_interval", ivMedian,
+					"ratio", spec.DominantPeriod/ivMedian)
 			}
 		}
 		dsScore := 0.0
@@ -493,8 +503,13 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 
 		detail := fmt.Sprintf("Requests: %d | Host: %s | URI: %s | Score: ts=%.2f ds=%.2f hist=%.2f dur=%.2f | ts_layers: raw=%.2f mm=%.2f ent=%.2f", totalObserved, bk.host, bk.uri, tsScore, dsScore, hScore, durScore, tsRaw, tsMM, tsEnt)
 		if spectralRescued {
-			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (dominant period %.1fs, power %.1f, FAP threshold %.1f)",
-				spectralResult.Score, spectralResult.Period, spectralResult.RawPower, a.cfg.SpectralFAPThreshold)
+			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (period %.1fs, %.1f×median, power %.1f, FAP %.1f)",
+				spectralResult.Score, spectralResult.Period, spectralResult.Period/ivMedian,
+				spectralResult.RawPower, a.cfg.SpectralFAPThreshold)
+			if spectralResult.DominantPeriod > 0 {
+				detail += fmt.Sprintf(" [artifact %.1fs (%.0f×median) suppressed]",
+					spectralResult.DominantPeriod, spectralResult.DominantPeriod/ivMedian)
+			}
 		}
 		a.add(model.Finding{
 			Type:            "HTTP Beaconing",
@@ -523,5 +538,9 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 			TSMultimodal:    tsMM,
 			TSEntropy:       tsEnt,
 		})
+	}
+	if spectralBlockedCount > 0 {
+		slog.Info("spectral rescues fully blocked", "analyzer", "http", "count", spectralBlockedCount)
+		a.spectralBlocked.Add(int64(spectralBlockedCount))
 	}
 }

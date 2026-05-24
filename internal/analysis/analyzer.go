@@ -109,6 +109,13 @@ type Analyzer struct {
 	// them in multi-sensor deployments.
 	defaultSensor string
 
+	// spectralBlocked counts pairs where the plausibility gate rejected the
+	// only strong periodogram peak this run (fully-blocked rescues). Reset
+	// at the start of each Analyze call; read after Analyze via
+	// SpectralBlockedCount. Atomic because conn and dns analyzers run in
+	// parallel during phase 1.
+	spectralBlocked atomic.Int64
+
 	// Cancellation and pause
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -257,6 +264,13 @@ func (a *Analyzer) waitIfPaused() bool {
 	}
 }
 
+// SpectralBlockedCount returns the number of pairs where the plausibility
+// gate rejected the only strong periodogram peak in the most recent Analyze
+// call (fully-blocked rescues). Valid to read after Analyze returns.
+func (a *Analyzer) SpectralBlockedCount() int {
+	return int(a.spectralBlocked.Load())
+}
+
 // Analyze runs all detection steps and returns findings.
 // It can be stopped via Cancel() or paused/resumed via Pause()/Resume().
 //
@@ -269,6 +283,7 @@ func (a *Analyzer) waitIfPaused() bool {
 //	Phase 3.5: cross-detector correlation (sees all per-record findings)
 //	Phase 4:   host risk scoring (needs all findings)
 func (a *Analyzer) Analyze(files []string) []model.Finding {
+	a.spectralBlocked.Store(0)
 	collect := func() []model.Finding {
 		a.mu.RLock()
 		out := make([]model.Finding, len(a.findings))

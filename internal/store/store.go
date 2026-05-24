@@ -1734,3 +1734,24 @@ func (s *Store) CountNewFindings() int {
 	s.db.QueryRow(`SELECT COUNT(*) FROM findings WHERE is_new=1`).Scan(&n)
 	return n
 }
+
+// RecordSpectralBlocked persists the total count of fully-blocked spectral
+// rescues from the completed analysis run. A "fully-blocked" rescue is a
+// pair where the plausibility gate rejected the only strong periodogram
+// peak — the pair still emits a beacon finding at reduced score, but the
+// spectral evidence was suppressed. Stored in analysis_stats so the corpus
+// spot-check script can flag cumulative under-detection without relying on
+// log lines.
+func (s *Store) RecordSpectralBlocked(count int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return
+	}
+	if _, err := s.db.Exec(
+		`INSERT INTO analysis_stats (run_at, spectral_blocked) VALUES (?, ?)`,
+		time.Now().Unix(), count,
+	); err != nil {
+		slog.Error("store: record spectral blocked", "err", err)
+	}
+}
