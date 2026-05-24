@@ -170,7 +170,7 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 		if s.store.IsSuppressed(f.SrcIP) || s.store.IsSuppressed(f.DstIP) {
 			continue
 		}
-		if s.store.IsPairAllowed(f.SrcIP, f.DstIP, f.DstPort, f.Type) {
+		if s.store.IsPairAllowed(f.SrcIP, f.DstIP, f.DstPort, f.Type, f.Sensor) {
 			continue
 		}
 		if delta && !f.IsNew {

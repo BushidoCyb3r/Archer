@@ -49,7 +49,7 @@ type Store struct {
 	findingsLoadOK bool                     // false if loadFindings encountered any scan/iteration error
 	suppressions   map[string]suppressionEntry
 	pairAllow      []model.PairAllowEntry
-	pairAllowIdx   map[string][]string // src\x00dst\x00port -> finding_types ("" = all)
+	pairAllowIdx   map[string][]pairAllowRule // src\x00dst\x00port -> rules; sensor="" and ftype="" are wildcards
 	notifications  []model.Notification
 	notifCounter   int
 	config         config.Config
@@ -88,7 +88,7 @@ type suppressionEntry struct {
 func New(cfg config.Config) *Store {
 	return &Store{
 		suppressions:   make(map[string]suppressionEntry),
-		pairAllowIdx:   make(map[string][]string),
+		pairAllowIdx:   make(map[string][]pairAllowRule),
 		feedMatchers:   make(map[int64]*match.Matcher),
 		feedMatcherGen: make(map[int64]uint64),
 		findingsIdx:    make(map[int]int),
@@ -228,11 +228,11 @@ func (s *Store) InitDB(db *sql.DB) {
 		}
 	}
 
-	if rows, err := db.Query(`SELECT id, src, dst, port, finding_type, detail, created_by, created_at FROM pair_allowlist ORDER BY id`); err == nil {
+	if rows, err := db.Query(`SELECT id, src, dst, port, finding_type, sensor, detail, created_by, created_at FROM pair_allowlist ORDER BY id`); err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var e model.PairAllowEntry
-			if rows.Scan(&e.ID, &e.Src, &e.Dst, &e.Port, &e.FindingType, &e.Detail, &e.CreatedBy, &e.CreatedAt) == nil {
+			if rows.Scan(&e.ID, &e.Src, &e.Dst, &e.Port, &e.FindingType, &e.Sensor, &e.Detail, &e.CreatedBy, &e.CreatedAt) == nil {
 				s.pairAllow = append(s.pairAllow, e)
 			}
 		}
@@ -288,7 +288,7 @@ func (s *Store) loadNotifications() {
 	}
 	rows, err := s.db.Query(`SELECT id, kind, target, detail, finding_id,
 	                                severity, type, src_ip, dst_ip, dst_port,
-	                                dismissed
+	                                sensor, dismissed
 	                         FROM notifications ORDER BY id`)
 	if err != nil {
 		slog.Warn("store: cannot load notifications", "err", err)
@@ -300,7 +300,7 @@ func (s *Store) loadNotifications() {
 		var n model.Notification
 		var dismissed int
 		if err := rows.Scan(&n.ID, &n.Kind, &n.Target, &n.Detail, &n.FindingID,
-			&n.Severity, &n.Type, &n.SrcIP, &n.DstIP, &n.DstPort, &dismissed); err != nil {
+			&n.Severity, &n.Type, &n.SrcIP, &n.DstIP, &n.DstPort, &n.Sensor, &dismissed); err != nil {
 			continue
 		}
 		n.Dismissed = dismissed != 0
@@ -324,10 +324,10 @@ func (s *Store) persistNotification(n model.Notification) {
 		return
 	}
 	_, err := s.db.Exec(`INSERT INTO notifications
-		(id, kind, target, detail, finding_id, severity, type, src_ip, dst_ip, dst_port, dismissed, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+		(id, kind, target, detail, finding_id, severity, type, src_ip, dst_ip, dst_port, sensor, dismissed, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
 		n.ID, n.Kind, n.Target, n.Detail, n.FindingID,
-		n.Severity, n.Type, n.SrcIP, n.DstIP, n.DstPort,
+		n.Severity, n.Type, n.SrcIP, n.DstIP, n.DstPort, n.Sensor,
 		time.Now().Unix(),
 	)
 	if err != nil {
@@ -872,7 +872,7 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 			// already told Archer not to surface. Same matcher used
 			// at filter time, evaluated under the existing write lock.
 			// NEW-111.
-			if s.isHiddenLocked(f.SrcIP, f.DstIP) || s.isPairAllowedLocked(f.SrcIP, f.DstIP, f.DstPort, f.Type) {
+			if s.isHiddenLocked(f.SrcIP, f.DstIP) || s.isPairAllowedLocked(f.SrcIP, f.DstIP, f.DstPort, f.Type, f.Sensor) {
 				continue
 			}
 			s.notifCounter++
@@ -885,6 +885,7 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 				SrcIP:     f.SrcIP,
 				DstIP:     f.DstIP,
 				DstPort:   f.DstPort,
+				Sensor:    f.Sensor,
 			}
 			s.notifications = append(s.notifications, n)
 			s.persistNotification(n)
@@ -1218,35 +1219,37 @@ func (s *Store) IsSuppressed(ip string) bool {
 
 // ── Pair allowlist (tuple-scoped view filter) ─────────────────────────────
 
+// pairAllowRule is one entry in the in-memory pair-allow index. The key
+// is (src,dst,port); sensor and ftype each act as wildcards when empty.
+type pairAllowRule struct{ sensor, ftype string }
+
 func pairAllowKey(src, dst, port string) string {
 	return src + "\x00" + dst + "\x00" + port
 }
 
-// rebuildPairAllowIdxLocked recomputes the (src,dst,port) → finding-type
-// index from the rule slice. Mirrors the allowlistM-rebuild-on-Set
-// pattern so the hot read path (IsPairAllowed, once per finding per
-// /api/findings request) is an O(1) map probe, not a slice scan.
-// Caller serialises access (write lock, or startup before goroutines).
+// rebuildPairAllowIdxLocked recomputes the (src,dst,port) → rule slice
+// index from the rule slice. Caller serialises access (write lock, or
+// startup before goroutines start).
 func (s *Store) rebuildPairAllowIdxLocked() {
-	idx := make(map[string][]string, len(s.pairAllow))
+	idx := make(map[string][]pairAllowRule, len(s.pairAllow))
 	for _, e := range s.pairAllow {
 		k := pairAllowKey(e.Src, e.Dst, e.Port)
-		idx[k] = append(idx[k], e.FindingType)
+		idx[k] = append(idx[k], pairAllowRule{e.Sensor, e.FindingType})
 	}
 	s.pairAllowIdx = idx
 }
 
 // isPairAllowedLocked reports whether a pair rule hides a finding with
-// this (src,dst,port,type). An empty rule FindingType matches every
-// type on the tuple; a set one matches only that type. Caller holds
-// s.mu (read or write).
-func (s *Store) isPairAllowedLocked(src, dst, port, ftype string) bool {
-	types, ok := s.pairAllowIdx[pairAllowKey(src, dst, port)]
+// this (src,dst,port,type,sensor). An empty rule FindingType matches
+// every type on the tuple; an empty rule Sensor matches every sensor.
+// Caller holds s.mu (read or write).
+func (s *Store) isPairAllowedLocked(src, dst, port, ftype, sensor string) bool {
+	rules, ok := s.pairAllowIdx[pairAllowKey(src, dst, port)]
 	if !ok {
 		return false
 	}
-	for _, t := range types {
-		if t == "" || t == ftype {
+	for _, r := range rules {
+		if (r.sensor == "" || r.sensor == sensor) && (r.ftype == "" || r.ftype == ftype) {
 			return true
 		}
 	}
@@ -1254,10 +1257,10 @@ func (s *Store) isPairAllowedLocked(src, dst, port, ftype string) bool {
 }
 
 // IsPairAllowed is the read-path entry used by findings_filter.go.
-func (s *Store) IsPairAllowed(src, dst, port, ftype string) bool {
+func (s *Store) IsPairAllowed(src, dst, port, ftype, sensor string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.isPairAllowedLocked(src, dst, port, ftype)
+	return s.isPairAllowedLocked(src, dst, port, ftype, sensor)
 }
 
 // ListPairAllowlist returns every rule, id-ordered, for the manager UI.
@@ -1280,9 +1283,9 @@ func (s *Store) AddPairAllow(e model.PairAllowEntry) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	res, err := s.db.Exec(
-		`INSERT OR IGNORE INTO pair_allowlist (src, dst, port, finding_type, detail, created_by, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		e.Src, e.Dst, e.Port, e.FindingType, e.Detail, e.CreatedBy, e.CreatedAt,
+		`INSERT OR IGNORE INTO pair_allowlist (src, dst, port, finding_type, sensor, detail, created_by, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.Src, e.Dst, e.Port, e.FindingType, e.Sensor, e.Detail, e.CreatedBy, e.CreatedAt,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("store: add pair allow: %w", err)
@@ -1291,8 +1294,8 @@ func (s *Store) AddPairAllow(e model.PairAllowEntry) (int64, error) {
 		// Duplicate — rule already present. Return the existing id.
 		var id int64
 		_ = s.db.QueryRow(
-			`SELECT id FROM pair_allowlist WHERE src=? AND dst=? AND port=? AND finding_type=?`,
-			e.Src, e.Dst, e.Port, e.FindingType,
+			`SELECT id FROM pair_allowlist WHERE src=? AND dst=? AND port=? AND finding_type=? AND sensor=?`,
+			e.Src, e.Dst, e.Port, e.FindingType, e.Sensor,
 		).Scan(&id)
 		return id, nil
 	}
@@ -1367,7 +1370,7 @@ func (s *Store) dismissHiddenFindingNotificationsLocked() {
 		if n.Kind != "" && n.Kind != "finding" {
 			continue
 		}
-		if s.isHiddenLocked(n.SrcIP, n.DstIP) || s.isPairAllowedLocked(n.SrcIP, n.DstIP, n.DstPort, n.Type) {
+		if s.isHiddenLocked(n.SrcIP, n.DstIP) || s.isPairAllowedLocked(n.SrcIP, n.DstIP, n.DstPort, n.Type, n.Sensor) {
 			n.Dismissed = true
 			dismissedIDs = append(dismissedIDs, n.ID)
 		}

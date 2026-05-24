@@ -1411,10 +1411,13 @@ func TestBeaconHistory_CapsAtRetentionWindow(t *testing.T) {
 	}
 }
 
-// TestSuggestedPairAllowlist asserts the three-gate invariant:
-// (1) only pairs with SuggestMinDays+ distinct history days qualify,
-// (2) only pairs whose current finding is acknowledged qualify, and
-// (3) pairs already covered by a pair_allowlist rule are excluded.
+// TestSuggestedPairAllowlist asserts the suggestion invariants:
+// (1) only identities with SuggestMinDays+ distinct history days qualify,
+// (2) only identities whose current finding is acknowledged qualify,
+// (3) identities already covered by a pair_allowlist rule are excluded,
+// (4) a sensor-scoped rule suppresses only its own sensor's suggestion,
+// (5) a second sensor on the same pair produces its own suggestion row,
+// (6) each returned row carries the exact (host, uri, sensor) identity.
 func TestSuggestedPairAllowlist(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "store.db")
 	db, err := sql.Open("sqlite", dbPath)
@@ -1430,67 +1433,102 @@ func TestSuggestedPairAllowlist(t *testing.T) {
 	s.InitDB(db)
 
 	now := time.Now().UTC()
-	insertHistory := func(fp, src, dst, port, ftype string, days int) {
+	insertHistory := func(fp, src, dst, port, ftype, sensor string, days int) {
 		for i := 0; i < days; i++ {
 			day := now.AddDate(0, 0, -i).Format("2006-01-02")
 			_, err := db.Exec(`INSERT OR IGNORE INTO beacon_history
-                (fingerprint, day_utc, finding_type, src_ip, dst_ip, dst_port, host, uri,
+                (fingerprint, day_utc, finding_type, src_ip, dst_ip, dst_port, host, uri, sensor,
                  max_score, max_score_at, last_score, last_score_at,
                  severity, ts_score, ds_score, hist_score, dur_score, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, '', '', 75, ?, 75, ?, 'HIGH', 1, 0, 0, 1, ?)`,
-				fp, day, ftype, src, dst, port, now.Unix(), now.Unix(), now.Unix())
+                VALUES (?, ?, ?, ?, ?, ?, '', '', ?, 75, ?, 75, ?, 'HIGH', 1, 0, 0, 1, ?)`,
+				fp, day, ftype, src, dst, port, sensor, now.Unix(), now.Unix(), now.Unix())
 			if err != nil {
 				t.Fatalf("seed beacon_history: %v", err)
 			}
 		}
 	}
-	insertFinding := func(src, dst, port, ftype, status string) {
+	insertFinding := func(src, dst, port, ftype, sensor, status string) {
 		_, err := db.Exec(`INSERT INTO findings
-            (type, src_ip, dst_ip, dst_port, score, severity, detail, timestamp,
+            (type, src_ip, dst_ip, dst_port, sensor, score, severity, detail, timestamp,
              status, analyst, notes, analyst_note, status_ts,
              ts_score, ds_score, hist_score, dur_score,
              mean_interval, median_interval, jitter, sample_size)
-            VALUES (?, ?, ?, ?, 75, 'HIGH', '', '2026-01-01 00:00:00',
+            VALUES (?, ?, ?, ?, ?, 75, 'HIGH', '', '2026-01-01 00:00:00',
                     ?, 'analyst@test', '', '', '',
                     0, 0, 0, 0, 0, 0, 0, 0)`,
-			ftype, src, dst, port, status)
+			ftype, src, dst, port, sensor, status)
 		if err != nil {
 			t.Fatalf("seed finding: %v", err)
 		}
 	}
 
-	// Pair A — 15 days, acknowledged → must appear.
-	insertHistory("fp-a", "10.0.0.1", "1.1.1.1", "443", "Beaconing", 15)
-	insertFinding("10.0.0.1", "1.1.1.1", "443", "Beaconing", "acknowledged")
+	// Pair A — 15 days, acknowledged, sensor="" → must appear (single row).
+	insertHistory("fp-a", "10.0.0.1", "1.1.1.1", "443", "Beaconing", "", 15)
+	insertFinding("10.0.0.1", "1.1.1.1", "443", "Beaconing", "", "acknowledged")
 
 	// Pair B — only 7 days → must NOT appear (below SuggestMinDays).
-	insertHistory("fp-b", "10.0.0.2", "2.2.2.2", "80", "Beaconing", 7)
-	insertFinding("10.0.0.2", "2.2.2.2", "80", "Beaconing", "acknowledged")
+	insertHistory("fp-b", "10.0.0.2", "2.2.2.2", "80", "Beaconing", "", 7)
+	insertFinding("10.0.0.2", "2.2.2.2", "80", "Beaconing", "", "acknowledged")
 
 	// Pair C — 15 days, open status → must NOT appear (not acknowledged).
-	insertHistory("fp-c", "10.0.0.3", "3.3.3.3", "443", "Beaconing", 15)
-	insertFinding("10.0.0.3", "3.3.3.3", "443", "Beaconing", "")
+	insertHistory("fp-c", "10.0.0.3", "3.3.3.3", "443", "Beaconing", "", 15)
+	insertFinding("10.0.0.3", "3.3.3.3", "443", "Beaconing", "", "")
 
-	// Pair D — 15 days, acknowledged, but already in pair_allowlist → must NOT appear.
-	insertHistory("fp-d", "10.0.0.4", "4.4.4.4", "443", "Beaconing", 15)
-	insertFinding("10.0.0.4", "4.4.4.4", "443", "Beaconing", "acknowledged")
+	// Pair D — 15 days, acknowledged, wildcard rule → must NOT appear.
+	insertHistory("fp-d", "10.0.0.4", "4.4.4.4", "443", "Beaconing", "", 15)
+	insertFinding("10.0.0.4", "4.4.4.4", "443", "Beaconing", "", "acknowledged")
 	if _, err := s.AddPairAllow(model.PairAllowEntry{
 		Src: "10.0.0.4", Dst: "4.4.4.4", Port: "443", FindingType: "Beaconing",
-		CreatedBy: "test", CreatedAt: now.Unix(),
+		Sensor: "", CreatedBy: "test", CreatedAt: now.Unix(),
 	}); err != nil {
 		t.Fatalf("add pair allow for D: %v", err)
 	}
 
+	// Pair E — two sensors, sensorX rule suppresses only that sensor's row;
+	// sensorY's row must still appear.
+	insertHistory("fp-e-x", "10.0.0.5", "5.5.5.5", "443", "Beaconing", "sensorX", 15)
+	insertFinding("10.0.0.5", "5.5.5.5", "443", "Beaconing", "sensorX", "acknowledged")
+	insertHistory("fp-e-y", "10.0.0.5", "5.5.5.5", "443", "Beaconing", "sensorY", 15)
+	insertFinding("10.0.0.5", "5.5.5.5", "443", "Beaconing", "sensorY", "acknowledged")
+	if _, err := s.AddPairAllow(model.PairAllowEntry{
+		Src: "10.0.0.5", Dst: "5.5.5.5", Port: "443", FindingType: "Beaconing",
+		Sensor: "sensorX", CreatedBy: "test", CreatedAt: now.Unix(),
+	}); err != nil {
+		t.Fatalf("add pair allow for E/sensorX: %v", err)
+	}
+
 	got := s.SuggestedPairAllowlist()
-	if len(got) != 1 {
-		t.Fatalf("SuggestedPairAllowlist returned %d entries, want 1", len(got))
+
+	// Expect Pair A (sensor="") and Pair E/sensorY — two rows total.
+	if len(got) != 2 {
+		t.Fatalf("SuggestedPairAllowlist returned %d entries, want 2", len(got))
 	}
-	g := got[0]
-	if g.SrcIP != "10.0.0.1" || g.DstIP != "1.1.1.1" || g.DstPort != "443" {
-		t.Errorf("unexpected suggestion: %v", g)
+
+	byKey := map[string]model.SuggestedAllowEntry{}
+	for _, g := range got {
+		byKey[g.SrcIP+"|"+g.Sensor] = g
 	}
-	if g.DayCount < SuggestMinDays {
-		t.Errorf("day_count=%d, want >= %d", g.DayCount, SuggestMinDays)
+
+	a, ok := byKey["10.0.0.1|"]
+	if !ok {
+		t.Fatalf("Pair A (sensor='') not in suggestions: %v", got)
+	}
+	if a.DstIP != "1.1.1.1" || a.DstPort != "443" {
+		t.Errorf("Pair A unexpected fields: %+v", a)
+	}
+	if a.DayCount < SuggestMinDays {
+		t.Errorf("Pair A day_count=%d, want >= %d", a.DayCount, SuggestMinDays)
+	}
+
+	ey, ok := byKey["10.0.0.5|sensorY"]
+	if !ok {
+		t.Fatalf("Pair E/sensorY not in suggestions: %v", got)
+	}
+	if ey.Sensor != "sensorY" {
+		t.Errorf("Pair E/sensorY sensor=%q, want sensorY", ey.Sensor)
+	}
+	if _, hasX := byKey["10.0.0.5|sensorX"]; hasX {
+		t.Error("Pair E/sensorX should be suppressed by its rule but still appears")
 	}
 }
 

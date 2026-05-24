@@ -1472,6 +1472,7 @@ func (s *Server) handlePairAllowlist(w http.ResponseWriter, r *http.Request) {
 			Dst         string `json:"dst"`
 			Port        string `json:"port"`
 			FindingType string `json:"finding_type"`
+			Sensor      string `json:"sensor"`
 			Detail      string `json:"detail"`
 		}
 		if err := decodeJSONBody(w, r, &req, suppressBodyMaxBytes); err != nil {
@@ -1481,6 +1482,7 @@ func (s *Server) handlePairAllowlist(w http.ResponseWriter, r *http.Request) {
 		req.Dst = strings.TrimSpace(req.Dst)
 		req.Port = strings.TrimSpace(req.Port)
 		req.FindingType = strings.TrimSpace(req.FindingType)
+		req.Sensor = strings.TrimSpace(req.Sensor)
 		if req.Src == "" || req.Dst == "" {
 			jsonError(w, "src and dst are required", http.StatusBadRequest)
 			return
@@ -1490,6 +1492,7 @@ func (s *Server) handlePairAllowlist(w http.ResponseWriter, r *http.Request) {
 			Dst:         req.Dst,
 			Port:        req.Port,
 			FindingType: req.FindingType,
+			Sensor:      req.Sensor,
 			Detail:      req.Detail,
 			CreatedBy:   me.Email,
 			CreatedAt:   time.Now().Unix(),

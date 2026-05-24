@@ -2689,9 +2689,10 @@
   // deliberate broaden.
   function _openPairAllowAdd(f) {
     const dlg = document.getElementById('pair-allow-add-dialog');
-    document.getElementById('pa-src').value  = f.src_ip || '';
-    document.getElementById('pa-dst').value  = f.dst_ip || '';
-    document.getElementById('pa-port').value = f.dst_port || '';
+    document.getElementById('pa-src').value    = f.src_ip || '';
+    document.getElementById('pa-dst').value    = f.dst_ip || '';
+    document.getElementById('pa-port').value   = f.dst_port || '';
+    document.getElementById('pa-sensor').value = f.sensor || '';
     const scope = document.getElementById('pa-scope');
     const ftype = f.type || '';
     scope.options[0].value = ftype;
@@ -2722,7 +2723,7 @@
       row.innerHTML = `
         <div style="flex:1;min-width:0">
           <div style="font-family:monospace;font-size:13px">${_esc(p.src)} → ${_esc(p.dst)} : ${_esc(p.port || '·')}</div>
-          <div style="font-size:11px;color:var(--fg-dim);margin-top:2px">Scope: ${scope}</div>
+          <div style="font-size:11px;color:var(--fg-dim);margin-top:2px">Scope: ${scope}${p.sensor ? ' · Sensor: ' + _esc(p.sensor) : ''}</div>
           ${p.detail ? `<div style="font-size:11px;color:var(--fg-dim);margin-top:2px">${_esc(p.detail)}</div>` : ''}
           <div style="font-size:11px;color:var(--fg-dim);margin-top:2px">Added ${_esc(p.created_by || 'unknown')}${when ? ' · ' + when : ''}</div>
         </div>
@@ -2744,6 +2745,7 @@
       const src  = document.getElementById('pa-src').value.trim();
       const dst  = document.getElementById('pa-dst').value.trim();
       const port = document.getElementById('pa-port').value.trim();
+      const sensor = document.getElementById('pa-sensor').value.trim();
       const finding_type = document.getElementById('pa-scope').value;
       const detail = document.getElementById('pa-detail').value.trim();
       const err = document.getElementById('pa-error');
@@ -2756,7 +2758,7 @@
         await api('/api/pair-allowlist', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({src, dst, port, finding_type, detail}),
+          body: JSON.stringify({src, dst, port, sensor, finding_type, detail}),
         });
         addDlg.close();
         setStatus(`Pair allowlisted ${src} → ${dst}:${port || ''}`);
@@ -2801,6 +2803,11 @@
     data.forEach(s => {
       const card = document.createElement('div');
       card.style.cssText = 'padding:10px 0;border-bottom:1px solid var(--border)';
+      const idMeta = [
+        s.sensor ? 'sensor: ' + s.sensor : '',
+        s.host   ? 'host: '   + s.host   : '',
+        s.uri    ? 'uri: '    + s.uri    : '',
+      ].filter(Boolean).join(' · ');
       card.innerHTML =
         '<div style="font-family:monospace;font-size:13px">' + _esc(s.src_ip) + ' → ' + _esc(s.dst_ip) + ' : ' + _esc(s.dst_port || '·') + '</div>' +
         '<div style="font-size:11px;color:var(--fg-dim);margin-top:2px">' +
@@ -2808,6 +2815,7 @@
           ' · peak score ' + _esc(String(s.peak_score)) +
           (s.acked_by ? ' · acked by ' + _esc(s.acked_by) : '') +
         '</div>' +
+        (idMeta ? '<div style="font-size:11px;color:var(--fg-dim);margin-top:2px">' + _esc(idMeta) + '</div>' : '') +
         '<div style="display:flex;gap:8px;margin-top:8px;align-items:center">' +
           '<input type="text" class="dlg-input sg-just" placeholder="Justification (required)" style="flex:1;font-size:12px">' +
           '<button class="dlg-btn primary sg-apply" style="padding:3px 12px;font-size:12px;flex-shrink:0">Apply</button>' +
@@ -2829,7 +2837,7 @@
           await api('/api/pair-allowlist', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({src: s.src_ip, dst: s.dst_ip, port: s.dst_port, finding_type: s.finding_type, detail}),
+            body: JSON.stringify({src: s.src_ip, dst: s.dst_ip, port: s.dst_port, finding_type: s.finding_type, sensor: s.sensor || '', detail}),
           });
           setStatus('Allowlisted ' + s.src_ip + ' → ' + s.dst_ip + ':' + (s.dst_port || ''));
           card.remove();

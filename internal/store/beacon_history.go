@@ -284,64 +284,50 @@ func (s *Store) PurgeBeaconHistory() int64 {
 // repetition is the floor where cloud sync / OS update confidence is high.
 const SuggestMinDays = 14
 
-// SuggestedPairAllowlist returns beacon pairs that satisfy both gates:
-// (1) the pair appears in beacon_history across SuggestMinDays+ distinct UTC
-// days, and (2) a current finding for that pair has status=acknowledged.
-// Pairs already covered by a pair_allowlist rule are excluded. The result is
-// ordered by day count descending so the most persistent pairs surface first.
+// SuggestedPairAllowlist returns beacon identities that satisfy both gates:
+// (1) the identity appears in beacon_history across SuggestMinDays+ distinct
+// UTC days, and (2) a current finding for that identity has status=acknowledged.
+// Identities already covered by a pair_allowlist rule are excluded.
+//
+// Each returned entry is a single exact beacon identity (type, src, dst, port,
+// host, uri, sensor) — no outer collapse. This preserves the exact evidence
+// that qualified the suggestion and prevents mixed stats across distinct beacons
+// that share an IP:port.
+//
+// The findings JOIN includes a sensor fallback so pre-migration history rows
+// (sensor='') remain matchable by any sensor's acknowledged finding.
 func (s *Store) SuggestedPairAllowlist() []model.SuggestedAllowEntry {
 	if s.db == nil {
 		return nil
 	}
-	// Two-level aggregation:
-	// Inner  — groups by exact beacon identity (type, src, dst, port, host, uri,
-	//          sensor) so distinct HTTP beacons or multi-sensor observations are
-	//          never mixed. Each inner row counts only the days that specific
-	//          beacon was seen and requires >= SuggestMinDays to qualify.
-	// Outer  — collapses qualifying inner rows back to (type, src, dst, port)
-	//          for display, since pair_allowlist rules operate at that level.
-	//          MAX(day_count) shows the most-persistent qualifying beacon on
-	//          the pair.
-	// The findings JOIN uses sensor (migration 0026) so multi-sensor history
-	// doesn't merge. The acknowledged check is on (type, src, dst, port, sensor)
-	// — HTTP Beaconing acknowledged at the pair level satisfies all host/URI
-	// variants, which is intentional since pair_allowlist can't filter by host.
 	rows, err := s.db.Query(`
         SELECT
-            finding_type, src_ip, dst_ip, dst_port,
-            MAX(day_count) AS day_count,
-            MIN(first_seen) AS first_seen,
-            MAX(last_seen)  AS last_seen,
-            MAX(peak_score) AS peak_score,
-            COALESCE(MAX(acked_by), '') AS acked_by
-        FROM (
-            SELECT
-                bh.finding_type, bh.src_ip, bh.dst_ip, bh.dst_port,
-                COUNT(DISTINCT bh.day_utc)   AS day_count,
-                MIN(bh.day_utc)              AS first_seen,
-                MAX(bh.day_utc)              AS last_seen,
-                MAX(bh.max_score)            AS peak_score,
-                COALESCE(MAX(f.analyst), '') AS acked_by
-            FROM beacon_history bh
-            INNER JOIN findings f
-                ON  f.src_ip   = bh.src_ip
-                AND f.dst_ip   = bh.dst_ip
-                AND f.dst_port = bh.dst_port
-                AND f.type     = bh.finding_type
-                AND COALESCE(f.sensor, '') = bh.sensor
-                AND f.status   = 'acknowledged'
-            WHERE NOT EXISTS (
-                SELECT 1 FROM pair_allowlist pa
-                WHERE pa.src = bh.src_ip
-                  AND pa.dst = bh.dst_ip
-                  AND pa.port = bh.dst_port
-                  AND (pa.finding_type = '' OR pa.finding_type = bh.finding_type)
-            )
-            GROUP BY bh.finding_type, bh.src_ip, bh.dst_ip, bh.dst_port,
-                     bh.host, bh.uri, bh.sensor
-            HAVING COUNT(DISTINCT bh.day_utc) >= ?
-        ) sub
-        GROUP BY finding_type, src_ip, dst_ip, dst_port
+            bh.finding_type, bh.src_ip, bh.dst_ip, bh.dst_port,
+            bh.host, bh.uri, bh.sensor,
+            COUNT(DISTINCT bh.day_utc)   AS day_count,
+            MIN(bh.day_utc)              AS first_seen,
+            MAX(bh.day_utc)              AS last_seen,
+            MAX(bh.max_score)            AS peak_score,
+            COALESCE(MAX(f.analyst), '') AS acked_by
+        FROM beacon_history bh
+        INNER JOIN findings f
+            ON  f.src_ip   = bh.src_ip
+            AND f.dst_ip   = bh.dst_ip
+            AND f.dst_port = bh.dst_port
+            AND f.type     = bh.finding_type
+            AND (bh.sensor = '' OR COALESCE(f.sensor, '') = bh.sensor)
+            AND f.status   = 'acknowledged'
+        WHERE NOT EXISTS (
+            SELECT 1 FROM pair_allowlist pa
+            WHERE pa.src  = bh.src_ip
+              AND pa.dst  = bh.dst_ip
+              AND pa.port = bh.dst_port
+              AND (pa.finding_type = '' OR pa.finding_type = bh.finding_type)
+              AND (pa.sensor       = '' OR pa.sensor       = bh.sensor)
+        )
+        GROUP BY bh.finding_type, bh.src_ip, bh.dst_ip, bh.dst_port,
+                 bh.host, bh.uri, bh.sensor
+        HAVING COUNT(DISTINCT bh.day_utc) >= ?
         ORDER BY day_count DESC, peak_score DESC
     `, SuggestMinDays)
 	if err != nil {
@@ -354,6 +340,7 @@ func (s *Store) SuggestedPairAllowlist() []model.SuggestedAllowEntry {
 		var e model.SuggestedAllowEntry
 		if err := rows.Scan(
 			&e.FindingType, &e.SrcIP, &e.DstIP, &e.DstPort,
+			&e.Host, &e.URI, &e.Sensor,
 			&e.DayCount, &e.FirstSeen, &e.LastSeen, &e.PeakScore, &e.AckedBy,
 		); err != nil {
 			slog.Error("store: suggested pair allowlist scan", "err", err)

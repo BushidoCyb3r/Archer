@@ -342,6 +342,7 @@ type Notification struct {
 	SrcIP     string `json:"src_ip"`
 	DstIP     string `json:"dst_ip"`
 	DstPort   string `json:"dst_port"`
+	Sensor    string `json:"sensor,omitempty"`
 	Dismissed bool   `json:"dismissed"`
 }
 
