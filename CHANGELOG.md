@@ -190,6 +190,21 @@ relevant, `### Detection changes` in each release entry.
   `Beaconing` or `HTTP Beaconing` only. All five gates now include
   `DNS Beaconing`. `beacon_evolution.js` already accepted it; the
   rest of the UI was left behind.
+- **Beacon Chart hides Bytes view for DNS Beaconing.** DNS TSData
+  triples carry zero in the byte columns (DNS has no payload-size
+  axis). The Bytes button is now hidden when opening a DNS Beaconing
+  chart and the view resets to Timeline if the analyst was already on
+  Bytes.
+- **DGA augmentation now scores DNS Beaconing apexes.** The Phase-2.5
+  sweep that bumps score (+15) and severity when a beacon hostname
+  looks DGA-shaped previously skipped DNS Beaconing. A DNS C2 beacon
+  to a DGA-generated apex now receives the same treatment; the
+  `Hostname: k.apex` field already carries the domain.
+- **Upgrade-compat compat paths consume matched legacy rows.** Both
+  the HTTP Beaconing host/URI compat branch and the zero-sensor branch
+  now call `delete(existing, tryFP)` after the first match. Previously
+  a second new row for the same legacy fingerprint could inherit the
+  same old ID and collide on `INSERT`.
 - **HTTP Beaconing upgrade compat covers all old fingerprint shapes.**
   The store's compat logic only tried the zero-Sensor variant. For
   HTTP Beaconing, old rows may have `Sensor` populated but lack

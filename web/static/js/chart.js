@@ -528,10 +528,16 @@ const BeaconChart = (() => {
     _finding = finding;
     _xRange = null;
     _brushing = false;
+    // DNS Beaconing emits timing-only TSData (byte columns are zero).
+    // Drop back to timeline if the analyst was on the bytes view, and
+    // hide the Bytes button so they can't navigate to a meaningless chart.
+    const hasByteData = finding.type !== 'DNS Beaconing';
+    if (!hasByteData && _viewMode === 'bytes') _viewMode = 'timeline';
     const dialog = document.getElementById('chart-dialog');
     document.getElementById('chart-title').textContent =
       `Beacon — ${finding.src_ip} → ${finding.dst_ip || '?'}${finding.dst_port ? ':' + finding.dst_port : ''}`;
     document.querySelectorAll('.chart-view-btn').forEach(b => {
+      if (b.dataset.view === 'bytes') b.style.display = hasByteData ? '' : 'none';
       b.classList.toggle('active', b.dataset.view === _viewMode);
     });
     _updateZoomUI();

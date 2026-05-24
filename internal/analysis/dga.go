@@ -388,7 +388,7 @@ func (a *Analyzer) applyDGAScoring(allowlistMatches func(string) bool) {
 	defer a.mu.Unlock()
 	for i := range a.findings {
 		f := &a.findings[i]
-		if f.Type != "Beaconing" && f.Type != "HTTP Beaconing" {
+		if f.Type != "Beaconing" && f.Type != "HTTP Beaconing" && f.Type != "DNS Beaconing" {
 			continue
 		}
 		if f.Hostname == "" {

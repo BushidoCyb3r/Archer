@@ -687,6 +687,10 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 					findings[i].Notes = old.Notes
 					findings[i].IsNew = false
 					newFPSet[tryFP] = true
+					// Consume the legacy entry so a second new row for the
+					// same src/dst/port/sensor but a different host/URI
+					// doesn't inherit the same old ID and collide on INSERT.
+					delete(existing, tryFP)
 					matched = true
 					break
 				}
@@ -712,7 +716,8 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 				findings[i].StatusTS = old.StatusTS
 				findings[i].Notes = old.Notes
 				findings[i].IsNew = false
-				newFPSet[zeroFP] = true // prevent old Sensor="" row from being re-preserved
+				newFPSet[zeroFP] = true
+				delete(existing, zeroFP) // prevent a second new row from inheriting the same old ID
 			} else {
 				nextNewID++
 				findings[i].ID = nextNewID

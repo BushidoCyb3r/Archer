@@ -441,16 +441,18 @@ regularity, or high persistence score provide additional support.
 
 A beacon to `pool.ntp.org` is operational noise; the same timing
 shape to `kx9j3qm2pflw.com` is high-confidence C2. After the
-Beaconing and HTTP Beaconing detectors emit, a post-Phase-2 sweep
-in `internal/analysis/dga.go` looks at each finding's destination
-Hostname and decides whether the registrable domain looks
-algorithmically generated.
+Beaconing, HTTP Beaconing, and DNS Beaconing detectors emit, a
+post-Phase-2 sweep in `internal/analysis/dga.go` looks at each
+finding's destination Hostname and decides whether the registrable
+domain looks algorithmically generated.
 
 **Where the Hostname comes from.** conn-level Beaconing gets it
 from `sslUIDIndex` (TLS SNI). HTTP Beaconing gets it from the
-`Host` header in `http.log`. Pure-TCP beacons to bare IPs without
-observable DNS get no DGA scoring in v1 — the future dns.log
-correlation path is deferred.
+`Host` header in `http.log`. DNS Beaconing gets it from the query
+apex (`k.apex`) — a DNS C2 beacon to a DGA-generated domain name
+is a first-class signal, so the same augmentation applies.
+Pure-TCP beacons to bare IPs without observable DNS get no DGA
+scoring — the future dns.log correlation path is deferred.
 
 **Two metrics, both must agree.** The scorer operates on the
 SLD (the second-level component of the registrable domain):
