@@ -13,7 +13,7 @@ type PairAllowEntry struct {
 	Dst         string `json:"dst"`
 	Port        string `json:"port"`
 	FindingType string `json:"finding_type"` // "" = every type on the tuple
-	Sensor      string `json:"sensor"`        // "" = every sensor on the tuple
+	Sensor      string `json:"sensor"`       // "" = every sensor on the tuple
 	Detail      string `json:"detail"`
 	CreatedBy   string `json:"created_by"`
 	CreatedAt   int64  `json:"created_at"`

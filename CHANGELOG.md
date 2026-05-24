@@ -28,6 +28,61 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.38.0] — 2026-05-24
+
+### Fixed
+
+- **Pair allowlist suggestions show exact beacon identity.** `SuggestedPairAllowlist`
+  previously collapsed qualifying per-identity inner rows back to `(type, src, dst,
+  port)` for display. The outer `GROUP BY` mixed day-counts, first/last-seen dates,
+  and peak scores from distinct beacons that share an IP:port — a 14-day CDN beacon
+  and a separate C2 beacon to the same IP could produce a 17-day card with a
+  fabricated timeline. The outer collapse is removed. Each suggestion card now
+  represents exactly one beacon identity `(type, src, dst, port, host, uri, sensor)`
+  with its own accurate stats. The `SuggestedAllowEntry` model gains `Host`, `URI`,
+  and `Sensor` fields; the suggestion API JSON includes them.
+- **Pre-migration `beacon_history` rows remain matchable after 0026.** Migration 0026
+  added `sensor TEXT NOT NULL DEFAULT ''` to `beacon_history`. The suggestion JOIN
+  used `COALESCE(f.sensor,'') = bh.sensor`, so pre-0026 rows (sensor='') matched only
+  findings with sensor='' or NULL. In a multi-sensor deployment, all acknowledged
+  findings have non-empty sensors, meaning pre-migration history never contributed to
+  suggestions until new rows accumulated. The JOIN now adds
+  `OR bh.sensor = ''` so legacy rows match any sensor's findings.
+
+### Detection changes
+
+- **Pair allowlist rules are now sensor-scoped (migrations 0027, 0028).** A rule with
+  `sensor=""` (wildcard, the default) hides the pair across all sensors — unchanged
+  behavior for existing rules. A rule with a non-empty sensor field hides only findings
+  from that specific collector. Without scoping, applying a suggestion from sensorA
+  silently suppressed the same `(src, dst, port)` observed by sensorB — a detection
+  gap where patient C2 could reuse a cleared pair on a second sensor without triggering
+  the bell or appearing in the findings table.
+
+  The "Apply" button in suggestion cards posts the qualifying sensor; the "Allow this
+  Relationship" context-menu dialog now includes a Sensor field (pre-filled from the
+  finding, clearable to make a wildcard rule). The rule manager shows the sensor scope
+  alongside finding-type scope.
+
+  The pair allowlist `NOT EXISTS` check in `SuggestedPairAllowlist` also respects
+  sensor, so a sensorA-scoped rule only suppresses sensorA's suggestion row — sensorB's
+  row remains visible.
+
+  Notifications carry `sensor` (migration 0028) so the retroactive bell-dismiss that
+  fires when a rule is added correctly respects the sensor scope of the new rule.
+
+### Breaking
+
+- **DB schema** — migration 0027 adds `sensor TEXT NOT NULL DEFAULT ''` to
+  `pair_allowlist` and rebuilds the unique index to
+  `(src, dst, port, finding_type, sensor)`. Migration 0028 adds
+  `sensor TEXT NOT NULL DEFAULT ''` to `notifications`. Both use
+  `ALTER TABLE … ADD COLUMN` applied automatically on first start; no data migration
+  is required. Existing pair rules get `sensor=''` (wildcard), preserving their
+  current hide behavior across all sensors.
+
+---
+
 ## [v0.37.0] — 2026-05-24
 
 ### Added

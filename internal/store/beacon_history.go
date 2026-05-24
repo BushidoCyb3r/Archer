@@ -295,7 +295,7 @@ const SuggestMinDays = 14
 // that share an IP:port.
 //
 // The findings JOIN includes a sensor fallback so pre-migration history rows
-// (sensor='') remain matchable by any sensor's acknowledged finding.
+// (sensor=”) remain matchable by any sensor's acknowledged finding.
 func (s *Store) SuggestedPairAllowlist() []model.SuggestedAllowEntry {
 	if s.db == nil {
 		return nil

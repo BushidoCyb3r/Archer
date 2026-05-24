@@ -322,10 +322,26 @@ CREATE TABLE pair_allowlist (
     dst          TEXT NOT NULL,
     port         TEXT NOT NULL DEFAULT '',
     finding_type TEXT NOT NULL DEFAULT '',   -- '' = every type on the tuple
+    sensor       TEXT NOT NULL DEFAULT '',   -- '' = every sensor on the tuple
     detail       TEXT NOT NULL DEFAULT '',
     created_by   TEXT NOT NULL DEFAULT '',
     created_at   INTEGER NOT NULL
-);  -- UNIQUE(src, dst, port, finding_type)
+);  -- UNIQUE(src, dst, port, finding_type, sensor) — migration 0027
+
+-- v0.38.0 / migration 0027. sensor column on pair_allowlist + unique-index
+-- rebuild to include sensor. sensor='' is a wildcard that matches all
+-- sensors (existing rules upgrade with sensor='', preserving behavior).
+-- A non-empty sensor scopes the rule to one collector so allowlisting
+-- sensorA's known-good pair doesn't suppress sensorB's view of the same
+-- tuple. The unique index is dropped and recreated because SQLite does
+-- not support ADD CONSTRAINT on existing indexes.
+
+-- v0.38.0 / migration 0028. sensor column on notifications. Carrying
+-- the finding's sensor into the notification lets the retroactive
+-- bell-dismiss (dismissHiddenFindingNotificationsLocked) respect the
+-- sensor scope of a newly added pair rule. Existing notification rows
+-- get sensor='' which matches only wildcard (sensor='') rules — correct
+-- for pre-v0.38.0 rows that were emitted without sensor context.
 
 -- v0.25.0 / migration 0018. Eight beacon-detail columns on findings
 -- (shown inline above): the four per-axis sub-scores + the
@@ -440,15 +456,19 @@ The flag `IsNew` is set for fingerprint-fresh findings — TI
 cross-annotation and notification-firing both gate on this.
 
 The notification-emit block consults the allowlist and active
-suppression set via `isHiddenLocked(srcIP, dstIP)` before adding to
+suppression set via `isHiddenLocked(srcIP, dstIP)` and
+`isPairAllowedLocked(src, dst, port, type, sensor)` before adding to
 `s.notifications`. The same exclusion check `filterFindings` applies
 at read time runs here too, so the bell never rings for a finding
 whose row would be invisible in the table. NEW-111 (v0.18.1) — the
 matching cleanup pass `dismissHiddenFindingNotificationsLocked` runs
-from `SetAllowlist` and `AddSuppression` to mark already-emitted
-finding notifications dismissed when their src or dst is now hidden.
-Sensor and feed alarms have no src/dst IPs and pass through unchanged
-(they surface on their nav buttons, not the bell).
+from `SetAllowlist`, `AddSuppression`, and `AddPairAllow` to mark
+already-emitted finding notifications dismissed when their src/dst is
+now hidden or their pair is now allowlisted. `Notification.Sensor`
+(migration 0028) carries the finding's sensor so the pair-allow
+dismiss correctly respects sensor-scoped rules. Sensor and feed alarms
+have no src/dst IPs and pass through unchanged (they surface on their
+nav buttons, not the bell).
 
 After the merge persists, `SetFindings` also writes one row per
 Beaconing / HTTP Beaconing / DNS Beaconing finding to `beacon_history`, keyed by

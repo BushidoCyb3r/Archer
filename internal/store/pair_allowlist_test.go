@@ -41,9 +41,9 @@ func TestPairAllowlist_MatchScopeAndReload(t *testing.T) {
 
 	// Match precision + type-scope safety. Wildcard sensor="" matches any sensor.
 	checks := []struct {
-		name                         string
+		name                          string
 		src, dst, port, ftype, sensor string
-		want                         bool
+		want                          bool
 	}{
 		{"exact match", "10.0.0.1", "1.1.1.1", "53", "Beaconing", "", true},
 		{"exact match with non-empty sensor", "10.0.0.1", "1.1.1.1", "53", "Beaconing", "boxA", true},
