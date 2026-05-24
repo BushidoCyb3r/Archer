@@ -3449,15 +3449,15 @@
       .map(s => s.trim())
       .filter(s => s.length > 0);
     return {
-      beacon_min_connections:   parseInt(g('cfg-beacon-thresh'))      || 10,
-      http_beacon_min_requests: parseInt(g('cfg-http-beacon-thresh')) || 8,
+      beacon_min_connections:   parseInt(g('cfg-beacon-thresh'), 10),
+      http_beacon_min_requests: parseInt(g('cfg-http-beacon-thresh'), 10),
       strobe_min_connections:   parseInt(g('cfg-strobe-thresh'))      || 1000,
       long_conn_min_hours:      parseFloat(g('cfg-longconn'))     || 1.0,
       exfil_min_bytes_mb:       parseFloat(g('cfg-exfil'))        || 5.0,
       dns_nxdomain_threshold:   parseInt(g('cfg-nxdomain'))       || 200,
       dns_tunnel_label_len:     parseInt(g('cfg-tunnelbytes'))    || 40,
       dns_unique_subdomain_min: parseInt(g('cfg-tunneldiv'))      || 50,
-      dns_beacon_min_queries:   parseInt(g('cfg-dns-beacon-thresh')) || 20,
+      dns_beacon_min_queries:   parseInt(g('cfg-dns-beacon-thresh'), 10),
       virustotal_api_key:       g('cfg-vt-key'),
       abuseipdb_api_key:        g('cfg-abuse-key'),
       otx_api_key:              g('cfg-otx-key'),

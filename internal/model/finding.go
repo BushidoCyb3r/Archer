@@ -202,6 +202,7 @@ func (f Finding) BeaconHistoryKey() string {
 		scrubSeparator(f.DstPort),
 		scrubSeparator(f.Hostname),
 		scrubSeparator(f.URI),
+		scrubSeparator(f.Sensor),
 	}, sep)
 }
 

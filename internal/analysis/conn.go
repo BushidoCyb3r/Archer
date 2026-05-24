@@ -90,7 +90,14 @@ type beaconState struct {
 	// becomes finding.Hostname for the DGA augmentation pass.
 	// Empty for non-TLS beacons; the DGA pass handles missing
 	// hostnames by skipping that finding.
-	firstUID       string
+	firstUID string
+	// sniCandidates is the ordered list of UIDs to try during
+	// enrichBeaconSNI: pre-beacon UIDs (earliest first) then the
+	// promotion UID. The first candidate whose sslUIDIndex entry
+	// has a non-empty server_name wins. Gives enrichment a fallback
+	// when the first connection had TLS but Zeek didn't capture SNI
+	// for it (server_name == "").
+	sniCandidates  []string
 	spectralTs     []float64
 	spectralTsSeen int
 }
@@ -351,6 +358,19 @@ func (a *Analyzer) analyzeConn(files []string) {
 						st.spectralTs, st.spectralTsSeen = reservoirAddF(st.spectralTs, st.spectralTsSeen, e.ts, spectralTsCap)
 					}
 				}
+				// Collect SNI candidate UIDs from pre-beacon records (in
+				// replay order, earliest first) plus the promotion uid.
+				// enrichBeaconSNI tries each until it finds a non-empty
+				// server_name, giving a fallback when the first connection
+				// had TLS but Zeek didn't capture SNI for it.
+				for _, e := range preBeaconRecs[pk] {
+					if e.uid != "" {
+						st.sniCandidates = append(st.sniCandidates, e.uid)
+					}
+				}
+				if uid != "" {
+					st.sniCandidates = append(st.sniCandidates, uid)
+				}
 				delete(preBeaconRecs, pk)
 				beacon[pk] = st
 			}
@@ -515,9 +535,9 @@ func (a *Analyzer) analyzeConn(files []string) {
 		// SNI/JA3/JA4 enrichment is deferred to enrichBeaconSNI(), which
 		// runs after wg1.Wait() when sslUIDIndex is fully populated and
 		// there is no race with analyzeSSL.
-		if st.firstUID != "" {
+		if len(st.sniCandidates) > 0 {
 			a.mu.Lock()
-			a.beaconSNINeeds[pk] = st.firstUID
+			a.beaconSNINeeds[pk] = st.sniCandidates
 			a.mu.Unlock()
 		}
 		a.add(model.Finding{

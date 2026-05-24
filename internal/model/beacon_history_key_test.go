@@ -52,7 +52,7 @@ func TestBeaconHistoryKey_NormalInputUnchanged(t *testing.T) {
 		URI:      "/heartbeat",
 	}
 	got := f.BeaconHistoryKey()
-	want := "HTTP Beaconing\x1f10.0.0.1\x1f2.2.2.2\x1f443\x1ftracker.evil.com\x1f/heartbeat"
+	want := "HTTP Beaconing\x1f10.0.0.1\x1f2.2.2.2\x1f443\x1ftracker.evil.com\x1f/heartbeat\x1f"
 	if got != want {
 		t.Errorf("normal-input BeaconHistoryKey = %q, want %q", got, want)
 	}

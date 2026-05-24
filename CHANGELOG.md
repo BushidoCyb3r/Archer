@@ -95,6 +95,32 @@ relevant, `### Detection changes` in each release entry.
   replay with only one sample. Changed to
   `if _, ok := preBeaconRecs[bk]; ok || len(preBeaconRecs) < maxPreBeaconKeys`
   so existing keys always receive their records.
+- **SNI enrichment tries all candidate UIDs.** Previously `enrichBeaconSNI`
+  used only the earliest-timestamp UID and silently skipped DGA
+  augmentation if that UID's SSL row had an empty `server_name`
+  (connection existed but Zeek didn't capture SNI for it). The beacon
+  state now collects all pre-beacon UIDs plus the promotion UID; the
+  enrichment pass tries each in order and uses the first one with a
+  non-empty `server_name`.
+- **`BeaconHistoryKey` includes Sensor.** Two sensors observing the
+  same beacon pair previously wrote to the same `beacon_history` row
+  (same `fingerprint` primary key), overwriting each other's daily
+  snapshot. Sensor is now appended to the key. Existing history rows
+  age out naturally via the 30-day retention window.
+- **`SetFindings` zero-sensor upgrade compat.** With `Sensor` now
+  included in `Fingerprint()`, existing DB findings stored with
+  `Sensor=""` (pre-upgrade DNS beacon rows) would not match new
+  findings that have a populated Sensor, causing duplicates.
+  `SetFindings` now falls back to the zero-sensor fingerprint when the
+  exact lookup fails and the new finding has a non-empty Sensor —
+  carrying analyst notes forward and marking the old row consumed so
+  it isn't re-preserved alongside the new one.
+- **Settings UI sends raw beacon threshold values.** The
+  `_collectSettings` function used `parseInt(...) || default` for the
+  three beacon minimum fields. A user entering `0` would silently post
+  the default (10 / 8 / 20) instead of letting the backend reject it.
+  Changed to `parseInt(..., 10)` so the actual parsed value is sent
+  and backend validation surfaces correctly.
 
 ### Detection changes
 

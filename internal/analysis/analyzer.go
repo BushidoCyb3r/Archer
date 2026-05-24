@@ -68,7 +68,7 @@ type Analyzer struct {
 	nextID         int
 	sensorWindows  map[string]sensorWindow
 	sslUIDIndex    map[string]sslEntry
-	beaconSNINeeds map[pairKey]string // conn beacon → firstUID; enriched after wg1
+	beaconSNINeeds map[pairKey][]string // conn beacon → candidate UIDs; enriched after wg1
 	parseErrs      []parseErr
 	tiErrs         []tiErr
 
@@ -142,7 +142,7 @@ func New(cfg config.Config, logsDir string, progressCh chan<- ProgressEvent, sta
 		statusCh:       statusCh,
 		sensorWindows:  make(map[string]sensorWindow),
 		sslUIDIndex:    make(map[string]sslEntry),
-		beaconSNINeeds: make(map[pairKey]string),
+		beaconSNINeeds: make(map[pairKey][]string),
 		ctx:            ctx,
 		cancel:         cancel,
 		resumeCh:       resumeCh,
@@ -500,14 +500,17 @@ func (a *Analyzer) enrichBeaconSNI() {
 			continue
 		}
 		pk := pairKey{f.Sensor, f.SrcIP, f.DstIP}
-		uid, ok := a.beaconSNINeeds[pk]
-		if !ok || uid == "" {
+		candidates, ok := a.beaconSNINeeds[pk]
+		if !ok {
 			continue
 		}
-		if entry, ok2 := a.sslUIDIndex[uid]; ok2 {
-			f.Hostname = entry.serverName
-			f.JA3 = entry.ja3
-			f.JA4 = entry.ja4
+		for _, uid := range candidates {
+			if entry, ok2 := a.sslUIDIndex[uid]; ok2 && entry.serverName != "" {
+				f.Hostname = entry.serverName
+				f.JA3 = entry.ja3
+				f.JA4 = entry.ja4
+				break
+			}
 		}
 	}
 	clear(a.beaconSNINeeds)

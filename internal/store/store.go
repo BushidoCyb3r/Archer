@@ -663,6 +663,28 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 			findings[i].StatusTS = old.StatusTS
 			findings[i].Notes = old.Notes
 			findings[i].IsNew = false
+		} else if fp.Sensor != "" {
+			// Upgrade-compat path: a finding that previously had Sensor=""
+			// (before sensor was included in Fingerprint) won't match the
+			// new key. Try the zero-sensor variant so analyst notes carry
+			// forward across the first analysis after upgrade and the old
+			// row isn't preserved as an orphan duplicate.
+			zeroFP := fp
+			zeroFP.Sensor = ""
+			if old, ok := existing[zeroFP]; ok {
+				findings[i].ID = old.ID
+				findings[i].Status = old.Status
+				findings[i].Analyst = old.Analyst
+				findings[i].AnalystNote = old.AnalystNote
+				findings[i].StatusTS = old.StatusTS
+				findings[i].Notes = old.Notes
+				findings[i].IsNew = false
+				newFPSet[zeroFP] = true // prevent old Sensor="" row from being re-preserved
+			} else {
+				nextNewID++
+				findings[i].ID = nextNewID
+				findings[i].IsNew = emitNotifications
+			}
 		} else {
 			// Truly new fingerprint — assign an ID guaranteed above any
 			// preserved historical ID so the saveFindings INSERT can't
