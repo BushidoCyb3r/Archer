@@ -28,6 +28,75 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.37.0] — 2026-05-24
+
+### Added
+
+- **`analysis_stats` table (migration 0025).** One row per completed
+  `Analyze()` call records the count of fully-blocked spectral rescues
+  across all three beacon analyzers (conn, HTTP, DNS). Persists across
+  restarts so the trend is visible without relying on log lines that
+  scroll away.
+- **Blocked-rescue counter.** Each beacon analyzer accumulates a count
+  of pairs where the plausibility gate rejected the only strong
+  periodogram peak. The total across all three analyzers is logged at
+  `slog.Info` at the end of each analysis run and written to
+  `analysis_stats` by the watch scheduler after a successful pass.
+- **`corpus-spotcheck.sh`.** Three-section operator validation script
+  that runs against the live database. Section 1 (pass/fail): verifies
+  no rescued finding has a spectral period below `median_interval/5`.
+  Section 2 (advisory): lists rescued findings that also carried a
+  suppressed shorter-period artifact for human eyeball. Section 3
+  (advisory): queries `analysis_stats` for the last 10 runs and flags
+  non-zero blocked-rescue counts with a per-run breakdown. Degrades
+  gracefully when the table is absent (pre-upgrade instances).
+
+### Fixed
+
+- **`_fmtDur` carry bug.** When minutes rounded to 60, the beacon
+  detail pane displayed "11h 60m" instead of "12h 00m". The carry is
+  now applied before formatting.
+
+### Detection changes
+
+- **DC-correction in the Lomb-Scargle periodogram.** The `rayleighPower`
+  function now subtracts the expected cosine and sine means for a
+  uniform timestamp distribution before computing spectral power. This
+  eliminates a finite-window leakage artifact: for timestamps spread
+  uniformly over a long observation window, the expected mean of the
+  cosine/sine sums is non-zero at non-integer window/period ratios,
+  which was producing spurious high-power peaks on genuinely random
+  pairs. The correction is mathematically zero for near-integer-cycle
+  periodic signals (sinc(kπ) = 0), so real beacons are unaffected.
+  Pairs that were previously rescued on an artifact peak lose their
+  spectral rescue credit; they still emit beacon findings via the
+  statistical timing path.
+- **Plausibility gate changed from symmetric to lower-bound-only.**
+  The previous gate blocked rescues whose period was either too short
+  or too long relative to `ivMedian`. The upper bound was removed
+  because burst-connect beacons — C2 implants that open several
+  connections in a short burst then go quiet for hours — have a
+  legitimate spectral period far above `ivMedian` and were being
+  incorrectly suppressed. The lower bound (`ivMedian/5`) is
+  retained: a peak shorter than one-fifth of the median inter-arrival
+  is burst-structure noise, not a beacon period.
+
+### Breaking
+
+- **DB schema** — migration 0025 adds the `analysis_stats` table.
+  The table is created with `CREATE TABLE IF NOT EXISTS` so existing
+  instances are upgraded automatically on first start; no data
+  migration is required.
+- **Detection semantics** — DC-correction and gate changes alter which
+  periodogram peaks cross the FAP threshold. Re-analysis against a
+  corpus will change scores on pairs that previously rescued on a
+  leakage artifact (scores drop) or on burst-connect pairs whose rescue
+  the old upper bound was blocking (scores rise). Run
+  `bash corpus-spotcheck.sh` after re-analysis to validate the
+  gate is holding on your corpus.
+
+---
+
 ## [v0.36.0] — 2026-05-22
 
 ### Added

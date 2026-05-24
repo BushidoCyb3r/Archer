@@ -31,6 +31,39 @@ Otherwise: leave the knobs alone.
 
 ---
 
+## The plausibility gate
+
+The plausibility gate is not a tunable knob — it is a fixed correctness
+guard applied after the periodogram finds its dominant peak.
+
+**Rule:** the rescued period must be ≥ `ivMedian / 5`, where `ivMedian`
+is the pair's median inter-arrival interval. Any peak shorter than that
+threshold is classified as burst-structure noise and the rescue is blocked.
+
+**Why lower-bound only.** An earlier version of the gate also had an upper
+bound, which inadvertently blocked burst-connect beacons: C2 implants that
+open several connections in a burst then go quiet for hours. Their true
+spectral period (the silence between bursts) is legitimately far above
+`ivMedian`, so an upper bound suppressed real detections. The lower bound
+is retained because a peak shorter than `ivMedian/5` has no plausible
+beacon interpretation — it is always intra-burst structure.
+
+**When a rescue is fully blocked.** If the plausibility gate rejects the
+only strong periodogram peak, the pair still emits a beacon finding via
+the statistical timing path — it just doesn't receive the spectral score
+boost. The blocked count is recorded per run in the `analysis_stats` table
+(migration 0025) and is visible in the `corpus-spotcheck.sh` Section 3
+advisory. Non-zero blocked counts are normal: daily management traffic and
+pollers with burst-connect patterns routinely land here. A sudden spike
+warrants checking whether a legitimately periodic pair is being
+systematically under-scored.
+
+**Validation.** After any analysis run, `bash corpus-spotcheck.sh` checks
+the live database and exits 0 when no rescued finding violates the gate.
+Run it after a full re-analysis whenever the spectral code changes.
+
+---
+
 ## The four knobs
 
 All four live in **Settings → Beaconing**. Each one shifts a
@@ -317,6 +350,10 @@ The rescue path has hard limits. No knob will recover these:
 - **Single-shot or short-burst activity** that doesn't span
   enough of the analysis window. The reservoir won't hold
   enough timestamps.
+- **Pairs whose only strong peak is below `ivMedian/5`.**
+  The plausibility gate blocks these as burst-structure noise.
+  They still emit beacon findings via the statistical path;
+  only the spectral score boost is suppressed.
 
 For these, lean on the other detectors (data exfiltration,
 lateral movement, TI hits, weird events) rather than trying to

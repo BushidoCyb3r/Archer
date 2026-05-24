@@ -173,6 +173,33 @@ interpretation: power > 12 corresponds to per-frequency false
 alarm ≈ exp(-12) ≈ 6e-6, and across the 2000-point log-spaced
 period grid (5s to window/2) total expected FAP ≈ 0.001 per pair.
 
+**DC-correction.** For timestamps distributed uniformly across a
+long observation window, the expected values of the cosine and sine
+sums in `rayleighPower` are non-zero at non-integer window/period
+ratios — a mathematical bias that produces spurious high-power peaks
+on genuinely random pairs. Before computing power, the analyzer
+subtracts the expected mean contribution of the window shape
+(E[cos(ωt)] = sinc(ωW/2)·cos(ω·t_center) and the equivalent sine
+term). This correction is exactly zero when the window contains a
+near-integer number of cycles (sinc(kπ) = 0), so real periodic
+signals are unaffected; only the leakage artifact is removed.
+
+**Plausibility gate.** After the periodogram identifies its
+dominant peak, that peak's period is compared to the pair's median
+inter-arrival interval (`ivMedian`). A lower-bound gate rejects any
+peak shorter than `ivMedian/5`: if the period is shorter than
+one-fifth of the typical gap between connections, it is almost
+certainly burst-structure noise — the host connects in rapid bursts,
+and the periodogram is finding the intra-burst rhythm rather than
+the beacon cadence. The gate is lower-bound only; there is no upper
+bound. Burst-connect beacons (C2 that opens several connections in a
+short burst then goes quiet for hours) have a legitimate spectral
+period far above `ivMedian`, and an upper bound would block those
+real detections. When the gate rejects the only strong peak, the
+pair still emits a beacon finding via the statistical path (without
+the spectral score boost), and the blocked count is recorded in
+`analysis_stats` for longitudinal visibility.
+
 The path is gated to keep its CPU cost off the hot path:
 1. **`SpectralEnabled` flag** (default on). Operator can disable
    if real-corpus calibration shows too many false positives or if
@@ -363,7 +390,10 @@ Catches (via the spectral rescue path): bounded-jitter beacons —
 fixed schedule with random offsets around each scheduled
 timestamp. The statistical paths score these poorly because the
 interval distribution looks spread; Lomb-Scargle finds the
-underlying period because phase doesn't accumulate. The
+underlying period because phase doesn't accumulate. Burst-connect
+beacons (multiple connections per burst, long silence between
+bursts) are also caught: the plausibility gate is lower-bound only
+so legitimate long spectral periods are not blocked. The
 `Spectral rescue: period≈Xs` tag in the Detail line marks
 findings that the frequency-domain path rescued.
 
