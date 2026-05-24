@@ -205,6 +205,33 @@ relevant, `### Detection changes` in each release entry.
   now call `delete(existing, tryFP)` after the first match. Previously
   a second new row for the same legacy fingerprint could inherit the
   same old ID and collide on `INSERT`.
+- **Suggested pair allowlist no longer mixes HTTP beacon day counts.**
+  `SuggestedPairAllowlist` grouped by `(type, src, dst, port)`, so
+  distinct HTTP beacons to different hosts/URIs on the same pair
+  shared a day count. A legitimate CDN beacon's 14 days could combine
+  with an unrelated C2 beacon's days and trigger a suggestion
+  prematurely. The query now uses a two-level aggregation: inner
+  groups by `(type, src, dst, port, host, uri, sensor)` so each
+  beacon's days are counted in isolation; the outer collapses to
+  `(type, src, dst, port)` for display.
+- **Suggested pair allowlist partitions by sensor (migration 0026).**
+  `beacon_history` had no scalar sensor column; the suggestion JOIN
+  matched acknowledged findings without discriminating by sensor.
+  A new `sensor TEXT NOT NULL DEFAULT ''` column is added via
+  migration 0026. `saveBeaconHistory` now writes `f.Sensor`. The
+  inner query joins `COALESCE(f.sensor,'') = bh.sensor` so existing
+  rows (sensor='') continue to match single-sensor or pre-upgrade
+  deployments.
+- **DGA operator allowlist now also checks the SLD.** The comment
+  said the bump was skipped if the allowlist matched the full hostname
+  OR the SLD, but the code only called `allowlistMatches(f.Hostname)`.
+  An operator who allowlisted the registrable domain (e.g.
+  `acme-corp.com`) still received DGA bumps for subdomains
+  (`api.acme-corp.com`). `allowlistMatches(res.SLD)` is now checked
+  after `dgaHostnameScore` returns.
+- **Beacon Chart stats label is type-aware.** The count stat was
+  hard-wired to "Connections" for all beacon types. It now reads
+  "Requests" for HTTP Beaconing and "Queries" for DNS Beaconing.
 - **HTTP Beaconing upgrade compat covers all old fingerprint shapes.**
   The store's compat logic only tried the zero-Sensor variant. For
   HTTP Beaconing, old rows may have `Sensor` populated but lack

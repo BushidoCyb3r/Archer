@@ -418,6 +418,9 @@ func (a *Analyzer) applyDGAScoring(allowlistMatches func(string) bool) {
 			continue
 		}
 		res := dgaHostnameScore(f.Hostname, a.cfg.DGAEntropyThreshold, a.cfg.DGABigramThreshold)
+		if allowlistMatches != nil && res.SLD != "" && allowlistMatches(res.SLD) {
+			continue
+		}
 		if !res.Suspect {
 			continue
 		}

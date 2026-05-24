@@ -127,8 +127,11 @@ const BeaconChart = (() => {
       el.innerHTML = `<span class="stat-label">No timeline data on this finding.</span>`;
       return;
     }
+    const countLabel = _finding && _finding.type === 'HTTP Beaconing' ? 'Requests'
+                     : _finding && _finding.type === 'DNS Beaconing'  ? 'Queries'
+                     : 'Connections';
     el.innerHTML =
-      `<span><span class="stat-label">Connections</span><span class="stat-value">${s.count.toLocaleString()}</span></span>` +
+      `<span><span class="stat-label">${countLabel}</span><span class="stat-value">${s.count.toLocaleString()}</span></span>` +
       `<span><span class="stat-label">Mean interval</span><span class="stat-value">${_fmtInterval(s.mean)}</span></span>` +
       `<span><span class="stat-label">Jitter (CV)</span><span class="stat-value">${s.cv.toFixed(2)}</span></span>` +
       `<span><span class="stat-label">Span</span><span class="stat-value">${_fmtSpan(s.span)}</span></span>`;

@@ -126,13 +126,13 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
 	stmt, err := tx.Prepare(`
         INSERT INTO beacon_history
             (fingerprint, day_utc, finding_type, src_ip, dst_ip, dst_port,
-             host, uri,
+             host, uri, sensor,
              max_score, max_score_at, last_score, last_score_at,
              severity, ts_score, ds_score, hist_score, dur_score,
              spectral_rescued, spectral_period,
              ts_raw, ts_mm, ts_ent,
              created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(fingerprint, day_utc) DO UPDATE SET
             last_score       = excluded.last_score,
             last_score_at    = excluded.last_score_at,
@@ -176,6 +176,7 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
 			f.DstPort,
 			f.Hostname,
 			f.URI,
+			f.Sensor,
 			f.Score, // max_score (first-write value; UPSERT decides whether to keep)
 			now,     // max_score_at
 			f.Score, // last_score (always replaced on conflict)
@@ -292,33 +293,55 @@ func (s *Store) SuggestedPairAllowlist() []model.SuggestedAllowEntry {
 	if s.db == nil {
 		return nil
 	}
+	// Two-level aggregation:
+	// Inner  — groups by exact beacon identity (type, src, dst, port, host, uri,
+	//          sensor) so distinct HTTP beacons or multi-sensor observations are
+	//          never mixed. Each inner row counts only the days that specific
+	//          beacon was seen and requires >= SuggestMinDays to qualify.
+	// Outer  — collapses qualifying inner rows back to (type, src, dst, port)
+	//          for display, since pair_allowlist rules operate at that level.
+	//          MAX(day_count) shows the most-persistent qualifying beacon on
+	//          the pair.
+	// The findings JOIN uses sensor (migration 0026) so multi-sensor history
+	// doesn't merge. The acknowledged check is on (type, src, dst, port, sensor)
+	// — HTTP Beaconing acknowledged at the pair level satisfies all host/URI
+	// variants, which is intentional since pair_allowlist can't filter by host.
 	rows, err := s.db.Query(`
         SELECT
-            bh.finding_type,
-            bh.src_ip,
-            bh.dst_ip,
-            bh.dst_port,
-            COUNT(DISTINCT bh.day_utc)  AS day_count,
-            MIN(bh.day_utc)             AS first_seen,
-            MAX(bh.day_utc)             AS last_seen,
-            MAX(bh.max_score)           AS peak_score,
-            COALESCE(MAX(f.analyst), '') AS acked_by
-        FROM beacon_history bh
-        INNER JOIN findings f
-            ON  f.src_ip   = bh.src_ip
-            AND f.dst_ip   = bh.dst_ip
-            AND f.dst_port = bh.dst_port
-            AND f.type     = bh.finding_type
-            AND f.status   = 'acknowledged'
-        WHERE NOT EXISTS (
-            SELECT 1 FROM pair_allowlist pa
-            WHERE pa.src = bh.src_ip
-              AND pa.dst = bh.dst_ip
-              AND pa.port = bh.dst_port
-              AND (pa.finding_type = '' OR pa.finding_type = bh.finding_type)
-        )
-        GROUP BY bh.finding_type, bh.src_ip, bh.dst_ip, bh.dst_port
-        HAVING COUNT(DISTINCT bh.day_utc) >= ?
+            finding_type, src_ip, dst_ip, dst_port,
+            MAX(day_count) AS day_count,
+            MIN(first_seen) AS first_seen,
+            MAX(last_seen)  AS last_seen,
+            MAX(peak_score) AS peak_score,
+            COALESCE(MAX(acked_by), '') AS acked_by
+        FROM (
+            SELECT
+                bh.finding_type, bh.src_ip, bh.dst_ip, bh.dst_port,
+                COUNT(DISTINCT bh.day_utc)   AS day_count,
+                MIN(bh.day_utc)              AS first_seen,
+                MAX(bh.day_utc)              AS last_seen,
+                MAX(bh.max_score)            AS peak_score,
+                COALESCE(MAX(f.analyst), '') AS acked_by
+            FROM beacon_history bh
+            INNER JOIN findings f
+                ON  f.src_ip   = bh.src_ip
+                AND f.dst_ip   = bh.dst_ip
+                AND f.dst_port = bh.dst_port
+                AND f.type     = bh.finding_type
+                AND COALESCE(f.sensor, '') = bh.sensor
+                AND f.status   = 'acknowledged'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM pair_allowlist pa
+                WHERE pa.src = bh.src_ip
+                  AND pa.dst = bh.dst_ip
+                  AND pa.port = bh.dst_port
+                  AND (pa.finding_type = '' OR pa.finding_type = bh.finding_type)
+            )
+            GROUP BY bh.finding_type, bh.src_ip, bh.dst_ip, bh.dst_port,
+                     bh.host, bh.uri, bh.sensor
+            HAVING COUNT(DISTINCT bh.day_utc) >= ?
+        ) sub
+        GROUP BY finding_type, src_ip, dst_ip, dst_port
         ORDER BY day_count DESC, peak_score DESC
     `, SuggestMinDays)
 	if err != nil {
