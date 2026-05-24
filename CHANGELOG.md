@@ -56,8 +56,59 @@ relevant, `### Detection changes` in each release entry.
 - **`_fmtDur` carry bug.** When minutes rounded to 60, the beacon
   detail pane displayed "11h 60m" instead of "12h 00m". The carry is
   now applied before formatting.
+- **Timestamp-zero pollution in beacon chart data.** `tsData` (the
+  beacon chart triples) and the `hourMap` / `spectralTs` reservoirs
+  were being populated even when the Zeek record had `ts = 0` (missing
+  field). A zero-ts point in `tsData` renders at Unix epoch on the
+  chart and biases duration coverage toward 1970. Both the pre-beacon
+  replay loop and the ongoing-record path in conn and HTTP now guard
+  these additions behind `if ts > 0`, matching the pattern DNS already
+  used.
+- **`minTs` zero-stranding.** The condition `if ts > 0 && ts < st.minTs`
+  fails to repair `minTs` when the beacon state was promoted on a
+  missing-timestamp record and `minTs` therefore starts at 0 — no
+  subsequent positive timestamp is ever `< 0`. Changed to
+  `if ts > 0 && (st.minTs == 0 || ts < st.minTs)` in both conn and
+  HTTP analyzers, matching DNS's existing guard shape.
+- **`firstUID` resolved from earliest pre-beacon record.** The uid used
+  for SNI/JA3/JA4 enrichment was initialized from the promotion record
+  (connection #3), not the first connection. If the first or second
+  connection carried SNI but the third did not, enrichment was silently
+  lost. `preBeaconRec` now stashes the uid, and the pre-beacon replay
+  overwrites `firstUID` when it finds an earlier timestamp in the
+  stashed records.
+- **SNI/JA3/JA4 enrichment race eliminated.** Conn beacon emission
+  previously looked up `sslUIDIndex` under `RLock` during Phase 1,
+  while `analyzeSSL` was still writing to the same map from a sibling
+  goroutine. If the lookup raced, `Hostname` stayed empty and DGA
+  augmentation (Phase 2.5) silently skipped the finding. Enrichment
+  is now deferred to `enrichBeaconSNI()`, called after `wg1.Wait()`,
+  when `sslUIDIndex` is fully populated.
+- **Conn pre-beacon stash capped at 500 000 pairs.** The pre-beacon
+  record map had no upper bound; adversarial conn logs with millions of
+  unique (src, dst) pairs that never reach the lazy threshold could
+  grow it without limit. Cap matches HTTP's existing `maxPreBeaconKeys`.
+- **HTTP pre-beacon cap under-replay fixed.** The previous admission
+  check (`len(preBeaconRecs) < maxPreBeaconKeys`) blocked appends to
+  already-admitted keys once the map was full. A pair admitted just
+  before the cap could miss its second pre-beacon record and then
+  replay with only one sample. Changed to
+  `if _, ok := preBeaconRecs[bk]; ok || len(preBeaconRecs) < maxPreBeaconKeys`
+  so existing keys always receive their records.
 
 ### Detection changes
+
+- **DNS Beaconing and DNS Subdomain DGA are now sensor-partitioned.**
+  Both detectors previously keyed on `(src, apex)`, so timing streams
+  from two Quiver sensors observing the same host were merged into a
+  single accumulator. In overlapping-sensor deployments this produces
+  false inter-arrival intervals (events from different sensors are not
+  causally related) and incorrect window-coverage scores (the duration
+  and histogram axes were scored against a merged capture window, not
+  the individual sensor's window). Both detectors now key on
+  `(sensor, src, apex)` and maintain per-sensor capture windows.
+  Findings emitted per sensor carry `Sensor` explicitly, matching the
+  behaviour of conn and HTTP beacons.
 
 - **DC-correction in the Lomb-Scargle periodogram.** The `rayleighPower`
   function now subtracts the expected cosine and sine means for a
@@ -83,6 +134,21 @@ relevant, `### Detection changes` in each release entry.
 
 ### Breaking
 
+- **Detection semantics** — `Finding.Fingerprint()` now includes
+  `Sensor` in the dedup key (`{Type, SrcIP, DstIP, DstPort, Sensor}`
+  instead of `{Type, SrcIP, DstIP, DstPort}`). On the first analysis
+  after upgrade, DNS Beaconing and DNS Subdomain DGA findings (which
+  previously emitted with `Sensor = ""`) will have new fingerprints;
+  any analyst notes (status, triage, notes) on those findings will not
+  carry forward. Conn and HTTP beacon findings are unaffected — Sensor
+  was already set explicitly on them before this change.
+- **HTTP/SSE API** — `PUT /api/config` now rejects
+  `beacon_min_connections`, `http_beacon_min_requests`, and
+  `dns_beacon_min_queries` below 4. Fewer than 4 events cannot produce
+  the 3 timing intervals all beacon detectors require; values in [1, 3]
+  silently disabled the detector without error. Existing configs with
+  these fields set below 4 will receive a 400 on the next Settings
+  save and must be raised to at least 4.
 - **DB schema** — migration 0025 adds the `analysis_stats` table.
   The table is created with `CREATE TABLE IF NOT EXISTS` so existing
   instances are upgraded automatically on first start; no data

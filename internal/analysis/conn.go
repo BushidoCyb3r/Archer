@@ -29,6 +29,10 @@ const (
 	// lived pairs (n>2000), 2000 samples still provide 10× the SNR of the
 	// old 200-sample tsData path. 2000×8 bytes = 16 KB per pair.
 	spectralTsCap = 2000
+	// maxPreBeaconKeys caps the pre-beacon stash the same way HTTP does.
+	// Crafted logs with millions of unique (src, dst) pairs that never
+	// reach beaconLazyMinConn would otherwise grow this map without bound.
+	maxConnPreBeaconKeys = 500_000
 )
 
 type pairKey struct{ sensor, src, dst string }
@@ -63,6 +67,7 @@ type preBeaconRec struct {
 	ts    float64
 	origB float64
 	respB float64
+	uid   string
 }
 
 type beaconState struct {
@@ -290,7 +295,9 @@ func (a *Analyzer) analyzeConn(files []string) {
 			pk := pairKey{sensor, src, dst}
 			pairCounts[pk]++
 			if pairCounts[pk] < beaconLazyMinConn {
-				preBeaconRecs[pk] = append(preBeaconRecs[pk], preBeaconRec{ts: ts, origB: origB, respB: respB})
+				if _, ok := preBeaconRecs[pk]; ok || len(preBeaconRecs) < maxConnPreBeaconKeys {
+					preBeaconRecs[pk] = append(preBeaconRecs[pk], preBeaconRec{ts: ts, origB: origB, respB: respB, uid: uid})
+				}
 				return true
 			}
 			st := beacon[pk]
@@ -317,6 +324,9 @@ func (a *Analyzer) analyzeConn(files []string) {
 					if e.ts > 0 {
 						if st.firstTs == 0 || e.ts < st.firstTs {
 							st.firstTs = e.ts
+							if e.uid != "" {
+								st.firstUID = e.uid
+							}
 						}
 						if st.minTs == 0 || e.ts < st.minTs {
 							st.minTs = e.ts
@@ -335,8 +345,8 @@ func (a *Analyzer) analyzeConn(files []string) {
 					if e.origB > 0 {
 						st.byteVals, st.byteSeen = reservoirAddF(st.byteVals, st.byteSeen, e.origB, beaconByteCap)
 					}
-					st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{e.ts, e.origB, e.respB}, beaconTsCap)
 					if e.ts > 0 {
+						st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{e.ts, e.origB, e.respB}, beaconTsCap)
 						st.hourMap[int(e.ts)/3600]++
 						st.spectralTs, st.spectralTsSeen = reservoirAddF(st.spectralTs, st.spectralTsSeen, e.ts, spectralTsCap)
 					}
@@ -344,7 +354,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 				delete(preBeaconRecs, pk)
 				beacon[pk] = st
 			}
-			if ts < st.minTs {
+			if ts > 0 && (st.minTs == 0 || ts < st.minTs) {
 				st.minTs = ts
 			}
 			if ts > st.maxTs {
@@ -368,8 +378,8 @@ func (a *Analyzer) analyzeConn(files []string) {
 			if origB > 0 {
 				st.byteVals, st.byteSeen = reservoirAddF(st.byteVals, st.byteSeen, origB, beaconByteCap)
 			}
-			st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{ts, origB, respB}, beaconTsCap)
 			if ts > 0 {
+				st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{ts, origB, respB}, beaconTsCap)
 				st.hourMap[int(ts)/3600]++
 				st.spectralTs, st.spectralTsSeen = reservoirAddF(st.spectralTs, st.spectralTsSeen, ts, spectralTsCap)
 			}
@@ -502,38 +512,25 @@ func (a *Analyzer) analyzeConn(files []string) {
 					spectralResult.DominantPeriod, spectralResult.DominantPeriod/ivMedian)
 			}
 		}
-		// Stash the destination SNI (if known) on the finding for the
-		// DGA augmentation pass that runs after Phase 2. RLock the
-		// shared sslUIDIndex because analyzeSSL may still be writing
-		// to it from a sibling Phase 1 goroutine — race-tolerant: if
-		// the UID hasn't been indexed yet the lookup fails and
-		// Hostname stays empty, which the DGA pass treats as "no
-		// hostname signal, skip this finding." In practice
-		// analyzeSSL finishes well before analyzeConn (ssl.log is
-		// much smaller than conn.log), so the race window is narrow.
-		var hostname, ja3, ja4 string
+		// SNI/JA3/JA4 enrichment is deferred to enrichBeaconSNI(), which
+		// runs after wg1.Wait() when sslUIDIndex is fully populated and
+		// there is no race with analyzeSSL.
 		if st.firstUID != "" {
-			a.mu.RLock()
-			if entry, ok := a.sslUIDIndex[st.firstUID]; ok {
-				hostname = entry.serverName
-				ja3 = entry.ja3
-				ja4 = entry.ja4
-			}
-			a.mu.RUnlock()
+			a.mu.Lock()
+			a.beaconSNINeeds[pk] = st.firstUID
+			a.mu.Unlock()
 		}
 		a.add(model.Finding{
 			Type:            "Beaconing",
 			Severity:        sev,
 			Score:           score,
+			Sensor:          pk.sensor,
 			SrcIP:           pk.src,
 			DstIP:           pk.dst,
 			DstPort:         fmt.Sprint(st.firstPort),
 			Detail:          detail,
 			Timestamp:       fmtTS(st.firstTs),
 			TSData:          tsData,
-			Hostname:        hostname,
-			JA3:             ja3,
-			JA4:             ja4,
 			TSScore:         tsScore,
 			DSScore:         dsScore,
 			HistScore:       hScore,

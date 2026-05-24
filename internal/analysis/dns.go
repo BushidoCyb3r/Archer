@@ -55,7 +55,7 @@ func apexFromQuery(query string) string {
 }
 
 func (a *Analyzer) analyzeDNS(files []string) {
-	type apexKey struct{ src, apex string }
+	type apexKey struct{ sensor, src, apex string }
 	type apexData struct {
 		subs    map[string]bool
 		firstTS float64
@@ -85,12 +85,10 @@ func (a *Analyzer) analyzeDNS(files []string) {
 
 	apexMap := make(map[apexKey]*apexData)
 	beaconApex := make(map[apexKey]*dnsBeaconState)
-	// Global DNS capture window — the hist/dur axes score how much of
-	// the whole capture a beacon spanned, mirroring conn.go's per-sensor
-	// window. dns.go's detector family is not sensor-partitioned (the
-	// existing apexKey carries no sensor), so a single window is the
-	// consistent choice here.
-	var dnsWinMin, dnsWinMax float64
+	// Per-sensor capture windows — mirrors conn.go's localWindows so the
+	// hist/dur axes score how much of that sensor's capture a beacon
+	// spanned, not the merged window across all sensors.
+	dnsWins := map[string]sensorWindow{}
 	nxCounts := make(map[string]int) // src → nxdomain count
 	nxFirst := make(map[string]float64)
 	seenTunnel := make(map[[2]string]bool)
@@ -98,6 +96,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 
 	dnsFiles := filterFiles(files, "dns")
 	for _, f := range dnsFiles {
+		sensor := a.sensorOf(f)
 		a.parseLog(f, func(rec map[string]any) bool {
 			src := parser.GetStr(rec, "id.orig_h")
 			query := strings.TrimRight(strings.ToLower(parser.GetStr(rec, "query")), ".")
@@ -140,12 +139,14 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			// (missing field) contributes to the count but not the
 			// timing reservoir, matching conn.go's iv>0 guard.
 			if ts > 0 {
-				if dnsWinMin == 0 || ts < dnsWinMin {
-					dnsWinMin = ts
+				w := dnsWins[sensor]
+				if w.min == 0 || ts < w.min {
+					w.min = ts
 				}
-				if ts > dnsWinMax {
-					dnsWinMax = ts
+				if ts > w.max {
+					w.max = ts
 				}
+				dnsWins[sensor] = w
 			}
 			// NXDOMAIN-dominated streams are the DNS NXDOMAIN Flood
 			// detector's responsibility — a beacon to a sinkholed/dead
@@ -155,7 +156,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			// of real lookups and prevents a second HIGH finding on the
 			// exact same evidence the flood detector already flags.
 			if rcode != "NXDOMAIN" {
-				bk := apexKey{src, apex}
+				bk := apexKey{sensor, src, apex}
 				bs := beaconApex[bk]
 				if bs == nil {
 					bs = &dnsBeaconState{hourMap: make(map[int]int), firstTS: ts, minTS: ts, maxTS: ts}
@@ -207,7 +208,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			// Subdomain diversity tracking
 			if len(labels) >= 3 {
 				sub := strings.Join(labels[:len(labels)-2], ".")
-				k := apexKey{src, apex}
+				k := apexKey{sensor, src, apex}
 				if apexMap[k] == nil {
 					apexMap[k] = &apexData{subs: make(map[string]bool), firstTS: ts}
 				}
@@ -330,6 +331,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			Type:      "DNS Subdomain DGA",
 			Severity:  sev,
 			Score:     score,
+			Sensor:    k.sensor,
 			SrcIP:     k.src,
 			DstIP:     k.apex,
 			DstPort:   "53",
@@ -426,9 +428,10 @@ func (a *Analyzer) analyzeDNS(files []string) {
 		}
 
 		// Window-coverage axes — histogram regularity + duration span
-		// over the whole DNS capture, same helpers/min-bars as conn.go.
-		hScore, _ := histScoreFromHourMap(bs.hourMap, dnsWinMin, dnsWinMax)
-		durScore := durationScoreFromHourMap(bs.hourMap, bs.minTS, bs.maxTS, dnsWinMin, dnsWinMax, 6)
+		// over this sensor's DNS capture, same helpers/min-bars as conn.go.
+		w := dnsWins[k.sensor]
+		hScore, _ := histScoreFromHourMap(bs.hourMap, w.min, w.max)
+		durScore := durationScoreFromHourMap(bs.hourMap, bs.minTS, bs.maxTS, w.min, w.max, 6)
 		coverage := (hScore + durScore) / 2.0
 
 		// Composition: timing 0.5, inverse-diversity 0.25, coverage
@@ -463,6 +466,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			Type:            "DNS Beaconing",
 			Severity:        sev,
 			Score:           score,
+			Sensor:          k.sensor,
 			SrcIP:           k.src,
 			DstIP:           k.apex,
 			DstPort:         "53",

@@ -59,17 +59,18 @@ type TIError struct {
 
 // Analyzer orchestrates all Zeek log analysis steps.
 type Analyzer struct {
-	cfg           config.Config
-	logsDir       string
-	progressCh    chan<- ProgressEvent
-	statusCh      chan<- string
-	mu            sync.RWMutex
-	findings      []model.Finding
-	nextID        int
-	sensorWindows map[string]sensorWindow
-	sslUIDIndex   map[string]sslEntry
-	parseErrs     []parseErr
-	tiErrs        []tiErr
+	cfg            config.Config
+	logsDir        string
+	progressCh     chan<- ProgressEvent
+	statusCh       chan<- string
+	mu             sync.RWMutex
+	findings       []model.Finding
+	nextID         int
+	sensorWindows  map[string]sensorWindow
+	sslUIDIndex    map[string]sslEntry
+	beaconSNINeeds map[pairKey]string // conn beacon → firstUID; enriched after wg1
+	parseErrs      []parseErr
+	tiErrs         []tiErr
 
 	// Pre-fetched threat intel feeds (populated during phase 0)
 	feodoIPs     map[string]bool
@@ -135,15 +136,16 @@ func New(cfg config.Config, logsDir string, progressCh chan<- ProgressEvent, sta
 	resumeCh := make(chan struct{})
 	close(resumeCh) // start in running state
 	return &Analyzer{
-		cfg:           cfg,
-		logsDir:       logsDir,
-		progressCh:    progressCh,
-		statusCh:      statusCh,
-		sensorWindows: make(map[string]sensorWindow),
-		sslUIDIndex:   make(map[string]sslEntry),
-		ctx:           ctx,
-		cancel:        cancel,
-		resumeCh:      resumeCh,
+		cfg:            cfg,
+		logsDir:        logsDir,
+		progressCh:     progressCh,
+		statusCh:       statusCh,
+		sensorWindows:  make(map[string]sensorWindow),
+		sslUIDIndex:    make(map[string]sslEntry),
+		beaconSNINeeds: make(map[pairKey]string),
+		ctx:            ctx,
+		cancel:         cancel,
+		resumeCh:       resumeCh,
 	}
 }
 
@@ -348,10 +350,9 @@ func (a *Analyzer) Analyze(files []string) []model.Finding {
 	}
 
 	// ── Phase 2.5: DGA hostname augmentation on Beaconing findings ───────────
-	// Walks emitted Beaconing + HTTP Beaconing findings and bumps the
-	// score / severity when the destination Hostname looks DGA-shaped.
-	// Runs after Phase 2 so sslUIDIndex is stable (conn beacons get
-	// SNI populated) and the HTTP Beaconing finding set is complete.
+	// Enrich conn beacons with SNI/JA3/JA4 now that sslUIDIndex is complete,
+	// then score Beaconing + HTTP Beaconing for DGA-shaped hostnames.
+	a.enrichBeaconSNI()
 	a.sendStatus("Scoring beacon destinations for DGA shape…")
 	a.applyDGAScoring(a.allowlistMatches)
 	a.sendProgress(72, "DGA scoring")
@@ -482,6 +483,34 @@ func (a *Analyzer) add(f model.Finding) {
 	}
 	a.findings = append(a.findings, f)
 	a.mu.Unlock()
+}
+
+// enrichBeaconSNI fills Hostname/JA3/JA4 on "Beaconing" findings whose SNI
+// lookup was deferred out of Phase 1 to avoid racing analyzeSSL. Called once
+// after wg1.Wait() when sslUIDIndex is fully populated.
+func (a *Analyzer) enrichBeaconSNI() {
+	if len(a.beaconSNINeeds) == 0 {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for i := range a.findings {
+		f := &a.findings[i]
+		if f.Type != "Beaconing" {
+			continue
+		}
+		pk := pairKey{f.Sensor, f.SrcIP, f.DstIP}
+		uid, ok := a.beaconSNINeeds[pk]
+		if !ok || uid == "" {
+			continue
+		}
+		if entry, ok2 := a.sslUIDIndex[uid]; ok2 {
+			f.Hostname = entry.serverName
+			f.JA3 = entry.ja3
+			f.JA4 = entry.ja4
+		}
+	}
+	clear(a.beaconSNINeeds)
 }
 
 func (a *Analyzer) sendProgress(pct int, step string) {

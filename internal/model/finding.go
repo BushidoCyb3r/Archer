@@ -294,10 +294,11 @@ type Fingerprint struct {
 	SrcIP   string
 	DstIP   string
 	DstPort string
+	Sensor  string
 }
 
 func (f Finding) Fingerprint() Fingerprint {
-	return Fingerprint{Type: f.Type, SrcIP: f.SrcIP, DstIP: f.DstIP, DstPort: f.DstPort}
+	return Fingerprint{Type: f.Type, SrcIP: f.SrcIP, DstIP: f.DstIP, DstPort: f.DstPort, Sensor: f.Sensor}
 }
 
 // Notification is a UI alert. Kind controls where it surfaces:

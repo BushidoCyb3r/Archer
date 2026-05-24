@@ -1236,6 +1236,22 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "alerting threshold hours must be >= 0 (0 = use built-in default)", http.StatusBadRequest)
 			return
 		}
+		// Beacon detectors need at least 3 intervals to score, which requires
+		// 4 events (state is created at event 3 with only 2 intervals; event 4
+		// provides the third). Values below 4 can never produce a finding and
+		// silently behave as if the detector is disabled.
+		if cfg.BeaconMinConnections < 4 {
+			jsonError(w, "beacon_min_connections must be at least 4 (fewer connections cannot produce 3 timing intervals)", http.StatusBadRequest)
+			return
+		}
+		if cfg.HTTPBeaconMinRequests < 4 {
+			jsonError(w, "http_beacon_min_requests must be at least 4 (fewer requests cannot produce 3 timing intervals)", http.StatusBadRequest)
+			return
+		}
+		if cfg.DNSBeaconMinQueries < 4 {
+			jsonError(w, "dns_beacon_min_queries must be at least 4 (fewer queries cannot produce 3 timing intervals)", http.StatusBadRequest)
+			return
+		}
 		before := s.store.GetConfig()
 		s.store.SetConfig(cfg)
 		s.recordAudit(r, "config_change", auditEvent{

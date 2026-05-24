@@ -802,7 +802,7 @@ session — it never appears in `dns.log`). When the SNI field is present,
 the detail includes the resolver hostname (e.g. `dns.google`) so the analyst
 can confirm resolver identity without a separate lookup.
 
-### 9.6 DNS Beaconing — query-cadence on (src, apex)
+### 9.6 DNS Beaconing — query-cadence on (sensor, src, apex)
 
 The gap this closes: a regular-cadence, low-entropy, low-diversity DNS
 heartbeat to a single FQDN — the Cobalt-Strike DNS-C2 shape — slips
@@ -812,11 +812,14 @@ diversity; this has neither. Beaconing (§2) is keyed on `conn.log` IP
 pairs and never consumes DNS query timing; a DoH-free DNS beacon may
 produce no conn-level beacon at all.
 
-**Key.** `(src, apex)`, apex = eTLD+1 via the Mozilla Public Suffix
-List (same extraction the diversity path uses). Every non-NXDOMAIN
-query to the pair contributes its inter-arrival interval to an
-Algorithm-R reservoir — the exact timing machinery §2 runs for IP
-pairs, reused here.
+**Key.** `(sensor, src, apex)`, apex = eTLD+1 via the Mozilla Public
+Suffix List (same extraction the diversity path uses). The sensor
+dimension prevents timing streams from different Quiver collectors
+from merging — events seen by two sensors are not causally related,
+and combining them produces false inter-arrival intervals. Every
+non-NXDOMAIN query to the triple contributes its inter-arrival interval
+to an Algorithm-R reservoir — the exact timing machinery §2 runs for
+IP pairs, reused here.
 
 **Score composition** (each axis in [0,1]):
 
@@ -828,8 +831,9 @@ pairs, reused here.
   A fixed-FQDN heartbeat has ≈1 unique label (≈1.0); the score decays
   as diversity climbs.
 - **window-coverage (weight 0.25)** — the average of the §2.2(c)
-  histogram-regularity and §2.2(d) duration helpers, scored against the
-  whole DNS capture window.
+  histogram-regularity and §2.2(d) duration helpers, scored against
+  the per-sensor DNS capture window (the min/max timestamps seen by
+  that sensor's dns.log files).
 
 `score = clamp(100·(ts·0.5 + div·0.25 + cov·0.25), 1, 100)`; Critical
 ≥ 80, else High. DNS Beaconing carries the same structured triage
@@ -1327,21 +1331,25 @@ correlate because we only see today's findings" gap.
 pairs on `(Sensor, SrcIP, DstIP)` so multi-sensor overlapping captures
 don't conflate findings emitted by different Quiver collectors
 observing the same flow. The Fingerprint used by `SetFindings` for
-merge/dedup is `(Type, SrcIP, DstIP, DstPort)` and intentionally
-excludes Sensor (carrying it would split otherwise-equivalent
-findings into per-sensor rows). The invariant that keeps these two
-keys consistent: every contributor's `Sensor` field must be populated
-*before* it enters `correlateFindings`. The analyzer enforces this in
-`Analyzer.add` — caller-set Sensor wins, then `sensorOf(SourceFile)`
-for per-record detectors, then the `defaultSensor` fallback set via
-`SetDefaultSensor` for aggregate findings whose SourceFile is empty.
-Pre-fix the watch loop assigned Sensor in a post-`Analyze` pass, so
-fresh aggregate contributors entered correlate with `Sensor=""` while
-historical contributors carried their persisted Sensor — two pair
-keys for the same (src, dst), two Correlated Activity emissions with
-identical Fingerprint, and no in-batch fingerprint dedup in
-`SetFindings` to collapse them. Any future refactor that relocates
-Sensor assignment must keep it ahead of the correlation phase.
+merge/dedup is `(Type, SrcIP, DstIP, DstPort, Sensor)`. Sensor is
+included because sensor-partitioned aggregate detectors (DNS Beaconing,
+DNS Subdomain DGA, and all conn/HTTP beacon types) emit one finding per
+sensor per pair; without Sensor in the key, two sensors observing the
+same (src, apex) would collapse to a single DB row, discarding one
+sensor's analyst notes on every re-analysis. The invariant that keeps
+these keys consistent: every contributor's `Sensor` field must be
+populated *before* it enters `correlateFindings`. The analyzer enforces
+this in `Analyzer.add` — caller-set Sensor wins, then
+`sensorOf(SourceFile)` for per-record detectors, then the
+`defaultSensor` fallback set via `SetDefaultSensor` for aggregate
+findings whose SourceFile is empty. Pre-fix the watch loop assigned
+Sensor in a post-`Analyze` pass, so fresh aggregate contributors
+entered correlate with `Sensor=""` while historical contributors carried
+their persisted Sensor — two pair keys for the same (src, dst), two
+Correlated Activity emissions with identical Fingerprint, and no
+in-batch fingerprint dedup in `SetFindings` to collapse them. Any
+future refactor that relocates Sensor assignment must keep it ahead of
+the correlation phase.
 
 **Stale-row handling.** `Store.SetFindings` purges historical
 `Correlated Activity` (and `Host Risk Score`) rows whose fingerprints
@@ -1606,8 +1614,9 @@ runtime. Defaults:
 
 | Setting                  | Default | Used in                              |
 |--------------------------|---------|--------------------------------------|
-| BeaconMinConnections     | 10      | TCP beacon eligibility                |
-| HTTPBeaconMinRequests    | 8       | HTTP beacon eligibility               |
+| BeaconMinConnections     | 10      | TCP beacon eligibility (min 4)        |
+| HTTPBeaconMinRequests    | 8       | HTTP beacon eligibility (min 4)       |
+| DNSBeaconMinQueries      | 20      | DNS beacon eligibility (min 4)        |
 | LongConnMinHours         | 1.0     | Long Connection trigger               |
 | StrobeMinConnections     | 1000    | Strobe trigger                        |
 | ExfilMinBytesMB          | 5.0     | Exfiltration size floor               |

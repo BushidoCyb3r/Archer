@@ -286,7 +286,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 				bk := beaconKey{sensor, src, dst, portStr, host, uri}
 				beaconCounts[bk]++
 				if beaconCounts[bk] < beaconLazyMinConn {
-					if len(preBeaconRecs) < maxPreBeaconKeys {
+					if _, ok := preBeaconRecs[bk]; ok || len(preBeaconRecs) < maxPreBeaconKeys {
 						preBeaconRecs[bk] = append(preBeaconRecs[bk], preBeaconRec{ts: ts, origB: origB, respB: respB})
 					}
 				} else {
@@ -328,8 +328,8 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 							if e.origB > 0 {
 								st.byteVals, st.byteSeen = reservoirAddF(st.byteVals, st.byteSeen, e.origB, beaconByteCap)
 							}
-							st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{e.ts, e.origB, e.respB}, beaconTsCap)
 							if e.ts > 0 {
+								st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{e.ts, e.origB, e.respB}, beaconTsCap)
 								st.hourMap[int(e.ts)/3600]++
 								st.spectralTs, st.spectralTsSeen = reservoirAddF(st.spectralTs, st.spectralTsSeen, e.ts, spectralTsCap)
 							}
@@ -337,7 +337,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 						delete(preBeaconRecs, bk)
 						beacon[bk] = st
 					}
-					if ts < st.minTs {
+					if ts > 0 && (st.minTs == 0 || ts < st.minTs) {
 						st.minTs = ts
 					}
 					if ts > st.maxTs {
@@ -364,8 +364,8 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 					// sample to bound memory at beaconTsCap regardless of
 					// how many requests this (src, dst, host, uri) pair
 					// generates.
-					st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{ts, origB, respB}, beaconTsCap)
 					if ts > 0 {
+						st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{ts, origB, respB}, beaconTsCap)
 						st.hourMap[int(ts)/3600]++
 						st.spectralTs, st.spectralTsSeen = reservoirAddF(st.spectralTs, st.spectralTsSeen, ts, spectralTsCap)
 					}
