@@ -28,6 +28,34 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Campaign pivot view.** Left-click any row in the Campaigns tab to open the
+  campaign pivot in the shared detail dock. The banner reads
+  `Campaign [SEVERITY score N] dst:port` (severity and score derived from the
+  highest-scoring finding for that destination). The contact table lists every
+  finding for that dst:port (score, type, src IP, timestamp) sorted
+  score-descending; clicking any row renders the full finding detail. Previously
+  campaigns had no left-click action — only right-click for export and graph.
+
+### Changed
+
+- **Detail dock shared across all tabs.** The detail pane previously lived
+  inside the Findings tab panel and was invisible on Campaigns and Hosts. It is
+  now a persistent bottom pane shared by all tabs, with the same drag-to-resize
+  handle and collapse chevron. Campaigns and Hosts render their pivot views into
+  this dock rather than custom inline panels.
+
+- **Archive runs on incremental watch ticks.** The archive worker previously
+  ran only after the daily full analysis pass. It now runs after every watch
+  tick — both full and incremental — when archive is enabled. Logs older than
+  the retention cutoff are moved to `/data/archive` on each tick rather than
+  waiting until the next UTC-day full pass.
+
+---
+
 ## [v0.39.0] — 2026-05-25
 
 ### Added
@@ -6767,7 +6795,7 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.35.1...HEAD
+[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.39.0...HEAD
 [v0.35.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.35.0...v0.35.1
 [v0.35.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.34.0...v0.35.0
 [v0.34.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.33.1...v0.34.0
