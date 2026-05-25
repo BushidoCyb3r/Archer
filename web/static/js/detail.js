@@ -347,8 +347,11 @@ const Detail = (() => {
       clear();
       const header = document.getElementById('detail-header');
       if (header) {
-        header.textContent = `Host Risk Score  [—]  ${ip}`;
-        header.style.color = '';
+        const top = findings.length > 0 ? findings[0] : null;
+        const sev   = top ? top.severity : '—';
+        const score = top ? (top.score | 0) : '—';
+        header.textContent = `Host Risk Score  [${sev}  score ${score}]  ${ip}`;
+        header.style.color = top ? _sevColor(top.severity) : '';
       }
     }
 
