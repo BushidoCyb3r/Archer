@@ -5,7 +5,17 @@ type Config struct {
 	BeaconMinConnections  int     `json:"beacon_min_connections"`
 	HTTPBeaconMinRequests int     `json:"http_beacon_min_requests"`
 	LongConnMinHours      float64 `json:"long_conn_min_hours"`
-	StrobeMinConnections  int     `json:"strobe_min_connections"`
+	// StrobeMinConnections is the minimum connection count before the rate gate
+	// is evaluated. Acts as a count floor so a brief high-rate burst over a tiny
+	// window doesn't mislabel a single rogue packet as a Strobe. Default 100.
+	StrobeMinConnections int `json:"strobe_min_connections"`
+	// StrobeMinRatePerSec is the average connection rate (connections/second)
+	// at or above which a pair is classified as Strobe. Both conditions must
+	// hold. This gate is the critical discriminator on long captures: a
+	// 60-second C2 beacon over 30 days accumulates ~43,200 connections at
+	// 0.017/s — well below this threshold — and must reach the beacon scorer.
+	// A port scanner or high-rate automated tool hits ≥0.5/s. Default 0.5.
+	StrobeMinRatePerSec   float64 `json:"strobe_min_rate_per_sec"`
 	ExfilMinBytesMB       float64 `json:"exfil_min_bytes_mb"`
 	ExfilRatioThreshold   float64 `json:"exfil_ratio_threshold"`
 	OffHoursStart         int     `json:"off_hours_start"`
@@ -175,7 +185,8 @@ func Default() Config {
 		BeaconMinConnections:  4,
 		HTTPBeaconMinRequests: 8,
 		LongConnMinHours:      1.0,
-		StrobeMinConnections:  1000,
+		StrobeMinConnections:  100,
+		StrobeMinRatePerSec:   0.5,
 		ExfilMinBytesMB:       5.0,
 		ExfilRatioThreshold:   10.0,
 		OffHoursStart:         22,

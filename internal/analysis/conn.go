@@ -155,6 +155,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 
 	strobeCounts := make(map[strobeKey]int)
 	strobeFirst := make(map[strobeKey]float64)
+	strobeLast := make(map[strobeKey]float64)
 	exfilOrig := make(map[exfilKey]float64)
 	exfilResp := make(map[exfilKey]float64)
 	exfilFirst := make(map[exfilKey]float64)
@@ -241,8 +242,13 @@ func (a *Analyzer) analyzeConn(files []string) {
 
 			sk := strobeKey{sensor, src, dst}
 			strobeCounts[sk]++
-			if ts > 0 && (strobeFirst[sk] == 0 || ts < strobeFirst[sk]) {
-				strobeFirst[sk] = ts
+			if ts > 0 {
+				if strobeFirst[sk] == 0 || ts < strobeFirst[sk] {
+					strobeFirst[sk] = ts
+				}
+				if ts > strobeLast[sk] {
+					strobeLast[sk] = ts
+				}
 			}
 			ek := exfilKey{sensor, src, dst}
 			exfilOrig[ek] += origB
@@ -478,11 +484,17 @@ func (a *Analyzer) analyzeConn(files []string) {
 		if len(st.ivs) < 3 {
 			continue
 		}
-		// A pair that already fired the Strobe detector has near-perfect timing
-		// regularity by definition — if not excluded it double-alerts and inflates
-		// the score. The strobe detector is the right surface for that signal.
-		if strobeCounts[strobeKey{pk.sensor, pk.src, pk.dst}] >= a.cfg.StrobeMinConnections {
-			continue
+		// Exclude pairs the Strobe detector will claim: rate ≥ StrobeMinRatePerSec
+		// over ≥ StrobeMinConnections observations. Count alone is not enough —
+		// a 60-second C2 beacon observed for 30 days accumulates ~43,200 connections
+		// at 0.017/s and must reach the beacon scorer, not be silently discarded here.
+		bsk := strobeKey{pk.sensor, pk.src, pk.dst}
+		bskCount := strobeCounts[bsk]
+		if bskCount >= a.cfg.StrobeMinConnections {
+			span := strobeLast[bsk] - strobeFirst[bsk]
+			if span <= 0 || float64(bskCount)/span >= a.cfg.StrobeMinRatePerSec {
+				continue
+			}
 		}
 
 		ivs := make([]float64, len(st.ivs))
@@ -522,7 +534,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 		// all explicitly miss — a single fixed period with enough
 		// bounded jitter to wreck statistical regularity scores but
 		// not enough to wash out a Lomb-Scargle peak. Uses the
-		// dedicated spectralTs series (capped at spectralTsCap=600)
+		// dedicated spectralTs series (capped at spectralTsCap=2000)
 		// rather than tsData so that pairs with ~200-600 events get
 		// their full timestamp series. The plausibility gate
 		// [ivMedian/5, ivMedian×5] rejects burst-clustering artifacts
@@ -655,6 +667,16 @@ func (a *Analyzer) analyzeConn(files []string) {
 		if count < a.cfg.StrobeMinConnections {
 			continue
 		}
+		span := strobeLast[sk] - strobeFirst[sk]
+		// span <= 0 means all connections share the same timestamp — treat as
+		// infinite rate and emit. span > 0 but below the rate threshold: skip.
+		if span > 0 && float64(count)/span < a.cfg.StrobeMinRatePerSec {
+			continue
+		}
+		rate := math.Inf(1)
+		if span > 0 {
+			rate = float64(count) / span
+		}
 		score := clamp(int(50+math.Log10(float64(count))*15), 1, 88)
 		a.add(model.Finding{
 			Type:      "Strobe",
@@ -662,7 +684,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 			Score:     score,
 			SrcIP:     sk.src,
 			DstIP:     sk.dst,
-			Detail:    fmt.Sprintf("Connection count: %d (threshold: %d)", count, a.cfg.StrobeMinConnections),
+			Detail:    fmt.Sprintf("Connection count: %d | Rate: %.2f/s (threshold: ≥%.2f/s)", count, rate, a.cfg.StrobeMinRatePerSec),
 			Timestamp: fmtTS(strobeFirst[sk]),
 		})
 	}

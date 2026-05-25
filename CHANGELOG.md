@@ -28,7 +28,7 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
-## [Unreleased]
+## [v0.40.0] — 2026-05-25
 
 ### Added
 
@@ -39,6 +39,11 @@ relevant, `### Detection changes` in each release entry.
   finding for that dst:port (score, type, src IP, timestamp) sorted
   score-descending; clicking any row renders the full finding detail. Previously
   campaigns had no left-click action — only right-click for export and graph.
+
+- **`strobe_min_rate_per_sec` config field.** New Settings API parameter
+  (default `0.5`). Strobe classification now requires both a connection-count
+  floor (`strobe_min_connections`) and a minimum average rate
+  (`strobe_min_rate_per_sec`). See Detection changes below.
 
 ### Changed
 
@@ -53,6 +58,40 @@ relevant, `### Detection changes` in each release entry.
   tick — both full and incremental — when archive is enabled. Logs older than
   the retention cutoff are moved to `/data/archive` on each tick rather than
   waiting until the next UTC-day full pass.
+
+- **`strobe_min_connections` default lowered from 1000 to 100.** The old
+  default was effectively acting as a rate proxy in a way that failed on long
+  captures. The count field is now a floor only; the rate field (`strobe_min_rate_per_sec`)
+  is the primary discriminator. Existing deployments with a persisted
+  `strobe_min_connections = 1000` will continue to use 1000 as their count floor
+  until the Settings page is saved, at which point the new defaults apply.
+
+### Detection changes
+
+- **Strobe detection is now rate-gated.** Previously, any pair with ≥ 1000
+  connections was excluded from beacon scoring and emitted as Strobe. On a
+  30-day capture, 1000 connections corresponds to an average interval of ~43
+  minutes — the majority of real C2 beacons (Cobalt Strike default: 60 s,
+  Empire: faster) exceeded this count and were silently reclassified as Strobe
+  with no beacon chart, no timing breakdown, and half the host-risk weight.
+  The fix introduces a rate gate: a pair is only a Strobe if its average
+  connection rate meets or exceeds `strobe_min_rate_per_sec` (default 0.5 conn/s,
+  i.e. ≤ 2-second average interval). A 60-second beacon at 0.017 conn/s is
+  unaffected; a port scanner at ≥ 1 conn/s is not. Re-analyze any corpus where
+  high-count pairs were previously appearing as Strobe — some will now appear as
+  Beaconing with full scoring.
+
+- **Strobe Detail field updated.** Format changed from
+  `Connection count: N (threshold: N)` to
+  `Connection count: N | Rate: X.XX/s (threshold: ≥Y.YY/s)`.
+  Any integration that parses the Detail field for rate information should be
+  updated.
+
+### Breaking
+
+- **Settings API: new field `strobe_min_rate_per_sec`.** `GET /api/config` now
+  returns this field; `PUT /api/config` accepts it. Existing stored configs
+  without this field receive the default (0.5) on first read via `Default()`.
 
 ---
 
@@ -6795,7 +6834,7 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
-[Unreleased]: https://github.com/BushidoCyb3r/Archer/compare/v0.39.0...HEAD
+[v0.40.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.39.0...v0.40.0
 [v0.35.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.35.0...v0.35.1
 [v0.35.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.34.0...v0.35.0
 [v0.34.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.33.1...v0.34.0

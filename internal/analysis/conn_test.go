@@ -211,6 +211,34 @@ func TestStrobeExcludesBeacon(t *testing.T) {
 	}
 }
 
+// TestSlowBeaconNotExcludedByStrobeGate is the regression anchor for the
+// strobe rate-gate fix. Under the old count-only gate (StrobeMinConnections
+// = 1000), a pair with ≥ 1000 connections was always excluded from beacon
+// scoring — regardless of interval. A 60-second C2 beacon over a multi-week
+// capture accumulates ~43,200 connections at 0.017/s: the old gate silently
+// reclassified it as Strobe. Invariant: count alone is not sufficient; rate
+// must also meet StrobeMinRatePerSec. The fixture runs at ≈ 0.06/s.
+func TestSlowBeaconNotExcludedByStrobeGate(t *testing.T) {
+	files := collectFixtureLogs(t, "testdata/zeek/slow_c2_beacon")
+	if len(files) == 0 {
+		t.Skip("no fixtures")
+	}
+	a := New(config.Default(), "", nil, nil)
+	a.feodoIPs = map[string]bool{}
+	a.urlhausIPs = map[string]bool{}
+	a.urlhausHosts = map[string]bool{}
+	findings := a.Analyze(files)
+
+	if hasFindingType(findings, "Strobe") {
+		t.Errorf("slow C2 beacon (rate ≈ 0.06/s) should NOT emit Strobe — below StrobeMinRatePerSec=%.2f",
+			config.Default().StrobeMinRatePerSec)
+	}
+	if !hasFindingType(findings, "Beaconing") {
+		t.Errorf("slow C2 beacon (1000 connections at ~16s intervals) should emit Beaconing; got: %v",
+			findingTypes(findings))
+	}
+}
+
 func hasFindingType(findings []model.Finding, t string) bool {
 	for _, f := range findings {
 		if f.Type == t {

@@ -14,7 +14,7 @@
     "score": 88,
     "src_ip": "192.168.1.20",
     "dst_ip": "203.0.113.30",
-    "detail": "Connection count: 1000 (threshold: 1000)",
+    "detail": "Connection count: 1000 | Rate: 1.83/s (threshold: ≥0.50/s)",
     "timestamp": "2024-01-15 12:00:00"
   }
 ]
