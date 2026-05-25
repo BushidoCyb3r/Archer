@@ -25,30 +25,34 @@ score per source IP.
 
 Two design choices matter for understanding what follows:
 
-- **Reservoir sampling.** Beacon analysis would otherwise need to remember every
-  inter-arrival interval per (src, dst) pair. On a 3 GB capture that is a lot
-  of memory. Archer keeps a bounded random sample of size *N* using
-  Algorithm R (Vitter, 1985). Every observed value has an equal probability
-  *N / total_seen* of being in the sample. Standard sample statistics
-  (mean, median, variance, MAD) are unbiased estimators of the population
-  values, so the regularity scores below are mathematically valid even though
-  Archer never sees the full stream at once.
+- **Reservoir sampling (interval statistics).** Beacon analysis would
+  otherwise need to remember every inter-arrival interval per (src, dst) pair.
+  On a 3 GB capture that is a lot of memory. Archer keeps a bounded random
+  sample of size *N* using Algorithm R (Vitter, 1985). Every observed value
+  has an equal probability *N / total_seen* of being in the sample. Standard
+  sample statistics (mean, median, variance, MAD) are unbiased estimators of
+  the population values, so the regularity scores below are mathematically
+  valid even though Archer never sees the full stream at once.
 
   **What this precludes.** Reservoir sampling shuffles the intervals into a
   random order to fit the cap, so by scoring time the slice has lost its
   temporal sequence. Order-independent statistics (Bowley, MAD, histogram
   counts, Shannon entropy on bucket counts) work fine on a reservoir;
   anything that needs the consecutive-interval relationship
-  (autocorrelation, time-lag clustering) does not.
-  **Frequency-domain analysis is the exception:** the spectral rescue path
-  (v0.15.0) uses Lomb-Scargle rather than a binned FFT precisely because
-  Lomb-Scargle is designed for unevenly-spaced (t_i, x_i) data with
-  arbitrary ordering — the reservoir's preserved timestamp + value pairs
-  are exactly the right input shape. See §2 for the math.
-  If a future detector needs *consecutive-interval* information, it has
-  to maintain a parallel bounded-window sample that preserves order
-  alongside the existing reservoir — they're not derivable from each
-  other.
+  (autocorrelation, time-lag clustering) does not. If a future detector
+  needs *consecutive-interval* information, it has to maintain a parallel
+  bounded-window sample that preserves order alongside the existing
+  reservoir — they're not derivable from each other.
+
+- **Ring buffer (spectral timestamps).** The spectral rescue path (§2.2(a))
+  maintains a *separate* ring buffer of the most recent N connection
+  timestamps (not intervals). A uniform random reservoir samples earlier
+  timestamps with increasing probability as the stream grows, biasing the
+  Lomb-Scargle input toward the start of the observation window and degrading
+  the periodogram SNR for long-running pairs. The ring buffer overwrites the
+  oldest entry when full, keeping the most recent N timestamps. `spectralScore`
+  sorts internally before running the periodogram; the benefit of the ring
+  over the reservoir is recency-biased selection, not physical ordering.
 - **Lazy state allocation.** Per-pair statistics are not allocated until a pair
   has been seen at least 3 times. High-cardinality, low-count pairs (one-off
   scans, NAT noise) never consume memory.
@@ -80,7 +84,7 @@ Archer tracks:
   last timestamps.
 
 A pair is only scored if it has at least `BeaconMinConnections` connections
-(default 10) and at least 3 intervals.
+(default 4) and at least 3 intervals.
 
 ### 2.2 The four sub-scores
 
@@ -90,7 +94,19 @@ Each sub-score is in `[0, 1]`. The final beacon score is
 beacon_score = 100 × (0.25·ts_score + 0.25·ds_score + 0.25·hist_score + 0.25·dur_score)
 ```
 
-clamped to `[1, 100]`. Severity is `Critical` if score ≥ 80, else `High`.
+clamped to `[1, 100]`, then adjusted by the prevalence modifier (§2.2(e)).
+Pairs scoring below 40 after the modifier are suppressed — no finding is
+emitted. Severity of emitted findings:
+
+| Score range | Severity |
+|-------------|----------|
+| 85–100      | Critical |
+| 70–84       | High     |
+| 50–69       | Medium   |
+| 40–49       | Low      |
+
+Pairs already flagged as Strobe are excluded from beacon emit entirely —
+a strobe is a degenerate beacon, and emitting both would be a double-count.
 
 #### (a) ts_score — timing regularity
 
@@ -153,6 +169,16 @@ A perfectly concentrated distribution scores 1.0; a maximally scattered
 distribution scores ≈0. Orthogonal to Bowley + MAD: it cares about *which
 buckets* are populated, not the spread *within* a bucket.
 
+**Entropy width gate.** The log₂ binning produces buckets of increasing width:
+bucket 0 covers [1, 2s), bucket 5 covers [32, 64s), bucket 9 covers
+[512, 1024s). For wide buckets, high entropy is not meaningful — "all
+intervals are somewhere between 512s and 1024s" occupies one bucket and
+scores near 1.0 despite carrying no structure. When the dominant bucket index
+is ≥ 8 (bin width ≥ 256 s), the entropy score is penalised by `128 /
+bucketLow`, where `bucketLow` is the lower bound of the dominant bucket in
+seconds: bucket 8 (256s lower bound) → × 0.5; bucket 9 (512s) → × 0.25.
+Tightly clustered intervals in buckets 0–7 (widths 1–128 s) are unaffected.
+
 **Spectral rescue.** The three statistical paths above all derive
 from the inter-arrival *interval distribution*. A beacon whose
 intervals are spread enough to confuse every distribution-based
@@ -164,9 +190,9 @@ schedule with bounded random jitter around it. The intervals look
 noisy; the spectrum has a sharp peak.
 
 The spectral path runs a Lomb-Scargle periodogram over the pair's
-reservoir-sampled connection timestamps. Lomb-Scargle (rather than
-a binned FFT) handles unevenly-spaced data natively, sidestepping
-bin-choice tuning. The Rayleigh power form gives the standard
+most-recent-N connection timestamps, held in a ring buffer (see §1).
+Lomb-Scargle (rather than a binned FFT) handles unevenly-spaced data
+natively, sidestepping bin-choice tuning. The Rayleigh power form gives the standard
 null-hypothesis distribution (exponential with mean 1.0 under
 Poisson arrivals), so the false-alarm threshold has a clean
 interpretation: power > 12 corresponds to per-frequency false
@@ -261,8 +287,8 @@ of log₂ buckets despite high variance). These values are also
 stored in `beacon_history` (migration 0024) so longitudinal
 layer analysis is possible across the 30-day retention window.
 
-**CPU cost.** ~4 ms per pair on a 200-timestamp reservoir against
-the 2000-point grid. Combined with the rescue-only gate, a hunt-
+**CPU cost.** ~4 ms per pair on a 200-timestamp ring against the
+2000-point grid. Combined with the rescue-only gate, a hunt-
 session run with 1000 pairs sees at most a few seconds of
 spectral overhead total. Real cost scales linearly with the
 number of pairs the rescue gate opens for, which is bounded by
@@ -335,6 +361,30 @@ buckets ≈ half the capture window of continuous activity.
 `dur_score = max(coverage, consistency)`. Below 6 populated buckets total
 (`minBars = 6`) the score is forced to 0 — there isn't enough activity to
 meaningfully claim "persistence."
+
+#### (e) Prevalence modifier
+
+After the four sub-scores are combined into a raw beacon score, a
+per-destination prevalence adjustment is applied based on how many distinct
+internal hosts the analyzer observed contacting that destination within the
+same sensor's conn logs:
+
+| Condition | Adjustment |
+|-----------|-----------|
+| Destination contacted by ≥ 50% of all observed internal sources | × 0.85 |
+| Destination contacted by ≤ 2% of sources, with ≥ 50 total sources observed | × 1.15 |
+| All other cases | × 1.00 |
+
+The damper (× 0.85) catches common infrastructure — NTP servers, CDN IPs,
+OS update endpoints — that every host on the network contacts regularly and
+that would otherwise generate noisy medium-confidence beacons. The boost
+(× 1.15) highlights rare destinations on large enough networks that rarity is
+meaningful; the ≥ 50-source guard prevents the bonus from firing on small
+sensor deployments where every external IP looks rare by definition.
+
+The modifier uses prevalence data built from `conn.log` Phase 1 observations.
+HTTP Beaconing reads the same map. For HTTP-only analysis runs (no conn.log),
+no prevalence adjustment is applied.
 
 ### 2.3 Detail line interpretation
 
@@ -651,6 +701,13 @@ score = clamp( 50 + 15·log10(count), 1, 88 )
 
 Logarithmic scaling is used so 10 000 connections vs 100 000 still produces
 distinguishable scores without saturating immediately.
+
+**Strobe suppresses Beaconing.** A pair that emits a Strobe finding is
+excluded from the Beaconing analyzer's output. A strobe is a degenerate
+beacon — connection counts are so high that the regularity test would
+trivially score well, but the finding type is already the more specific and
+actionable one. Emitting both would produce two findings for the same
+underlying event.
 
 ---
 
@@ -1438,11 +1495,18 @@ DNS-domain hit AND a file-hash hit gets +70. The legacy `Threat Intel
 Hit` type from pre-v0.7.0 findings also weights 35 for backward
 compatibility.)
 
-For each host, the composite is
+For each host, the composite scales each type's weight by the highest-scoring
+finding of that type observed on the host:
 
 ```
-composite = min( 99, Σ weight(t) for t in distinct_detection_types )
+contribution(t) = round( weight(t) × (0.5 + 0.5 × maxScore(t) / 100) )
+composite       = min( 99, Σ contribution(t) for t in distinct_detection_types )
 ```
+
+At the maximum finding score (100) a type contributes its full weight. At
+score 1 it contributes half the weight. At score 60 it contributes 80%. This
+prevents a marginal low-confidence beacon (score 42) from contributing as
+much as a textbook high-confidence one (score 98) to a host's risk posture.
 
 Severity buckets:
 
@@ -1497,7 +1561,7 @@ beacon_score = 100 × (0.25·1.00 + 0.25·0.97 + 0.25·0.92 + 0.25·1.00)
              = 97
 ```
 
-Severity Critical (≥ 80). The detail line will read approximately:
+Severity Critical (≥ 85). The detail line will read approximately:
 
 ```
 Connections: 1287 | Mean interval: 60.3s | CV: 0.01 |
@@ -1505,9 +1569,10 @@ Score components: ts=1.00 ds=0.97 hist=0.92 dur=1.00
 ```
 
 That same host might also pick up a `C2 Port` finding (port 443 is not on
-that list, so probably not), and would feed a Host Risk Score of at least 30
-(Beaconing weight). Add a `Malicious JA3` hit on top and the composite jumps
-to 70 — High severity.
+that list, so probably not), and would feed a Host Risk Score contribution of
+approximately 30 from Beaconing (weight 30 × (0.5 + 0.5×0.97) ≈ 30). Add a
+`Malicious JA3` hit with score 100 and the composite jumps to 30 + 40 = 70
+— High severity.
 
 ---
 
@@ -1532,18 +1597,19 @@ detectable iff:  retention_days × (1 day / P) ≥ BeaconMinConnections
                  P ≤ retention_days / BeaconMinConnections
 ```
 
-With the default `BeaconMinConnections = 10`:
+With the default `BeaconMinConnections = 4`:
 
 | Retention in /logs | Min detectable beacon period | Catches                                     |
 |--------------------|------------------------------|---------------------------------------------|
-| 5 days             | every 12h                    | Cobalt Strike, hourly C2, Empire / Sliver   |
-| 14 days            | every ~33h                   | …plus daily APT cadence                     |
-| 30 days            | every 3 days                 | …plus most slow APT beacons                 |
-| 60 days            | every 6 days                 | …plus weekly-ish cadence                    |
-| 90 days            | every 9 days                 | …reaching toward extreme patient adversaries |
+| 5 days             | every 30h                    | Cobalt Strike, hourly C2, Empire / Sliver   |
+| 14 days            | every ~3.5 days              | …plus slow daily APT cadence                |
+| 30 days            | every ~7.5 days              | …plus most slow APT beacons                 |
+| 60 days            | every 15 days                | …plus bi-weekly cadence                     |
+| 90 days            | every ~22 days               | …reaching toward extreme patient adversaries |
 
-Going slower than that requires either dropping `BeaconMinConnections`
-(false positives explode — legitimate periodic traffic starts matching) or
+The emit floor (score ≥ 40) is the primary quality gate at this threshold;
+pairs with 4 connections but weak statistical structure will score below the
+floor and be suppressed. Going slower than one connection per week requires
 persistent per-triple state across runs (architecture change, not currently
 implemented).
 
@@ -1618,7 +1684,7 @@ runtime. Defaults:
 
 | Setting                  | Default | Used in                              |
 |--------------------------|---------|--------------------------------------|
-| BeaconMinConnections     | 10      | TCP beacon eligibility (min 4)        |
+| BeaconMinConnections     | 4       | TCP beacon eligibility (min 4)        |
 | HTTPBeaconMinRequests    | 8       | HTTP beacon eligibility (min 4)       |
 | DNSBeaconMinQueries      | 20      | DNS beacon eligibility (min 4)        |
 | LongConnMinHours         | 1.0     | Long Connection trigger               |

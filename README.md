@@ -938,7 +938,7 @@ The first four tabs (Findings / Acknowledged / Escalated / IOC Hits) all view th
 | **Escalated** | Network-event findings sent to threat intelligence or escalated for response |
 | **IOC Hits** | Network-event findings where src or dst IP matches the IOC list, plus all `TI Hit (IP)` / `TI Hit (Domain)` / `TI Hit (Hash)` / `Suspicious URL` findings |
 | **Campaigns** | Destinations contacted by two or more distinct internal source IPs — potential shared C2 infrastructure |
-| **Hosts** | Per-host composite risk scores aggregated across all finding types, plus a sortable **Beacons** column — the count of `Beaconing` / `HTTP Beaconing` findings for that host, so a staging host accounting for many of the active beacons stands out instead of being buried in a flat list. Click any row to open the underlying `Host Risk Score` finding's detail panel (composite score, contributing detection types, weighting breakdown). Right-click for the standard pivots. |
+| **Hosts** | Per-host composite risk scores aggregated across all finding types, plus a sortable **Beacons** column — the count of `Beaconing` / `HTTP Beaconing` findings for that host, so a staging host accounting for many of the active beacons stands out instead of being buried in a flat list. Click any row to open the **host-pivot view**: the Host Risk Score summary at the top, followed by a **Contact set** table listing every network finding for that host (score, type, destination, timestamp) sorted by score — click any contact row to drill into that finding's full detail. Right-click for the standard pivots. |
 
 ### Findings Table
 

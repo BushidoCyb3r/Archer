@@ -4500,16 +4500,20 @@
       }
     );
 
-    // Hosts-row click lifts the per-host roll-up's Host Risk Score finding
-    // out of _allFindings (it's filtered out of the Findings tab) and
-    // renders its detail breakdown. Without this hook the Hosts tab would
-    // stop at "host has score 99" with no way to see why.
+    // Hosts-row click opens the host-pivot view: HRS roll-up at top,
+    // followed by a contact-set table of every network finding for this
+    // host sorted score-desc. Clicking a contact-set row drills into
+    // that finding's full detail.
     const onHostClick = ip => {
-      const f = _allFindings.find(x => _isHostFinding(x) && x.src_ip === ip);
-      if (f) {
+      const hrs = _allFindings.find(x => _isHostFinding(x) && x.src_ip === ip);
+      const contactFindings = _allFindings
+        .filter(x => x.src_ip === ip && x.type !== 'Host Risk Score' && x.type !== 'Correlated Activity')
+        .sort((a, b) => b.score - a.score);
+      _selectedFinding = hrs || null;
+      Detail.renderHostPivot(hrs, contactFindings, f => {
         _selectedFinding = f;
         Detail.render(f);
-      }
+      });
     };
     Campaigns.init((e, pseudo) => showMenu(e, pseudo), _isOrgIP, onHostClick);
 

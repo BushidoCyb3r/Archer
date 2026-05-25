@@ -125,7 +125,7 @@ and the per-run cost on a typical hunt session is a few seconds.
 
 ### 2. Min observations *(default: 16, hard floor: 8)*
 
-Minimum number of timestamps the reservoir must hold before the
+Minimum number of timestamps the spectral ring buffer must hold before the
 spectral path will run. Below this number Lomb-Scargle output
 becomes unreliable — too few points to resolve a periodogram peak
 above the noise floor.
@@ -133,7 +133,7 @@ above the noise floor.
 | Value | Effect |
 |---|---|
 | **8** (the hard floor) | Maximum sensitivity; fires on the smallest viable pairs. Higher FP rate. |
-| **16** (default) | Balanced. Suitable for analyze passes with reservoir caps in the typical range. |
+| **16** (default) | Balanced. Suitable for typical beacon analysis runs. |
 | **24-32** | More conservative. Skips small-sample pairs that have weak statistical confidence. |
 | **48+** | Aggressive filtering. Only fires on well-sampled long-running beacons. Misses ephemeral short-duration C2. |
 
@@ -142,8 +142,8 @@ HTTP polls that happen to look periodic over their 10-15
 observations, then go silent).
 
 **Lower it when:** you have ground truth on a short-duration
-beacon escaping detection, and the Detail-line shows the
-reservoir was below threshold.
+beacon escaping detection, and the Detail-line shows the ring
+buffer was below threshold.
 
 > **Below 8 is rejected by the analyzer regardless of config.**
 > The math isn't trustworthy and the false-positive rate climbs
@@ -279,7 +279,7 @@ calibration-relevant:
 marked with a distinct indicator on the 30-day score evolution
 chart in the finding detail pane. This makes it easy to spot
 when a beacon started relying on the spectral path — often a
-sign of increasing jitter on the implant side, or of reservoir
+sign of increasing jitter on the implant side, or of ring buffer
 underpopulation on low-frequency channels.
 
 ---
@@ -323,7 +323,7 @@ Approach:
      find a peak. The jitter is high enough that frequency-
      domain doesn't help either; nothing to tune.
    - **Power near or above FAP threshold but score still low:**
-     check min-observations. The reservoir may have been small.
+     check min-observations. The ring buffer may have been small.
 
 ### Scenario 3 — "Analyze pass is too slow"
 
@@ -337,7 +337,7 @@ Approach:
    pairs ran spectral, 12 got rescued), lower the rescue gate
    (0.5 → 0.3). Most of the work was on already-low-score
    pairs that spectral couldn't help.
-3. If lowering the gate doesn't help: the reservoir cap is
+3. If lowering the gate doesn't help: the ring buffer cap is
    the better dial — but that's an internal constant, not a
    setting.
 
@@ -372,7 +372,7 @@ The rescue path has hard limits. No knob will recover these:
   event-not-time). Spectral assumes periodicity exists to be
   found.
 - **Single-shot or short-burst activity** that doesn't span
-  enough of the analysis window. The reservoir won't hold
+  enough of the analysis window. The ring buffer won't hold
   enough timestamps.
 - **Pairs whose only strong peak is below `ivMedian/5`.**
   The plausibility gate blocks these as burst-structure noise.

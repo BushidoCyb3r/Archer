@@ -336,5 +336,54 @@ const Detail = (() => {
     if (typeof BeaconEvolution !== 'undefined') BeaconEvolution.clear();
   }
 
-  return { render, clear };
+  // renderHostPivot renders the HRS detail for a host and appends a
+  // "Contact set" table listing every network finding for that host.
+  // Each row is clickable; onSelect(finding) is called so the caller
+  // can drill into the finding's full detail.
+  function renderHostPivot(hrs, findings, onSelect) {
+    if (hrs) {
+      render(hrs);
+    } else {
+      document.getElementById('detail-header').textContent = 'Host contact set';
+      document.getElementById('detail-header').style.color = '';
+      document.getElementById('detail-text').innerHTML = '';
+      document.getElementById('analyst-rec').textContent = '';
+    }
+
+    const text = document.getElementById('detail-text');
+    const sect = document.createElement('div');
+    sect.className = 'ds-section';
+
+    const title = document.createElement('div');
+    title.className = 'ds-section-title';
+    title.textContent = `Contact set  (${findings.length})`;
+    sect.appendChild(title);
+
+    if (findings.length === 0) {
+      const row = document.createElement('div');
+      row.className = 'ds-row';
+      row.innerHTML = '<span class="ds-val" style="color:var(--fg-dim)">No network findings for this host</span>';
+      sect.appendChild(row);
+    } else {
+      const tbl = document.createElement('table');
+      tbl.className = 'hp-table';
+      findings.forEach(f => {
+        const tr    = document.createElement('tr');
+        const dst   = f.dst_port ? `${f.dst_ip || '—'}:${f.dst_port}` : (f.dst_ip || '—');
+        const ts    = (f.timestamp || '').slice(0, 16);
+        tr.innerHTML =
+          `<td style="color:${_sevColor(f.severity)};font-weight:700">${f.score | 0}</td>` +
+          `<td>${_esc(f.type)}</td>` +
+          `<td style="font-family:monospace">${_esc(dst)}</td>` +
+          `<td style="color:var(--fg-dim);font-size:11px;white-space:nowrap">${_esc(ts)}</td>`;
+        tr.addEventListener('click', () => { if (onSelect) onSelect(f); });
+        tbl.appendChild(tr);
+      });
+      sect.appendChild(tbl);
+    }
+
+    text.appendChild(sect);
+  }
+
+  return { render, clear, renderHostPivot };
 })();

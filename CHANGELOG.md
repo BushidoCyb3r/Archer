@@ -28,6 +28,130 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.39.0] — 2026-05-25
+
+### Added
+
+- **Host-pivot view.** Clicking a row in the Hosts tab now opens a two-part
+  detail panel: the Host Risk Score summary at the top (composite score,
+  contributing detection types) followed by a **Contact set** table listing
+  every network finding for that host, sorted by score descending. Each row
+  shows the finding type, destination IP:port, score, and timestamp. Clicking
+  any contact row drills into that finding's full detail — beacon triage
+  header, sub-scores, chart, notes. Previously, clicking a host row opened
+  only the HRS roll-up with no path to the individual pairs underneath it.
+  No new API endpoint; all data is drawn from the in-memory findings set.
+
+### Changed
+
+- **Beacon emit floor.** Pairs scoring below 40 no longer emit a Beaconing
+  finding. Previously every pair that cleared `BeaconMinConnections` emitted
+  regardless of score. The floor prevents marginal statistical noise from
+  producing Low-priority queue pollution that dilutes high-confidence signal.
+
+- **Four-band beacon severity.** The old binary mapping (≥ 80 → Critical,
+  everything else → High) is replaced with:
+  - 85–100 → Critical
+  - 70–84 → High
+  - 50–69 → Medium
+  - 40–49 → Low
+  (Findings scoring below 40 are suppressed by the emit floor above.)
+  The 80-point Critical cutoff under-represented the Low and Medium range
+  that most jittered or short-window beacons legitimately occupy.
+
+- **Strobe exclusion from beacon emit.** A `(src, dst)` pair already emitted
+  as a Strobe finding is not also emitted as a Beaconing finding. A strobe is
+  a degenerate beacon (rapid-fire connections that saturate the connection
+  count), and emitting both was a double-count.
+
+- **Prevalence modifier.** At beacon emit time, the score is adjusted by the
+  destination's prevalence across the sensor's observed internal hosts:
+  - If ≥ 50% of all internal sources contacted the destination → score × 0.85
+    (common infrastructure; dampen to reduce NTP/CDN/update-server noise).
+  - If ≤ 2% of sources contacted it, and there are ≥ 50 total unique internal
+    sources → score × 1.15 (rare destination on a populated network; boost).
+  - Otherwise no adjustment.
+  The ≥ 50 source guard for the rare-destination boost prevents the bonus from
+  firing on small networks or test fixtures where every destination looks rare.
+  HTTP Beaconing reads the same prevalence map, which is built from conn-log
+  observations during Phase 1.
+
+- **Spectral timestamps use a ring buffer.** The Lomb-Scargle input was
+  previously drawn from the same reservoir used for interval statistics. A
+  uniform random reservoir samples earlier timestamps with higher probability
+  as the stream grows, biasing the spectral input toward the start of the
+  observation window. The spectral path now maintains a separate chronological
+  ring buffer that overwrites the oldest entry when full, keeping the most
+  recent N timestamps. `spectralScore` sorts internally, so the physical
+  storage order does not affect the math; the benefit is recency-biased
+  selection rather than start-biased selection.
+
+- **Entropy width gate.** `intervalEntropyScore` now penalises results where
+  the dominant log₂ bucket is wide (≥ 256 s). A log₂ bin spanning [512, 1024s)
+  covers 512 seconds; uniform intervals anywhere in that range produce high
+  Shannon entropy and previously scored near 1.0 despite carrying no useful
+  structure. The penalty is `128 / bucketLow` applied to the score:
+  - Bucket 8 ([256, 512s)): × 0.5
+  - Bucket 9 ([512, 1024s)): × 0.25
+  - Bucket 10+: smaller still.
+  Tightly clustered intervals inside a narrow bucket (buckets 0–7, widths
+  1–128 s) are unaffected.
+
+- **Host risk roll-up scales by finding score.** The composite host risk
+  formula previously summed type weights as booleans (Beaconing present? +30).
+  A score-1 beacon and a score-99 beacon contributed identically. The new
+  formula scales each type's contribution by the maximum score seen for that
+  type on the host:
+
+  ```
+  contribution = round( weight × (0.5 + 0.5 × maxScore / 100) )
+  composite    = min(99, Σ contribution for each distinct type)
+  ```
+
+  At the maximum finding score (100) a type contributes its full weight. At
+  score 1 it contributes half. At score 60 it contributes 80% of the weight.
+
+- **`BeaconMinConnections` default lowered from 10 to 4.** The old threshold
+  required ten connections before a pair was evaluated; slow-interval C2 (one
+  connection per 30 minutes) needs five hours of logs to clear it. The new
+  default of 4 catches slow beacons within the first two hours of an
+  observation window. The emit floor (score ≥ 40) is now the primary quality
+  gate rather than the connection count.
+
+### Breaking
+
+- **Detection semantics.** All seven items above alter score values, severity
+  assignments, or the set of findings emitted. Existing Beaconing findings in
+  the database retain their stored scores — they are not retroactively
+  recalculated. A re-analysis will produce findings under the new model. If
+  your workflow treats severities as stable labels for triage routing or
+  alerting thresholds, expect changes after the first post-upgrade analysis
+  pass, particularly for:
+  - Pairs that previously emitted as High (score 40–69 under old binary
+    mapping) — they now emit as Medium or Low and no longer ring the bell.
+  - Strobe pairs that previously also emitted a Beaconing finding — the
+    Beaconing finding will disappear after re-analysis.
+  - Host Risk Scores — the score-scaled formula will produce lower composite
+    scores for hosts whose only detections were low-confidence findings.
+
+### Detection changes
+
+- Beacon severity is now a four-band mapping instead of binary High/Critical.
+  The bell threshold (score ≥ 95) is unchanged; low-scoring beacons that
+  previously appeared as High will now appear as Medium or Low and will not
+  ring the bell.
+- Strobe findings suppress the co-located Beaconing finding. If a host had
+  both types before, the Beaconing entry will be absent after re-analysis.
+- Host Risk Score values will shift downward for any host whose detections
+  include sub-100-score findings. The `Beaconing weight 30` example in the
+  documentation becomes `30 × (0.5 + 0.5 × score/100)`; a score-60 beacon
+  now contributes 24 rather than 30.
+- `BeaconMinConnections = 4` means pairs that were previously below the
+  connection threshold will now be evaluated and may produce new findings on
+  the first post-upgrade analysis pass.
+
+---
+
 ## [v0.38.0] — 2026-05-24
 
 ### Fixed

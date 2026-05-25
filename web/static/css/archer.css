@@ -1189,6 +1189,13 @@ body.dock-resizing {
 .ds-flag.ioc   { background: color-mix(in srgb, var(--ioc-color) 18%, transparent); color: var(--ioc-color); }
 .ds-flag.esc   { background: color-mix(in srgb, var(--sev-critical) 18%, transparent); color: var(--sev-critical); }
 
+.hp-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 2px; }
+.hp-table tr { cursor: pointer; }
+.hp-table tr:hover { background: var(--row-hover); }
+.hp-table td { padding: 2px 8px 2px 2px; vertical-align: middle; }
+.hp-table td:first-child { padding-left: 0; min-width: 28px; }
+.hp-table td:last-child { padding-right: 0; }
+
 #detail-actions {
   display: flex;
   align-items: center;
