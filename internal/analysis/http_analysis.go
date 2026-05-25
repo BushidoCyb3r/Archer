@@ -501,7 +501,8 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 				prevDetail = fmt.Sprintf(" | Prevalence: %d/%d (<2%%) — rare dst, score boosted", uniqueSrcs, totalSrcs)
 			}
 		}
-		score := clamp(int(100*(tsScore*0.25+dsScore*0.25+hScore*0.25+durScore*0.25)*prevalenceMod), 1, 100)
+		confMod := beaconConfMod(totalObserved, a.cfg.HTTPBeaconMinRequests)
+		score := clamp(int(100*(tsScore*0.25+dsScore*0.25+hScore*0.25+durScore*0.25)*prevalenceMod*confMod), 1, 100)
 
 		if score < beaconMinEmitScore {
 			continue
@@ -522,7 +523,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 		copy(tsData, st.tsData)
 		sort.Slice(tsData, func(i, j int) bool { return tsData[i][0] < tsData[j][0] })
 
-		detail := fmt.Sprintf("Requests: %d | Host: %s | URI: %s | Score: ts=%.2f ds=%.2f hist=%.2f dur=%.2f | ts_layers: raw=%.2f mm=%.2f ent=%.2f", totalObserved, bk.host, bk.uri, tsScore, dsScore, hScore, durScore, tsRaw, tsMM, tsEnt)
+		detail := fmt.Sprintf("Requests: %d | Host: %s | URI: %s | Score: ts=%.2f ds=%.2f hist=%.2f dur=%.2f conf=%.2f | ts_layers: raw=%.2f mm=%.2f ent=%.2f", totalObserved, bk.host, bk.uri, tsScore, dsScore, hScore, durScore, confMod, tsRaw, tsMM, tsEnt)
 		if spectralRescued {
 			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (period %.1fs, %.1f×median, power %.1f, FAP %.1f)",
 				spectralResult.Score, spectralResult.Period, spectralResult.Period/ivMedian,

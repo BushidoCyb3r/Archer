@@ -11,12 +11,13 @@ connections close later than shorter ones started later).
 
 ## The scenario
 
-30 connections from a single source to one destination on TCP/443.
+100 connections from a single source to one destination on TCP/443.
 Inter-arrival is exactly 60 seconds for the clean records. Record
 index 10 (after 10 well-ordered samples) deliberately jumps
 backward 90 seconds — i.e. its timestamp predates record 9 by 30
-seconds. The remaining 19 records resume the clean 60-second
-cadence from where index 9 left off.
+seconds. The remaining 89 records resume the clean 60-second
+cadence from where index 9 left off. 100 samples pushes
+`beaconConfMod` to 1.0.
 
 ## Why this scenario exists
 

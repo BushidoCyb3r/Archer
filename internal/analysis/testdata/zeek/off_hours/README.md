@@ -17,5 +17,8 @@ keep off-hours out of the picture.
 ## Findings produced
 
 - `Off-Hours Transfer` (MEDIUM) — primary target. Off-Hours Transfer
-  is not in `riskWeights`, so no `Host Risk Score` rolls up from this
-  alone; that's accurate to the current scoring map.
+  is not in `riskWeights`, so no `Host Risk Score` rolls up from it.
+  The 5 connections are above `BeaconMinConnections = 4` but
+  `beaconConfMod` at n=5 suppresses the incidental beacon below the
+  emit floor — intended, since the scenario targets Off-Hours Transfer
+  detection, not beacon detection.

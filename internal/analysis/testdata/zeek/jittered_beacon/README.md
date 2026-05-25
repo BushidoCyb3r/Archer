@@ -1,7 +1,8 @@
 # jittered_beacon
 
-20 connections at period 60s with ±24s bounded jitter (CV ≈ 0.40)
-from `192.168.1.50` to `198.51.100.77:443`.
+100 connections at period 60s with ±30s bounded jitter (CV ≈ 0.38)
+from `192.168.1.50` to `198.51.100.77:443`. 100 samples pushes
+`beaconConfMod` to 1.0.
 
 ## What this scenario exercises
 

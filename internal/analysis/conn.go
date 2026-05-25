@@ -588,7 +588,8 @@ func (a *Analyzer) analyzeConn(files []string) {
 				prevDetail = fmt.Sprintf(" | Prevalence: %d/%d (<2%%) — rare dst, score boosted", uniqueSrcs, totalSrcs)
 			}
 		}
-		score := clamp(int(100*(tsScore*0.25+dsScore*0.25+hScore*0.25+durScore*0.25)*prevalenceMod), 1, 100)
+		confMod := beaconConfMod(totalObserved, a.cfg.BeaconMinConnections)
+		score := clamp(int(100*(tsScore*0.25+dsScore*0.25+hScore*0.25+durScore*0.25)*prevalenceMod*confMod), 1, 100)
 
 		if score < beaconMinEmitScore {
 			continue
@@ -611,7 +612,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 		copy(tsData, st.tsData)
 		sort.Slice(tsData, func(i, j int) bool { return tsData[i][0] < tsData[j][0] })
 
-		detail := fmt.Sprintf("Connections: %d | Mean interval: %.1fs | CV: %.2f | Score components: ts=%.2f ds=%.2f hist=%.2f dur=%.2f | ts_layers: raw=%.2f mm=%.2f ent=%.2f", totalObserved, ivMean, ivCV, tsScore, dsScore, hScore, durScore, tsRaw, tsMM, tsEnt)
+		detail := fmt.Sprintf("Connections: %d | Mean interval: %.1fs | CV: %.2f | Score components: ts=%.2f ds=%.2f hist=%.2f dur=%.2f conf=%.2f | ts_layers: raw=%.2f mm=%.2f ent=%.2f", totalObserved, ivMean, ivCV, tsScore, dsScore, hScore, durScore, confMod, tsRaw, tsMM, tsEnt)
 		if spectralRescued {
 			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (period %.1fs, %.1f×median, power %.1f, FAP %.1f)",
 				spectralResult.Score, spectralResult.Period, spectralResult.Period/ivMedian,
@@ -767,7 +768,33 @@ func reservoirAddF(buf []float64, seen int, v float64, capN int) ([]float64, int
 // depressing scores for real short-window beacons that RITA would score
 // higher across a full 24h window. Score 40+ over a short window is still
 // a meaningful signal.
-const beaconMinEmitScore = 40
+//
+// beaconConfidenceRamp is the observation-count width over which the
+// sample-size confidence modifier ramps from 0.5 to 1.0. Full confidence
+// is reached at BeaconMinConnections + beaconConfidenceRamp observations.
+// Default BeaconMinConnections=4: full confidence at 100 connections.
+// HTTPBeaconMinRequests=8: full confidence at 104 requests.
+// DNSBeaconMinQueries=20: full confidence at 116 queries.
+const (
+	beaconMinEmitScore   = 40
+	beaconConfidenceRamp = 96
+)
+
+// beaconConfMod returns the sample-size confidence modifier for a beacon
+// with n total observations and a minimum-connections floor of minN.
+// Ramps linearly from 0.5 at n==minN to 1.0 at n==minN+beaconConfidenceRamp.
+// A 4-connection pair with a perfect composite score 0.75 becomes 0.375 →
+// below the emit floor; a 100-connection pair is unaffected.
+func beaconConfMod(n, minN int) float64 {
+	x := float64(n-minN) / beaconConfidenceRamp
+	if x < 0 {
+		x = 0
+	}
+	if x > 1 {
+		x = 1
+	}
+	return 0.5 + 0.5*x
+}
 
 // appendSpectralRing appends ts to the ring buffer backed by buf/head,
 // replacing the oldest entry once the buffer reaches spectralTsCap.

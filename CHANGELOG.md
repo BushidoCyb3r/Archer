@@ -44,6 +44,18 @@ relevant, `### Detection changes` in each release entry.
   where beacon scores seemed unexpectedly high — beacons with narrow circadian
   windows will score lower, reducing false positives.
 
+- **Beacon composite score includes a sample-size confidence term.** All three
+  beacon detectors (conn Beaconing, HTTP Beaconing, DNS Beaconing) now multiply
+  the composite score by `beaconConfMod(n, minN)` before applying the emit
+  floor. At `n = minN` (minimum qualifying observations) the modifier is 0.5,
+  scaling linearly to 1.0 at `n = minN + 96`. Beacons built on 4 connections
+  emit at half their statistical score; beacons built on 100+ connections are
+  unaffected. The modifier and current value appear as `conf=<value>` in the
+  finding detail string. Re-analysis will lower scores for low-sample beacons
+  that were previously scored at full confidence; beacons with < ~20 connections
+  (conn) / ~24 requests (HTTP) / ~36 queries (DNS) may drop below the emit
+  floor and stop appearing.
+
 ---
 
 ## [v0.40.0] — 2026-05-25

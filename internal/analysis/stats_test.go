@@ -634,3 +634,42 @@ func TestIntervalEntropyScore(t *testing.T) {
 		}
 	})
 }
+
+func TestBeaconConfMod(t *testing.T) {
+	t.Run("at_min_returns_half", func(t *testing.T) {
+		got := beaconConfMod(4, 4)
+		if !almostEqual(got, 0.5, 1e-9) {
+			t.Errorf("beaconConfMod(min, min) = %v; want 0.5", got)
+		}
+	})
+
+	t.Run("below_min_clamps_to_half", func(t *testing.T) {
+		got := beaconConfMod(2, 4)
+		if !almostEqual(got, 0.5, 1e-9) {
+			t.Errorf("beaconConfMod(below min) = %v; want 0.5", got)
+		}
+	})
+
+	t.Run("full_at_min_plus_ramp", func(t *testing.T) {
+		got := beaconConfMod(4+beaconConfidenceRamp, 4)
+		if !almostEqual(got, 1.0, 1e-9) {
+			t.Errorf("beaconConfMod(min+ramp, min) = %v; want 1.0", got)
+		}
+	})
+
+	t.Run("above_ramp_clamps_to_one", func(t *testing.T) {
+		got := beaconConfMod(4+beaconConfidenceRamp+500, 4)
+		if !almostEqual(got, 1.0, 1e-9) {
+			t.Errorf("beaconConfMod(way over ramp) = %v; want 1.0", got)
+		}
+	})
+
+	t.Run("midpoint_half_ramp", func(t *testing.T) {
+		// n = minN + ramp/2 → confMod = 0.75
+		n := 4 + beaconConfidenceRamp/2
+		got := beaconConfMod(n, 4)
+		if !almostEqual(got, 0.75, 1e-9) {
+			t.Errorf("beaconConfMod(min+ramp/2, min) = %v; want 0.75", got)
+		}
+	})
+}

@@ -7,14 +7,13 @@ Exercises the **multi-period beacon** rescue path on the timing axis.
 A single source IP beaconing to one destination on TCP/443 with two
 distinct cadences:
 
-- **Heartbeat phase**: 20 connections at ~60s intervals (±2s LCG jitter)
-- **Tasking phase**: 20 connections at ~600s intervals (±10s LCG jitter)
-- All 40 connections share `(src=192.168.1.30, dst=203.0.113.40, port=443)`
+- **Heartbeat phase**: 50 connections at ~60s intervals (±2s LCG jitter)
+- **Tasking phase**: 50 connections at ~600s intervals (±10s LCG jitter)
+- All 100 connections share `(src=192.168.1.30, dst=203.0.113.40, port=443)`
 
-Sorted by timestamp, the 39 inter-arrival intervals split bimodally:
-~19 around 60s (bucket 5 in `intervalMultimodalScore`'s log2 binning)
-and ~20 around 600s (bucket 9). Each cluster is individually tight; the
-distribution as a whole is genuinely bimodal.
+Sorted by timestamp, the inter-arrival intervals split bimodally:
+~49 around 60s (bucket 5 in `intervalMultimodalScore`'s log2 binning)
+and ~50 around 600s (bucket 9). 100 samples pushes `beaconConfMod` to 1.0.
 
 ## Why this scenario exists
 
@@ -29,12 +28,6 @@ unchanged but multi-period beacons stop being punished.
 
 ## Findings produced
 
-- `Beaconing` (HIGH, score 54) — primary target. The `ts=0.99`
-  component in the Detail line is the multimodal augmentation kicking
-  in. `hist=0.24` and `dur=0.00` reflect the small data window (3.6h
-  of activity), which keeps the overall composite below CRITICAL.
-- `Host Risk Score` (MEDIUM, score 30) — automatic roll-up.
-
-The fixture deliberately stays small (40 connections) to keep the
-intervals reservoir well below cap so the scoring is fully
-deterministic.
+- `Beaconing` (HIGH, score 72) — primary target. The multimodal
+  augmentation lifts the ts sub-score above the raw Bowley/MAD result.
+- `Host Risk Score` (MEDIUM, score 26) — automatic roll-up.

@@ -53,8 +53,8 @@ func TestDNSBeaconing_ClosesCadenceGap(t *testing.T) {
 	}
 	// Sprint-1 structured fields must be populated on this beacon type
 	// too (they feed §2e sub-score filtering and persist via 0018).
-	if b.SampleSize != 60 {
-		t.Errorf("SampleSize = %d; want 60", b.SampleSize)
+	if b.SampleSize != 120 {
+		t.Errorf("SampleSize = %d; want 120", b.SampleSize)
 	}
 	if b.MeanInterval < 299 || b.MeanInterval > 301 {
 		t.Errorf("MeanInterval = %v; want ~300", b.MeanInterval)

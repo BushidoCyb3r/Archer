@@ -437,7 +437,8 @@ func (a *Analyzer) analyzeDNS(files []string) {
 
 		// Composition: timing 0.5, inverse-diversity 0.25, coverage
 		// 0.25 — the slice's stated split, pinned by the golden.
-		score := clamp(int(100*(tsScore*0.5+divScore*0.25+coverage*0.25)), 1, 100)
+		confMod := beaconConfMod(bs.count, a.cfg.DNSBeaconMinQueries)
+		score := clamp(int(100*(tsScore*0.5+divScore*0.25+coverage*0.25)*confMod), 1, 100)
 		sev := model.SevHigh
 		if score >= 80 {
 			sev = model.SevCritical
@@ -445,8 +446,8 @@ func (a *Analyzer) analyzeDNS(files []string) {
 
 		ivCV := intervalCV(ivs, ivMean)
 
-		detail := fmt.Sprintf("DNS queries: %d | Unique subdomains: %d | Mean interval: %.1fs | CV: %.2f | Score: ts=%.2f div=%.2f cov=%.2f | ts_layers: raw=%.2f mm=%.2f ent=%.2f",
-			bs.count, subCount, ivMean, ivCV, tsScore, divScore, coverage, tsRaw, tsMM, tsEnt)
+		detail := fmt.Sprintf("DNS queries: %d | Unique subdomains: %d | Mean interval: %.1fs | CV: %.2f | Score: ts=%.2f div=%.2f cov=%.2f conf=%.2f | ts_layers: raw=%.2f mm=%.2f ent=%.2f",
+			bs.count, subCount, ivMean, ivCV, tsScore, divScore, coverage, confMod, tsRaw, tsMM, tsEnt)
 		if spectralRescued {
 			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (period %.1fs, %.1f×median, power %.1f, FAP %.1f)",
 				spectralResult.Score, spectralResult.Period, spectralResult.Period/ivMedian,

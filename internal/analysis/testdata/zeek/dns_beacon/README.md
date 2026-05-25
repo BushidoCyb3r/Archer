@@ -6,10 +6,10 @@ C2 heartbeat that slips *both* existing DNS-aware detectors.
 
 ## Inputs
 
-- `dns.log` — 60 records from `192.168.2.60` → `192.168.1.1:53`,
+- `dns.log` — 120 records from `192.168.2.60` → `192.168.1.1:53`,
   every one a query for the fixed FQDN `gateway.update-svc.net`
   (`qtype A`, `rcode NOERROR`), spaced exactly 300s apart over
-  ~4.9 hours.
+  ~9.9 hours. 120 samples pushes `beaconConfMod` to 1.0.
 - No `conn.log` — deliberately. A DNS beacon need not produce a
   conn-level beacon (the C2 cadence is at the resolver layer).
 
@@ -26,17 +26,15 @@ C2 heartbeat that slips *both* existing DNS-aware detectors.
 
 ## Why DNS Beaconing fires
 
-`(192.168.2.60, update-svc.net)` accumulates 60 NOERROR queries
+`(192.168.2.60, update-svc.net)` accumulates 120 NOERROR queries
 (≥ `DNSBeaconMinQueries=20`), perfectly regular intervals
 (`ts≈1.00`), one subdomain so the apex is far below the diversity
-gate (`div≈0.98`), and the activity spans enough of the capture
-window for the histogram/duration coverage axis to contribute
-(`cov≈0.50`). Composition `ts·0.5 + div·0.25 + cov·0.25` →
-score 87, CRITICAL. The Host Risk Score roll-up follows from the
-DNS Beaconing risk weight (30 → composite 30, MEDIUM).
+gate (`div≈0.98`), and the ~9.9-hour span covers multiple hour-of-day
+buckets (`cov≈1.00`). Composition `ts·0.5 + div·0.25 + cov·0.25` ×
+confMod=1.00 → score 99, CRITICAL.
 
 ## Expected
 
-- `DNS Beaconing` — CRITICAL, score 87, `192.168.2.60 →
+- `DNS Beaconing` — CRITICAL, score 99, `192.168.2.60 →
   update-svc.net:53`.
 - `Host Risk Score` — MEDIUM, score 30, the roll-up.
