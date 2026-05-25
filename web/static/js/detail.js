@@ -391,5 +391,52 @@ const Detail = (() => {
     body.appendChild(sect);
   }
 
-  return { render, clear, renderHostPivot };
+  // renderCampaignPivot shows the inline campaign-pivot panel inside
+  // #tab-campaigns. dst/port identify the campaign; findings are all
+  // findings for that dst, sorted score desc. onSelect(f) drills into detail.
+  function renderCampaignPivot(dst, port, findings, onSelect) {
+    const panel    = document.getElementById('campaign-pivot-panel');
+    const titleEl  = document.getElementById('campaign-pivot-title');
+    const body     = document.getElementById('campaign-pivot-body');
+    const closeBtn = document.getElementById('campaign-pivot-close-btn');
+    if (!panel) return;
+
+    body.innerHTML = '';
+
+    const label = port ? `${dst}:${port}` : dst;
+    titleEl.textContent = `${label}  —  ${findings.length} finding${findings.length === 1 ? '' : 's'}`;
+
+    closeBtn.onclick = () => { panel.style.display = 'none'; };
+
+    panel.style.display = 'flex';
+
+    const sect   = document.createElement('div');
+    sect.className = 'ds-section';
+
+    if (findings.length === 0) {
+      const row = document.createElement('div');
+      row.className = 'ds-row';
+      row.innerHTML = '<span class="ds-val" style="color:var(--fg-dim)">No findings for this destination</span>';
+      sect.appendChild(row);
+    } else {
+      const tbl = document.createElement('table');
+      tbl.className = 'hp-table';
+      findings.forEach(f => {
+        const tr  = document.createElement('tr');
+        const ts  = (f.timestamp || '').slice(0, 16);
+        tr.innerHTML =
+          `<td style="color:${_sevColor(f.severity)};font-weight:700">${f.score | 0}</td>` +
+          `<td>${_esc(f.type)}</td>` +
+          `<td style="font-family:monospace">${_esc(f.src_ip || '—')}</td>` +
+          `<td style="color:var(--fg-dim);font-size:11px;white-space:nowrap">${_esc(ts)}</td>`;
+        tr.addEventListener('click', () => { if (onSelect) onSelect(f); });
+        tbl.appendChild(tr);
+      });
+      sect.appendChild(tbl);
+    }
+
+    body.appendChild(sect);
+  }
+
+  return { render, clear, renderHostPivot, renderCampaignPivot };
 })();

@@ -3,7 +3,8 @@
 
 const Campaigns = (() => {
   let _onCtx = null;
-  let _onHostClick = null; // app.js hook: clicking a Hosts row opens the per-host roll-up finding's detail
+  let _onHostClick = null;     // app.js hook: clicking a Hosts row opens the host-pivot panel
+  let _onCampaignClick = null; // app.js hook: clicking a Campaigns row opens the campaign-pivot panel
   let _isOrgIP = () => true; // predicate set by app.js; default to "everything is internal" so the panel works before init runs
   let _campaigns = []; // exposed via getCampaigns() for export
   let _hosts = [];     // exposed via getHosts() for export
@@ -20,10 +21,11 @@ const Campaigns = (() => {
   // so a desc sort lands CRITICAL at the top.
   const _SEV_ORDER = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFO: 4, IOC_HIT: 5 };
 
-  function init(onCtx, isOrgIP, onHostClick) {
+  function init(onCtx, isOrgIP, onHostClick, onCampaignClick) {
     _onCtx = onCtx;
     if (typeof isOrgIP === 'function') _isOrgIP = isOrgIP;
     if (typeof onHostClick === 'function') _onHostClick = onHostClick;
+    if (typeof onCampaignClick === 'function') _onCampaignClick = onCampaignClick;
     _wireSortHeaders();
   }
 
@@ -169,6 +171,10 @@ const Campaigns = (() => {
         <td>${_esc(e.port)}</td>
         <td class="hosts">${e.srcs.size | 0}</td>
         <td style="font-family:monospace;font-size:11px;word-break:break-all">${_esc(srcsText)}</td>`;
+      tr.style.cursor = 'pointer';
+      tr.addEventListener('click', () => {
+        if (_onCampaignClick) _onCampaignClick(e.dst, e.port);
+      });
       tr.addEventListener('contextmenu', ev => {
         ev.preventDefault();
         // The pseudo-finding gives the existing context-menu items what they
