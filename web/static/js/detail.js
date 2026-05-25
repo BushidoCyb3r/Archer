@@ -3,6 +3,7 @@
 
 const Detail = (() => {
   const EXPLANATIONS = window.SCORE_EXPLANATIONS || {};
+  const _TI_TYPES = new Set(['TI Hit (IP)', 'TI Hit (Domain)', 'TI Hit (Hash)', 'Threat Intel Hit']);
 
   function _sevColor(sev) {
     return {CRITICAL:'var(--sev-critical)', HIGH:'var(--sev-high)', MEDIUM:'var(--sev-medium)',
@@ -267,6 +268,12 @@ const Detail = (() => {
       if ((n.author || '') === 'TI Enrichment') tiNotes.push(n);
       else analystNotes.push(n);
     });
+    // When the finding itself is a TI hit, synthesize a self-referential
+    // entry so the TI Results tab is populated without requiring a sibling
+    // cross-annotation note.
+    if (_TI_TYPES.has(f.type) && f.detail) {
+      tiNotes.unshift({ author: f.type, timestamp: f.timestamp || '', text: f.detail });
+    }
 
     const renderInto = (list, items, emptyMsg) => {
       if (items.length === 0) {
@@ -287,6 +294,32 @@ const Detail = (() => {
 
     _setBadge(notesBadge, analystNotes.length);
     _setBadge(tiBadge,    tiNotes.length);
+  }
+
+  // _renderPivotTI populates the TI Results tab from a pivot's full finding
+  // set. Called by renderHostPivot and renderCampaignPivot so the analyst
+  // can see every TI match on a host or campaign without clicking into each
+  // row individually.
+  function _renderPivotTI(findings) {
+    const tiList  = document.getElementById('ti-results-list');
+    const tiBadge = document.getElementById('ti-badge');
+    if (!tiList) return;
+    tiList.innerHTML = '';
+    const hits = findings.filter(f => _TI_TYPES.has(f.type));
+    if (hits.length === 0) {
+      tiList.innerHTML = '<div style="font-size:11px;color:var(--fg-dim);font-style:italic">No threat intel matches</div>';
+      _setBadge(tiBadge, 0);
+      return;
+    }
+    hits.forEach(f => {
+      const div = document.createElement('div');
+      div.className = 'note-item';
+      div.innerHTML =
+        `<div class="note-meta"><span class="note-author">${_esc(f.type)}</span>  •  ${_esc(f.timestamp || '')}</div>` +
+        `<div class="note-text">${_esc(f.detail || '')}</div>`;
+      tiList.appendChild(div);
+    });
+    _setBadge(tiBadge, hits.length);
   }
 
   function _setBadge(el, n) {
@@ -389,6 +422,7 @@ const Detail = (() => {
     }
 
     text.appendChild(sect);
+    _renderPivotTI(findings);
   }
 
   // renderCampaignPivot renders a campaign's findings into the shared detail
@@ -440,6 +474,7 @@ const Detail = (() => {
     }
 
     text.appendChild(sect);
+    _renderPivotTI(findings);
   }
 
   return { render, clear, renderHostPivot, renderCampaignPivot };
