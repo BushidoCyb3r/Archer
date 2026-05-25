@@ -447,6 +447,12 @@ func (s *Server) launchIncrementalAnalysis(files []string) {
 			// launchAnalysisWithOptions: files synced during this pass
 			// must be caught by the next incremental.
 			s.store.SetLastAnalysisTime(startedAt)
+			if arc := s.store.GetArchive(); arc.Enabled {
+				res := s.runArchive(arc.AfterDays, arc.PruneFindingsOnArchive, false, "scheduled")
+				if res.Err != "" {
+					slog.Warn("archive worker error", "err", res.Err)
+				}
+			}
 		}
 
 		data, _ := json.Marshal(map[string]any{
