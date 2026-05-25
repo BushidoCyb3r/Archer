@@ -80,7 +80,8 @@ func (a *Analyzer) aggregateRisk(_ []string) {
 	// host's complete detection footprint so the Hosts tab matches
 	// the visible evidence. v0.14.10 NEW-67.
 	type hostData struct {
-		typeMaxScore map[string]int // detector type → max score seen for this host
+		typeMaxScore map[string]int
+		typeDsts     map[string]map[string]struct{} // type → distinct dst IPs
 		firstTS      string
 	}
 	hosts := make(map[string]*hostData)
@@ -116,12 +117,19 @@ func (a *Analyzer) aggregateRisk(_ []string) {
 		}
 		hd := hosts[src]
 		if hd == nil {
-			hd = &hostData{typeMaxScore: make(map[string]int)}
+			hd = &hostData{
+				typeMaxScore: make(map[string]int),
+				typeDsts:     make(map[string]map[string]struct{}),
+			}
 			hosts[src] = hd
 		}
 		if f.Score > hd.typeMaxScore[f.Type] {
 			hd.typeMaxScore[f.Type] = f.Score
 		}
+		if hd.typeDsts[f.Type] == nil {
+			hd.typeDsts[f.Type] = make(map[string]struct{})
+		}
+		hd.typeDsts[f.Type][f.DstIP] = struct{}{}
 		// Pick the chronologically earliest contributing timestamp.
 		// Pre-fix this set on first-encountered (slice-iteration order),
 		// so a host whose first detector emit was at 12:00:15 would
@@ -170,13 +178,19 @@ func (a *Analyzer) aggregateRisk(_ []string) {
 		composite := 0
 		for t, maxSc := range hd.typeMaxScore {
 			if w, ok := riskWeights[t]; ok {
-				// Scale weight by finding score so a score-0 detection
-				// contributes 50% of the base weight and a score-100
-				// detection contributes 100%. Preserves rank-order between
-				// detectors while making a borderline beacon (score 51)
-				// contribute materially less than a confident one (score 98).
 				scoreScale := 0.5 + 0.5*float64(maxSc)/100.0
-				composite += int(math.Round(float64(w) * scoreScale))
+				// Log multiplier for distinct-destination count: a host
+				// hitting two C2 servers is materially worse than one
+				// hitting one. 1 + 0.5·log₂(n), capped at 3×.
+				n := len(hd.typeDsts[t])
+				if n < 1 {
+					n = 1
+				}
+				multiMod := 1.0 + 0.5*math.Log2(float64(n))
+				if multiMod > 3.0 {
+					multiMod = 3.0
+				}
+				composite += int(math.Round(float64(w) * scoreScale * multiMod))
 			}
 		}
 		if composite == 0 {
@@ -207,7 +221,11 @@ func (a *Analyzer) aggregateRisk(_ []string) {
 
 		typeList := make([]string, 0, len(hd.typeMaxScore))
 		for t := range hd.typeMaxScore {
-			typeList = append(typeList, t)
+			if len(hd.typeDsts[t]) > 1 {
+				typeList = append(typeList, fmt.Sprintf("%s×%d", t, len(hd.typeDsts[t])))
+			} else {
+				typeList = append(typeList, t)
+			}
 		}
 		sort.Strings(typeList)
 

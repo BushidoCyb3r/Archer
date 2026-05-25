@@ -171,3 +171,72 @@ func TestAggregateRisk_DeterministicHostOrder(t *testing.T) {
 		}
 	}
 }
+
+// TestAggregateRisk_MultiplicityBoost codifies the dst-count multiplier:
+// a host beaconing to N distinct C2 destinations must score higher than
+// one beaconing to a single destination at the same score. The multiplier
+// is 1 + 0.5·log₂(n), capped at 3×. Each distinct DstIP is one entry
+// in the dst set; the same DstIP repeated via the historical union counts
+// only once.
+func TestAggregateRisk_MultiplicityBoost(t *testing.T) {
+	// Single Beaconing dst at score 80.
+	// weight=30, scoreScale=0.9, multiMod=1.0 → contribution=27.
+	single := func() int {
+		a := New(config.Default(), "", nil, nil)
+		a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Timestamp: "2026-01-01 00:00:00 UTC"})
+		a.aggregateRisk(nil)
+		for _, f := range a.findings {
+			if f.Type == "Host Risk Score" {
+				return f.Score
+			}
+		}
+		return -1
+	}()
+
+	// Four distinct Beaconing dsts at score 80.
+	// multiMod = 1 + 0.5·log₂(4) = 1 + 0.5·2 = 2.0 → contribution=54.
+	four := func() int {
+		a := New(config.Default(), "", nil, nil)
+		for i, dst := range []string{"1.1.1.1", "2.2.2.2", "3.3.3.3", "4.4.4.4"} {
+			_ = i
+			a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: dst, Score: 80, Timestamp: "2026-01-01 00:00:00 UTC"})
+		}
+		a.aggregateRisk(nil)
+		for _, f := range a.findings {
+			if f.Type == "Host Risk Score" {
+				return f.Score
+			}
+		}
+		return -1
+	}()
+
+	if single != 27 {
+		t.Errorf("single-dst HRS = %d; want 27 (weight 30 × scoreScale 0.9 × multiMod 1.0)", single)
+	}
+	if four != 54 {
+		t.Errorf("four-dst HRS = %d; want 54 (weight 30 × scoreScale 0.9 × multiMod 2.0)", four)
+	}
+	if four <= single {
+		t.Errorf("four-dst (%d) should exceed single-dst (%d)", four, single)
+	}
+
+	// Dedup check: the same DstIP appearing via both fresh findings and
+	// the historical union must count as 1, not 2.
+	dedup := func() int {
+		a := New(config.Default(), "", nil, nil)
+		a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Timestamp: "2026-01-01 00:00:00 UTC"})
+		a.SetFindingsProvider(&stubFindingsProvider{findings: []model.Finding{
+			{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Timestamp: "2026-01-01 00:00:00 UTC"},
+		}})
+		a.aggregateRisk(nil)
+		for _, f := range a.findings {
+			if f.Type == "Host Risk Score" {
+				return f.Score
+			}
+		}
+		return -1
+	}()
+	if dedup != single {
+		t.Errorf("dedup HRS = %d; want %d (same dst via union must count once)", dedup, single)
+	}
+}

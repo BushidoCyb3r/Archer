@@ -10,11 +10,11 @@
   },
   {
     "type": "Host Risk Score",
-    "severity": "HIGH",
-    "score": 66,
+    "severity": "CRITICAL",
+    "score": 84,
     "src_ip": "192.168.8.30",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 66 | Detections: [Suspicious File Download Suspicious URL TI Hit (Domain) TI Hit (IP)]",
+    "detail": "Composite risk: 84 | Detections: [Suspicious File Download Suspicious URL TI Hit (Domain)×2 TI Hit (IP)×2]",
     "timestamp": "2024-01-15 12:00:00"
   },
   {
