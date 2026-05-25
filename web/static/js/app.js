@@ -4510,6 +4510,7 @@
         .filter(x => x.src_ip === ip && x.type !== 'Host Risk Score' && x.type !== 'Correlated Activity')
         .sort((a, b) => b.score - a.score);
       _selectedFinding = hrs || null;
+      if (_isDockCollapsed()) _setDockCollapsed(false, false);
       Detail.renderHostPivot(hrs, contactFindings, f => {
         _selectedFinding = f;
         Detail.render(f);
