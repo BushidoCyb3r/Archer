@@ -66,7 +66,7 @@ func bowleyScore(xs []float64) float64 {
 	q3 := fmedian(sorted[(n+1)/2:])
 
 	denom := q3 - q1
-	if denom < 10 || q2 == q1 || q2 == q3 {
+	if denom < 0.05*q2 || q2 == q1 || q2 == q3 {
 		return 1.0
 	}
 	skewness := (q1 + q3 - 2*q2) / denom

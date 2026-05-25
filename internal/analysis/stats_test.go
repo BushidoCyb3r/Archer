@@ -73,16 +73,25 @@ func TestBowleyScore(t *testing.T) {
 		}
 	})
 
-	t.Run("small_iqr_returns_one", func(t *testing.T) {
-		// Spread under 10s — denom guard returns 1.0.
+	t.Run("symmetric_small_absolute_iqr", func(t *testing.T) {
+		// {1,2,3,4,5}: q2=3, denom=3 > 0.05*3=0.15 → guard does not fire.
+		// Skewness = (1.5+4.5-6)/3 = 0 → score 1.0 via the formula, not guard.
 		got := bowleyScore([]float64{1, 2, 3, 4, 5})
 		if got != 1.0 {
-			t.Errorf("small-iqr bowleyScore = %v, want 1.0", got)
+			t.Errorf("symmetric small-iqr bowleyScore = %v, want 1.0", got)
+		}
+	})
+
+	t.Run("relative_iqr_guard", func(t *testing.T) {
+		// 1800s-period beacon, IQR ≈ 2s (< 5% of 1800s median) → guard fires → 1.0.
+		xs := []float64{1799, 1800, 1800, 1800, 1801, 1800, 1800, 1799, 1800, 1801}
+		got := bowleyScore(xs)
+		if got != 1.0 {
+			t.Errorf("tight long-period bowleyScore = %v, want 1.0 (guard)", got)
 		}
 	})
 
 	t.Run("perfectly_symmetric", func(t *testing.T) {
-		// Symmetric distribution with denom >= 10 → score 1.0.
 		xs := []float64{0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100}
 		got := bowleyScore(xs)
 		if !almostEqual(got, 1.0, 1e-6) {
