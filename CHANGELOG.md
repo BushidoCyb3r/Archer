@@ -28,7 +28,7 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
-## [Unreleased]
+## [v0.41.0] — 2026-05-25
 
 ### Detection changes
 
@@ -55,6 +55,38 @@ relevant, `### Detection changes` in each release entry.
   that were previously scored at full confidence; beacons with < ~20 connections
   (conn) / ~24 requests (HTTP) / ~36 queries (DNS) may drop below the emit
   floor and stop appearing.
+
+- **Bowley skewness stability guard is now relative.** The guard that suppresses
+  skewness when the inter-quartile range is near zero previously used an absolute
+  threshold (`denom < 10`), which fired correctly on tight sub-10s beacons but
+  also suppressed legitimate skewness on any slow beacon whose IQR happened to be
+  a small absolute number (e.g. a 1800s-period beacon with 2s jitter). The guard
+  is now `denom < 0.05 * q2` — IQR must be less than 5% of the median before
+  skewness is zeroed. Slow beacons with genuinely symmetric timing are scored
+  correctly; only pairs where timing spread is negligible relative to the period
+  are treated as perfectly regular.
+
+- **Host Risk Score weights distinct destinations per detector type.** A host
+  beaconing to four different C2 servers is materially worse than one beaconing
+  to one. HRS now applies a log multiplier `1 + 0.5·log₂(n)` (capped at 3×) to
+  each detector type's contribution, where `n` is the number of distinct
+  destination IPs for that type. The finding detail shows `Type×N` for any type
+  with more than one destination. Re-analysis will raise HRS for hosts with
+  spread-out C2 contact.
+
+### UI
+
+- **TI Results tab is populated for TI Hit findings and pivot views.** Previously
+  the TI Results tab only showed cross-annotation notes from other findings
+  touching the same IP. Now: (1) selecting a TI Hit finding directly shows the
+  hit itself in TI Results; (2) opening a host or campaign pivot populates TI
+  Results with every TI Hit in the contact set, badged with the count.
+
+- **Export TXT works from host and campaign pivot views.** The Export TXT button
+  previously did nothing when a host or campaign pivot was open. It now produces
+  a self-contained text file: composite risk header and full contact-set list for
+  host pivots, finding list with source IPs for campaign pivots — both with a TI
+  Results section at the end.
 
 ---
 
@@ -6864,6 +6896,7 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
+[v0.41.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.40.0...v0.41.0
 [v0.40.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.39.0...v0.40.0
 [v0.35.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.35.0...v0.35.1
 [v0.35.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.34.0...v0.35.0
