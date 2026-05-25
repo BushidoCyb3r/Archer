@@ -117,16 +117,21 @@ func (s *Server) runArchive(afterDays int, pruneFindings, dryRun bool, triggered
 		}
 		dst := filepath.Join(archiveDir, rel)
 		if dryRun {
-			// Preview is a pure read — no MkdirAll, no moves. The
-			// dst-collision check IS still safe to run as a stat()
-			// because it only reads the destination state; mirroring
-			// it here keeps the preview honest. Pre-fix the dry-run
-			// counted every eligible source as movable and the real
-			// run silently turned half of them into Skipped on a
-			// re-trigger, so admins saw "23 files / 4.1 GiB" preview
-			// → "12 files / 2.1 GiB, 11 skipped" actual. Audit
-			// 2026-05-10 LOW.
-			if _, err := os.Stat(dst); err == nil {
+			// Count every eligible source file — whether it will be
+			// moved (dst absent) or have its stale /logs copy deleted
+			// (dst already in archive from a previous run where
+			// os.Remove failed). Both cases result in a file being
+			// handled, so the preview count matches the real run.
+			res.FilesArchived++
+			res.BytesArchived += info.Size()
+			return nil
+		}
+		if _, err := os.Stat(dst); err == nil {
+			// Archive already holds this file. The previous run
+			// copied it but failed to delete the source (pre-v0.30.4
+			// permission bug). Remove the stale /logs copy now.
+			if err := os.Remove(path); err != nil {
+				slog.Warn("archive: cleanup stale source failed", "src", path, "err", err)
 				res.Skipped++
 				return nil
 			}
@@ -136,10 +141,6 @@ func (s *Server) runArchive(afterDays int, pruneFindings, dryRun bool, triggered
 		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			slog.Warn("archive: mkdir failed", "path", filepath.Dir(dst), "err", err)
-			res.Skipped++
-			return nil
-		}
-		if _, err := os.Stat(dst); err == nil {
 			res.Skipped++
 			return nil
 		}

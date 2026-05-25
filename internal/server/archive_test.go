@@ -305,30 +305,34 @@ func TestRunArchive_RejectsInvalidConfig(t *testing.T) {
 	}
 }
 
-// TestRunArchive_SkipsExistingDestination prevents the worker from clobbering
-// a previously-archived file if the same name resurfaces in logsDir.
-func TestRunArchive_SkipsExistingDestination(t *testing.T) {
+// TestRunArchive_CleansStaleSourceWhenDestExists is the regression test for
+// the pre-v0.30.4 permission bug that left source files in /logs after a
+// successful copy (os.Remove failed on quiver-owned dirs). The archive
+// previously skipped these files forever once the destination existed,
+// causing "Nothing to archive" even with thousands of stale /logs copies.
+// The fix: when the destination already exists, delete the source.
+func TestRunArchive_CleansStaleSourceWhenDestExists(t *testing.T) {
 	tmpLogs := t.TempDir()
 	tmpArchive := t.TempDir()
 	origArchiveDir := archiveDir
 	archiveDir = tmpArchive
 	defer func() { archiveDir = origArchiveDir }()
 
-	// Pre-seed an existing archive entry
+	// Pre-seed the archive with the already-copied file.
 	if err := os.MkdirAll(filepath.Join(tmpArchive, "ds"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	existing := filepath.Join(tmpArchive, "ds", "conn.log")
-	if err := os.WriteFile(existing, []byte("pre-existing archive"), 0o644); err != nil {
+	if err := os.WriteFile(existing, []byte("archive copy"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Put an old file in logs at the same relative path
+	// Stale source left in /logs by the old buggy run.
 	logPath := filepath.Join(tmpLogs, "ds", "conn.log")
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(logPath, []byte("new copy with same name"), 0o644); err != nil {
+	if err := os.WriteFile(logPath, []byte("stale logs copy"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	old := time.Now().Add(-40 * 24 * time.Hour)
@@ -339,22 +343,63 @@ func TestRunArchive_SkipsExistingDestination(t *testing.T) {
 	s := newArchiveTestServer(tmpLogs)
 	res := s.runArchive(30, false, false, "test")
 
-	if res.FilesArchived != 0 {
-		t.Errorf("expected 0 archived (dest exists), got %d", res.FilesArchived)
+	if res.FilesArchived != 1 {
+		t.Errorf("expected 1 archived (stale source deleted), got %d", res.FilesArchived)
 	}
-	if res.Skipped != 1 {
-		t.Errorf("expected 1 skipped, got %d", res.Skipped)
+	if res.Skipped != 0 {
+		t.Errorf("expected 0 skipped, got %d", res.Skipped)
 	}
-
-	// Existing archive entry must be unchanged
+	// Archive copy must be unchanged — we deleted the source, not the dest.
 	data, _ := os.ReadFile(existing)
-	if string(data) != "pre-existing archive" {
-		t.Errorf("existing archive file was clobbered: got %q", string(data))
+	if string(data) != "archive copy" {
+		t.Errorf("archive file was clobbered: got %q", string(data))
+	}
+	// Stale source must be gone.
+	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+		t.Errorf("stale source should have been removed, still exists")
+	}
+}
+
+// TestRunArchive_DryRunCountsStaleSourcesAsArchivable ensures the preview
+// includes files whose destination already exists — both will be "handled"
+// by the real run (stale cleaned up), so the preview count must match.
+func TestRunArchive_DryRunCountsStaleSourcesAsArchivable(t *testing.T) {
+	tmpLogs := t.TempDir()
+	tmpArchive := t.TempDir()
+	origArchiveDir := archiveDir
+	archiveDir = tmpArchive
+	defer func() { archiveDir = origArchiveDir }()
+
+	// Archive already has the file.
+	if err := os.MkdirAll(filepath.Join(tmpArchive, "ds"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpArchive, "ds", "conn.log"), []byte("archive copy"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
-	// Source file must remain in logsDir (archive was a no-op for it)
+	// Stale source still in /logs.
+	logPath := filepath.Join(tmpLogs, "ds", "conn.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logPath, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	if err := os.Chtimes(logPath, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	s := newArchiveTestServer(tmpLogs)
+	res := s.runArchive(30, false, true, "preview")
+
+	if res.FilesArchived != 1 {
+		t.Errorf("dry run should count stale source as archivable, got %d", res.FilesArchived)
+	}
+	// Dry run must not touch anything.
 	if _, err := os.Stat(logPath); err != nil {
-		t.Errorf("source should remain when archive skipped it: %v", err)
+		t.Errorf("dry run removed the source: %v", err)
 	}
 }
 
