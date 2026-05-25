@@ -4510,9 +4510,21 @@
         .filter(x => x.src_ip === ip && x.type !== 'Host Risk Score' && x.type !== 'Correlated Activity')
         .sort((a, b) => b.score - a.score);
       _selectedFinding = hrs || null;
-      if (_isDockCollapsed()) _setDockCollapsed(false, false);
-      Detail.renderHostPivot(hrs, contactFindings, f => {
+      Detail.renderHostPivot(ip, hrs, contactFindings, f => {
+        // Switch to Findings tab and show full detail in the dock.
         _selectedFinding = f;
+        document.querySelectorAll('.tab-btn').forEach(b => {
+          b.classList.toggle('active', b.dataset.tab === 'findings');
+        });
+        _activeTab = 'findings';
+        _tabMode = 'findings';
+        const subTabs = document.getElementById('dismissed-subtabs');
+        if (subTabs) subTabs.style.display = 'none';
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        const findingsPanel = document.getElementById('tab-findings');
+        if (findingsPanel) findingsPanel.classList.add('active');
+        _showCurrentTab();
+        if (_isDockCollapsed()) _setDockCollapsed(false, false);
         Detail.render(f);
       });
     };

@@ -336,28 +336,34 @@ const Detail = (() => {
     if (typeof BeaconEvolution !== 'undefined') BeaconEvolution.clear();
   }
 
-  // renderHostPivot renders the HRS detail for a host and appends a
-  // "Contact set" table listing every network finding for that host.
-  // Each row is clickable; onSelect(finding) is called so the caller
-  // can drill into the finding's full detail.
-  function renderHostPivot(hrs, findings, onSelect) {
-    if (hrs) {
-      render(hrs);
-    } else {
-      document.getElementById('detail-header').textContent = 'Host contact set';
-      document.getElementById('detail-header').style.color = '';
-      document.getElementById('detail-text').innerHTML = '';
-      document.getElementById('analyst-rec').textContent = '';
-    }
+  // renderHostPivot shows the inline host-pivot panel inside #tab-hosts.
+  // ip: the host's source IP. hrs: Host Risk Score finding (may be null).
+  // findings: contact-set findings sorted by score desc.
+  // onSelect(f): called when a contact row is clicked.
+  function renderHostPivot(ip, hrs, findings, onSelect) {
+    const panel    = document.getElementById('host-pivot-panel');
+    const titleEl  = document.getElementById('host-pivot-title');
+    const body     = document.getElementById('host-pivot-body');
+    const closeBtn = document.getElementById('host-pivot-close-btn');
+    if (!panel) return;
 
-    const text = document.getElementById('detail-text');
-    const sect = document.createElement('div');
+    body.innerHTML = '';
+
+    let titleText = ip;
+    if (hrs) titleText += `  —  Risk ${hrs.score | 0}  ${_esc(hrs.severity)}`;
+    titleEl.textContent = titleText;
+
+    closeBtn.onclick = () => { panel.style.display = 'none'; };
+
+    panel.style.display = 'flex';
+
+    const sect   = document.createElement('div');
     sect.className = 'ds-section';
 
-    const title = document.createElement('div');
-    title.className = 'ds-section-title';
-    title.textContent = `Contact set  (${findings.length})`;
-    sect.appendChild(title);
+    const sTitle = document.createElement('div');
+    sTitle.className = 'ds-section-title';
+    sTitle.textContent = `Contact set  (${findings.length})`;
+    sect.appendChild(sTitle);
 
     if (findings.length === 0) {
       const row = document.createElement('div');
@@ -368,9 +374,9 @@ const Detail = (() => {
       const tbl = document.createElement('table');
       tbl.className = 'hp-table';
       findings.forEach(f => {
-        const tr    = document.createElement('tr');
-        const dst   = f.dst_port ? `${f.dst_ip || '—'}:${f.dst_port}` : (f.dst_ip || '—');
-        const ts    = (f.timestamp || '').slice(0, 16);
+        const tr  = document.createElement('tr');
+        const dst = f.dst_port ? `${f.dst_ip || '—'}:${f.dst_port}` : (f.dst_ip || '—');
+        const ts  = (f.timestamp || '').slice(0, 16);
         tr.innerHTML =
           `<td style="color:${_sevColor(f.severity)};font-weight:700">${f.score | 0}</td>` +
           `<td>${_esc(f.type)}</td>` +
@@ -382,7 +388,7 @@ const Detail = (() => {
       sect.appendChild(tbl);
     }
 
-    text.appendChild(sect);
+    body.appendChild(sect);
   }
 
   return { render, clear, renderHostPivot };
