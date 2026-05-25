@@ -1,30 +1,11 @@
 [
   {
-    "type": "Beaconing",
-    "severity": "HIGH",
-    "score": 57,
-    "src_ip": "192.168.1.20",
-    "dst_ip": "203.0.113.30",
-    "dst_port": "443",
-    "detail": "Connections: 1000 | Mean interval: 16.0s | CV: 0.54 | Score components: ts=0.76 ds=0.81 hist=0.74 dur=0.00 | ts_layers: raw=0.76 mm=0.00 ent=0.57",
-    "timestamp": "2024-01-15 12:00:00"
-  },
-  {
-    "type": "Correlated Activity",
-    "severity": "CRITICAL",
-    "score": 88,
-    "src_ip": "192.168.1.20",
-    "dst_ip": "203.0.113.30",
-    "detail": "Multi-stage activity on (192.168.1.20 → 203.0.113.30) — Beaconing, Strobe | Contributing finding IDs: 1, 2",
-    "timestamp": "2024-01-15 12:00:00"
-  },
-  {
     "type": "Host Risk Score",
-    "severity": "MEDIUM",
-    "score": 45,
+    "severity": "LOW",
+    "score": 14,
     "src_ip": "192.168.1.20",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 45 | Detections: [Beaconing Strobe]",
+    "detail": "Composite risk: 14 | Detections: [Strobe]",
     "timestamp": "2024-01-15 12:00:00"
   },
   {

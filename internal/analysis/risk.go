@@ -80,9 +80,8 @@ func (a *Analyzer) aggregateRisk(_ []string) {
 	// host's complete detection footprint so the Hosts tab matches
 	// the visible evidence. v0.14.10 NEW-67.
 	type hostData struct {
-		types    map[string]bool
-		maxScore int
-		firstTS  string
+		typeMaxScore map[string]int // detector type → max score seen for this host
+		firstTS      string
 	}
 	hosts := make(map[string]*hostData)
 
@@ -117,12 +116,11 @@ func (a *Analyzer) aggregateRisk(_ []string) {
 		}
 		hd := hosts[src]
 		if hd == nil {
-			hd = &hostData{types: make(map[string]bool)}
+			hd = &hostData{typeMaxScore: make(map[string]int)}
 			hosts[src] = hd
 		}
-		hd.types[f.Type] = true
-		if f.Score > hd.maxScore {
-			hd.maxScore = f.Score
+		if f.Score > hd.typeMaxScore[f.Type] {
+			hd.typeMaxScore[f.Type] = f.Score
 		}
 		// Pick the chronologically earliest contributing timestamp.
 		// Pre-fix this set on first-encountered (slice-iteration order),
@@ -170,9 +168,15 @@ func (a *Analyzer) aggregateRisk(_ []string) {
 	for _, src := range srcKeys {
 		hd := hosts[src]
 		composite := 0
-		for t := range hd.types {
+		for t, maxSc := range hd.typeMaxScore {
 			if w, ok := riskWeights[t]; ok {
-				composite += w
+				// Scale weight by finding score so a score-0 detection
+				// contributes 50% of the base weight and a score-100
+				// detection contributes 100%. Preserves rank-order between
+				// detectors while making a borderline beacon (score 51)
+				// contribute materially less than a confident one (score 98).
+				scoreScale := 0.5 + 0.5*float64(maxSc)/100.0
+				composite += int(math.Round(float64(w) * scoreScale))
 			}
 		}
 		if composite == 0 {
@@ -201,8 +205,8 @@ func (a *Analyzer) aggregateRisk(_ []string) {
 			sev = model.SevLow
 		}
 
-		typeList := make([]string, 0, len(hd.types))
-		for t := range hd.types {
+		typeList := make([]string, 0, len(hd.typeMaxScore))
+		for t := range hd.typeMaxScore {
 			typeList = append(typeList, t)
 		}
 		sort.Strings(typeList)

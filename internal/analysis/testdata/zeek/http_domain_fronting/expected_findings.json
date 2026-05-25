@@ -12,10 +12,10 @@
   {
     "type": "Host Risk Score",
     "severity": "MEDIUM",
-    "score": 32,
+    "score": 30,
     "src_ip": "192.168.3.40",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 32 | Detections: [Domain Fronting]",
+    "detail": "Composite risk: 30 | Detections: [Domain Fronting]",
     "timestamp": "2024-01-15 12:00:01"
   }
 ]

@@ -1,5 +1,33 @@
 [
   {
+    "type": "Beaconing",
+    "severity": "MEDIUM",
+    "score": 50,
+    "src_ip": "192.168.1.70",
+    "dst_ip": "203.0.113.70",
+    "dst_port": "443",
+    "detail": "Connections: 5 | Mean interval: 60.0s | CV: 0.00 | Score components: ts=1.00 ds=1.00 hist=0.00 dur=0.00 | ts_layers: raw=1.00 mm=0.00 ent=0.00",
+    "timestamp": "2024-01-15 02:00:00"
+  },
+  {
+    "type": "Correlated Activity",
+    "severity": "MEDIUM",
+    "score": 50,
+    "src_ip": "192.168.1.70",
+    "dst_ip": "203.0.113.70",
+    "detail": "Multi-stage activity on (192.168.1.70 → 203.0.113.70) — Beaconing, Off-Hours Transfer | Contributing finding IDs: 1, 2",
+    "timestamp": "2024-01-15 02:00:00"
+  },
+  {
+    "type": "Host Risk Score",
+    "severity": "LOW",
+    "score": 23,
+    "src_ip": "192.168.1.70",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 23 | Detections: [Beaconing Off-Hours Transfer]",
+    "timestamp": "2024-01-15 02:00:00"
+  },
+  {
     "type": "Off-Hours Transfer",
     "severity": "MEDIUM",
     "score": 49,

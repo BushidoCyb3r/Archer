@@ -2,10 +2,10 @@
   {
     "type": "Host Risk Score",
     "severity": "MEDIUM",
-    "score": 40,
+    "score": 39,
     "src_ip": "192.168.4.10",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 40 | Detections: [Malicious JA3]",
+    "detail": "Composite risk: 39 | Detections: [Malicious JA3]",
     "timestamp": "2024-01-15 12:00:00"
   },
   {

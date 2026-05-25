@@ -124,6 +124,93 @@ func TestBeaconEmitsStructuredTriageFields(t *testing.T) {
 	}
 }
 
+// beaconExpectedSeverity returns the expected severity for a beacon finding
+// score under the four-band mapping.
+func beaconExpectedSeverity(score int) model.Severity {
+	switch {
+	case score >= 85:
+		return model.SevCritical
+	case score >= 70:
+		return model.SevHigh
+	case score >= 50:
+		return model.SevMedium
+	default:
+		return model.SevLow
+	}
+}
+
+// TestBeaconScoreSeverityInvariants runs across the beacon-heavy fixture
+// scenarios and asserts that every Beaconing / HTTP Beaconing finding
+// satisfies two invariants:
+//  1. score >= beaconMinEmitScore (emit floor enforced)
+//  2. severity is consistent with the four-band mapping
+//
+// A regression that drops the emit gate or miscodes the severity switch
+// fails here even when the golden snapshots still match (goldens project
+// Detail which wouldn't reveal a wrong Severity value).
+func TestBeaconScoreSeverityInvariants(t *testing.T) {
+	beaconScenarios := []string{
+		"testdata/zeek/beacon_url",
+		"testdata/zeek/jittered_beacon",
+		"testdata/zeek/multimode_beacon",
+		"testdata/zeek/scrambled_beacon",
+		"testdata/zeek/http_beacon",
+	}
+	for _, dir := range beaconScenarios {
+		t.Run(dir, func(t *testing.T) {
+			files := collectFixtureLogs(t, dir)
+			if len(files) == 0 {
+				t.Skip("no fixtures in", dir)
+			}
+			a := New(config.Default(), "", nil, nil)
+			a.feodoIPs = map[string]bool{}
+			a.urlhausIPs = map[string]bool{}
+			a.urlhausHosts = map[string]bool{}
+			findings := a.Analyze(files)
+			for _, f := range findings {
+				if f.Type != "Beaconing" && f.Type != "HTTP Beaconing" {
+					continue
+				}
+				if f.Score < beaconMinEmitScore {
+					t.Errorf("%s: %s score=%d < emit floor %d", dir, f.Type, f.Score, beaconMinEmitScore)
+				}
+				if want := beaconExpectedSeverity(f.Score); f.Severity != want {
+					t.Errorf("%s: %s score=%d got severity %v, want %v", dir, f.Type, f.Score, f.Severity, want)
+				}
+			}
+		})
+	}
+}
+
+// TestStrobeExcludesBeacon verifies that a pair qualifying as a Strobe does
+// not also emit a Beaconing finding. Pre-fix, strobe pairs scored near-perfect
+// timing regularity and double-alerted.
+func TestStrobeExcludesBeacon(t *testing.T) {
+	files := collectFixtureLogs(t, "testdata/zeek/strobe")
+	if len(files) == 0 {
+		t.Skip("no strobe fixtures")
+	}
+	a := New(config.Default(), "", nil, nil)
+	a.feodoIPs = map[string]bool{}
+	a.urlhausIPs = map[string]bool{}
+	a.urlhausHosts = map[string]bool{}
+	findings := a.Analyze(files)
+
+	for _, strobe := range findings {
+		if strobe.Type != "Strobe" {
+			continue
+		}
+		for _, beacon := range findings {
+			if beacon.Type == "Beaconing" &&
+				beacon.SrcIP == strobe.SrcIP &&
+				beacon.DstIP == strobe.DstIP {
+				t.Errorf("strobe pair %s→%s also emitted Beaconing (should be excluded by strobe gate)",
+					strobe.SrcIP, strobe.DstIP)
+			}
+		}
+	}
+}
+
 func hasFindingType(findings []model.Finding, t string) bool {
 	for _, f := range findings {
 		if f.Type == t {

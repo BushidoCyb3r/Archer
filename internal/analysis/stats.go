@@ -433,6 +433,23 @@ func intervalEntropyScore(intervals []float64) float64 {
 	if score > 1 {
 		score = 1
 	}
+
+	// Penalize wide log2 buckets. Bucket 8 covers [256s, 512s) — a range
+	// wide enough that "all intervals between 4 and 8 minutes" scores near
+	// 1.0 on single-bucket concentration, creating false positives for
+	// benign same-order-of-magnitude traffic (mail polling, keepalives).
+	// Scale by 128/bucketLow so the first penalized bucket (256s) gets ×0.5,
+	// and each doubling halves the score further. Sub-256s beacons are
+	// unaffected; those are already well-served by Bowley+MAD+multimodal.
+	dominantIdx := 0
+	for i, c := range counts {
+		if c > counts[dominantIdx] {
+			dominantIdx = i
+		}
+	}
+	if dominantIdx >= 8 {
+		score *= 128.0 / float64(int(1)<<dominantIdx)
+	}
 	return score
 }
 

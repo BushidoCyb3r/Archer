@@ -1,5 +1,24 @@
 [
   {
+    "type": "Beaconing",
+    "severity": "MEDIUM",
+    "score": 50,
+    "src_ip": "192.168.1.40",
+    "dst_ip": "203.0.113.50",
+    "dst_port": "443",
+    "detail": "Connections: 5 | Mean interval: 60.0s | CV: 0.00 | Score components: ts=1.00 ds=1.00 hist=0.00 dur=0.00 | ts_layers: raw=1.00 mm=0.00 ent=0.00",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Correlated Activity",
+    "severity": "HIGH",
+    "score": 66,
+    "src_ip": "192.168.1.40",
+    "dst_ip": "203.0.113.50",
+    "detail": "Multi-stage activity on (192.168.1.40 → 203.0.113.50) — Beaconing, Data Exfiltration | Contributing finding IDs: 1, 2",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
     "type": "Data Exfiltration",
     "severity": "CRITICAL",
     "score": 66,
@@ -11,10 +30,10 @@
   {
     "type": "Host Risk Score",
     "severity": "MEDIUM",
-    "score": 25,
+    "score": 44,
     "src_ip": "192.168.1.40",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 25 | Detections: [Data Exfiltration]",
+    "detail": "Composite risk: 44 | Detections: [Beaconing Data Exfiltration]",
     "timestamp": "2024-01-15 12:00:00"
   }
 ]

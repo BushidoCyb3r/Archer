@@ -4,6 +4,15 @@ import (
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
 
+// sensorPrevData tracks unique internal source IPs and unique sources per
+// external destination within one sensor's capture window. Built during
+// analyzeConn and consumed by both the conn-level and HTTP-level beacon
+// emit paths to apply a prevalence modifier.
+type sensorPrevData struct {
+	srcs    map[string]struct{}            // unique internal src IPs
+	dstSrcs map[string]map[string]struct{} // external dst → unique internal srcs
+}
+
 // sslEntry holds the SSL/TLS metadata indexed by Zeek connection UID.
 type sslEntry struct {
 	serverName string

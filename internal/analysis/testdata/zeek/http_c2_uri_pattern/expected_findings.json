@@ -12,10 +12,10 @@
   {
     "type": "Host Risk Score",
     "severity": "MEDIUM",
-    "score": 38,
+    "score": 36,
     "src_ip": "192.168.3.30",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 38 | Detections: [C2 URI Pattern]",
+    "detail": "Composite risk: 36 | Detections: [C2 URI Pattern]",
     "timestamp": "2024-01-15 12:00:00"
   }
 ]

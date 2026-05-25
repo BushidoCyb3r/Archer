@@ -2,10 +2,10 @@
   {
     "type": "Host Risk Score",
     "severity": "MEDIUM",
-    "score": 35,
+    "score": 34,
     "src_ip": "192.168.8.20",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 35 | Detections: [TI Hit (IP)]",
+    "detail": "Composite risk: 34 | Detections: [TI Hit (IP)]",
     "timestamp": "2024-01-15 12:00:00"
   },
   {

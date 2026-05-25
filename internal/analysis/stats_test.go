@@ -468,12 +468,40 @@ func TestIntervalEntropyScore(t *testing.T) {
 	})
 
 	t.Run("perfectly_concentrated_high_score", func(t *testing.T) {
-		// All 10 intervals fall in the same log2 bucket → entropy = 0,
-		// score = 1.0.
+		// All 10 intervals fall in log2 bucket 5 [32,64) → entropy = 0,
+		// no width penalty (dominantIdx=5 < 8) → score ~1.0.
 		ivs := []float64{60, 60, 60, 60, 60, 60, 60, 60, 60, 60}
 		got := intervalEntropyScore(ivs)
 		if got < 0.99 {
-			t.Errorf("single-bucket should score ~1.0, got %v", got)
+			t.Errorf("single-bucket (bucket 5, no penalty) should score ~1.0, got %v", got)
+		}
+	})
+
+	t.Run("wide_bucket_penalized", func(t *testing.T) {
+		// All intervals in [512, 1024) — log2 bucket 9. Without the width gate
+		// this would score ~1.0 on single-bucket concentration, producing false
+		// positives for "all intervals between 8 and 17 minutes" benign traffic.
+		// Penalty: score *= 128/512 = 0.25 → score ≤ 0.25.
+		ivs := make([]float64, 10)
+		for i := range ivs {
+			ivs[i] = 600 + float64(i*40) // 600..960s, all in bucket 9
+		}
+		got := intervalEntropyScore(ivs)
+		if got > 0.26 {
+			t.Errorf("bucket-9 wide intervals should score ≤ 0.25 after width penalty, got %v", got)
+		}
+	})
+
+	t.Run("boundary_bucket8_half_penalty", func(t *testing.T) {
+		// All intervals in [256, 512) — bucket 8, penalty × 0.5.
+		// Without penalty score would be ~1.0, with penalty ~0.5.
+		ivs := make([]float64, 10)
+		for i := range ivs {
+			ivs[i] = 280 + float64(i*20) // 280..460s, all in bucket 8
+		}
+		got := intervalEntropyScore(ivs)
+		if got > 0.52 {
+			t.Errorf("bucket-8 intervals should score ≤ 0.5 after ×0.5 penalty, got %v", got)
 		}
 	})
 

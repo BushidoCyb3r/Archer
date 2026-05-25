@@ -2,10 +2,10 @@
   {
     "type": "Host Risk Score",
     "severity": "LOW",
-    "score": 10,
+    "score": 8,
     "src_ip": "192.168.1.30",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 10 | Detections: [Long Connection]",
+    "detail": "Composite risk: 8 | Detections: [Long Connection]",
     "timestamp": "2024-01-15 12:00:00"
   },
   {

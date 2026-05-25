@@ -104,9 +104,9 @@ type beaconState struct {
 	// has a non-empty server_name wins. Gives enrichment a fallback
 	// when the first connection had TLS but Zeek didn't capture SNI
 	// for it (server_name == "").
-	sniCandidates  []string
-	spectralTs     []float64
-	spectralTsSeen int
+	sniCandidates []string
+	spectralTs    []float64
+	spectralHead  int // next write position in the spectralTs ring buffer
 }
 
 func (a *Analyzer) analyzeConn(files []string) {
@@ -164,6 +164,11 @@ func (a *Analyzer) analyzeConn(files []string) {
 	lateralSeen := make(map[string]struct{})
 	c2Seen := make(map[string]struct{})
 
+	// Per-sensor prevalence: unique internal sources and unique sources per
+	// external destination. Used at beacon emit time to apply the prevalence
+	// modifier, and merged into a.sensorPrev for use by analyzeHTTP.
+	localPrev := map[string]*sensorPrevData{}
+
 	// Per-sensor capture windows — drives histogram + duration scoring
 	// for beacons in this analyzer pass. Accumulated locally to avoid
 	// taking a.mu per record; merged into a.sensorWindows once at the
@@ -189,6 +194,26 @@ func (a *Analyzer) analyzeConn(files []string) {
 			if src == "" || dst == "" {
 				return true
 			}
+
+			// Track internal→external pairs for the prevalence modifier.
+			// Floor of 10 unique sources guards against small fixtures and
+			// single-host test environments where 1/1 = 100% is meaningless.
+			if isPrivateIP(src) && !isPrivateIP(dst) {
+				sp := localPrev[sensor]
+				if sp == nil {
+					sp = &sensorPrevData{
+						srcs:    make(map[string]struct{}),
+						dstSrcs: make(map[string]map[string]struct{}),
+					}
+					localPrev[sensor] = sp
+				}
+				sp.srcs[src] = struct{}{}
+				if sp.dstSrcs[dst] == nil {
+					sp.dstSrcs[dst] = make(map[string]struct{})
+				}
+				sp.dstSrcs[dst][src] = struct{}{}
+			}
+
 			ts := parser.GetFloat(rec, "ts")
 			dur := parser.GetFloat(rec, "duration")
 			origB := parser.GetFloat(rec, "orig_bytes")
@@ -369,7 +394,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 					if e.ts > 0 {
 						st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{e.ts, e.origB, e.respB}, beaconTsCap)
 						st.hourMap[int(e.ts)/3600]++
-						st.spectralTs, st.spectralTsSeen = reservoirAddF(st.spectralTs, st.spectralTsSeen, e.ts, spectralTsCap)
+						appendSpectralRing(&st.spectralTs, &st.spectralHead, e.ts)
 					}
 				}
 				// Collect SNI candidate UIDs from pre-beacon records (in
@@ -415,7 +440,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 			if ts > 0 {
 				st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{ts, origB, respB}, beaconTsCap)
 				st.hourMap[int(ts)/3600]++
-				st.spectralTs, st.spectralTsSeen = reservoirAddF(st.spectralTs, st.spectralTsSeen, ts, spectralTsCap)
+				appendSpectralRing(&st.spectralTs, &st.spectralHead, ts)
 			}
 			if !wasNew && uid != "" && len(st.sniCandidates) < sniCandidateCap {
 				st.sniCandidates = append(st.sniCandidates, uid)
@@ -438,6 +463,9 @@ func (a *Analyzer) analyzeConn(files []string) {
 		}
 		a.sensorWindows[s] = aw
 	}
+	for s, sp := range localPrev {
+		a.sensorPrev[s] = sp
+	}
 	a.mu.Unlock()
 
 	// ── Beaconing ────────────────────────────────────────────────────────────
@@ -448,6 +476,12 @@ func (a *Analyzer) analyzeConn(files []string) {
 			continue
 		}
 		if len(st.ivs) < 3 {
+			continue
+		}
+		// A pair that already fired the Strobe detector has near-perfect timing
+		// regularity by definition — if not excluded it double-alerts and inflates
+		// the score. The strobe detector is the right surface for that signal.
+		if strobeCounts[strobeKey{pk.sensor, pk.src, pk.dst}] >= a.cfg.StrobeMinConnections {
 			continue
 		}
 
@@ -524,13 +558,39 @@ func (a *Analyzer) analyzeConn(files []string) {
 		hScore, _ := histScoreFromHourMap(st.hourMap, w.min, w.max)
 		durScore := durationScoreFromHourMap(st.hourMap, st.minTs, st.maxTs, w.min, w.max, 6)
 
-		score := clamp(int(100*(tsScore*0.25+dsScore*0.25+hScore*0.25+durScore*0.25)), 1, 100)
+		// Prevalence modifier: suppress common destinations (contacted by ≥50% of
+		// internal hosts — likely telemetry/update servers) and boost rare ones
+		// (≤2% on large networks). Requires ≥10 unique internal sources before
+		// activating; small fixtures and single-host environments skip it.
+		var prevDetail string
+		prevalenceMod := 1.0
+		if sp := localPrev[pk.sensor]; sp != nil && len(sp.srcs) >= 10 {
+			uniqueSrcs := len(sp.dstSrcs[pk.dst])
+			totalSrcs := len(sp.srcs)
+			ratio := float64(uniqueSrcs) / float64(totalSrcs)
+			if ratio >= 0.50 {
+				prevalenceMod = 0.85
+				prevDetail = fmt.Sprintf(" | Prevalence: %d/%d (%.0f%%) — common dst, score dampened", uniqueSrcs, totalSrcs, ratio*100)
+			} else if totalSrcs >= 50 && ratio <= 0.02 {
+				prevalenceMod = 1.15
+				prevDetail = fmt.Sprintf(" | Prevalence: %d/%d (<2%%) — rare dst, score boosted", uniqueSrcs, totalSrcs)
+			}
+		}
+		score := clamp(int(100*(tsScore*0.25+dsScore*0.25+hScore*0.25+durScore*0.25)*prevalenceMod), 1, 100)
 
+		if score < beaconMinEmitScore {
+			continue
+		}
 		var sev model.Severity
-		if score >= 80 {
+		switch {
+		case score >= 85:
 			sev = model.SevCritical
-		} else {
+		case score >= 70:
 			sev = model.SevHigh
+		case score >= 50:
+			sev = model.SevMedium
+		default: // 40–49
+			sev = model.SevLow
 		}
 
 		ivCV := intervalCV(ivs, ivMean)
@@ -549,6 +609,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 					spectralResult.DominantPeriod, spectralResult.DominantPeriod/ivMedian)
 			}
 		}
+		detail += prevDetail
 		// SNI/JA3/JA4 enrichment is deferred to enrichBeaconSNI(), which
 		// runs after wg1.Wait() when sslUIDIndex is fully populated and
 		// there is no race with analyzeSSL.
@@ -672,6 +733,33 @@ func reservoirAddF(buf []float64, seen int, v float64, capN int) ([]float64, int
 		}
 	}
 	return buf, seen + 1
+}
+
+// beaconMinEmitScore is the minimum composite score (0-100) required before
+// a Beaconing or HTTP Beaconing finding is emitted. Pairs scoring below this
+// threshold are discarded — the statistical signal is too weak to distinguish
+// from coincidental same-order-of-magnitude traffic variance.
+//
+// Set to 40 rather than RITA's 50 because Archer's histogram and duration
+// subscores return 0 for observation windows shorter than 6 active hours,
+// depressing scores for real short-window beacons that RITA would score
+// higher across a full 24h window. Score 40+ over a short window is still
+// a meaningful signal.
+const beaconMinEmitScore = 40
+
+// appendSpectralRing appends ts to the ring buffer backed by buf/head,
+// replacing the oldest entry once the buffer reaches spectralTsCap.
+// Unlike the reservoir used for distributional statistics (Bowley/MAD),
+// periodicity analysis requires the arrangement of timestamps — a random
+// thin of a 10,000-event beacon degrades the LS peak nonlinearly. The ring
+// retains the most recent spectralTsCap events in arrival order.
+func appendSpectralRing(buf *[]float64, head *int, ts float64) {
+	if len(*buf) < spectralTsCap {
+		*buf = append(*buf, ts)
+	} else {
+		(*buf)[*head] = ts
+		*head = (*head + 1) % spectralTsCap
+	}
 }
 
 func reservoirAddT(buf [][3]float64, seen int, v [3]float64, capN int) ([][3]float64, int) {

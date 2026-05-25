@@ -2,10 +2,10 @@
   {
     "type": "Host Risk Score",
     "severity": "LOW",
-    "score": 20,
+    "score": 18,
     "src_ip": "192.168.1.50",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 20 | Detections: [Lateral Movement]",
+    "detail": "Composite risk: 18 | Detections: [Lateral Movement]",
     "timestamp": "2024-01-15 12:00:00"
   },
   {

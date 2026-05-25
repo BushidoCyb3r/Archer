@@ -1,7 +1,7 @@
 [
   {
     "type": "HTTP Beaconing",
-    "severity": "HIGH",
+    "severity": "MEDIUM",
     "score": 50,
     "src_ip": "192.168.3.60",
     "dst_ip": "203.0.113.105",
@@ -11,11 +11,11 @@
   },
   {
     "type": "Host Risk Score",
-    "severity": "MEDIUM",
-    "score": 28,
+    "severity": "LOW",
+    "score": 21,
     "src_ip": "192.168.3.60",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 28 | Detections: [HTTP Beaconing]",
+    "detail": "Composite risk: 21 | Detections: [HTTP Beaconing]",
     "timestamp": "2024-01-15 12:00:00"
   }
 ]

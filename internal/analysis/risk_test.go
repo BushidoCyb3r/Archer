@@ -112,10 +112,13 @@ func TestAggregateRisk_UnionsHistoricalFindings(t *testing.T) {
 	if hrsA == nil {
 		t.Fatal("expected fresh Host Risk Score for 10.0.0.1 (the quiet-this-run host with historical detections); got none")
 	}
-	// 10.0.0.1 has Beaconing (30) + TI Hit (Domain) (35) = 65 raw,
-	// below the damping threshold so the score is the identity.
-	if hrsA.Score != 65 {
-		t.Errorf("10.0.0.1 HRS = %d; want 65 (Beaconing 30 + TI Hit Domain 35, identity below threshold)", hrsA.Score)
+	// 10.0.0.1 has Beaconing (score=60) + TI Hit (Domain) (score=50).
+	// New formula: weight × (0.5 + 0.5×score/100).
+	//   Beaconing:       30 × (0.5 + 0.3)  = 24
+	//   TI Hit (Domain): 35 × (0.5 + 0.25) = 26.25 → 26 (Round)
+	//   composite = 50; below dampen threshold → identity.
+	if hrsA.Score != 50 {
+		t.Errorf("10.0.0.1 HRS = %d; want 50 (Beaconing×0.8 + TI Hit Domain×0.75)", hrsA.Score)
 	}
 	// firstTS should come from the earliest contributing finding —
 	// proves the union path runs through contribute()'s timestamp
@@ -126,8 +129,9 @@ func TestAggregateRisk_UnionsHistoricalFindings(t *testing.T) {
 	if hrsB == nil {
 		t.Fatal("expected Host Risk Score for 10.0.0.2 (the fresh-this-run host); got none")
 	}
-	if hrsB.Score != 30 {
-		t.Errorf("10.0.0.2 HRS = %d; want 30 (Beaconing alone)", hrsB.Score)
+	// 10.0.0.2 has Beaconing (score=60): 30 × 0.8 = 24.
+	if hrsB.Score != 24 {
+		t.Errorf("10.0.0.2 HRS = %d; want 24 (Beaconing weight×scoreScale)", hrsB.Score)
 	}
 }
 

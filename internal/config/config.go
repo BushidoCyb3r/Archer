@@ -172,7 +172,7 @@ type Config struct {
 
 func Default() Config {
 	return Config{
-		BeaconMinConnections:  10,
+		BeaconMinConnections:  4,
 		HTTPBeaconMinRequests: 8,
 		LongConnMinHours:      1.0,
 		StrobeMinConnections:  1000,

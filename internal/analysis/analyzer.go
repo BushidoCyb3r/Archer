@@ -110,6 +110,11 @@ type Analyzer struct {
 	// them in multi-sensor deployments.
 	defaultSensor string
 
+	// sensorPrev holds the per-sensor prevalence maps built during analyzeConn.
+	// Read by analyzeHTTP (phase 2) to apply the same prevalence modifier to
+	// HTTP Beaconing findings. Protected by a.mu.
+	sensorPrev map[string]*sensorPrevData
+
 	// spectralBlocked counts pairs where the plausibility gate rejected the
 	// only strong periodogram peak this run (fully-blocked rescues). Reset
 	// at the start of each Analyze call; read after Analyze via
@@ -143,6 +148,7 @@ func New(cfg config.Config, logsDir string, progressCh chan<- ProgressEvent, sta
 		sensorWindows:  make(map[string]sensorWindow),
 		sslUIDIndex:    make(map[string]sslEntry),
 		beaconSNINeeds: make(map[pairKey][]string),
+		sensorPrev:     make(map[string]*sensorPrevData),
 		ctx:            ctx,
 		cancel:         cancel,
 		resumeCh:       resumeCh,

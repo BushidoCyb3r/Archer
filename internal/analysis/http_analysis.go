@@ -67,14 +67,14 @@ type httpBeaconState struct {
 	// tsData feeds the Beacon Chart's Timeline / Interval / Bytes views.
 	// Reservoir-sampled (ts, origBytes, respBytes) triples — same shape
 	// the conn-level beacon detector emits, capped at beaconTsCap.
-	tsData         [][3]float64
-	tsSeen         int
-	hourMap        map[int]int
-	minTs          float64
-	maxTs          float64
-	firstTs        float64
-	spectralTs     []float64
-	spectralTsSeen int
+	tsData       [][3]float64
+	tsSeen       int
+	hourMap      map[int]int
+	minTs        float64
+	maxTs        float64
+	firstTs      float64
+	spectralTs   []float64
+	spectralHead int // next write position in the spectralTs ring buffer
 }
 
 func csChecksum8(uri string) int {
@@ -331,7 +331,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 							if e.ts > 0 {
 								st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{e.ts, e.origB, e.respB}, beaconTsCap)
 								st.hourMap[int(e.ts)/3600]++
-								st.spectralTs, st.spectralTsSeen = reservoirAddF(st.spectralTs, st.spectralTsSeen, e.ts, spectralTsCap)
+								appendSpectralRing(&st.spectralTs, &st.spectralHead, e.ts)
 							}
 						}
 						delete(preBeaconRecs, bk)
@@ -367,7 +367,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 					if ts > 0 {
 						st.tsData, st.tsSeen = reservoirAddT(st.tsData, st.tsSeen, [3]float64{ts, origB, respB}, beaconTsCap)
 						st.hourMap[int(ts)/3600]++
-						st.spectralTs, st.spectralTsSeen = reservoirAddF(st.spectralTs, st.spectralTsSeen, ts, spectralTsCap)
+						appendSpectralRing(&st.spectralTs, &st.spectralHead, ts)
 					}
 				}
 			}
@@ -484,17 +484,38 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 		hScore, _ := histScoreFromHourMap(st.hourMap, w.min, w.max)
 		durScore := durationScoreFromHourMap(st.hourMap, st.minTs, st.maxTs, w.min, w.max, 6)
 
-		score := int(100 * (tsScore*0.25 + dsScore*0.25 + hScore*0.25 + durScore*0.25))
-		if score < 1 {
+		var prevDetail string
+		prevalenceMod := 1.0
+		a.mu.RLock()
+		sp := a.sensorPrev[bk.sensor]
+		a.mu.RUnlock()
+		if sp != nil && len(sp.srcs) >= 10 {
+			uniqueSrcs := len(sp.dstSrcs[bk.dst])
+			totalSrcs := len(sp.srcs)
+			ratio := float64(uniqueSrcs) / float64(totalSrcs)
+			if ratio >= 0.50 {
+				prevalenceMod = 0.85
+				prevDetail = fmt.Sprintf(" | Prevalence: %d/%d (%.0f%%) — common dst, score dampened", uniqueSrcs, totalSrcs, ratio*100)
+			} else if totalSrcs >= 50 && ratio <= 0.02 {
+				prevalenceMod = 1.15
+				prevDetail = fmt.Sprintf(" | Prevalence: %d/%d (<2%%) — rare dst, score boosted", uniqueSrcs, totalSrcs)
+			}
+		}
+		score := clamp(int(100*(tsScore*0.25+dsScore*0.25+hScore*0.25+durScore*0.25)*prevalenceMod), 1, 100)
+
+		if score < beaconMinEmitScore {
 			continue
 		}
-		score = clamp(score, 1, 100)
-
 		var sev model.Severity
-		if score >= 80 {
+		switch {
+		case score >= 85:
 			sev = model.SevCritical
-		} else {
+		case score >= 70:
 			sev = model.SevHigh
+		case score >= 50:
+			sev = model.SevMedium
+		default: // 40–49
+			sev = model.SevLow
 		}
 
 		tsData := make([][3]float64, len(st.tsData))
@@ -511,6 +532,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 					spectralResult.DominantPeriod, spectralResult.DominantPeriod/ivMedian)
 			}
 		}
+		detail += prevDetail
 		a.add(model.Finding{
 			Type:            "HTTP Beaconing",
 			Severity:        sev,
