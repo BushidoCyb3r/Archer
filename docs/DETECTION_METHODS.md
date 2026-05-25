@@ -91,11 +91,12 @@ A pair is only scored if it has at least `BeaconMinConnections` connections
 Each sub-score is in `[0, 1]`. The final beacon score is
 
 ```
-beacon_score = 100 × (0.25·ts_score + 0.25·ds_score + 0.25·hist_score + 0.25·dur_score)
+beacon_score = clamp(100 × (0.25·ts + 0.25·ds + 0.25·hist + 0.25·dur) × prevalence_mod × conf_mod, 1, 100)
 ```
 
-clamped to `[1, 100]`, then adjusted by the prevalence modifier (§2.2(e)).
-Pairs scoring below 40 after the modifier are suppressed — no finding is
+`prevalence_mod` is the per-destination prevalence adjustment (§2.2(e)).
+`conf_mod` is the sample-size confidence modifier (§2.2(f)).
+Pairs scoring below 40 after both modifiers are suppressed — no finding is
 emitted. Severity of emitted findings:
 
 | Score range | Severity |
@@ -131,6 +132,13 @@ bowley_score = 1 − |B|
 
 so a perfectly symmetric distribution gives 1.0 and a maximally skewed one
 gives 0.
+
+**Stability guard.** If `Q3 − Q1 < 0.05 × Q2` (IQR less than 5% of the
+median), the denominator is near-zero relative to the scale of the
+distribution and Bowley returns 1.0 instead of dividing. The threshold
+is relative so it is correct at both sub-second strobe timescales and
+multi-hour slow-C2 timescales — an absolute-seconds threshold would
+misfire on one end or the other.
 
 **Median Absolute Deviation on intervals.** MAD is the median of
 `|x_i − median(x)|`. Where the standard deviation is destroyed by a single
@@ -309,11 +317,18 @@ the bytes-per-connection distribution is also tight. The default MAD score
 when there are no bytes is `0.0` (i.e., we *don't* give credit for absent
 data, unlike timing where we default to 1.0).
 
-#### (c) hist_score — calendar-time uniformity
+#### (c) hist_score — circadian hour-of-day uniformity
 
-The dataset is sliced into 24 equal-width buckets between the dataset's
-earliest and latest timestamps. For this pair, every connection lands in one
-bucket. We then compute two scores and take the higher:
+Connections are bucketed by **hour of day** (`timestamp_hour % 24`),
+producing 24 fixed clock-hour buckets (0 = midnight, 12 = noon). This is
+window-length-independent: a beacon that fires only at 2am every day for
+30 days populates a single bucket (low `hist_score`), while a beacon
+active across all hours of the day scores high. Previously this used 24
+equal-width bins spanning the full capture window, making `hist_score` and
+`dur_score` measure the same window-coverage signal on long captures.
+
+For this pair, every connection lands in its clock-hour bucket. We then
+compute two scores and take the higher:
 
 **Coefficient-of-Variation score.** Over the buckets that have at least one
 hit (`n ≥ 2`),
@@ -348,14 +363,20 @@ distribution is broad and recurring rather than a one-off spike.
 #### (d) dur_score — temporal persistence
 
 Did the beacon run across the whole capture, or was it active only for a brief
-window? Two scores, take the max:
+window? Two scores, take the max.
+
+Note: `dur_score` uses **window-relative** 24 buckets (evenly dividing the
+full dataset time span), distinct from the clock-hour buckets `hist_score`
+uses. On a one-day capture the two coincide; on a 30-day capture each
+`dur_score` bucket spans 30 hours, so the two axes measure genuinely different
+things.
 
 **Coverage.** `coverage = (last_ts − first_ts) / (dataset_max − dataset_min)`.
 A beacon that's active end-to-end gets 1.0.
 
-**Longest-consecutive-bucket run.** Walk the 24 buckets from start to end. The
-longest run of consecutive non-empty buckets, divided by 12, is the
-"consistency" score (clamped to 1.0). A run of 12 consecutive non-empty
+**Longest-consecutive-bucket run.** Walk the 24 window-relative buckets from
+start to end. The longest run of consecutive non-empty buckets, divided by 12,
+is the "consistency" score (clamped to 1.0). A run of 12 consecutive non-empty
 buckets ≈ half the capture window of continuous activity.
 
 `dur_score = max(coverage, consistency)`. Below 6 populated buckets total
@@ -386,13 +407,36 @@ The modifier uses prevalence data built from `conn.log` Phase 1 observations.
 HTTP Beaconing reads the same map. For HTTP-only analysis runs (no conn.log),
 no prevalence adjustment is applied.
 
+#### (f) conf_mod — sample-size confidence
+
+A beacon scored from 4 connections carries far more uncertainty than one
+scored from 400. `conf_mod` scales the composite down for low-sample
+observations and converges to 1.0 at full confidence:
+
+```
+conf_mod = 0.5 + 0.5 × clamp( (n − minN) / 96, 0, 1 )
+```
+
+where `n` is the observed connection count and `minN` is the configured
+minimum (`BeaconMinConnections`, `HTTPBeaconMinRequests`, or
+`DNSBeaconMinQueries` depending on the detector). At exactly the minimum,
+`conf_mod = 0.5` and the composite is halved. At `minN + 96` and above,
+`conf_mod = 1.0` and the score is unaffected. Beacons at low counts with
+composite × 0.5 below 40 are suppressed entirely — no finding is emitted.
+
+The current modifier value appears in the detail string as `conf=<value>`.
+Re-analyzing a corpus with few-connection pairs will lower their scores;
+pairs that depended on the full composite to clear the emit floor may
+disappear. That is the intended behaviour — a 4-connection "beacon" is not
+actionable evidence.
+
 ### 2.3 Detail line interpretation
 
 A finding might read:
 
 ```
 Connections: 1287 | Mean interval: 60.3s | CV: 0.04 |
-Score components: ts=0.97 ds=0.95 hist=0.91 dur=1.00 |
+Score components: ts=0.97 ds=0.95 hist=0.91 dur=1.00 conf=1.00 |
 ts_layers: raw=0.97 mm=0.00 ent=0.91
 ```
 
@@ -672,10 +716,11 @@ like in this analysis window."
 **Where.** `internal/analysis/http_analysis.go`.
 
 Same four-axis scoring as TCP beaconing, but the grouping key is
-`(src, dst, host, uri)` rather than just `(src, dst)`. The minimum connection
+`(src, dst, host, uri)` rather than just `(src, dst)`. The minimum request
 count is `HTTPBeaconMinRequests` (default 8). Otherwise the math is identical:
-Bowley + MAD on intervals, Bowley + MAD on `orig_ip_bytes`, the same 24-bucket
-histogram, and the same persistence test.
+Bowley + MAD on intervals, Bowley + MAD on `orig_ip_bytes`, the same circadian
+hour-of-day histogram, the same persistence test, and the same `conf_mod`
+sample-size modifier with `HTTPBeaconMinRequests` as the base.
 
 The DGA hostname augmentation (see §2.5) applies on the `host`
 component of the (src, host, uri) key — HTTP Beaconing
@@ -692,22 +737,27 @@ Cobalt Strike, Sliver, Mythic, and most red-team frameworks.
 **What it is.** One source talks to one destination an *enormous* number of
 times. Worm propagation, scan loops, and malformed clients all look like this.
 
-**Formula.** For each `(src, dst)` pair count connections. If
-`count ≥ StrobeMinConnections` (default 1000), emit:
+**Formula.** For each `(src, dst)` pair, both conditions must hold:
+
+- `count ≥ StrobeMinConnections` (default 100) — count floor
+- `count / span ≥ StrobeMinRatePerSec` (default 0.5/s) — rate gate
+
+where `span` is `last_timestamp − first_timestamp` for the pair. If either
+condition fails the pair is not classified as Strobe. The rate gate is the
+primary discriminator: a slow C2 beacon firing once a minute for 30 days has
+count 43 200 (above any count threshold) but rate ≈ 0.017/s (well below
+0.5/s), so it is correctly left for the Beaconing detector.
 
 ```
 score = clamp( 50 + 15·log10(count), 1, 88 )
 ```
 
-Logarithmic scaling is used so 10 000 connections vs 100 000 still produces
-distinguishable scores without saturating immediately.
+The detail string reports both count and rate: `Connection count: N | Rate: R/s (threshold: ≥0.5/s)`.
 
-**Strobe suppresses Beaconing.** A pair that emits a Strobe finding is
-excluded from the Beaconing analyzer's output. A strobe is a degenerate
-beacon — connection counts are so high that the regularity test would
-trivially score well, but the finding type is already the more specific and
-actionable one. Emitting both would produce two findings for the same
-underlying event.
+**Strobe suppresses Beaconing.** A pair where Strobe fires (both conditions
+met) is excluded from the Beaconing analyzer's output. A pair where only the
+count floor is met but the rate gate fails is passed to the Beaconing analyzer
+— it is a slow beacon, not a strobe.
 
 ---
 
@@ -922,8 +972,10 @@ under one key and read as periodic.
 **Calibration.** `DNSBeaconMinQueries` (Settings → DNS → *DNS Beacon
 Min Queries*, default 20) is the sample-size floor — the minimum
 queries to a `(src, apex)` before scoring, analogous to
-`BeaconMinConnections`. The timing/spectral math reuses the global
-beacon knobs; there are no DNS-beacon-specific scoring knobs.
+`BeaconMinConnections`. The same `conf_mod` sample-size modifier (§2.2(f))
+applies, using `DNSBeaconMinQueries` as the base. The timing/spectral math
+reuses the global beacon knobs; there are no DNS-beacon-specific scoring
+knobs.
 
 **What it misses.** A beacon resolving via DoH is invisible to
 `dns.log` entirely (no query records to time) — a separate JA3/SNI
@@ -1496,17 +1548,46 @@ Hit` type from pre-v0.7.0 findings also weights 35 for backward
 compatibility.)
 
 For each host, the composite scales each type's weight by the highest-scoring
-finding of that type observed on the host:
+finding of that type and by the count of distinct destination IPs that type
+fired on:
 
 ```
-contribution(t) = round( weight(t) × (0.5 + 0.5 × maxScore(t) / 100) )
-composite       = min( 99, Σ contribution(t) for t in distinct_detection_types )
+scoreScale(t)  = 0.5 + 0.5 × maxScore(t) / 100
+multiMod(t)    = min( 1 + 0.5 · log₂(n_dsts(t)), 3.0 )
+contribution(t) = round( weight(t) × scoreScale(t) × multiMod(t) )
+composite       = dampenComposite( Σ contribution(t) )
 ```
 
-At the maximum finding score (100) a type contributes its full weight. At
-score 1 it contributes half the weight. At score 60 it contributes 80%. This
-prevents a marginal low-confidence beacon (score 42) from contributing as
-much as a textbook high-confidence one (score 98) to a host's risk posture.
+`n_dsts(t)` is the number of distinct `DstIP` values for findings of type `t`
+on this host (across both this run and the historical store union). For a
+single destination, `multiMod = 1.0` and the behaviour is identical to the
+pre-multiplicity formula. For two distinct destinations, `multiMod = 1.5`; for
+four, `multiMod = 2.0`; the cap of 3.0 prevents runaway accumulation.
+
+The rationale: a host beaconing to three distinct C2 servers is materially
+worse than one beaconing to one, even if each individual finding scores the
+same. Type dedup (taking only the max score) was deliberately kept to answer
+"how many independent *kinds* of bad behavior" — the multiplicity modifier adds
+"at how many distinct *targets*" without re-introducing per-finding counting.
+The same DstIP appearing via both the fresh emission set and the historical
+union counts once (set dedup).
+
+When a type fires against more than one destination its entry in the detail
+string is annotated: `TI Hit (IP)×3` means three distinct IPs triggered that
+detector.
+
+**Score dampening.** Rather than a hard clamp at 99, raw composites above 75
+follow an asymptotic curve:
+
+```
+dampen(raw) = 75 + 24 × (1 − exp( −(raw − 75) / 50 ))   for raw > 75
+dampen(raw) = raw                                          for raw ≤ 75
+```
+
+Concrete values: raw=100 → 84, raw=150 → 94, raw=200 → 97, raw=400 → 99.
+This preserves rank-order at the high end — two heavily-saturated hosts can
+still be compared — while preventing any host from pinning at 100 (reserved
+for exact-match detectors like known JA3 hashes).
 
 Severity buckets:
 
@@ -1514,13 +1595,6 @@ Severity buckets:
 - ≥ 50 → High
 - ≥ 25 → Medium
 - < 25 → Low
-
-The clamp at 99 means the score saturates rather than ever hitting 100, so
-"100" is reserved for exact pattern matches (e.g., a known JA3) rather than
-emergent composite signals. Note that *distinct* types contribute — two
-Beaconing findings against the same host count once, not twice. This is
-deliberate: the host-risk view answers "how many independent kinds of bad
-behavior is this host exhibiting," not "how loud is each one."
 
 **Status filtering is deliberately absent from `aggregateRisk`.** Dismissed
 findings still contribute to HRS. Dismiss is a lightweight reversible

@@ -246,7 +246,7 @@ like:
 
 ```
 Connections: 200 | Mean interval: 60.4s | CV: 0.32 |
-Score components: ts=0.62 ds=0.85 hist=0.71 dur=0.40 |
+Score components: ts=0.62 ds=0.85 hist=0.71 dur=0.40 conf=1.00 |
 Spectral rescued: score=0.91 (dominant period 60.3s, power 37.2, FAP threshold 12.0)
 ```
 
