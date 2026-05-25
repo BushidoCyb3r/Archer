@@ -7,6 +7,7 @@
   let _allFindings     = [];
   let _deltaMode       = false;
   let _selectedFinding = null;
+  let _pivotCtx        = null; // {type:'host'|'campaign', label, hrs?, findings[]}
   let _ctxFinding      = null;
   let _watchActive     = false;
   let _tabMode         = 'findings'; // 'findings' | 'ack' | 'esc' | 'ioc' | 'dismissed' (drives findings-table filter)
@@ -2523,6 +2524,11 @@
     const exportBtn = document.getElementById('export-notes-btn');
     if (exportBtn) {
       exportBtn.addEventListener('click', () => {
+        if (_pivotCtx) {
+          if (_pivotCtx.type === 'host') _downloadHostPivotText(_pivotCtx.label, _pivotCtx.hrs, _pivotCtx.findings);
+          else                           _downloadCampaignPivotText(_pivotCtx.label, _pivotCtx.findings);
+          return;
+        }
         if (!_selectedFinding) return;
         _downloadFindingText(_selectedFinding);
       });
@@ -2592,6 +2598,56 @@
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  const _TI_TYPES_EXPORT = new Set(['TI Hit (IP)', 'TI Hit (Domain)', 'TI Hit (Hash)', 'Threat Intel Hit']);
+
+  function _downloadHostPivotText(ip, hrs, findings) {
+    const sep = '────────────────────────────────────────────────────────────';
+    const lines = [`Archer Host Risk Summary — ${ip}`, sep];
+    if (hrs) {
+      lines.push(`Composite Risk: ${hrs.score}  [${hrs.severity}]`);
+      lines.push(`Detail: ${hrs.detail || ''}`);
+    }
+    lines.push('', `CONTACT SET (${findings.length})`, sep);
+    findings.forEach(f => {
+      const dst = f.dst_ip ? (f.dst_ip + (f.dst_port ? ':' + f.dst_port : '')) : '';
+      lines.push(`[${f.score | 0}] ${f.type}   ${dst}   ${(f.timestamp || '').slice(0, 16)}`);
+      if (f.detail) lines.push(`  ${f.detail}`);
+    });
+    const tiHits = findings.filter(f => _TI_TYPES_EXPORT.has(f.type));
+    lines.push('', `TI RESULTS (${tiHits.length})`, sep);
+    if (tiHits.length === 0) {
+      lines.push('(no threat intel matches)');
+    } else {
+      tiHits.forEach(f => {
+        const dst = f.dst_ip ? (f.dst_ip + (f.dst_port ? ':' + f.dst_port : '')) : '';
+        lines.push(`${f.type}   ${dst}   ${(f.timestamp || '').slice(0, 16)}`);
+        if (f.detail) lines.push(`  ${f.detail}`);
+      });
+    }
+    _downloadBlob(`archer-host-${ip}-${_ts()}.txt`, 'text/plain', lines.join('\n'));
+  }
+
+  function _downloadCampaignPivotText(label, findings) {
+    const sep = '────────────────────────────────────────────────────────────';
+    const lines = [`Archer Campaign — ${label}`, sep, `Findings (${findings.length})`, sep];
+    findings.forEach(f => {
+      lines.push(`[${f.score | 0}] ${f.type}   ${f.src_ip || ''}   ${(f.timestamp || '').slice(0, 16)}`);
+      if (f.detail) lines.push(`  ${f.detail}`);
+    });
+    const tiHits = findings.filter(f => _TI_TYPES_EXPORT.has(f.type));
+    lines.push('', `TI RESULTS (${tiHits.length})`, sep);
+    if (tiHits.length === 0) {
+      lines.push('(no threat intel matches)');
+    } else {
+      tiHits.forEach(f => {
+        lines.push(`${f.type}   ${f.src_ip || ''}   ${(f.timestamp || '').slice(0, 16)}`);
+        if (f.detail) lines.push(`  ${f.detail}`);
+      });
+    }
+    const safeLabel = label.replace(/[^a-zA-Z0-9._-]/g, '_');
+    _downloadBlob(`archer-campaign-${safeLabel}-${_ts()}.txt`, 'text/plain', lines.join('\n'));
   }
 
   function copyPCAP(f) {
@@ -4512,9 +4568,11 @@
         .filter(x => x.src_ip === ip && !_isHostFinding(x) && x.type !== 'Correlated Activity')
         .sort((a, b) => b.score - a.score);
       _selectedFinding = hrs || null;
+      _pivotCtx = {type: 'host', label: ip, hrs: hrs || null, findings: contactFindings};
       if (_isDockCollapsed()) _setDockCollapsed(false, false);
       Detail.renderHostPivot(ip, hrs, contactFindings, f => {
         _selectedFinding = f;
+        _pivotCtx = null;
         if (_isDockCollapsed()) _setDockCollapsed(false, false);
         Detail.render(f);
       });
@@ -4526,9 +4584,11 @@
         .filter(x => x.dst_ip === dst && (x.dst_port || '') === (port || '') && !_isHostFinding(x))
         .sort((a, b) => b.score - a.score);
       _selectedFinding = null;
+      _pivotCtx = {type: 'campaign', label: port ? `${dst}:${port}` : dst, findings: campaignFindings};
       if (_isDockCollapsed()) _setDockCollapsed(false, false);
       Detail.renderCampaignPivot(dst, port, campaignFindings, f => {
         _selectedFinding = f;
+        _pivotCtx = null;
         if (_isDockCollapsed()) _setDockCollapsed(false, false);
         Detail.render(f);
       });
