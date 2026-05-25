@@ -1292,6 +1292,27 @@ notes for the same hit — once a fingerprint has been seen, `SetFindings`
 carries it forward as `IsNew=false` and the cross-annotation loop skips
 it.
 
+### 12.8 TI Results tab
+
+The detail dock's **TI Results** tab consolidates all threat-intel
+evidence for whatever is currently in view:
+
+- **Direct TI Hit finding.** When an analyst selects a `TI Hit (IP)`,
+  `TI Hit (Domain)`, or `TI Hit (Hash)` row, the finding's own detail is
+  synthesised into a TI Results entry (author = the finding type,
+  text = the detail string). The cross-annotation notes from §12.7 appear
+  alongside it for any sibling findings already annotated.
+- **Host pivot.** Opening a host row in the Hosts tab renders the full
+  contact set; the TI Results tab is populated with every TI Hit in that
+  contact set and badged with the count.
+- **Campaign pivot.** Opening a campaign row in the Campaigns tab renders
+  the per-destination finding list; TI Results is populated with every TI
+  Hit targeting that destination.
+
+In all three modes, non-TI-Enrichment notes remain in the **Analyst
+Notes** tab and TI cross-annotations route to **TI Results** — the
+partition is `author === "TI Enrichment"` in the notes array.
+
 ### 12.8 Notification suppression
 
 TI Hit notifications still fire for new hits (any flavor), but `Host Risk
@@ -1639,7 +1660,7 @@ Severity Critical (≥ 85). The detail line will read approximately:
 
 ```
 Connections: 1287 | Mean interval: 60.3s | CV: 0.01 |
-Score components: ts=1.00 ds=0.97 hist=0.92 dur=1.00
+Score components: ts=1.00 ds=0.97 hist=0.92 dur=1.00 conf=1.00
 ```
 
 That same host might also pick up a `C2 Port` finding (port 443 is not on
