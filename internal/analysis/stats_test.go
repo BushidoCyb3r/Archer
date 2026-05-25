@@ -348,6 +348,112 @@ func TestDurationScore(t *testing.T) {
 	})
 }
 
+// TestHistScoreFromHourMapCircadian verifies that histScoreFromHourMap measures
+// hour-of-day distribution, not window-relative spread. The same circadian
+// activity pattern must produce the same hScore regardless of how many days the
+// capture covers. Under the old window-relative bucketing, the 24-hour case and
+// the 30-day case produced different scores because each bucket spanned a
+// different wall-clock interval.
+func TestHistScoreFromHourMapCircadian(t *testing.T) {
+	// Uniform activity across all 24 hours-of-day.
+	shortMap := make(map[int]int) // 1-day capture, absolute hours 0–23
+	for hr := 0; hr < 24; hr++ {
+		shortMap[hr] = 10
+	}
+	longMap := make(map[int]int) // 30-day capture, 720 absolute hour indices
+	for day := 0; day < 30; day++ {
+		for hod := 0; hod < 24; hod++ {
+			longMap[day*24+hod] = 10
+		}
+	}
+
+	shortScore, shortBars := histScoreFromHourMap(shortMap)
+	longScore, longBars := histScoreFromHourMap(longMap)
+
+	if shortBars != 24 {
+		t.Errorf("1-day: totalBars = %d, want 24", shortBars)
+	}
+	if longBars != 24 {
+		t.Errorf("30-day: totalBars = %d, want 24", longBars)
+	}
+	if shortScore != longScore {
+		t.Errorf("same circadian pattern: 1-day score=%v, 30-day score=%v — should be equal", shortScore, longScore)
+	}
+}
+
+// TestHistScoreFromHourMapSingleHour verifies that a beacon firing at only one
+// hour of day scores zero. Pre-fix, a 30-day single-hour beacon was spread across
+// many window-relative buckets and scored high — indistinguishable from a beacon
+// that genuinely ran at all hours of the day.
+func TestHistScoreFromHourMapSingleHour(t *testing.T) {
+	// Only fires at hour 2 (2am) every day for 30 days.
+	m := make(map[int]int)
+	for day := 0; day < 30; day++ {
+		m[day*24+2] = 5
+	}
+	score, totalBars := histScoreFromHourMap(m)
+	if totalBars != 1 {
+		t.Errorf("single hour-of-day: totalBars = %d, want 1", totalBars)
+	}
+	if score != 0 {
+		t.Errorf("single hour-of-day: hScore = %v, want 0", score)
+	}
+}
+
+// TestHistAndDurScoreOrthogonal proves the two axes are independent after the fix.
+// A beacon that fires only at 2am but persists for 30 days:
+//   - hScore ≈ 0  (only 1 distinct hour-of-day)
+//   - durScore ≈ 1 (spans the entire capture window)
+//
+// A beacon active across all 24 hours but present only on a single day:
+//   - hScore > 0  (all or many hour-of-day buckets active)
+//   - durScore = 0 (window coverage too small, below minBars)
+func TestHistAndDurScoreOrthogonal(t *testing.T) {
+	const startHr = 100 * 24 // arbitrary offset well above 24
+	dsMin := float64(startHr) * 3600.0
+	dsMax := dsMin + 30*24*3600.0
+
+	// Case 1: fires only at 2am every day for 30 days.
+	singleHour := make(map[int]int)
+	for day := 0; day < 30; day++ {
+		singleHour[startHr+day*24+2] = 5
+	}
+	firstTs := dsMin + 2*3600.0
+	lastTs := dsMin + 29*24*3600.0 + 2*3600.0
+
+	hScore1, _ := histScoreFromHourMap(singleHour)
+	dScore1 := durationScoreFromHourMap(singleHour, firstTs, lastTs, dsMin, dsMax, 6)
+
+	if hScore1 != 0 {
+		t.Errorf("case1: hScore = %v, want 0 (only 1 hour-of-day active)", hScore1)
+	}
+	if dScore1 < 0.9 {
+		t.Errorf("case1: durScore = %v, want ≥ 0.9 (spans full 30-day window)", dScore1)
+	}
+
+	// Case 2: fires at all 24 hours-of-day, but only on day 0.
+	allHours := make(map[int]int)
+	for hod := 0; hod < 24; hod++ {
+		allHours[startHr+hod] = 5
+	}
+	firstTs2 := dsMin
+	lastTs2 := dsMin + 23*3600.0
+
+	hScore2, bars2 := histScoreFromHourMap(allHours)
+	dScore2 := durationScoreFromHourMap(allHours, firstTs2, lastTs2, dsMin, dsMax, 6)
+
+	if bars2 != 24 {
+		t.Errorf("case2: totalBars = %d, want 24", bars2)
+	}
+	if hScore2 < 0.5 {
+		t.Errorf("case2: hScore = %v, want ≥ 0.5 (all 24 hours active, uniform)", hScore2)
+	}
+	// 1 day / 30-day window → only ~1 window-relative bucket active → below minBars=6
+	if dScore2 != 0 {
+		t.Errorf("case2: durScore = %v, want 0 (only 1 day of a 30-day window)", dScore2)
+	}
+}
+
 func TestShannonEntropy(t *testing.T) {
 	tests := []struct {
 		name string

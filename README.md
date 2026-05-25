@@ -84,7 +84,7 @@ Archer runs five parallel analysis phases across all supported log types.
 
 | Detection Type | Description | Severity |
 |---|---|---|
-| **Beaconing** | Statistically regular connections to an external host — multi-dimensional scoring using inter-arrival time regularity (Bowley skewness + MAD), data size consistency, 24-hour histogram analysis, and temporal persistence | CRITICAL / HIGH |
+| **Beaconing** | Statistically regular connections to an external host — multi-dimensional scoring using inter-arrival time regularity (Bowley skewness + MAD), data size consistency, circadian histogram (hour-of-day coverage across 24 clock-hour buckets), and temporal persistence across the capture window | CRITICAL / HIGH |
 | **Strobe** | High-rate connections to a single destination — indicative of port scanning or automated tooling. Both a count floor (default: ≥ 100) and a rate gate (default: ≥ 0.5 conn/s) must be met. Rate-gating ensures that a slow C2 beacon observed over a long capture window is not misclassified as a Strobe. | HIGH |
 | **Data Exfiltration** | Large outbound transfer (default: ≥ 5 MB) with a high outbound/inbound ratio (default: ≥ 10:1) | HIGH |
 | **Lateral Movement** | Internal-to-internal traffic on administrative ports: SMB (445), RDP (3389), WMI (135), WinRM (5985/5986), SSH (22) | HIGH |

@@ -431,7 +431,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 		// Window-coverage axes — histogram regularity + duration span
 		// over this sensor's DNS capture, same helpers/min-bars as conn.go.
 		w := dnsWins[k.sensor]
-		hScore, _ := histScoreFromHourMap(bs.hourMap, w.min, w.max)
+		hScore, _ := histScoreFromHourMap(bs.hourMap)
 		durScore := durationScoreFromHourMap(bs.hourMap, bs.minTS, bs.maxTS, w.min, w.max, 6)
 		coverage := (hScore + durScore) / 2.0
 

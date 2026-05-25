@@ -28,6 +28,24 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [Unreleased]
+
+### Detection changes
+
+- **Histogram score is now circadian.** `hScore` previously bucketed connections
+  into 24 equal-width bins spanning the entire capture window. On a 24-hour
+  capture that is one bin per hour (correct); on a 30-day capture each bin spans
+  1.25 days, making `hScore` and `durScore` both measure window coverage — the
+  same signal counted twice. `hScore` now maps each hourMap entry by
+  `hr % 24` (hour-of-day), so the 24 buckets are always clock hours 0–23
+  regardless of capture length. A pair that only fires at 2am every day now
+  scores hScore ≈ 0 (only 1 distinct hour-of-day) and high durScore; a pair
+  active across all hours scores high hScore. Re-analyze any multi-day corpus
+  where beacon scores seemed unexpectedly high — beacons with narrow circadian
+  windows will score lower, reducing false positives.
+
+---
+
 ## [v0.40.0] — 2026-05-25
 
 ### Added

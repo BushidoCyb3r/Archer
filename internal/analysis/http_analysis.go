@@ -481,7 +481,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 		// Hist + duration score against this beacon's sensor's capture
 		// window — not a global union across all /logs/ trees.
 		w := a.windowOf(bk.sensor)
-		hScore, _ := histScoreFromHourMap(st.hourMap, w.min, w.max)
+		hScore, _ := histScoreFromHourMap(st.hourMap)
 		durScore := durationScoreFromHourMap(st.hourMap, st.minTs, st.maxTs, w.min, w.max, 6)
 
 		var prevDetail string

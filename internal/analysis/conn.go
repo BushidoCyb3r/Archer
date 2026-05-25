@@ -567,7 +567,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 		// capture window — not a global union across all /logs/ trees.
 		// Cross-sensor smearing was the bug fixed here.
 		w := localWindows[pk.sensor]
-		hScore, _ := histScoreFromHourMap(st.hourMap, w.min, w.max)
+		hScore, _ := histScoreFromHourMap(st.hourMap)
 		durScore := durationScoreFromHourMap(st.hourMap, st.minTs, st.maxTs, w.min, w.max, 6)
 
 		// Prevalence modifier: suppress common destinations (contacted by ≥50% of
@@ -796,26 +796,15 @@ func reservoirAddT(buf [][3]float64, seen int, v [3]float64, capN int) ([][3]flo
 	return buf, seen + 1
 }
 
-// histScoreFromHourMap computes the 24-bucket histogram regularity score from
-// pre-bucketed hour counters. Mirrors histScoreRegularity but avoids retaining raw
-// timestamps.
-func histScoreFromHourMap(hourMap map[int]int, dsMin, dsMax float64) (float64, int) {
-	const nBuckets = 24
-	freq := make([]int, nBuckets)
-	if dsMax <= dsMin {
-		return 0, 0
-	}
-	span := dsMax - dsMin
+// histScoreFromHourMap scores circadian regularity: how many distinct hours-of-day
+// does this pair appear in, and how uniformly are connections distributed across them?
+// hourMap keys are absolute hour indices (int(ts)/3600); hr%24 gives the hour-of-day.
+// This is independent of capture-window length — a 60s beacon running for 30 days
+// scores the same as one running for 2 days, because both fill all 24 hour buckets.
+func histScoreFromHourMap(hourMap map[int]int) (float64, int) {
+	freq := make([]int, 24)
 	for hr, c := range hourMap {
-		ts := float64(hr) * 3600.0
-		idx := int((ts - dsMin) / span * float64(nBuckets))
-		if idx >= nBuckets {
-			idx = nBuckets - 1
-		}
-		if idx < 0 {
-			idx = 0
-		}
-		freq[idx] += c
+		freq[hr%24] += c
 	}
 	freqCount := make(map[int]int)
 	for i, v := range freq {
@@ -833,17 +822,11 @@ func histScoreFromHourMap(hourMap map[int]int, dsMin, dsMax float64) (float64, i
 	return score, totalBars
 }
 
+// durationScoreFromHourMap measures temporal persistence: how far across the
+// capture window does this pair span, and how consecutive is that run?
+// Uses window-relative bucketing (24 equal-width bins over [dsMin, dsMax]) —
+// orthogonal to histScoreFromHourMap's hour-of-day bucketing.
 func durationScoreFromHourMap(hourMap map[int]int, firstTs, lastTs, dsMin, dsMax float64, minBars int) float64 {
-	_, totalBars := histScoreFromHourMap(hourMap, dsMin, dsMax)
-	if totalBars < minBars {
-		return 0
-	}
-
-	coverage := 0.0
-	if dsMax > dsMin {
-		coverage = (lastTs - firstTs) / (dsMax - dsMin)
-	}
-
 	const nBuckets = 24
 	freq := make([]int, nBuckets)
 	if dsMax > dsMin {
@@ -860,6 +843,21 @@ func durationScoreFromHourMap(hourMap map[int]int, firstTs, lastTs, dsMin, dsMax
 			freq[idx] += c
 		}
 	}
+	totalBars := 0
+	for _, v := range freq {
+		if v > 0 {
+			totalBars++
+		}
+	}
+	if totalBars < minBars {
+		return 0
+	}
+
+	coverage := 0.0
+	if dsMax > dsMin {
+		coverage = (lastTs - firstTs) / (dsMax - dsMin)
+	}
+
 	longestRun := 0
 	currentRun := 0
 	for i := 0; i < nBuckets; i++ {
