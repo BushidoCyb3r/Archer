@@ -1196,51 +1196,6 @@ body.dock-resizing {
 .hp-table td:first-child { padding-left: 0; min-width: 28px; }
 .hp-table td:last-child { padding-right: 0; }
 
-#host-pivot-panel,
-#campaign-pivot-panel {
-  background: var(--bg-elev-1);
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
-  height: 220px;
-  display: flex;
-  flex-direction: column;
-}
-#host-pivot-header-bar,
-#campaign-pivot-header-bar {
-  display: flex;
-  align-items: center;
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  gap: 8px;
-}
-#host-pivot-title,
-#campaign-pivot-title {
-  flex: 1;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-#host-pivot-close-btn,
-#campaign-pivot-close-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--fg-dim);
-  font-size: 13px;
-  line-height: 1;
-  padding: 2px 4px;
-}
-#host-pivot-close-btn:hover,
-#campaign-pivot-close-btn:hover { color: var(--fg-main); }
-#host-pivot-body,
-#campaign-pivot-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px 8px;
-}
 
 #detail-actions {
   display: flex;

@@ -336,30 +336,27 @@ const Detail = (() => {
     if (typeof BeaconEvolution !== 'undefined') BeaconEvolution.clear();
   }
 
-  // renderHostPivot shows the inline host-pivot panel inside #tab-hosts.
-  // ip: the host's source IP. hrs: Host Risk Score finding (may be null).
-  // findings: contact-set findings sorted by score desc.
-  // onSelect(f): called when a contact row is clicked.
+  // renderHostPivot renders the host contact set into the shared detail dock.
+  // If hrs exists, its full detail is rendered first (via render()), then the
+  // contact-set table is appended to #detail-text.  If no HRS exists a
+  // synthetic header is set and the table is the only content.
   function renderHostPivot(ip, hrs, findings, onSelect) {
-    const panel    = document.getElementById('host-pivot-panel');
-    const titleEl  = document.getElementById('host-pivot-title');
-    const body     = document.getElementById('host-pivot-body');
-    const closeBtn = document.getElementById('host-pivot-close-btn');
-    if (!panel) return;
+    if (hrs) {
+      render(hrs);
+    } else {
+      clear();
+      const header = document.getElementById('detail-header');
+      if (header) {
+        header.textContent = `Host Risk Score  [—]  ${ip}`;
+        header.style.color = '';
+      }
+    }
 
-    body.innerHTML = '';
-
-    let titleText = ip;
-    if (hrs) titleText += `  —  Risk ${hrs.score | 0}  ${_esc(hrs.severity)}`;
-    titleEl.textContent = titleText;
-
-    closeBtn.onclick = () => { panel.style.display = 'none'; };
-
-    panel.style.display = 'flex';
+    const text = document.getElementById('detail-text');
+    if (!text) return;
 
     const sect   = document.createElement('div');
     sect.className = 'ds-section';
-
     const sTitle = document.createElement('div');
     sTitle.className = 'ds-section-title';
     sTitle.textContent = `Contact set  (${findings.length})`;
@@ -388,30 +385,34 @@ const Detail = (() => {
       sect.appendChild(tbl);
     }
 
-    body.appendChild(sect);
+    text.appendChild(sect);
   }
 
-  // renderCampaignPivot shows the inline campaign-pivot panel inside
-  // #tab-campaigns. dst/port identify the campaign; findings are all
-  // findings for that dst, sorted score desc. onSelect(f) drills into detail.
+  // renderCampaignPivot renders a campaign's findings into the shared detail
+  // dock.  A synthetic banner is built from the max score/severity across the
+  // findings.  Each row is clickable; onSelect(f) drills into full detail.
   function renderCampaignPivot(dst, port, findings, onSelect) {
-    const panel    = document.getElementById('campaign-pivot-panel');
-    const titleEl  = document.getElementById('campaign-pivot-title');
-    const body     = document.getElementById('campaign-pivot-body');
-    const closeBtn = document.getElementById('campaign-pivot-close-btn');
-    if (!panel) return;
-
-    body.innerHTML = '';
+    clear();
+    const header = document.getElementById('detail-header');
+    const text   = document.getElementById('detail-text');
+    if (!header || !text) return;
 
     const label = port ? `${dst}:${port}` : dst;
-    titleEl.textContent = `${label}  —  ${findings.length} finding${findings.length === 1 ? '' : 's'}`;
-
-    closeBtn.onclick = () => { panel.style.display = 'none'; };
-
-    panel.style.display = 'flex';
+    if (findings.length > 0) {
+      const top = findings[0];
+      header.textContent = `Campaign  [${top.severity}  score ${top.score | 0}]  ${label}`;
+      header.style.color = _sevColor(top.severity);
+    } else {
+      header.textContent = `Campaign  ${label}`;
+      header.style.color = '';
+    }
 
     const sect   = document.createElement('div');
     sect.className = 'ds-section';
+    const sTitle = document.createElement('div');
+    sTitle.className = 'ds-section-title';
+    sTitle.textContent = `Findings  (${findings.length})`;
+    sect.appendChild(sTitle);
 
     if (findings.length === 0) {
       const row = document.createElement('div');
@@ -422,8 +423,8 @@ const Detail = (() => {
       const tbl = document.createElement('table');
       tbl.className = 'hp-table';
       findings.forEach(f => {
-        const tr  = document.createElement('tr');
-        const ts  = (f.timestamp || '').slice(0, 16);
+        const tr = document.createElement('tr');
+        const ts = (f.timestamp || '').slice(0, 16);
         tr.innerHTML =
           `<td style="color:${_sevColor(f.severity)};font-weight:700">${f.score | 0}</td>` +
           `<td>${_esc(f.type)}</td>` +
@@ -435,7 +436,7 @@ const Detail = (() => {
       sect.appendChild(tbl);
     }
 
-    body.appendChild(sect);
+    text.appendChild(sect);
   }
 
   return { render, clear, renderHostPivot, renderCampaignPivot };
