@@ -114,12 +114,16 @@ const Detail = (() => {
     if (f.src_ip)   ep += _row('Src IP',   _esc(f.src_ip),   true);
     if (f.dst_ip)   ep += _row('Dst IP',   _esc(f.dst_ip),   true);
     if (f.dst_port) ep += _row('Dst Port', _esc(f.dst_port), true);
+    if (f.ja4) {
+      ep += _row('JA4', _esc(f.ja4), true);
+      const n4 = f.ja4_sibling_count || 0;
+      ep += _row('JA4 match', `${n4} other beacon${n4 === 1 ? '' : 's'} in dataset${n4 > 0 ? '  <span style="color:var(--fg-dim)">(TLS Pivot ▸)</span>' : ''}`);
+    }
     if (f.ja3) {
       ep += _row('JA3', _esc(f.ja3), true);
-      const n = f.ja3_sibling_count || 0;
-      ep += _row('JA3 match', `${n} other beacon${n === 1 ? '' : 's'} in dataset${n > 0 ? '  <span style="color:var(--fg-dim)">(JA3 Pivot ▸)</span>' : ''}`);
+      const n3 = f.ja3_sibling_count || 0;
+      ep += _row('JA3 match', `${n3} other beacon${n3 === 1 ? '' : 's'} in dataset${!f.ja4 && n3 > 0 ? '  <span style="color:var(--fg-dim)">(TLS Pivot ▸)</span>' : ''}`);
     }
-    if (f.ja4) ep += _row('JA4', _esc(f.ja4), true);
     if (Array.isArray(f.top_uris) && f.top_uris.length > 1) {
       ep += `<div class="ds-row"><span class="ds-key">Beacon paths</span><span class="ds-val mono">${_esc(f.hostname || 'this host')}</span></div>`;
       f.top_uris.forEach(u => {
@@ -205,15 +209,23 @@ const Detail = (() => {
       rawBtn.disabled = !(f.src_ip && f.dst_ip);
       rawBtn.dataset.findingId = f.id;
     }
-    // JA3 Pivot — only when this beacon carries a TLS fingerprint.
-    // Label folds in the sibling count so the analyst sees the pivot's
-    // size before clicking; 0 siblings still allows the pivot (it
-    // narrows to just this finding's fingerprint, a valid hunt).
-    const ja3Btn = document.getElementById('ja3-btn');
-    if (ja3Btn) {
-      ja3Btn.disabled = !f.ja3;
-      const n = f.ja3_sibling_count || 0;
-      ja3Btn.textContent = f.ja3 && n > 0 ? `JA3 Pivot (${n})` : 'JA3 Pivot';
+    // TLS Pivot — enabled when this beacon carries any TLS fingerprint.
+    // JA4 is preferred (shown in label with sibling count); falls back
+    // to JA3 for sensors without the JA4+ plugin. Label folds in the
+    // sibling count so the analyst sees the pivot's size before clicking;
+    // 0 siblings still allows the pivot (valid hunt for this fingerprint).
+    const tlsBtn = document.getElementById('tls-btn');
+    if (tlsBtn) {
+      tlsBtn.disabled = !(f.ja4 || f.ja3);
+      if (f.ja4) {
+        const n = f.ja4_sibling_count || 0;
+        tlsBtn.textContent = n > 0 ? `TLS Pivot (${n})` : 'TLS Pivot';
+      } else if (f.ja3) {
+        const n = f.ja3_sibling_count || 0;
+        tlsBtn.textContent = n > 0 ? `TLS Pivot (${n})` : 'TLS Pivot';
+      } else {
+        tlsBtn.textContent = 'TLS Pivot';
+      }
     }
     const exportBtn = document.getElementById('export-notes-btn');
     if (exportBtn) exportBtn.disabled = false;
@@ -351,7 +363,7 @@ const Detail = (() => {
     if (tl) tl.innerHTML = '';
     _setBadge(document.getElementById('notes-badge'), 0);
     _setBadge(document.getElementById('ti-badge'),    0);
-    ['ack-btn','esc-btn','dismiss-btn','chart-btn','pcap-btn','ja3-btn','supp-btn','export-notes-btn'].forEach(id => {
+    ['ack-btn','esc-btn','dismiss-btn','chart-btn','pcap-btn','tls-btn','supp-btn','export-notes-btn'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.disabled = true;
     });

@@ -206,7 +206,8 @@
       <label>Src IP/CIDR <input class="filter-input" id="filter-src" type="text" placeholder="10.0.0.0/24"></label>
       <label>Dst IP/CIDR <input class="filter-input" id="filter-dst" type="text" placeholder="1.2.3.4"></label>
       <label>Dst Port <input class="filter-input" id="filter-port" type="text" placeholder="443 or 80,443"></label>
-      <label title="Exact JA3 TLS client fingerprint (case-insensitive). The JA3 Pivot button in the finding detail fills this to surface every beacon sharing the fingerprint.">JA3 <input class="filter-input wide" id="filter-ja3" type="text" placeholder="TLS client fingerprint"></label>
+      <label title="Exact JA3 TLS client fingerprint (case-insensitive). Sensors without the Zeek JA4+ plugin produce JA3 only.">JA3 <input class="filter-input wide" id="filter-ja3" type="text" placeholder="JA3 fingerprint"></label>
+      <label title="Exact JA4 TLS client fingerprint (case-insensitive). Requires sensor running the Zeek JA4+ plugin. The TLS Pivot button fills this field for JA4-capable sensors.">JA4 <input class="filter-input wide" id="filter-ja4" type="text" placeholder="JA4 fingerprint"></label>
       <label>Sensor
         <select class="filter-select" id="filter-sensor">
           <option value="">All</option>
@@ -419,7 +420,7 @@
         <button class="action-btn chart" id="chart-btn" disabled>Beacon Chart</button>
         <button class="action-btn pcap"  id="pcap-btn"  disabled>PCAP Filter</button>
         <button class="action-btn raw"   id="raw-btn"   disabled>Source Records</button>
-        <button class="action-btn ja3"   id="ja3-btn"   disabled title="Filter every beacon sharing this TLS client fingerprint">JA3 Pivot</button>
+        <button class="action-btn ja3"   id="tls-btn"   disabled title="Filter every beacon sharing this TLS client fingerprint (JA4 preferred; falls back to JA3)">TLS Pivot</button>
         <button class="action-btn supp"  id="supp-btn"  disabled>Suppress</button>
         <span id="analyst-rec"></span>
       </div>

@@ -867,7 +867,7 @@
       _resetFilterUI();
       applyFilter();
     });
-    ['filter-search','filter-src','filter-dst','filter-port','filter-ja3', ..._ssFilterIds].forEach(id => {
+    ['filter-search','filter-src','filter-dst','filter-port','filter-ja3','filter-ja4', ..._ssFilterIds].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') applyFilter(); });
     });
@@ -999,6 +999,7 @@
     const dst = g('filter-dst').trim(); if (dst) params.dst_ip = dst;
     const port = g('filter-port').trim(); if (port) params.dst_port = port;
     const ja3 = g('filter-ja3').trim();   if (ja3)  params.ja3 = ja3;
+    const ja4 = g('filter-ja4').trim();   if (ja4)  params.ja4 = ja4;
     const sn  = g('filter-sensor');     if (sn)  params.sensor = sn;
     // Spectral-rescued: server-side filter on Detail-string substring.
     // Calibration-loop helper — see docs/DETECTION_METHODS.md §2.
@@ -1438,7 +1439,7 @@
   // Reset clears the query without yanking them back to a default
   // window and re-fetching a different span than they were reading.
   function _resetFilterUI() {
-    ['filter-search','filter-src','filter-dst','filter-port','filter-ja3', ..._ssFilterIds].forEach(id => {
+    ['filter-search','filter-src','filter-dst','filter-port','filter-ja3','filter-ja4', ..._ssFilterIds].forEach(id => {
       const el = document.getElementById(id); if (el) el.value = '';
     });
     const sev = document.getElementById('filter-sev');       if (sev) sev.value = '';
@@ -1479,16 +1480,23 @@
     applyFilter();
   }
 
-  // pivotByJA3 filters the Findings tab to every finding carrying the
-  // selected beacon's JA3, via the visible #filter-ja3 input — same
-  // shape as showContributingActivity: the analyst sees the filter
+  // pivotByTLS filters the Findings tab to every finding carrying the
+  // selected beacon's TLS fingerprint, via the visible filter inputs —
+  // same shape as showContributingActivity: the analyst sees the filter
   // state and can edit/clear it, no hidden predicate. Wired from the
-  // JA3 Pivot detail action button; enabled only when f.ja3 is set.
-  function pivotByJA3(f) {
-    if (!f || !f.ja3) return;
+  // TLS Pivot detail action button; enabled when f.ja4 or f.ja3 is set.
+  // JA4 is preferred when present (JA4+ plugin on sensor); falls back to
+  // JA3 for sensors on stock Zeek.
+  function pivotByTLS(f) {
+    if (!f || !(f.ja4 || f.ja3)) return;
     _resetFilterUI();
-    const el = document.getElementById('filter-ja3');
-    if (el) el.value = f.ja3;
+    if (f.ja4) {
+      const el = document.getElementById('filter-ja4');
+      if (el) el.value = f.ja4;
+    } else {
+      const el = document.getElementById('filter-ja3');
+      if (el) el.value = f.ja3;
+    }
     if (_tabMode !== 'findings') {
       document.querySelectorAll('.tab-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.tab === 'findings');
@@ -2319,10 +2327,10 @@
         if (_selectedFinding) _showRawRecords(_selectedFinding);
       });
     }
-    const ja3Btn = document.getElementById('ja3-btn');
-    if (ja3Btn) {
-      ja3Btn.addEventListener('click', () => {
-        if (_selectedFinding) pivotByJA3(_selectedFinding);
+    const tlsBtn = document.getElementById('tls-btn');
+    if (tlsBtn) {
+      tlsBtn.addEventListener('click', () => {
+        if (_selectedFinding) pivotByTLS(_selectedFinding);
       });
     }
     const rawClose = document.getElementById('raw-dlg-close');
@@ -4666,7 +4674,7 @@
       // query 404s and the jump silently falls back to the "hidden from
       // table view" path instead of scrolling+highlighting. The active
       // tab is then chosen by the finding's status.
-      ['filter-search','filter-src','filter-dst','filter-port','filter-ja3', ..._ssFilterIds].forEach(id => {
+      ['filter-search','filter-src','filter-dst','filter-port','filter-ja3','filter-ja4', ..._ssFilterIds].forEach(id => {
         const el = document.getElementById(id); if (el) el.value = '';
       });
       const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
