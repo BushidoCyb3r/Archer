@@ -519,10 +519,14 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		// JA3 cross-reference: only the single-finding detail view
-		// pays for this scan (the list/projection path never does).
-		// Empty JA3 → CountBeaconsWithJA3 returns 0 and the field is
-		// omitted; the detail render keys off f.ja3, not the count.
+		// TLS fingerprint cross-reference: only the single-finding
+		// detail view pays for this scan. JA4 preferred when both are
+		// present (JA4+ plugin present on sensor); JA3 is the fallback
+		// for sensors on stock Zeek. Empty fingerprint → count returns
+		// 0 and the field is omitted from the JSON response.
+		if f.JA4 != "" && model.IsBeaconType(f.Type) {
+			f.JA4SiblingCount = s.store.CountBeaconsWithJA4(f.JA4, f.ID)
+		}
 		if f.JA3 != "" && model.IsBeaconType(f.Type) {
 			f.JA3SiblingCount = s.store.CountBeaconsWithJA3(f.JA3, f.ID)
 		}

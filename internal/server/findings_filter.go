@@ -51,6 +51,10 @@ import (
 //	                pane "matched N other beacons" pivot — clicking the
 //	                JA3 line filters to every finding carrying that
 //	                fingerprint.
+//	ja4           — exact JA4 client-fingerprint match (case-insensitive;
+//	                stored lowercased at emit). Available when sensors
+//	                run the Zeek JA4+ plugin. Powers the TLS Pivot action
+//	                for JA4-capable sensors.
 //
 // Allowlisted and currently-suppressed findings are always excluded —
 // filtering doesn't undo those admin decisions. Shared between the findings
@@ -95,10 +99,10 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 	ssHist := parseScoreRange(q.Get("hist_min"), q.Get("hist_max"))
 	ssDur := parseScoreRange(q.Get("dur_min"), q.Get("dur_max"))
 	anySubScore := ssTS != nil || ssDS != nil || ssHist != nil || ssDur != nil
-	// JA3 is stored lowercased at emit (strings.ToLower in analyzeSSL);
-	// lowercase the query value so a pasted upper/mixed-case fingerprint
-	// still matches.
+	// JA3/JA4 are stored lowercased at emit (strings.ToLower in analyzeSSL);
+	// lowercase query values so a pasted upper/mixed-case fingerprint matches.
 	ja3F := strings.ToLower(strings.TrimSpace(q.Get("ja3")))
+	ja4F := strings.ToLower(strings.TrimSpace(q.Get("ja4")))
 
 	// User-supplied datetime-local strings are parsed in the operator's
 	// configured timezone; the analyzer's own Timestamp field stays UTC.
@@ -162,6 +166,9 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 			}
 		}
 		if ja3F != "" && f.JA3 != ja3F {
+			continue
+		}
+		if ja4F != "" && f.JA4 != ja4F {
 			continue
 		}
 		if alM.Matches(f.SrcIP) || alM.Matches(f.DstIP) {

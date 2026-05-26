@@ -124,15 +124,14 @@ type Finding struct {
 	// of blanking out.
 	JA3 string `json:"ja3,omitempty"`
 	JA4 string `json:"ja4,omitempty"`
-	// JA3SiblingCount is a transient, derived-at-read field — the number
-	// of OTHER beacon findings in the current dataset sharing this JA3.
-	// Computed by the single-finding detail handler, never persisted (no
-	// column, excluded from the store round-trip and exports). Lets the
-	// analyst see "this implant fingerprint also fired on N other pairs"
-	// and pivot. The detail render gates the JA3 block on JA3 being
-	// non-empty, not on this count, so an omitted-because-zero value
-	// reads correctly as "matched 0 other beacons".
+	// JA3SiblingCount / JA4SiblingCount are transient, derived-at-read
+	// fields — the count of OTHER beacon findings in the current dataset
+	// sharing the same JA3 or JA4. Computed by the single-finding detail
+	// handler, never persisted. The detail render gates each fingerprint
+	// block on the field being non-empty, so an omitted-because-zero
+	// count reads correctly as "matched 0 other beacons".
 	JA3SiblingCount int `json:"ja3_sibling_count,omitempty"`
+	JA4SiblingCount int `json:"ja4_sibling_count,omitempty"`
 	// TopURIs is the HTTP Beaconing destination's request-path
 	// footprint: the most-frequent paths the same (sensor,src,dst,host)
 	// group beaconed on, count-descending, capped. Stamped identically

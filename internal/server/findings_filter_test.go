@@ -296,6 +296,44 @@ func TestFilterFindings_JA3(t *testing.T) {
 	}
 }
 
+// TestFilterFindings_JA4 mirrors TestFilterFindings_JA3 for the ja4=
+// filter parameter. The two filters are independent: setting ja4 does
+// not restrict by ja3 and vice-versa.
+func TestFilterFindings_JA4(t *testing.T) {
+	s := newAuditTestServer(t)
+	findings := []model.Finding{
+		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-26 09:00:00", JA4: "t12d190800_d83cc789557e_16bbda4055b2"},
+		{ID: 2, Type: "Beaconing", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-26 09:01:00", JA4: "t12d190800_d83cc789557e_16bbda4055b2"},
+		{ID: 3, Type: "Malicious JA4", SrcIP: "10.0.0.3", DstIP: "3.3.3.3", Score: 95, Status: model.StatusOpen, Timestamp: "2026-05-26 09:02:00", JA4: "t12d190800_d83cc789557e_16bbda4055b2"},
+		{ID: 4, Type: "Beaconing", SrcIP: "10.0.0.4", DstIP: "4.4.4.4", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-26 09:03:00", JA4: "t13d201100_2b729b4bf6f3_9e7b989ebec8"},
+		{ID: 5, Type: "Beaconing", SrcIP: "10.0.0.5", DstIP: "5.5.5.5", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-26 09:04:00", JA4: ""},
+	}
+	cases := []struct {
+		name    string
+		query   url.Values
+		wantIDs []int
+	}{
+		{"no ja4 param — unchanged", url.Values{}, []int{1, 2, 3, 4, 5}},
+		{"exact match across types (beacons + Malicious JA4)", url.Values{"ja4": []string{"t12d190800_d83cc789557e_16bbda4055b2"}}, []int{1, 2, 3}},
+		{"case-insensitive (stored lowercased)", url.Values{"ja4": []string{"T12D190800_D83CC789557E_16BBDA4055B2"}}, []int{1, 2, 3}},
+		{"unique fingerprint", url.Values{"ja4": []string{"t13d201100_2b729b4bf6f3_9e7b989ebec8"}}, []int{4}},
+		{"no match", url.Values{"ja4": []string{"t13d000000_deadbeef0000_000000000000"}}, []int{}},
+		{"ja3 and ja4 filters are independent — ja4 alone", url.Values{"ja4": []string{"t12d190800_d83cc789557e_16bbda4055b2"}}, []int{1, 2, 3}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := s.filterFindings(append([]model.Finding{}, findings...), c.query)
+			gotIDs := []int{}
+			for _, f := range got {
+				gotIDs = append(gotIDs, f.ID)
+			}
+			if !sameIntSlice(gotIDs, c.wantIDs) {
+				t.Errorf("query=%v: got %v, want %v", c.query, gotIDs, c.wantIDs)
+			}
+		})
+	}
+}
+
 // TestFilterFindings_BeaconsPseudoType codifies the type=beacons
 // invariant: the pseudo-value matches exactly the beacon family
 // (Beaconing / HTTP Beaconing / DNS Beaconing) and nothing else, while

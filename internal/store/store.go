@@ -969,6 +969,25 @@ func (s *Store) CountBeaconsWithJA3(ja3 string, excludeID int) int {
 	return n
 }
 
+// CountBeaconsWithJA4 returns how many beacon findings other than
+// excludeID carry the same (non-empty) JA4. Same semantics as
+// CountBeaconsWithJA3; available when sensors run the Zeek JA4+ plugin.
+func (s *Store) CountBeaconsWithJA4(ja4 string, excludeID int) int {
+	if ja4 == "" {
+		return 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	n := 0
+	for i := range s.findings {
+		f := &s.findings[i]
+		if f.ID != excludeID && f.JA4 == ja4 && model.IsBeaconType(f.Type) {
+			n++
+		}
+	}
+	return n
+}
+
 func (s *Store) AddNote(id int, note model.Note) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
