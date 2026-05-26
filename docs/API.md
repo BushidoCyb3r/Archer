@@ -319,13 +319,13 @@ The most-used surface. Findings are detector outputs, persisted in
   empty unless the sensor's Zeek emits a `ja4` field (stock `ssl.log`
   is ja3/ja3s — JA4 needs the JA4+ plugin). Persisted as columns
   (migration 0019) so they survive a restart and the carry-forward.
-- `ja3_sibling_count` is a **transient, derived-at-read** field — the
-  number of *other* beacon findings in the current dataset sharing this
-  `ja3`. Computed by the single-finding detail handler only (never
-  persisted, excluded from the list projection and exports). The detail
-  render keys the JA3 block off `ja3` being non-empty, not off this
-  count, so an omitted-because-zero value reads correctly as "matched 0
-  other beacons." Filter to those siblings with the `ja3` query param.
+- `ja3_sibling_count` / `ja4_sibling_count` are **transient,
+  derived-at-read** fields — the number of *other* beacon findings in
+  the current dataset sharing this `ja3` or `ja4` respectively.
+  Computed by the single-finding detail handler only (never persisted,
+  excluded from the list projection and exports). Both are `omitempty`;
+  an absent value reads correctly as "matched 0 other beacons." Filter
+  to those siblings with the `ja3` or `ja4` query params respectively.
 - `top_uris` is the HTTP Beaconing destination's request-path
   footprint: `[]{uri, count}`, count-descending, capped at 8. The
   `(Type,src,dst,port)` fingerprint dedup keeps one finding per group,
@@ -361,7 +361,8 @@ The most-used surface. Findings are detector outputs, persisted in
 | `include_dismissed` | `true` | Counts-style flag for callers that want dismissed findings included in an otherwise-unscoped result. Has no effect when `status` is explicitly set. Default behavior (omitted or `false`): if no `status` filter is provided, dismissed findings are excluded — the "I don't want to see this again" semantic carries through every non-Dismissed tab. Used internally by `/api/findings/counts` to bucket dismissed separately. |
 | `spectral_only` | `true` | Only Beaconing findings whose timing score was rescued by the spectral path. Matches on the `Spectral rescued:` substring in the Detail field. Useful during spectral-tuning calibration — see `docs/SPECTRAL_TUNING.md`. |
 | `ts_min`/`ts_max`, `ds_min`/`ds_max`, `hist_min`/`hist_max`, `dur_min`/`dur_max` | float `[0,1]` | Inclusive bound on one beacon sub-axis (timing / data-size / hour-coverage / duration). Either bound of a pair may be omitted; a non-numeric value disables that one axis rather than blanking the filter. **Setting any sub-score bound implicitly scopes the result to beacon types** (`Beaconing`/`HTTP Beaconing`/`DNS Beaconing`) — a bare upper bound like `dur_max=0.3` would otherwise surface every non-beacon, whose sub-scores are a structural `0 ≤ 0.3`. Lets a hunter query a beacon *signature* the composite score averages away (e.g. `ts_min=0.8&dur_max=0.3` = short-lived tight-cadence spikes). DNS Beaconing leaves `ds_score` a structural zero, so a `ds_min>0` filter correctly excludes it. |
-| `ja3` | string | Exact JA3 client-fingerprint match (case-insensitive — JA3 is stored lowercased at emit). Powers the detail-pane **JA3 Pivot** ("matched N other beacons"): clicking it filters to every finding carrying the fingerprint, so one beacon unravels the whole implant family in the dataset. |
+| `ja3` | string | Exact JA3 client-fingerprint match (case-insensitive — stored lowercased at emit). Powers **TLS Pivot** for sensors on stock Zeek (no JA4+ plugin). Filters to every finding carrying that JA3 so one beacon unravels the whole implant family. |
+| `ja4` | string | Exact JA4 client-fingerprint match (case-insensitive — stored lowercased at emit). Powers **TLS Pivot** for sensors running the Zeek JA4+ plugin. Independent of `ja3`; both filters may be set simultaneously (AND). |
 | `sort` | `score`/`severity`/`type`/`src_ip`/`dst_ip`/`timestamp` | Sort key (default `score`). |
 | `dir` | `asc`/`desc` | Sort direction (default `desc`). |
 | `limit` | int 1–50000 | Max rows in the response. Default `1000`. |

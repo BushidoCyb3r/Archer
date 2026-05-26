@@ -28,6 +28,57 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.43.0] — 2026-05-26
+
+### Breaking
+
+- **Detection semantics**: New finding type `Malicious JA4` now appears
+  in `/api/findings` output on sensors running the Zeek JA4+ plugin.
+  Any automation or alerting that enumerates possible finding types must
+  add `Malicious JA4` to that list.
+
+### Added
+
+- **Malicious JA4 detection** — `ssl.go` checks the `ja4` field against
+  `KnownBadJA4` in `heuristics.go`. Initial table sourced from the FoxIO
+  public JA4+ database: Cobalt Strike v4.9.1 (wininet/winhttp ×
+  SNI-present/absent, four fingerprints) and IcedID loader. Sliver
+  excluded — its JA4 fingerprint is identical to the generic Go
+  `net/http` stack (high false-positive risk). Score 95, CRITICAL, risk
+  weight 40. Requires sensor running the Zeek JA4+ plugin; stock `ssl.log`
+  carries only `ja3`/`ja3s`, so this detector does not fire on unmodified
+  sensors. JA3 detection is unchanged and remains the fallback.
+
+- **`ja4_sibling_count`** field on `GET /api/findings/{id}` — transient
+  derived-at-read count of other beacon findings in the current dataset
+  sharing the same JA4. Complements the existing `ja3_sibling_count`.
+
+- **`ja4=` filter parameter** on `GET /api/findings` — exact
+  case-insensitive JA4 fingerprint match, independent of `ja3=`.
+
+- **JA4 filter input** in the advanced filter bar alongside the existing
+  JA3 input.
+
+### Changed
+
+- **TLS Pivot** replaces the JA3 Pivot action button. When the finding
+  carries a JA4 (JA4+ sensor), the button fills `filter-ja4`; when only
+  JA3 is present (stock Zeek), it fills `filter-ja3`. JA3 detection and
+  correlation are unchanged — this is a UI rename, not a removal.
+
+- **Detail pane** renders JA4 first (with sibling count) when present;
+  JA3 rendered below as secondary.
+
+### Detection changes
+
+- `Malicious JA4` is a new finding type. It does not replace `Malicious JA3`;
+  both run independently. On sensors without the Zeek JA4+ plugin nothing
+  changes. On sensors with JA4+, a matching ClientHello emits `Malicious JA4`
+  in addition to any `Malicious JA3` hit if the same hash is also in
+  `KnownBadJA3`.
+
+---
+
 ## [v0.42.0] — 2026-05-26
 
 ### Breaking

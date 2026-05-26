@@ -479,15 +479,16 @@ changed**, and the golden corpus is unchanged:
   buries. Any sub-score bound implicitly scopes results to beacon
   types (a structural-zero axis on a non-beacon can't satisfy a bare
   upper bound). See §2.2 for what each axis measures.
-- **JA3 / JA4 cross-reference.** A conn-level Beaconing finding now
-  carries the TLS client fingerprint of its seed connection (lifted
-  from the same `ssl.log` index that resolves the SNI — Archer still
-  does not compute JA3 itself; see §10.1). The detail view shows how
-  many *other* beacons in the dataset share that JA3, and one click
-  filters to them. Because an implant family reuses its TLS stack, a
-  shared JA3 across pairs is implant-family attribution, not
-  coincidence — the same logic §10.1 uses for the standalone
-  Malicious JA3 detector, now joined to the beacon view.
+- **JA3 / JA4 cross-reference.** A conn-level Beaconing finding carries
+  the TLS client fingerprint of its seed connection (lifted from the
+  same `ssl.log` index that resolves the SNI). When the sensor runs the
+  Zeek JA4+ plugin the finding carries JA4; stock Zeek produces JA3.
+  The detail view shows how many *other* beacons in the dataset share
+  that fingerprint via `ja4_sibling_count` / `ja3_sibling_count`, and
+  one click (**TLS Pivot**) filters to all of them. Because an implant
+  family reuses its TLS stack, a shared fingerprint across pairs is
+  implant-family attribution — the same logic §10.1–10.2 use for the
+  standalone Malicious JA3/JA4 detectors, now joined to the beacon view.
 - **HTTP-beacon URI footprint.** An HTTP Beaconing finding carries the
   request-path footprint of its `(src,dst,host)` group
   (count-descending, capped). A benign beacon hits one stable
@@ -978,7 +979,7 @@ reuses the global beacon knobs; there are no DNS-beacon-specific scoring
 knobs.
 
 **What it misses.** A beacon resolving via DoH is invisible to
-`dns.log` entirely (no query records to time) — a separate JA3/SNI
+`dns.log` entirely (no query records to time) — a TLS/SNI-layer
 problem, out of scope here. DoH *usage* is still surfaced independently
 by §9.5.
 
@@ -1008,38 +1009,74 @@ timing, volume, or payload.
 
 **What Archer does.** `ssl.go` reads the `ja3` field Zeek writes to
 `ssl.log` (Archer consumes Zeek's value — it does not compute JA3
-itself, so a sensor whose Zeek build lacks the JA3 script simply
-produces no `ja3` and this detector cannot fire — a real blind spot
-worth checking during sensor onboarding). The hash is looked up in
+itself, so a sensor whose Zeek build lacks the JA3 script produces no
+`ja3` and this detector cannot fire). The hash is looked up in
 `KnownBadJA3` (a static, curated `map[hash]→framework-label` in
-`heuristics.go` — Cobalt Strike default, Empire, Trickbot, etc.; not
-feed-driven). An exact match emits **Malicious JA3**, score **95**,
-severity **Critical**, deduped per `(src, dst, ja3)`; the label rides
-in the Detail string and the type carries risk weight 40 — the highest
-tier, because an exact known-C2-stack match is about as unambiguous as
-network-only evidence gets.
+`heuristics.go` — Cobalt Strike default profiles, Metasploit, Sliver,
+Brute Ratel; not feed-driven). An exact match emits **Malicious JA3**,
+score **95**, severity **Critical**, deduped per `(src, dst, ja3)`; the
+label rides in the Detail string and the type carries risk weight 40 —
+the highest tier, because an exact known-C2-stack match is about as
+unambiguous as network-only evidence gets.
 
 **What it misses.** Exact-match only: a single changed cipher,
 extension, or TLS-version bump in the implant's stack yields a new hash
 the curated list won't have, so JA3 is strong against *unmodified*
 tooling and weak against *recompiled/tuned* tooling. Legitimate
 applications that share a TLS library can collide on one benign JA3, so
-the list is deliberately conservative (curated, not heuristic — a
-mis-added benign hash would false-positive fleet-wide). GREASE
+the list is deliberately conservative (curated, not heuristic). GREASE
 (randomized extension/cipher values, RFC 8701) and uTLS/refraction-style
-*randomized* fingerprints defeat static JA3 entirely — that evasion is
-the motivation for **JA4**, the structured successor (GREASE-robust,
-human-readable, separates the TLS/SNI/ALPN components). Archer is
-JA3-only today: there is no JA3S (server-side) or JA4 ingestion, and no
-inline cross-reference between a beacon and other beacons sharing its
-JA3 — that linkage is the planned §2c enhancement in `TODO.md`, not a
-shipped feature.
+*randomized* fingerprints defeat static JA3 entirely — see §10.2 for
+JA4, the structured successor that is GREASE-robust and human-readable.
 
-### 10.2 Weak TLS
+### 10.2 Malicious JA4
+
+**What JA4 is.** JA4 (FoxIO, 2023) is the structured successor to JA3.
+Instead of MD5-hashing the raw `ClientHello` fields, JA4 produces a
+human-readable string whose prefix encodes the TLS version, TCP/QUIC
+transport, cipher-suite count, extension count, and ALPN, followed by
+two 12-character truncated SHA-256 hashes of the cipher list and the
+extension list. Example: `t12d190800_d83cc789557e_16bbda4055b2` is TLS
+1.2, TCP, 19 ciphers, 8 extensions, no ALPN — immediately readable
+without consulting a lookup table. JA4 is GREASE-robust (GREASE values
+are excluded from the sorted lists before hashing) and more stable
+across TLS library point-releases than JA3.
+
+**Requirement.** JA4 requires the Zeek **JA4+** plugin on the sensor.
+Stock Zeek `ssl.log` only carries `ja3` / `ja3s`. Archer reads `ja4`
+opportunistically — an empty value is normal on stock sensors and never
+an error.
+
+**What Archer does.** `ssl.go` reads the `ja4` field (lowercased) and
+looks it up in `KnownBadJA4` (same `heuristics.go`, same curated
+`map[fingerprint]→label` pattern as JA3). The initial table covers
+Cobalt Strike v4.9.1 in four variants (wininet/winhttp transport ×
+SNI-present/absent) and IcedID loader, sourced from the FoxIO public
+JA4+ database (`github.com/FoxIO-LLC/ja4`). An exact match emits
+**Malicious JA4**, score **95**, severity **Critical**, deduped per
+`(src, dst, ja4)`; risk weight 40 (same as JA3).
+
+Sliver is intentionally absent from `KnownBadJA4`: its JA4 fingerprint
+is identical to the generic Go `net/http` stack and would false-positive
+on any Go service. This is the key difference from JA3 — JA4's
+structured prefix makes per-tool fingerprints more collision-resistant
+for *tool-specific* settings (cipher ordering, extension set), but
+Go/Python/Rust runtimes still share their TLS stacks across legitimate
+and malicious users.
+
+**What it misses.** Same exact-match constraint as JA3. Cobalt Strike
+Malleable C2 profiles that randomize the `ClientHello` field ordering or
+mimic a browser stack will produce a different JA4 and evade this check.
+The FoxIO database is the primary source for new entries — operators
+should cross-reference `github.com/FoxIO-LLC/ja4/ja4plus-mapping.csv`
+as new C2-exclusive fingerprints are documented and add them to
+`KnownBadJA4` in `heuristics.go`.
+
+### 10.3 Weak TLS
 
 Categorical: TLS 1.0, TLS 1.1, SSLv3. Score 48, severity Low.
 
-### 10.3 SSL No-SNI
+### 10.4 SSL No-SNI
 
 An *established* TLS session with no `server_name` extension is unusual.
 Browsers and almost all modern clients send SNI. The absence is suspicious.
@@ -1047,7 +1084,7 @@ Browsers and almost all modern clients send SNI. The absence is suspicious.
 - If `dst_port` is a known C2 port → score 82, severity High.
 - Otherwise → score 35, severity Low.
 
-### 10.4 Domain Fronting
+### 10.5 Domain Fronting
 
 Joins `ssl.log` and `http.log` via the Zeek connection UID. If the SSL SNI is
 *different* from the HTTP `Host` header, the client is using domain fronting:
@@ -1551,6 +1588,7 @@ contributes a weight:
 |-------------------------|--------|
 | Cobalt Strike URI       | 40     |
 | Malicious JA3           | 40     |
+| Malicious JA4           | 40     |
 | C2 URI Pattern          | 38     |
 | DNS Tunneling           | 35     |
 | TI Hit (IP)             | 35     |
@@ -1622,7 +1660,7 @@ dampen(raw) = raw                                          for raw ≤ 75
 Concrete values: raw=100 → 84, raw=150 → 94, raw=200 → 97, raw=400 → 99.
 This preserves rank-order at the high end — two heavily-saturated hosts can
 still be compared — while preventing any host from pinning at 100 (reserved
-for exact-match detectors like known JA3 hashes).
+for exact-match detectors like known JA3/JA4 hashes).
 
 Severity buckets:
 
@@ -1679,9 +1717,9 @@ Score components: ts=1.00 ds=0.97 hist=0.92 dur=1.00 conf=1.00
 
 That same host might also pick up a `C2 Port` finding (port 443 is not on
 that list, so probably not), and would feed a Host Risk Score contribution of
-approximately 30 from Beaconing (weight 30 × (0.5 + 0.5×0.97) ≈ 30). Add a
-`Malicious JA3` hit with score 100 and the composite jumps to 30 + 40 = 70
-— High severity.
+approximately 30 from Beaconing (weight 30 × (0.5 + 0.5×0.97) ≈ 30). Add a `Malicious JA3` or `Malicious JA4` hit with score 95 and the
+composite jumps to approximately 30 + 39 = 69 — High severity (weight
+40, score-scale 0.975, one destination).
 
 ---
 
