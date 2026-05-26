@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/BushidoCyb3r/Archer/internal/config"
@@ -236,6 +237,92 @@ func TestSlowBeaconNotExcludedByStrobeGate(t *testing.T) {
 	if !hasFindingType(findings, "Beaconing") {
 		t.Errorf("slow C2 beacon (1000 connections at ~16s intervals) should emit Beaconing; got: %v",
 			findingTypes(findings))
+	}
+}
+
+// TestRareBoostSuppressedWhenSNIPresent asserts that when enrichBeaconSNI
+// resolves a non-empty SNI for a finding that received the rare-destination
+// boost, the boost is reversed: score reverts to unboostedScore, severity is
+// recomputed, and the Detail fragment is updated.
+func TestRareBoostSuppressedWhenSNIPresent(t *testing.T) {
+	a := New(config.Default(), "", nil, nil)
+
+	pk := pairKey{sensor: "s1", src: "192.168.1.10", dst: "172.64.149.56"}
+	boostDetail := " | Prevalence: 1/50 (<2%) — rare dst, score boosted"
+	a.findings = append(a.findings, model.Finding{
+		Type:     "Beaconing",
+		Score:    90,
+		Severity: model.SevCritical,
+		Sensor:   pk.sensor,
+		SrcIP:    pk.src,
+		DstIP:    pk.dst,
+		Detail:   "Connections: 200 | Mean interval: 7214.7s" + boostDetail,
+	})
+
+	uid := "Cabc123"
+	a.sslUIDIndex[uid] = sslEntry{serverName: "api.example.com", ja3: "deadbeef"}
+	a.beaconSNINeeds[pk] = beaconSNINeed{
+		candidates:     []string{uid},
+		prevDetail:     boostDetail,
+		unboostedScore: 78,
+	}
+
+	a.enrichBeaconSNI()
+
+	f := a.findings[0]
+	if f.Score != 78 {
+		t.Errorf("Score = %d; want 78 — boost must be suppressed when SNI is present", f.Score)
+	}
+	if f.Severity != model.SevHigh {
+		t.Errorf("Severity = %v; want High — 78 is below the Critical threshold of 85", f.Severity)
+	}
+	if f.Hostname != "api.example.com" {
+		t.Errorf("Hostname = %q; want api.example.com", f.Hostname)
+	}
+	if strings.Contains(f.Detail, "score boosted") {
+		t.Error("Detail still says 'score boosted' after SNI-gated suppression")
+	}
+	if !strings.Contains(f.Detail, "boost suppressed (SNI present)") {
+		t.Errorf("Detail missing 'boost suppressed (SNI present)', got: %s", f.Detail)
+	}
+}
+
+// TestRareBoostRetainedWhenNoSNI asserts that when the ssl entry resolves to
+// an empty server_name, the rare boost is kept and the finding is unchanged.
+func TestRareBoostRetainedWhenNoSNI(t *testing.T) {
+	a := New(config.Default(), "", nil, nil)
+
+	pk := pairKey{sensor: "s1", src: "192.168.1.10", dst: "203.0.113.1"}
+	boostDetail := " | Prevalence: 1/50 (<2%) — rare dst, score boosted"
+	a.findings = append(a.findings, model.Finding{
+		Type:     "Beaconing",
+		Score:    90,
+		Severity: model.SevCritical,
+		Sensor:   pk.sensor,
+		SrcIP:    pk.src,
+		DstIP:    pk.dst,
+		Detail:   "Connections: 200 | Mean interval: 3600.0s" + boostDetail,
+	})
+
+	uid := "Cxyz456"
+	a.sslUIDIndex[uid] = sslEntry{serverName: "", ja3: "deadbeef"}
+	a.beaconSNINeeds[pk] = beaconSNINeed{
+		candidates:     []string{uid},
+		prevDetail:     boostDetail,
+		unboostedScore: 78,
+	}
+
+	a.enrichBeaconSNI()
+
+	f := a.findings[0]
+	if f.Score != 90 {
+		t.Errorf("Score = %d; want 90 — boost must be retained when no SNI resolves", f.Score)
+	}
+	if f.Severity != model.SevCritical {
+		t.Errorf("Severity = %v; want Critical — score 90 is above the 85 threshold", f.Severity)
+	}
+	if strings.Contains(f.Detail, "boost suppressed") {
+		t.Error("Detail incorrectly says 'boost suppressed' when no SNI was found")
 	}
 }
 

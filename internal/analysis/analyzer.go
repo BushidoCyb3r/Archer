@@ -68,7 +68,7 @@ type Analyzer struct {
 	nextID         int
 	sensorWindows  map[string]sensorWindow
 	sslUIDIndex    map[string]sslEntry
-	beaconSNINeeds map[pairKey][]string // conn beacon → candidate UIDs; enriched after wg1
+	beaconSNINeeds map[pairKey]beaconSNINeed // conn beacon → SNI candidates + boost context; enriched after wg1
 	parseErrs      []parseErr
 	tiErrs         []tiErr
 
@@ -147,7 +147,7 @@ func New(cfg config.Config, logsDir string, progressCh chan<- ProgressEvent, sta
 		statusCh:       statusCh,
 		sensorWindows:  make(map[string]sensorWindow),
 		sslUIDIndex:    make(map[string]sslEntry),
-		beaconSNINeeds: make(map[pairKey][]string),
+		beaconSNINeeds: make(map[pairKey]beaconSNINeed),
 		sensorPrev:     make(map[string]*sensorPrevData),
 		ctx:            ctx,
 		cancel:         cancel,
@@ -506,11 +506,11 @@ func (a *Analyzer) enrichBeaconSNI() {
 			continue
 		}
 		pk := pairKey{f.Sensor, f.SrcIP, f.DstIP}
-		candidates, ok := a.beaconSNINeeds[pk]
+		need, ok := a.beaconSNINeeds[pk]
 		if !ok {
 			continue
 		}
-		for _, uid := range candidates {
+		for _, uid := range need.candidates {
 			entry, ok2 := a.sslUIDIndex[uid]
 			if !ok2 {
 				continue
@@ -525,6 +525,24 @@ func (a *Analyzer) enrichBeaconSNI() {
 			if f.Hostname != "" && f.JA3 != "" {
 				break
 			}
+		}
+		// Rarity on a shared CDN/cloud IP with a known hostname is not a
+		// meaningful signal — the destination is identifiable by name, not
+		// just an opaque IP. Reverse the boost now that SNI is resolved.
+		if need.unboostedScore > 0 && f.Hostname != "" {
+			f.Score = need.unboostedScore
+			switch {
+			case need.unboostedScore >= 85:
+				f.Severity = model.SevCritical
+			case need.unboostedScore >= 70:
+				f.Severity = model.SevHigh
+			case need.unboostedScore >= 50:
+				f.Severity = model.SevMedium
+			default:
+				f.Severity = model.SevLow
+			}
+			f.Detail = strings.Replace(f.Detail, need.prevDetail,
+				strings.Replace(need.prevDetail, "score boosted", "boost suppressed (SNI present)", 1), 1)
 		}
 	}
 	clear(a.beaconSNINeeds)

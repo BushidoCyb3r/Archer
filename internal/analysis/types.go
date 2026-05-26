@@ -13,6 +13,17 @@ type sensorPrevData struct {
 	dstSrcs map[string]map[string]struct{} // external dst → unique internal srcs
 }
 
+// beaconSNINeed carries the SNI candidate UIDs for a conn beacon finding that
+// needs post-phase-1 enrichment, plus enough context to reverse the rarity
+// boost if an SNI is found. unboostedScore is non-zero only when the rare
+// boost was applied; prevDetail is the prevalence fragment appended to Detail
+// so it can be updated in-place when the boost is suppressed.
+type beaconSNINeed struct {
+	candidates     []string
+	prevDetail     string
+	unboostedScore int
+}
+
 // sslEntry holds the SSL/TLS metadata indexed by Zeek connection UID.
 type sslEntry struct {
 	serverName string

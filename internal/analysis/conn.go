@@ -589,7 +589,12 @@ func (a *Analyzer) analyzeConn(files []string) {
 			}
 		}
 		confMod := beaconConfMod(totalObserved, a.cfg.BeaconMinConnections)
-		score := clamp(int(100*(tsScore*0.25+dsScore*0.25+hScore*0.25+durScore*0.25)*prevalenceMod*confMod), 1, 100)
+		baseScoreF := 100 * (tsScore*0.25 + dsScore*0.25 + hScore*0.25 + durScore*0.25) * confMod
+		score := clamp(int(baseScoreF*prevalenceMod), 1, 100)
+		var unboostedScore int
+		if prevalenceMod == 1.15 {
+			unboostedScore = clamp(int(baseScoreF), 1, 100)
+		}
 
 		if score < beaconMinEmitScore {
 			continue
@@ -625,10 +630,15 @@ func (a *Analyzer) analyzeConn(files []string) {
 		detail += prevDetail
 		// SNI/JA3/JA4 enrichment is deferred to enrichBeaconSNI(), which
 		// runs after wg1.Wait() when sslUIDIndex is fully populated and
-		// there is no race with analyzeSSL.
+		// there is no race with analyzeSSL. unboostedScore is carried along
+		// so enrichBeaconSNI can reverse the rare boost if an SNI is found.
 		if len(st.sniCandidates) > 0 {
 			a.mu.Lock()
-			a.beaconSNINeeds[pk] = st.sniCandidates
+			a.beaconSNINeeds[pk] = beaconSNINeed{
+				candidates:     st.sniCandidates,
+				prevDetail:     prevDetail,
+				unboostedScore: unboostedScore,
+			}
 			a.mu.Unlock()
 		}
 		a.add(model.Finding{

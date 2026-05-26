@@ -496,7 +496,10 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 			if ratio >= 0.50 {
 				prevalenceMod = 0.85
 				prevDetail = fmt.Sprintf(" | Prevalence: %d/%d (%.0f%%) — common dst, score dampened", uniqueSrcs, totalSrcs, ratio*100)
-			} else if totalSrcs >= 50 && ratio <= 0.02 {
+			} else if totalSrcs >= 50 && ratio <= 0.02 && bk.host == "" {
+				// Suppress the rare-destination boost when the HTTP Host header
+				// identifies the service — IP rarity is not meaningful signal
+				// when the destination hostname is already known.
 				prevalenceMod = 1.15
 				prevDetail = fmt.Sprintf(" | Prevalence: %d/%d (<2%%) — rare dst, score boosted", uniqueSrcs, totalSrcs)
 			}

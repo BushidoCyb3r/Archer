@@ -28,15 +28,32 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
-## [v0.43.2] — 2026-05-26
+## [v0.43.3] — 2026-05-26
 
 ### Changed
+
+- **Rare-destination boost gated on SNI absence.** The +15% prevalence
+  boost previously fired whenever a destination was seen by ≤2% of
+  internal hosts, including shared CDN/cloud IPs where IP-level rarity
+  carries no signal. The boost is now suppressed when the connection's
+  TLS SNI resolves to a non-empty hostname (conn beaconing) or when the
+  HTTP Host header is present (HTTP beaconing). Bare-IP beacons and
+  connections with no resolvable SNI are unchanged. Findings that had
+  the boost applied but then land an SNI show `rare dst, boost suppressed
+  (SNI present)` in the prevalence detail fragment.
 
 - **Spectral rescue detail label** — the `FAP X.X` field in rescued-finding
   Detail strings is relabeled `threshold X.X`. The printed value was always
   the Rayleigh power threshold (e.g., 12.0), not a false-alarm probability;
   the old label caused the two to be confused. No scoring change; no output
   format change other than the label word.
+
+### Detection changes
+
+- Beaconing and HTTP Beaconing findings for TLS connections with a
+  resolvable SNI that previously received the rare-destination score boost
+  will score lower on re-analysis (boost withheld). Findings for bare-IP
+  connections (no TLS, or TLS with empty `server_name`) are unaffected.
 
 ---
 
