@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"html/template"
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,6 +32,7 @@ type Server struct {
 	webDir         string
 	logsDir        string
 	authKeysPath   string
+	authTmpls      map[string]*template.Template
 	mux            *http.ServeMux
 	analyzerMu     sync.Mutex
 	activeAnalyzer *analysis.Analyzer
@@ -71,6 +74,7 @@ func New(st *store.Store, us *store.UserStore, broker *Broker, webDir, logsDir, 
 		mux:       http.NewServeMux(),
 		rateLimit: newRateLimiter(),
 	}
+	s.authTmpls = loadAuthTemplates(webDir)
 	s.routes()
 	s.startWatch() // no-op if watch is disabled or unconfigured
 	s.startUnauthorizedPruneLoop()
@@ -390,11 +394,11 @@ func (s *Server) handleFindingRouter(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	if len(path) > len("/api/findings/") {
 		rest := path[len("/api/findings/"):]
-		if len(rest) > 9 && rest[len(rest)-9:] == "/escalate" {
+		if strings.HasSuffix(rest, "/escalate") {
 			s.handleEscalate(w, r)
 			return
 		}
-		if len(rest) > 6 && rest[len(rest)-6:] == "/notes" {
+		if strings.HasSuffix(rest, "/notes") {
 			s.handleAddNote(w, r)
 			return
 		}

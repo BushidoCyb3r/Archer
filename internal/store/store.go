@@ -48,7 +48,7 @@ type Store struct {
 	feedMatchers   map[int64]*match.Matcher // per-feed cached compile; rebuilt on indicator write
 	feedMatcherGen map[int64]uint64         // invalidation generation counter; incremented on each cache drop
 	findingsLoadOK bool                     // false if loadFindings encountered any scan/iteration error
-	suppressions   map[string]suppressionEntry
+	suppressions   map[string]SuppressionEntry
 	pairAllow      []model.PairAllowEntry
 	pairAllowIdx   map[string][]pairAllowRule // src\x00dst\x00port -> rules; sensor="" and ftype="" are wildcards
 	notifications  []model.Notification
@@ -81,14 +81,14 @@ type Store struct {
 	auditCountAt    time.Time
 }
 
-type suppressionEntry struct {
+type SuppressionEntry struct {
 	Expiry time.Time
 	Detail string
 }
 
 func New(cfg config.Config) *Store {
 	return &Store{
-		suppressions:   make(map[string]suppressionEntry),
+		suppressions:   make(map[string]SuppressionEntry),
 		pairAllowIdx:   make(map[string][]pairAllowRule),
 		feedMatchers:   make(map[int64]*match.Matcher),
 		feedMatcherGen: make(map[int64]uint64),
@@ -224,7 +224,7 @@ func (s *Store) InitDB(db *sql.DB) {
 			var target, detail string
 			var expUnix int64
 			if rows.Scan(&target, &expUnix, &detail) == nil {
-				s.suppressions[target] = suppressionEntry{Expiry: time.Unix(expUnix, 0), Detail: detail}
+				s.suppressions[target] = SuppressionEntry{Expiry: time.Unix(expUnix, 0), Detail: detail}
 			}
 		}
 	}
@@ -1188,7 +1188,7 @@ func (s *Store) invalidateFeedMatcher(feedID int64) {
 
 func (s *Store) AddSuppression(target string, expiry time.Time, detail string) {
 	s.mu.Lock()
-	s.suppressions[target] = suppressionEntry{Expiry: expiry, Detail: detail}
+	s.suppressions[target] = SuppressionEntry{Expiry: expiry, Detail: detail}
 	if s.db != nil {
 		if _, err := s.db.Exec(`INSERT OR REPLACE INTO suppressions (target, expiry, detail) VALUES (?, ?, ?)`, target, expiry.Unix(), detail); err != nil {
 			slog.Error("store: persist suppression", "err", err)
@@ -1216,11 +1216,11 @@ func (s *Store) RemoveSuppression(target string) {
 // the read-path treats as not-suppressed. Mutation (cleaning up
 // the map and DB rows) is the periodic-sweep loop's job, not this
 // function's.
-func (s *Store) GetSuppressions() map[string]suppressionEntry {
+func (s *Store) GetSuppressions() map[string]SuppressionEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	now := time.Now()
-	out := make(map[string]suppressionEntry, len(s.suppressions))
+	out := make(map[string]SuppressionEntry, len(s.suppressions))
 	for k, v := range s.suppressions {
 		if now.After(v.Expiry) {
 			continue
@@ -1409,10 +1409,13 @@ func (s *Store) dismissHiddenFindingNotificationsLocked() {
 		}
 	}
 	if s.db != nil && len(dismissedIDs) > 0 {
-		for _, id := range dismissedIDs {
-			if _, err := s.db.Exec(`UPDATE notifications SET dismissed = 1 WHERE id = ?`, id); err != nil {
-				slog.Error("store: persist dismiss-on-hidden notification", "id", id, "err", err)
-			}
+		ph := strings.Repeat("?,", len(dismissedIDs))
+		args := make([]any, len(dismissedIDs))
+		for i, id := range dismissedIDs {
+			args[i] = id
+		}
+		if _, err := s.db.Exec(`UPDATE notifications SET dismissed = 1 WHERE id IN (`+ph[:len(ph)-1]+`)`, args...); err != nil {
+			slog.Error("store: persist dismiss-on-hidden notifications", "count", len(dismissedIDs), "err", err)
 		}
 	}
 }
@@ -1435,11 +1438,14 @@ func (s *Store) dismissOrphanedFindingNotificationsLocked() {
 			dismissedIDs = append(dismissedIDs, n.ID)
 		}
 	}
-	if s.db != nil {
-		for _, id := range dismissedIDs {
-			if _, err := s.db.Exec(`UPDATE notifications SET dismissed = 1 WHERE id = ?`, id); err != nil {
-				slog.Warn("store: dismiss orphaned notification", "id", id, "err", err)
-			}
+	if s.db != nil && len(dismissedIDs) > 0 {
+		ph := strings.Repeat("?,", len(dismissedIDs))
+		args := make([]any, len(dismissedIDs))
+		for i, id := range dismissedIDs {
+			args[i] = id
+		}
+		if _, err := s.db.Exec(`UPDATE notifications SET dismissed = 1 WHERE id IN (`+ph[:len(ph)-1]+`)`, args...); err != nil {
+			slog.Warn("store: dismiss orphaned notifications", "count", len(dismissedIDs), "err", err)
 		}
 	}
 }

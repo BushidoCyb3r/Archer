@@ -536,12 +536,31 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// loadAuthTemplates pre-parses the login and register templates at startup
+// so renderAuth doesn't re-read disk on every unauthenticated request.
+// A missing template is silently skipped; renderAuth falls back to on-demand
+// parsing for any absent entry so a bad webDir at startup doesn't prevent
+// the rest of the server from starting.
+func loadAuthTemplates(webDir string) map[string]*template.Template {
+	names := []string{"login.html", "register.html"}
+	m := make(map[string]*template.Template, len(names))
+	for _, name := range names {
+		if tmpl, err := template.ParseFiles(filepath.Join(webDir, "templates", name)); err == nil {
+			m[name] = tmpl
+		}
+	}
+	return m
+}
+
 func (s *Server) renderAuth(w http.ResponseWriter, tmplName string, data map[string]any) {
-	tmplPath := filepath.Join(s.webDir, "templates", tmplName)
-	tmpl, err := template.ParseFiles(tmplPath)
-	if err != nil {
-		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
-		return
+	tmpl, ok := s.authTmpls[tmplName]
+	if !ok {
+		var err error
+		tmpl, err = template.ParseFiles(filepath.Join(s.webDir, "templates", tmplName))
+		if err != nil {
+			http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = tmpl.Execute(w, data)

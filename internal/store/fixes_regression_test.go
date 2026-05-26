@@ -101,11 +101,11 @@ func TestSetFindings_CorrelationDedup_PreservesDroppedRef(t *testing.T) {
 // appeared in the table but its bell could still fire (or vice versa).
 func TestSuppressionBoundary_HiddenAndSuppressedAgree(t *testing.T) {
 	s := New(config.Default())
-	s.suppressions = map[string]suppressionEntry{}
+	s.suppressions = map[string]SuppressionEntry{}
 
 	// Set expiry to the past so the suppression is definitively expired.
 	past := time.Now().Add(-1 * time.Second)
-	s.suppressions["1.2.3.4"] = suppressionEntry{Expiry: past, Detail: "test"}
+	s.suppressions["1.2.3.4"] = SuppressionEntry{Expiry: past, Detail: "test"}
 
 	suppressed := s.IsSuppressed("1.2.3.4")
 	hidden := s.isHiddenLocked("1.2.3.4", "0.0.0.0")
@@ -119,7 +119,7 @@ func TestSuppressionBoundary_HiddenAndSuppressedAgree(t *testing.T) {
 
 	// Active suppression: both must agree it is suppressed.
 	future := time.Now().Add(1 * time.Hour)
-	s.suppressions["5.6.7.8"] = suppressionEntry{Expiry: future, Detail: "active"}
+	s.suppressions["5.6.7.8"] = SuppressionEntry{Expiry: future, Detail: "active"}
 
 	suppressed = s.IsSuppressed("5.6.7.8")
 	hidden = s.isHiddenLocked("5.6.7.8", "0.0.0.0")
