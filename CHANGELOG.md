@@ -28,6 +28,18 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.43.2] — 2026-05-26
+
+### Changed
+
+- **Spectral rescue detail label** — the `FAP X.X` field in rescued-finding
+  Detail strings is relabeled `threshold X.X`. The printed value was always
+  the Rayleigh power threshold (e.g., 12.0), not a false-alarm probability;
+  the old label caused the two to be confused. No scoring change; no output
+  format change other than the label word.
+
+---
+
 ## [v0.43.0] — 2026-05-26
 
 ### Breaking
@@ -3320,10 +3332,10 @@ defensive guards, and config tunables.
   rescued only" checkbox in the advanced filter bar with a matching
   `spectral_only=true` server-side query param on `/api/findings`,
   (4) enriched Detail string on rescued findings showing score,
-  dominant period, raw Lomb-Scargle power, and the active FAP
-  threshold — enough for an analyst to judge "borderline (power
-  12.1 vs threshold 12.0)" vs "unambiguous (power 37.2 vs threshold
-  12.0)" from one row.
+  period (and ×median multiplier), raw Lomb-Scargle power, and the
+  active power threshold — enough for an analyst to judge "borderline
+  (power 12.1 vs threshold 12.0)" vs "unambiguous (power 37.2 vs
+  threshold 12.0)" from one row.
 
 ### Fixed
 
@@ -3370,7 +3382,7 @@ defensive guards, and config tunables.
   already handled aren't affected (their timing score stays
   unchanged because spectral doesn't fire). New findings — beacons
   with bounded jitter that the statistical chain scored low — get
-  a `Spectral rescued: score=… (dominant period …s, power …, FAP
+  a `Spectral rescued: score=… (period …s, …×median, power …,
   threshold …)` tag in the Detail string so analysts know which
   signal drove the score and at what confidence. Same wiring for
   HTTP Beaconing.

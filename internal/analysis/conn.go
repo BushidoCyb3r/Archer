@@ -614,7 +614,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 
 		detail := fmt.Sprintf("Connections: %d | Mean interval: %.1fs | CV: %.2f | Score components: ts=%.2f ds=%.2f hist=%.2f dur=%.2f conf=%.2f | ts_layers: raw=%.2f mm=%.2f ent=%.2f", totalObserved, ivMean, ivCV, tsScore, dsScore, hScore, durScore, confMod, tsRaw, tsMM, tsEnt)
 		if spectralRescued {
-			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (period %.1fs, %.1f×median, power %.1f, FAP %.1f)",
+			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (period %.1fs, %.1f×median, power %.1f, threshold %.1f)",
 				spectralResult.Score, spectralResult.Period, spectralResult.Period/ivMedian,
 				spectralResult.RawPower, a.cfg.SpectralFAPThreshold)
 			if spectralResult.DominantPeriod > 0 {

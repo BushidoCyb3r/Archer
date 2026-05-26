@@ -172,9 +172,9 @@ the threshold from 12 → 14 removes most without losing the
 high-power true positives.
 
 **Lower it (more permissive) when:** ground truth shows a known
-jittered C2 sample's Detail line carries `Spectral rescue: ...
-power=10.4 ...` against your FAP=12 — the peak was there, the
-threshold was the gate that closed it.
+jittered C2 sample's Detail line carries `Spectral rescued: ...
+power 10.4 ...` against your threshold of 12 — the peak was there,
+the threshold was the gate that closed it.
 
 > **Sanity check before adjusting:** read the actual `power=X`
 > value in the Detail line of a few suspect findings. The number
@@ -247,22 +247,23 @@ like:
 ```
 Connections: 200 | Mean interval: 60.4s | CV: 0.32 |
 Score components: ts=0.62 ds=0.85 hist=0.71 dur=0.40 conf=1.00 |
-Spectral rescued: score=0.91 (dominant period 60.3s, power 37.2, FAP threshold 12.0)
+Spectral rescued: score=0.91 (period 60.3s, 22.8×median, power 37.2, threshold 12.0)
 ```
 
-Four numbers in the rescue tag, each telling you something
+Five fields in the rescue tag, each telling you something
 calibration-relevant:
 
 | Field | What to read it for |
 |---|---|
 | `score=0.91` | The spectral path's contribution to the final `ts`. Above 0.7 = strong rescue; 0.5-0.7 = marginal. |
-| `dominant period 60.3s` | What the implant's actual cadence appears to be. Match against known C2 default beacon intervals (CS 60s, Empire 5min) or against legitimate periodicity in your environment (cron `* */15 * * *` → 900s). |
-| `power 37.2` | How far above the noise floor the peak rose. **This is the dial you most often need.** Power 12.1 against FAP=12 is borderline; power 37 against FAP=12 is unambiguous. |
-| `FAP threshold 12.0` | What the threshold was on this run. Echoed so you can correlate against the active setting. |
+| `period 60.3s` | What the implant's actual cadence appears to be. Match against known C2 default beacon intervals (CS 60s, Empire 5min) or against legitimate periodicity in your environment (cron `* */15 * * *` → 900s). |
+| `22.8×median` | Period expressed as a multiple of the pair's median inter-arrival interval. Values below ~5 indicate the periodogram is finding intra-burst rhythm, not beacon cadence (the plausibility gate should block these; if you see one, check the gate). Values above ~20 mean the spectral period is operating on a very different cadence than the typical connection rate — normal for burst-connect C2. |
+| `power 37.2` | How far above the noise floor the peak rose. **This is the dial you most often need.** Power 12.1 against threshold 12 is borderline; power 37 is unambiguous. |
+| `threshold 12.0` | The active power threshold on this run. Echoed so you can correlate against the active setting without opening config. |
 
 **Common patterns:**
 
-- **Cron job FP**: dominant period exactly 60s / 300s / 900s /
+- **Cron job FP**: period exactly 60s / 300s / 900s /
   3600s, low-medium power (15-25), regular as clockwork.
   Raising FAP threshold to 14-16 removes most without affecting
   jittered C2 (which usually has cleaner non-round periods).
@@ -272,7 +273,7 @@ calibration-relevant:
 - **Jittered C2 catch**: period in the 30-300s range, power
   20-50, ts statistical score below 0.5. The win.
 - **Reservoir-underpopulated edge case**: only 8-12
-  observations, dominant period near the window/2 cap.
+  observations, period near the window/2 cap.
   Generally raise min-observations.
 
 **Evolution chart.** Days where spectral rescue was active are

@@ -461,7 +461,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 		detail := fmt.Sprintf("DNS queries: %d | Unique subdomains: %d | Mean interval: %.1fs | CV: %.2f | Score: ts=%.2f div=%.2f cov=%.2f conf=%.2f | ts_layers: raw=%.2f mm=%.2f ent=%.2f",
 			bs.count, subCount, ivMean, ivCV, tsScore, divScore, coverage, confMod, tsRaw, tsMM, tsEnt)
 		if spectralRescued {
-			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (period %.1fs, %.1f×median, power %.1f, FAP %.1f)",
+			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (period %.1fs, %.1f×median, power %.1f, threshold %.1f)",
 				spectralResult.Score, spectralResult.Period, spectralResult.Period/ivMedian,
 				spectralResult.RawPower, a.cfg.SpectralFAPThreshold)
 			if spectralResult.DominantPeriod > 0 {

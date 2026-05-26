@@ -276,7 +276,7 @@ Beaconing finding's Detail string gets a tag:
 Connections: 200 | Mean interval: 60.4s | CV: 0.32 |
 Score components: ts=0.62 ds=0.85 hist=0.71 dur=0.40 |
 ts_layers: raw=0.31 mm=0.12 ent=0.08 |
-Spectral rescued: score=0.62 (dominant period 60.3s, ...)
+Spectral rescued: score=0.62 (period 60.3s, 22.8×median, power 37.2, threshold 12.0)
 ```
 
 So an analyst triaging the finding can see which signal drove

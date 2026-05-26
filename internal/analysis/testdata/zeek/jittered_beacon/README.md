@@ -21,7 +21,7 @@ exercises:
 On this fixture the entropy/multimodal augmentations score the
 beacon high enough that the spectral rescue gate doesn't fire
 (`tsScore=0.68` > the default `SpectralRescueThreshold=0.5`),
-so the expected finding's Detail has no "Spectral rescue:" tag.
+so the expected finding's Detail has no "Spectral rescued:" tag.
 The baseline asserts that spectral integration doesn't break
 detection on the kind of beacon the existing math handles.
 
@@ -47,5 +47,5 @@ on real captures is operator work, not synthetic-test work.
 
 One `Beaconing` finding plus the host-risk roll-up. The Detail
 string carries the standard `ts/ds/hist/dur` components; no
-"Spectral rescue:" tag because the rescue gate didn't open on
+"Spectral rescued:" tag because the rescue gate didn't open on
 this fixture.
