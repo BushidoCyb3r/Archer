@@ -8,5 +8,14 @@
     "dst_port": "443",
     "detail": "DNS-over-HTTPS to known resolver 8.8.8.8 (dns.google) — evades DNS logging",
     "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Host Risk Score",
+    "severity": "LOW",
+    "score": 15,
+    "src_ip": "192.168.2.10",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 15 | Detections: [DoH Bypass]",
+    "timestamp": "2024-01-15 12:00:00"
   }
 ]

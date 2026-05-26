@@ -93,10 +93,14 @@ else is goroutines.
 
 `tini` (PID 1) reaps zombies and forwards signals so sshd dies cleanly
 when archer exits. `entrypoint.sh` is the supervised process: it starts
-sshd, performs a one-time `chown -R archer:archer /data /logs` (idempotent
-volume-ownership migration introduced in v0.30.0), then drops to uid 1001
-via `su-exec archer` to start the archer binary. sshd continues running as
-root to handle Quiver rsync-over-SSH on port 2222.
+sshd, chowns `/data` (non-recursively) and `/data/tls` (recursive — a
+handful of cert files) to `archer:archer`, chowns the `/logs` top-level
+and sensor-level directories, then drops to uid 1001 via `su-exec archer`
+to start the archer binary. The `/data/archive` tree is intentionally not
+recursively chowned — archive files are already owned by `archer` when the
+archive worker moves them, and a full recursive chown is O(n) in archive
+file count. sshd continues running as root to handle Quiver rsync-over-SSH
+on port 2222.
 
 ---
 

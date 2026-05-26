@@ -604,7 +604,7 @@ operator-initiated invocations, not scheduler ticks.
 | `GET` | `/api/me` | any | Current session user — `{id, email, first_name, last_name, role, status}`. |
 | `POST` | `/api/me/password` | any | Change your own password. Body: `{"current_password","new_password","confirm"}`. `current_password` is re-verified (403 if wrong); `new_password` must be ≥ 8 chars and match `confirm` (400 otherwise). On success every session for the user is invalidated and a fresh session cookie is set on the response, so other live sessions die but this client stays logged in. |
 | `GET` | `/api/users` | any | Admin gets the full user list; any other role gets a one-entry list containing only themselves. |
-| `POST` | `/api/users` | admin | Create a user. Body: `{"email","first_name","last_name","password","role"}`. Returns the created user (with `password_hash` blanked). `password` must be ≥ 8 chars; `role` defaults to `analyst` if missing/invalid. |
+| `POST` | `/api/users` | admin | Create a user. Body: `{"email","first_name","last_name","password","role"}`. Returns the created user object (`id`, `email`, `first_name`, `last_name`, `role`, `status`). `password` must be ≥ 8 chars; `role` defaults to `analyst` if missing/invalid. The `password_hash` field is not included in any user response. |
 | `PATCH` | `/api/users/{id}` | admin | Update role / status (activate pending users), or reset the user's password by sending `{"password":"…"}` (≥ 8 chars). A password reset cannot target your own account (use `/api/me/password`); it drops the target's sessions so they re-authenticate on the new credential. Role/status and password are independent — send whichever fields apply. |
 | `DELETE` | `/api/users/{id}` | admin | Remove user. |
 

@@ -509,7 +509,9 @@ func (s *Store) DeleteFindingsBySensorPrefix(prefix string) {
 	if s.db == nil {
 		return
 	}
-	if _, err := s.db.Exec(`DELETE FROM findings WHERE sensor LIKE ?`, prefix+"%"); err != nil {
+	// Use substr() rather than LIKE to avoid SQL wildcard interpretation of
+	// '_' characters that are valid in sensor names (validSensorName regex).
+	if _, err := s.db.Exec(`DELETE FROM findings WHERE substr(sensor, 1, ?) = ?`, len(prefix), prefix); err != nil {
 		slog.Error("store: DeleteFindingsBySensorPrefix", "err", err)
 		return
 	}

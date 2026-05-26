@@ -72,13 +72,17 @@ fi
 # archer image (guaranteed present locally; no pull, air-gap-safe) just
 # as a filesystem to land the file and clear stale WAL/SHM sidecars.
 echo "Restoring into volume ${VOL}..."
+# Pass the snapshot filename via -e rather than interpolating it into the
+# sh -c body — prevents shell injection if the filename contains semicolons
+# or other metacharacters.
 docker run --rm \
   -v "${VOL}:/data" \
   -v "$(cd "$(dirname "$SNAP")" && pwd):/snap:ro" \
-  --entrypoint sh archer:latest -c "
-    cp /snap/$(basename "$SNAP") /data/archer.db &&
+  -e "SNAPFILE=$(basename "$SNAP")" \
+  --entrypoint sh archer:latest -c '
+    cp "/snap/$SNAPFILE" /data/archer.db &&
     rm -f /data/archer.db-wal /data/archer.db-shm &&
-    echo restored"
+    echo restored'
 
 echo "Starting Archer..."
 docker compose -f "$COMPOSE_FILE" up -d

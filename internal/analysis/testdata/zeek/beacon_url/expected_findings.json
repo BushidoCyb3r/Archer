@@ -11,11 +11,11 @@
   },
   {
     "type": "Host Risk Score",
-    "severity": "HIGH",
-    "score": 60,
+    "severity": "CRITICAL",
+    "score": 81,
     "src_ip": "192.168.1.5",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 60 | Detections: [Beaconing Suspicious URL TI Hit (Domain)]",
+    "detail": "Composite risk: 81 | Detections: [Beaconing Suspicious URL TI Hit (Domain)]",
     "timestamp": "2024-01-15 12:00:00"
   },
   {

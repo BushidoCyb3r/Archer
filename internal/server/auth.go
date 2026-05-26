@@ -59,8 +59,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if user.Status == model.StatusPending {
+			// Use the same generic message as bad credentials so an attacker
+			// who guesses a pending account's password learns nothing extra.
+			// The admin-approval flow notifies the user out-of-band.
 			s.recordAuditLogin(r, "login_failure", user.ID, user.Email, map[string]any{"reason": "pending_approval"})
-			s.renderAuth(w, "login.html", map[string]any{"Error": "Your account is awaiting admin approval."})
+			s.renderAuth(w, "login.html", map[string]any{"Error": "Invalid email or password."})
 			return
 		}
 

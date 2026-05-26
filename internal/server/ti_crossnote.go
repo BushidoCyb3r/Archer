@@ -24,7 +24,7 @@ func (s *Server) crossNoteByIP(ip string, note model.Note, skipIDs map[int]bool)
 			continue
 		}
 		if f.DstIP == ip || f.SrcIP == ip {
-			if s.store.AddNote(f.ID, note) {
+			if found, _ := s.store.AddNote(f.ID, note); found {
 				n++
 			}
 		}

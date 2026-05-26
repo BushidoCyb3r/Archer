@@ -4525,6 +4525,7 @@
       // keeping the dock collapsed would defeat the operator intent.
       f => {
         _selectedFinding = f;
+        _pivotCtx = null; // a direct row click leaves any pivot context
         if (_isDockCollapsed()) _setDockCollapsed(false, false);
         Detail.render(f);
         if (!f || !f.id) return;

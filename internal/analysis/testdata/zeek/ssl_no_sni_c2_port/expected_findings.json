@@ -1,5 +1,14 @@
 [
   {
+    "type": "Host Risk Score",
+    "severity": "MEDIUM",
+    "score": 27,
+    "src_ip": "192.168.4.10",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 27 | Detections: [SSL No-SNI on C2 Port]",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
     "type": "SSL No-SNI on C2 Port",
     "severity": "HIGH",
     "score": 82,

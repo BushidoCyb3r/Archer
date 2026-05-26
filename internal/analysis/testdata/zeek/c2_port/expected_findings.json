@@ -8,5 +8,14 @@
     "dst_port": "4444",
     "detail": "Port 4444 — Metasploit default",
     "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Host Risk Score",
+    "severity": "LOW",
+    "score": 19,
+    "src_ip": "192.168.1.60",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 19 | Detections: [C2 Port]",
+    "timestamp": "2024-01-15 12:00:00"
   }
 ]

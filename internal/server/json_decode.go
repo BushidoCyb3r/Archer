@@ -34,6 +34,7 @@ import (
 func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any, maxBytes int64) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {
@@ -42,6 +43,10 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any, maxBytes in
 		}
 		jsonError(w, "invalid JSON", http.StatusBadRequest)
 		return err
+	}
+	if dec.More() {
+		jsonError(w, "invalid JSON", http.StatusBadRequest)
+		return fmt.Errorf("trailing content after JSON value")
 	}
 	return nil
 }

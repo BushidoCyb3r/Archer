@@ -32,7 +32,7 @@ type User struct {
 	Email        string `json:"email"`
 	FirstName    string `json:"first_name"`
 	LastName     string `json:"last_name"`
-	PasswordHash string `json:"password_hash"`
+	PasswordHash string `json:"-"`
 	Role         string `json:"role"`
 	Status       string `json:"status"` // "pending" | "active"
 	CreatedAt    string `json:"created_at"`

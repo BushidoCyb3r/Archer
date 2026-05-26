@@ -562,13 +562,17 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 		// the actual prior state — no race against a concurrent PATCH
 		// landing between a separate GetFinding and UpdateFinding.
 		// v0.14.2 NEW-36.
-		before, ok := s.store.UpdateFinding(id, model.Status(req.Status), user.DisplayName(), req.Note, ts)
-		if !ok {
+		before, found, err := s.store.UpdateFinding(id, model.Status(req.Status), user.DisplayName(), req.Note, ts)
+		if !found {
 			http.NotFound(w, r)
 			return
 		}
+		if err != nil {
+			jsonError(w, "store error", http.StatusInternalServerError)
+			return
+		}
 		if req.Note != "" {
-			s.store.AddNote(id, model.Note{
+			_, _ = s.store.AddNote(id, model.Note{
 				Text:        req.Note,
 				Author:      user.DisplayName(),
 				AuthorEmail: user.Email,
@@ -688,13 +692,17 @@ func (s *Server) handleEscalate(w http.ResponseWriter, r *http.Request) {
 	// mutex so the audit row's BeforeValue.status is the actual prior
 	// state, not a separate GetFinding read that races against
 	// concurrent PATCHes. v0.14.2 NEW-36.
-	before, ok := s.store.UpdateFinding(id, model.StatusEscalated, user.DisplayName(), req.Note, ts)
-	if !ok {
+	before, found, err := s.store.UpdateFinding(id, model.StatusEscalated, user.DisplayName(), req.Note, ts)
+	if !found {
 		http.NotFound(w, r)
 		return
 	}
+	if err != nil {
+		jsonError(w, "store error", http.StatusInternalServerError)
+		return
+	}
 	if req.Note != "" {
-		s.store.AddNote(id, model.Note{
+		_, _ = s.store.AddNote(id, model.Note{
 			Text:        req.Note,
 			Author:      user.DisplayName(),
 			AuthorEmail: user.Email,
@@ -1064,7 +1072,7 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 				}
 			}
 		}
-		s.store.AddNote(f.ID, model.Note{
+		_, _ = s.store.AddNote(f.ID, model.Note{
 			Text:        strings.TrimRight(b.String(), "\n"),
 			Author:      "TI Enrichment",
 			AuthorEmail: "system",
@@ -2314,14 +2322,18 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {
 	user := userFromCtx(r)
 	ts := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 	noteText := strings.TrimSpace(req.Text)
-	ok := s.store.AddNote(id, model.Note{
+	found, err := s.store.AddNote(id, model.Note{
 		Text:        noteText,
 		Author:      user.DisplayName(),
 		AuthorEmail: user.Email,
 		Timestamp:   ts,
 	})
-	if !ok {
+	if !found {
 		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		jsonError(w, "store error", http.StatusInternalServerError)
 		return
 	}
 	// Note text itself stays out of the audit log — it's preserved

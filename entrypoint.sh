@@ -53,10 +53,16 @@ if [ -z "${GOMEMLIMIT:-}" ]; then
     echo "entrypoint: GOMEMLIMIT=${GOMEMLIMIT} (90% of ${total} bytes)"
 fi
 
-# Hand /data and /logs to the archer user before dropping privileges.
-# On first start after upgrade these dirs are root-owned; this is the
-# one-time migration. Idempotent on subsequent starts.
-chown -R archer:archer /data
+# Hand /data to the archer user before dropping privileges. Only chown
+# /data itself plus the tls subdirectory (a handful of cert files) — a
+# recursive chown of the full tree is O(n) in archive file count and
+# destructive if /data is bind-mounted from a host path with arbitrary
+# contents. Archive files are already archer-owned once moved there by
+# the archive worker; the DB and WAL at /data root are covered by the
+# non-recursive pass.
+chown archer:archer /data
+find /data -maxdepth 1 -exec chown archer:archer {} \;
+chown -R archer:archer /data/tls 2>/dev/null || true
 # Only chown the /logs root and sensor-level dirs, not the date-tree
 # subdirs inside them. Sensor-level dirs are archer:archer 2775 so
 # rrsync (quiver, with archer as supplementary group) can push into them

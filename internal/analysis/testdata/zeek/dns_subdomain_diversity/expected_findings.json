@@ -8,5 +8,14 @@
     "dst_port": "53",
     "detail": "High subdomain diversity — apex: diverse.com | Unique subdomains: 50 | Avg entropy: 2.38",
     "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Host Risk Score",
+    "severity": "LOW",
+    "score": 19,
+    "src_ip": "192.168.2.50",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 19 | Detections: [DNS Subdomain DGA]",
+    "timestamp": "2024-01-15 12:00:00"
   }
 ]

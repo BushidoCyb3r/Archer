@@ -1,5 +1,14 @@
 [
   {
+    "type": "Host Risk Score",
+    "severity": "LOW",
+    "score": 5,
+    "src_ip": "192.168.6.10",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 5 | Detections: [Protocol Anomaly]",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
     "type": "Protocol Anomaly",
     "severity": "LOW",
     "score": 22,

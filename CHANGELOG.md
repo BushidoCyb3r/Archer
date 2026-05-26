@@ -28,6 +28,131 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.42.0] — 2026-05-26
+
+### Breaking
+
+- **Detection semantics: Host Risk Score weight table is now complete.**
+  Thirteen detector types that previously carried an implicit weight of
+  zero now contribute to Host Risk Score on re-analysis:
+
+  | Type | Weight |
+  |---|---|
+  | DNS Tunneling | 35 |
+  | SSL No-SNI on C2 Port | 30 |
+  | Suspicious URL | 30 |
+  | Suspicious File Download | 25 |
+  | DNS Subdomain DGA | 22 |
+  | C2 Port | 22 |
+  | Suspicious Certificate | 20 |
+  | DNS NXDOMAIN Flood | 18 |
+  | DoH Bypass | 18 |
+  | SSL No-SNI | 15 |
+  | Suspicious UA | 12 |
+  | Weak TLS | 10 |
+  | Protocol Anomaly | 8 |
+
+  Hosts carrying any of these finding types will see their HRS rise
+  on the next analyze run. The full weight table is in
+  `docs/DETECTION_METHODS.md § 14`.
+
+- **API: `password_hash` removed from User JSON responses.**
+  `GET /api/users`, `POST /api/users`, and `GET /api/me` no longer
+  include a `password_hash` key. The field was always blank in
+  responses (the hash was never exposed), but removing it from the
+  marshaled struct eliminates the footgun entirely. Any integration
+  that checks for the key's presence must be updated.
+
+### Security
+
+- **Login enumeration closed.** A pending (not-yet-approved) account
+  previously returned a distinct UI message, letting an attacker
+  distinguish "email exists but pending" from "bad credentials." Both
+  branches now return the same generic failure string.
+
+- **Censys credentials redacted from audit log.** `censys_api_id` and
+  `censys_api_secret` were missing from the config-change redaction
+  list; they were being written plaintext to the `config_change` audit
+  entries alongside the other API keys that were already redacted.
+
+- **JSON decoder now rejects unknown fields and trailing body content.**
+  All API endpoints using `decodeJSONBody` now reject payloads with
+  unrecognized keys (prevents silent typo inputs) and reject bodies
+  with content after the JSON value (prevents request-smuggling via
+  double-body).
+
+- **backup.sh: admin password no longer in curl process argv.**
+  Credentials are written to a `chmod 600` tempfile and supplied via
+  `curl --config`; they are never present in `/proc/<pid>/cmdline`.
+
+### Fixed
+
+- **`loadFindings` failure is now fatal at startup.** A `db.Query`
+  error in `loadFindings` previously silently set `findingsLoadOK=false`
+  and returned, putting the process in a state where `saveFindings`
+  would refuse all writes for its entire lifetime — every subsequent
+  analyze run produced findings that were discarded at commit time.
+  The process now exits with an error message instead of continuing in
+  a quietly broken state.
+
+- **`UpdateFinding` and `AddNote` write DB before memory.** Both store
+  methods previously mutated the in-memory findings slice first and
+  then issued the DB `UPDATE`. A process crash between the two steps
+  left the DB behind the in-memory state; on restart the DB value was
+  loaded (the analyst's change was lost). Both methods now write to
+  SQLite first and only update memory after a successful DB write.
+  A DB write failure returns an error to the caller rather than
+  producing a silent in-memory/on-disk divergence.
+
+- **`entrypoint.sh` chown scoped to `/data` root and `/data/tls`.**
+  The previous `chown -R archer:archer /data` was O(n) in archive file
+  count and would destructively change ownership if `/data` was a
+  bind-mounted host path. The archive worker already owns the files it
+  moves there, so the recursive pass was unnecessary. The chown now
+  covers `/data` (non-recursively) and `/data/tls` (recursive,
+  a handful of cert files).
+
+- **`busy_timeout = 5000` set on SQLite connection at startup.**
+  Without this, any concurrent write attempt returned `SQLITE_BUSY`
+  immediately with no retry, causing analyze runs that overlapped with
+  an in-flight backup or settings save to fail with a hard error.
+
+- **Sensor-prefix finding deletion uses `substr()` match instead of
+  `LIKE`.** The `_` character is a LIKE wildcard in SQLite; a sensor
+  named `site_a` could match findings from sensors `site-a`, `siteXa`,
+  etc. on purge. The deletion predicate now uses
+  `substr(sensor,1,len) = prefix`.
+
+- **URLhaus lookups are now case-insensitive at both insert and lookup.**
+  HTTP `Host` headers with uppercase characters (valid per RFC 7230)
+  were not matching URLhaus entries stored in all-lowercase form.
+  Domains are lowercased at insert time and at lookup time; DNS query
+  strings are also lowercased before comparison.
+
+- **DNS Beaconing spectral series uses ring-buffer accumulation.**
+  The spectral timestamp list for DNS beacon pairs was using reservoir
+  sampling (`reservoirAddF`), which randomly thins the series;
+  Lomb-Scargle peak SNR degrades non-linearly under random thinning.
+  DNS Beaconing now uses `appendSpectralRing`, the same path conn
+  Beaconing uses, which preserves temporal order.
+
+- **DNS Beacon `lastTS` guard prevents out-of-order timestamp rewind.**
+  An out-of-order record in a DNS log file could rewind `lastTS`,
+  inflating the next computed interval. The guard `if ts > bs.lastTS`
+  now matches the pattern already used in conn Beaconing.
+
+- **NXDOMAIN flood tracking is sensor-partitioned.** The NXDOMAIN count
+  and first-seen maps were keyed only by `src` IP; in multi-sensor
+  deployments, NXDOMAIN observations from different sensors accumulated
+  under the same key. Counts are now keyed by `(sensor, src)`.
+
+- **Strobe, Data Exfiltration, and Off-Hours Transfer now carry the
+  Sensor field.** These three finding types were emitting with an empty
+  Sensor field, meaning they were not attributable to the sensor that
+  generated them and would be incorrectly grouped in multi-sensor views.
+
+---
+
 ## [v0.41.0] — 2026-05-25
 
 ### Detection changes

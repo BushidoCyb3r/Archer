@@ -113,6 +113,7 @@ func configToAuditMap(c config.Config) map[string]any {
 	for _, k := range []string{
 		"otx_api_key", "abuseipdb_api_key", "virustotal_api_key",
 		"crowdsec_api_key", "greynoise_api_key",
+		"censys_api_id", "censys_api_secret",
 	} {
 		if v, ok := m[k].(string); ok {
 			if v == "" {

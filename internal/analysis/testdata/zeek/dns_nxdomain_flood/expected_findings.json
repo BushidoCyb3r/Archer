@@ -8,5 +8,14 @@
     "dst_port": "53",
     "detail": "NXDOMAIN responses: 250 (threshold: 200) — possible DGA",
     "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Host Risk Score",
+    "severity": "LOW",
+    "score": 16,
+    "src_ip": "192.168.2.40",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 16 | Detections: [DNS NXDOMAIN Flood]",
+    "timestamp": "2024-01-15 12:00:00"
   }
 ]

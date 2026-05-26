@@ -69,7 +69,7 @@ func (a *Analyzer) checkSuspiciousURLs(files []string) {
 			if host == "" || src == "" {
 				return true
 			}
-			h := host
+			h := strings.ToLower(host)
 			if idx := strings.LastIndex(h, ":"); idx >= 0 && strings.Count(h, ":") == 1 {
 				h = h[:idx]
 			}
@@ -207,7 +207,7 @@ func (a *Analyzer) checkTI(files []string) {
 	})
 	a.parallelEach(dnsLogs, func(path string) {
 		a.parseLog(path, func(rec map[string]any) bool {
-			q := parser.GetStr(rec, "query")
+			q := strings.ToLower(strings.TrimRight(parser.GetStr(rec, "query"), "."))
 			if q != "" && !isIPAddr(q) {
 				addDstDomain(q)
 			}
@@ -844,6 +844,7 @@ func (a *Analyzer) fetchURLhaus(client *http.Client) (ips, hosts map[string]bool
 		if h == "" {
 			continue
 		}
+		h = strings.ToLower(h)
 		if isIPAddr(h) {
 			ips[h] = true
 		} else {

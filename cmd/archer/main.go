@@ -19,7 +19,7 @@ import (
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
 	// Single TLS listener for everyone — admins, analysts, viewers,
 	// AND sensors. Pre-v0.14.5 Archer ran a plain HTTP listener on

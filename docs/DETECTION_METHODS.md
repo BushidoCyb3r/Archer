@@ -1547,26 +1547,40 @@ After all per-finding analyzers have run, a final pass groups findings by
 `SrcIP` and computes a composite score per host. Each detection type
 contributes a weight:
 
-| Detection type      | Weight |
-|---------------------|--------|
-| Cobalt Strike URI   | 40     |
-| Malicious JA3       | 40     |
-| C2 URI Pattern      | 38     |
-| TI Hit (IP)         | 35     |
-| TI Hit (Domain)     | 35     |
-| TI Hit (Hash)       | 35     |
-| Domain Fronting     | 32     |
-| Beaconing           | 30     |
-| HTTP Beaconing      | 28     |
-| Data Exfiltration   | 25     |
-| Lateral Movement    | 20     |
-| Strobe              | 15     |
-| Long Connection     | 10     |
+| Detection type          | Weight |
+|-------------------------|--------|
+| Cobalt Strike URI       | 40     |
+| Malicious JA3           | 40     |
+| C2 URI Pattern          | 38     |
+| DNS Tunneling           | 35     |
+| TI Hit (IP)             | 35     |
+| TI Hit (Domain)         | 35     |
+| TI Hit (Hash)           | 35     |
+| Domain Fronting         | 32     |
+| Beaconing               | 30     |
+| DNS Beaconing           | 30     |
+| SSL No-SNI on C2 Port   | 30     |
+| Suspicious URL          | 30     |
+| HTTP Beaconing          | 28     |
+| Data Exfiltration       | 25     |
+| Suspicious File Download| 25     |
+| DNS Subdomain DGA       | 22     |
+| C2 Port                 | 22     |
+| Lateral Movement        | 20     |
+| Suspicious Certificate  | 20     |
+| DNS NXDOMAIN Flood      | 18     |
+| DoH Bypass              | 18     |
+| SSL No-SNI              | 15     |
+| Strobe                  | 15     |
+| Suspicious UA           | 12     |
+| Long Connection         | 10     |
+| Weak TLS                | 10     |
+| Protocol Anomaly        | 8      |
 
 (Each TI Hit flavor independently adds 35 — a host that triggered a
 DNS-domain hit AND a file-hash hit gets +70. The legacy `Threat Intel
 Hit` type from pre-v0.7.0 findings also weights 35 for backward
-compatibility.)
+compatibility. Types not in this table contribute zero to HRS.)
 
 For each host, the composite scales each type's weight by the highest-scoring
 finding of that type and by the count of distinct destination IPs that type

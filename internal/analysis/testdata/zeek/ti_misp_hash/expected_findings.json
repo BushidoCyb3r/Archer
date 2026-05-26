@@ -19,20 +19,20 @@
   },
   {
     "type": "Host Risk Score",
-    "severity": "MEDIUM",
-    "score": 33,
+    "severity": "HIGH",
+    "score": 55,
     "src_ip": "192.168.8.40",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 33 | Detections: [Suspicious File Download TI Hit (Hash)]",
+    "detail": "Composite risk: 55 | Detections: [Suspicious File Download TI Hit (Hash)]",
     "timestamp": "2024-01-15 12:00:00"
   },
   {
     "type": "Host Risk Score",
-    "severity": "MEDIUM",
-    "score": 33,
+    "severity": "HIGH",
+    "score": 55,
     "src_ip": "192.168.8.41",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 33 | Detections: [Suspicious File Download TI Hit (Hash)]",
+    "detail": "Composite risk: 55 | Detections: [Suspicious File Download TI Hit (Hash)]",
     "timestamp": "2024-01-15 12:00:05"
   },
   {

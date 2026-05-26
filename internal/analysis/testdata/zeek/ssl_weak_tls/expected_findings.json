@@ -1,5 +1,14 @@
 [
   {
+    "type": "Host Risk Score",
+    "severity": "LOW",
+    "score": 7,
+    "src_ip": "192.168.4.10",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 7 | Detections: [Weak TLS]",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
     "type": "Weak TLS",
     "severity": "LOW",
     "score": 48,

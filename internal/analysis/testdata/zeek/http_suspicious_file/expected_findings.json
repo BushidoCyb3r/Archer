@@ -1,5 +1,14 @@
 [
   {
+    "type": "Host Risk Score",
+    "severity": "LOW",
+    "score": 22,
+    "src_ip": "192.168.3.50",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 22 | Detections: [Suspicious File Download]",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
     "type": "Suspicious File Download",
     "severity": "HIGH",
     "score": 72,

@@ -81,7 +81,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 		firstTS        float64
 		count          int
 		spectralTs     []float64
-		spectralTsSeen int
+		spectralTsHead int
 	}
 
 	apexMap := make(map[apexKey]*apexData)
@@ -90,8 +90,9 @@ func (a *Analyzer) analyzeDNS(files []string) {
 	// hist/dur axes score how much of that sensor's capture a beacon
 	// spanned, not the merged window across all sensors.
 	dnsWins := map[string]sensorWindow{}
-	nxCounts := make(map[string]int) // src → nxdomain count
-	nxFirst := make(map[string]float64)
+	type nxKey struct{ sensor, src string }
+	nxCounts := make(map[nxKey]int)
+	nxFirst := make(map[nxKey]float64)
 	seenTunnel := make(map[[2]string]bool)
 	seenTLD := make(map[[2]string]bool)
 
@@ -110,7 +111,8 @@ func (a *Analyzer) analyzeDNS(files []string) {
 
 			// NXDOMAIN flood
 			if rcode == "NXDOMAIN" {
-				nxCounts[src]++
+				nk := nxKey{sensor, src}
+				nxCounts[nk]++
 				// Guard nxFirst against a leading record with ts == 0
 				// (missing field). Pre-fix any first record with ts == 0
 				// poisoned nxFirst, and the subsequent ts < nxFirst
@@ -119,8 +121,8 @@ func (a *Analyzer) analyzeDNS(files []string) {
 				// when later records carried a real time. Audited
 				// 2026-05-10. Same guard pattern apexMap[k].firstTS
 				// already uses below.
-				if ts > 0 && (nxFirst[src] == 0 || ts < nxFirst[src]) {
-					nxFirst[src] = ts
+				if ts > 0 && (nxFirst[nk] == 0 || ts < nxFirst[nk]) {
+					nxFirst[nk] = ts
 				}
 			}
 
@@ -170,10 +172,19 @@ func (a *Analyzer) analyzeDNS(files []string) {
 							bs.ivs, bs.ivsSeen = reservoirAddF(bs.ivs, bs.ivsSeen, iv, beaconIvCap)
 						}
 					}
-					bs.lastTS = ts
+					// Guard against out-of-order timestamps — same fix
+					// conn.go:436-442 applied for Beaconing. An OOO record
+					// rewinds lastTS, inflating the next forward interval.
+					if ts > bs.lastTS {
+						bs.lastTS = ts
+					}
 					bs.tsData, bs.tsSeen = reservoirAddT(bs.tsData, bs.tsSeen, [3]float64{ts, 0, 0}, beaconTsCap)
 					bs.hourMap[int(ts)/3600]++
-					bs.spectralTs, bs.spectralTsSeen = reservoirAddF(bs.spectralTs, bs.spectralTsSeen, ts, spectralTsCap)
+					// Spectral analysis requires temporal order; use the ring
+					// buffer (appendSpectralRing) rather than reservoir sampling.
+					// Random thinning degrades Lomb-Scargle peak SNR nonlinearly —
+					// see conn.go:799-812 for the conn-beacon precedent.
+					appendSpectralRing(&bs.spectralTs, &bs.spectralTsHead, ts)
 					if bs.firstTS == 0 || ts < bs.firstTS {
 						bs.firstTS = ts
 					}
@@ -293,7 +304,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 	}
 
 	// ── NXDOMAIN flood ───────────────────────────────────────────────────────
-	for src, count := range nxCounts {
+	for nk, count := range nxCounts {
 		if count < a.cfg.DNSNXDomainThreshold {
 			continue
 		}
@@ -302,11 +313,12 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			Type:      "DNS NXDOMAIN Flood",
 			Severity:  model.SevHigh,
 			Score:     score,
-			SrcIP:     src,
+			Sensor:    nk.sensor,
+			SrcIP:     nk.src,
 			DstIP:     "(network)",
 			DstPort:   "53",
 			Detail:    fmt.Sprintf("NXDOMAIN responses: %d (threshold: %d) — possible DGA", count, a.cfg.DNSNXDomainThreshold),
-			Timestamp: fmtTS(nxFirst[src]),
+			Timestamp: fmtTS(nxFirst[nk]),
 		})
 	}
 

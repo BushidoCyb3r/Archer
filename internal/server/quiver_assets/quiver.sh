@@ -117,7 +117,9 @@ case "$status" in
         # Sensors modal. Hourly mode: the hour field stays '*' in cron
         # regardless of whatever schedule_hour the server reports.
         new_m=$(echo "$resp" | sed -n 's/.*"minute":\([0-9]\+\).*/\1/p')
-        if [ -n "${new_m:-}" ] && [ "$new_m" != "$SCHEDULE_MINUTE" ]; then
+        # Validate range before writing to cron — a server returning an
+        # out-of-range value would produce a malformed cron entry.
+        if [ -n "${new_m:-}" ] && [ "$new_m" -ge 0 ] 2>/dev/null && [ "$new_m" -le 59 ] && [ "$new_m" != "$SCHEDULE_MINUTE" ]; then
             sed -i "s/^SCHEDULE_MINUTE=.*/SCHEDULE_MINUTE=${new_m}/" /etc/quiver/config
             echo "${new_m} * * * * quiver /usr/local/bin/quiver.sh >/dev/null 2>&1" \
                 > /etc/cron.d/quiver

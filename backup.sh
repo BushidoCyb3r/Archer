@@ -26,7 +26,9 @@ set -euo pipefail
 ARCHER_URL="${ARCHER_URL:-https://localhost:8443}"
 BACKUP_DIR="${1:-${BACKUP_DIR:-./backups}}"
 JAR="$(mktemp)"
-trap 'rm -f "$JAR"' EXIT
+CREDS="$(mktemp)"
+chmod 600 "$CREDS"
+trap 'rm -f "$JAR" "$CREDS"' EXIT
 
 CURL_TLS=(-k)
 if [ -n "${ARCHER_CACERT:-}" ]; then CURL_TLS=(--cacert "$ARCHER_CACERT"); fi
@@ -46,12 +48,15 @@ mkdir -p "$BACKUP_DIR"
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 OUT="$BACKUP_DIR/archer-backup-${STAMP}.db"
 
+# Write credentials to a tempfile read by curl --config so they don't
+# appear in /proc/<pid>/cmdline for the curl process lifetime.
+printf 'data-urlencode = "email=%s"\ndata-urlencode = "password=%s"\n' \
+  "$USER_EMAIL" "$USER_PASS" > "$CREDS"
+
 # Authenticate. A bad password re-renders the login page with HTTP 200
 # and no Set-Cookie, so -f won't catch it — verify the session cookie
 # actually landed in the jar.
-curl -sf "${CURL_TLS[@]}" -c "$JAR" -o /dev/null \
-  --data-urlencode "email=${USER_EMAIL}" \
-  --data-urlencode "password=${USER_PASS}" \
+curl -sf "${CURL_TLS[@]}" -c "$JAR" -o /dev/null -K "$CREDS" \
   "${ARCHER_URL}/login" || true
 if ! grep -q 'archer_session' "$JAR"; then
   echo "ERROR: login failed (check credentials and ${ARCHER_URL})" >&2

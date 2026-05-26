@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -377,8 +378,14 @@ func (s *Store) loadFindings() {
 	}
 	rows, err := s.db.Query(`SELECT id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size, ja3, ja4, top_uris FROM findings ORDER BY id`)
 	if err != nil {
-		slog.Error("store: load findings", "err", err)
-		return
+		// A query failure here means we can't establish the canonical
+		// in-memory state. Starting with findingsLoadOK=false silently
+		// disables saveFindings for the entire process lifetime — every
+		// analyze run would produce findings that are never persisted.
+		// Failing fast surfaces the problem immediately rather than
+		// allowing Archer to run in a quietly broken state.
+		slog.Error("store: loadFindings failed — cannot start with incomplete findings state", "err", err)
+		os.Exit(1)
 	}
 	defer rows.Close()
 	loadOK := true
@@ -903,25 +910,30 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 // the audit row's BeforeValue could otherwise reflect a stale read).
 // The snapshot is taken under the same mutex as the mutation.
 // Audit 2026-05-10 NEW-36.
-func (s *Store) UpdateFinding(id int, status model.Status, analyst, note, statusTS string) (model.Finding, bool) {
+func (s *Store) UpdateFinding(id int, status model.Status, analyst, note, statusTS string) (model.Finding, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	i, ok := s.findingsIdx[id]
 	if !ok {
-		return model.Finding{}, false
+		return model.Finding{}, false, nil
 	}
 	before := s.findings[i]
-	s.findings[i].Status = status
-	s.findings[i].Analyst = analyst
-	s.findings[i].AnalystNote = note
-	s.findings[i].StatusTS = statusTS
+	// Write to DB before updating in-memory so a crash between the two
+	// leaves the DB as the authoritative state. On restart, loadFindings
+	// reloads the DB value — if we updated memory first and then crashed,
+	// the analyst's change would be silently lost.
 	if s.db != nil {
 		if _, err := s.db.Exec(`UPDATE findings SET status=?, analyst=?, analyst_note=?, status_ts=? WHERE id=?`,
 			string(status), analyst, note, statusTS, id); err != nil {
 			slog.Error("store: update finding", "id", id, "err", err)
+			return model.Finding{}, true, err
 		}
 	}
-	return before, true
+	s.findings[i].Status = status
+	s.findings[i].Analyst = analyst
+	s.findings[i].AnalystNote = note
+	s.findings[i].StatusTS = statusTS
+	return before, true, nil
 }
 
 func (s *Store) GetFinding(id int) (model.Finding, bool) {
@@ -957,21 +969,23 @@ func (s *Store) CountBeaconsWithJA3(ja3 string, excludeID int) int {
 	return n
 }
 
-func (s *Store) AddNote(id int, note model.Note) bool {
+func (s *Store) AddNote(id int, note model.Note) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	i, ok := s.findingsIdx[id]
 	if !ok {
-		return false
+		return false, nil
 	}
-	s.findings[i].Notes = append(s.findings[i].Notes, note)
+	newNotes := append(s.findings[i].Notes, note)
 	if s.db != nil {
-		notesJSON, _ := json.Marshal(s.findings[i].Notes)
+		notesJSON, _ := json.Marshal(newNotes)
 		if _, err := s.db.Exec(`UPDATE findings SET notes=? WHERE id=?`, string(notesJSON), id); err != nil {
 			slog.Error("store: add note to finding", "id", id, "err", err)
+			return true, err
 		}
 	}
-	return true
+	s.findings[i].Notes = newNotes
+	return true, nil
 }
 
 func (s *Store) GetConfig() config.Config {

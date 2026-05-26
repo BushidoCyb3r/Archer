@@ -157,9 +157,9 @@ func TestFindingsIdx_StaysConsistentAcrossMutations(t *testing.T) {
 
 	// UpdateFinding mutates in-place and the index keeps pointing at
 	// the same slot — the row's mutated state must be visible after.
-	before, ok := s.UpdateFinding(wantID, model.StatusAcknowledged, "alice", "looking", "2026-05-10 12:02:00")
-	if !ok {
-		t.Fatal("UpdateFinding returned false on a known id")
+	before, ok, err := s.UpdateFinding(wantID, model.StatusAcknowledged, "alice", "looking", "2026-05-10 12:02:00")
+	if !ok || err != nil {
+		t.Fatalf("UpdateFinding returned ok=%v err=%v on a known id", ok, err)
 	}
 	// NEW-36: snapshot must reflect the pre-mutation state — same id,
 	// status from the seed row, not the post-update status.

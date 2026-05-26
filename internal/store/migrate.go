@@ -136,6 +136,13 @@ func RunMigrations(db *sql.DB) error {
 		slog.Warn("store: WAL journaling unavailable", "got", jm)
 	}
 
+	// Set a busy timeout so SQLite retries for up to 5 s before returning
+	// SQLITE_BUSY. Without this any write contention — including an operator
+	// inspecting the live DB with the sqlite3 CLI — fails immediately.
+	if _, err := db.Exec(`PRAGMA busy_timeout = 5000`); err != nil {
+		return fmt.Errorf("set busy_timeout: %w", err)
+	}
+
 	// Ensure the tracking table exists before we look at it. Idempotent.
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version    INTEGER PRIMARY KEY,
