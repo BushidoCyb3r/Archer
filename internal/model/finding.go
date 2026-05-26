@@ -379,7 +379,15 @@ var ScoreExplanations = map[string]string{
 		"Metasploit: 8-char alphanumeric stager paths",
 
 	"Malicious JA3": "Score: 95 (known C2 framework TLS ClientHello fingerprint)\n" +
-		"Covers: Cobalt Strike (multiple profiles), Metasploit, Sliver, Brute Ratel.",
+		"Covers: Cobalt Strike (multiple profiles), Metasploit, Sliver, Brute Ratel.\n" +
+		"Deprecated: ecosystem moving to JA4; sensor must run Zeek JA4+ plugin for JA4 coverage.",
+
+	"Malicious JA4": "Score: 95 (known C2 malware TLS ClientHello fingerprint — JA4 format)\n" +
+		"JA4 is the structured successor to JA3 (FoxIO, 2023): prefix encodes TLS version,\n" +
+		"cipher count, extension count, and ALPN — more stable than MD5 JA3.\n" +
+		"Covers: Cobalt Strike v4.9.1 (wininet/winhttp, SNI/no-SNI variants), IcedID loader.\n" +
+		"Requires sensor running the Zeek JA4+ plugin; stock ssl.log only has ja3/ja3s.\n" +
+		"Source: FoxIO public JA4+ database (github.com/FoxIO-LLC/ja4).",
 
 	"Strobe": "Score = 50 + log10(count)×15, capped at 88\n" +
 		"Triggered when connection count to single dst IP exceeds threshold.",
@@ -436,7 +444,7 @@ var ScoreExplanations = map[string]string{
 
 	"Host Risk Score": "Composite weighted sum, capped at 99\n" +
 		"Beaconing +30 | HTTP Beaconing +28 | CS URI +40 | C2 URI Pattern +38\n" +
-		"Domain Fronting +32 | Malicious JA3 +40 | TI Hit +35 | Exfiltration +25\n" +
+		"Domain Fronting +32 | Malicious JA3 +40 | Malicious JA4 +40 | TI Hit +35 | Exfiltration +25\n" +
 		"CRITICAL ≥75 | HIGH ≥50 | MEDIUM ≥25",
 
 	"Correlated Activity": "Cross-detector roll-up: same (src, dst) pair, ≥N distinct detector types\n" +

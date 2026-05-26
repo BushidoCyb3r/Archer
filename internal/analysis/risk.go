@@ -32,6 +32,7 @@ var riskWeights = map[string]int{
 	"C2 URI Pattern":           38,
 	"Domain Fronting":          32,
 	"Malicious JA3":            40,
+	"Malicious JA4":            40,
 	"TI Hit (IP)":              35,
 	"TI Hit (Domain)":          35,
 	"TI Hit (Hash)":            35,

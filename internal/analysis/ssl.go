@@ -10,6 +10,7 @@ import (
 
 func (a *Analyzer) analyzeSSL(files []string) {
 	seenJA3 := make(map[[3]string]bool)
+	seenJA4 := make(map[[3]string]bool)
 	seenNoSNI := make(map[[3]string]bool)
 	seenWeakTLS := make(map[[3]string]bool)
 	seenDoH := make(map[[2]string]bool)
@@ -65,6 +66,31 @@ func (a *Analyzer) analyzeSSL(files []string) {
 						}
 						a.add(model.Finding{
 							Type:       "Malicious JA3",
+							Severity:   model.SevCritical,
+							Score:      95,
+							SrcIP:      src,
+							DstIP:      dst,
+							DstPort:    portStr,
+							Detail:     detail,
+							Timestamp:  fmtTS(ts),
+							SourceFile: f,
+						})
+					}
+				}
+			}
+
+			// Malicious JA4
+			if ja4 != "" {
+				if label, bad := KnownBadJA4[ja4]; bad {
+					key := [3]string{src, dst, ja4}
+					if !seenJA4[key] {
+						seenJA4[key] = true
+						detail := fmt.Sprintf("JA4: %s — %s", ja4, label)
+						if sni != "" {
+							detail += " | SNI: " + sni
+						}
+						a.add(model.Finding{
+							Type:       "Malicious JA4",
 							Severity:   model.SevCritical,
 							Score:      95,
 							SrcIP:      src,

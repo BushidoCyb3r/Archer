@@ -1,0 +1,21 @@
+[
+  {
+    "type": "Host Risk Score",
+    "severity": "MEDIUM",
+    "score": 39,
+    "src_ip": "192.168.5.20",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 39 | Detections: [Malicious JA4]",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Malicious JA4",
+    "severity": "CRITICAL",
+    "score": 95,
+    "src_ip": "192.168.5.20",
+    "dst_ip": "203.0.113.120",
+    "dst_port": "443",
+    "detail": "JA4: t12d190800_d83cc789557e_16bbda4055b2 — Cobalt Strike v4.9.1 wininet | SNI: c2.attacker.example",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

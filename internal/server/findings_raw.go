@@ -57,6 +57,7 @@ var logTypesForFinding = map[string][]string{
 	"Suspicious TLD":           {"dns"},
 	"DoH Bypass":               {"ssl"},
 	"Malicious JA3":            {"ssl"},
+	"Malicious JA4":            {"ssl"},
 	"Weak TLS":                 {"ssl"},
 	"SSL No-SNI":               {"ssl"},
 	"SSL No-SNI on C2 Port":    {"ssl", "conn"},

@@ -28,6 +28,27 @@ var KnownC2Ports = map[int]string{
 	31337: "Back Orifice / Elite",
 }
 
+// KnownBadJA4 maps JA4 fingerprints to C2/malware labels. JA4 is the
+// structured successor to JA3 (FoxIO, 2023). Unlike MD5 JA3, JA4 encodes
+// TLS version, cipher count, extension count, and ALPN in the prefix so
+// fingerprints are human-readable and more stable across TLS library
+// updates. This map uses only fingerprints from the FoxIO public database
+// (github.com/FoxIO-LLC/ja4) that are not shared with common legitimate
+// software. Sliver/Havoc share the generic GoLang fingerprint and are
+// intentionally excluded to avoid false-positives against Go services.
+// Extend from the FoxIO database as additional C2-exclusive fingerprints
+// are documented.
+var KnownBadJA4 = map[string]string{
+	// Cobalt Strike v4.9.1 (default profiles) — four variants covering
+	// wininet/winhttp transport × SNI-present/absent. TLS 1.2, no ALPN.
+	"t12i190700_d83cc789557e_16bbda4055b2": "Cobalt Strike v4.9.1 wininet (no SNI)",
+	"t12i210700_76e208dd3e22_16bbda4055b2": "Cobalt Strike v4.9.1 winhttp (no SNI)",
+	"t12d190800_d83cc789557e_16bbda4055b2": "Cobalt Strike v4.9.1 wininet",
+	"t12d210800_76e208dd3e22_16bbda4055b2": "Cobalt Strike v4.9.1 winhttp",
+	// IcedID — TLS 1.3 loader fingerprint.
+	"t13d201100_2b729b4bf6f3_9e7b989ebec8": "IcedID loader",
+}
+
 // KnownBadJA3 maps JA3 hashes to C2 framework labels.
 var KnownBadJA3 = map[string]string{
 	"72a589da586844d7f0818ce684948eea": "Cobalt Strike beacon",
