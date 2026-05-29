@@ -334,9 +334,10 @@ last quarter and the note explains why, your job is over.
 **Score evolution chart.** Beaconing / HTTP Beaconing / DNS Beaconing
 findings get a **Score Chart** button in the action bar (next to
 Beacon Chart) showing up to 30 daily snapshots of the composite
-score plus the four sub-axes (ts, ds, hist, dur). The button is
-grayed out until at least one daily history row exists for the
-finding — a finding first detected today will have no history yet.
+score plus the four sub-axes (Timing, Data size, Histogram,
+Persistence). The button is grayed out until at least one daily
+history row exists for the finding — a finding first detected today
+will have no history yet.
 Click opens the evolution modal with PNG / JPEG export. The chart
 updates once per UTC day, on the first full pass — so it's a
 *trend* view, not a real-time stream.
@@ -351,9 +352,9 @@ Read it for trajectory rather than absolute value:
   more regular. An initial-jitter implant settling into its
   rhythm, or an operator-side cleanup of legitimate scheduled
   job timing.
-- **Climbing dur with flat ts/ds** — the channel is staying
-  alive longer each day; the implant's session keepalive is
-  succeeding.
+- **Climbing Persistence with flat Timing/Data size** — the channel
+  is staying alive longer each day; the implant's session keepalive
+  is succeeding.
 - **Sudden drop after weeks of activity** — the beacon went
   silent. Either remediation (good) or the implant rotated
   destinations (bad — cross-reference the Correlated Activity

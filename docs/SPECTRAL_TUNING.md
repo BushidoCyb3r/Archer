@@ -277,8 +277,8 @@ calibration-relevant:
   Generally raise min-observations.
 
 **Evolution chart.** Days where spectral rescue was active are
-marked with a distinct indicator on the 30-day score evolution
-chart in the finding detail pane. This makes it easy to spot
+marked with a distinct diamond indicator in the Score Chart modal
+(action footer button). This makes it easy to spot
 when a beacon started relying on the spectral path — often a
 sign of increasing jitter on the implant side, or of ring buffer
 underpopulation on low-frequency channels.

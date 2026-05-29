@@ -612,8 +612,9 @@ finding detail pane surfaces this trajectory.
 hooks `Store.SetFindings`: every time a Beaconing, HTTP Beaconing,
 or DNS Beaconing finding lands, one row is written to `beacon_history`
 keyed by `(Finding.BeaconHistoryKey(), today_UTC)` with the
-composite score plus the four sub-axis components (ts, ds, hist,
-dur). The PRIMARY KEY on `(fingerprint, day_utc)` plus
+composite score plus the four sub-axis components (Timing, Data size,
+Histogram, Persistence — stored as `ts_score`/`ds_score`/`hist_score`/
+`dur_score`). The PRIMARY KEY on `(fingerprint, day_utc)` plus
 `INSERT … ON CONFLICT DO UPDATE` means **a single daily row
 captures both the highest score observed that day (`max_score`)
 and the most recent reading (`last_score`)**. Under sub-daily
@@ -686,16 +687,16 @@ finding-detail open. See `docs/API.md` for the full shape.
 **The chart.** SVG-rendered in a modal opened from the **Score Chart**
 button in the action footer. Five lines:
 - Composite **Score** (bold, severity color) on the 0–100 axis
-- **ts / ds / hist / dur** (thinner, distinct colors) on the
-  0–1 axis sharing the same plot
+- **Timing / Data size / Histogram / Persistence** (thinner,
+  distinct colors) on the 0–1 axis sharing the same plot
 
 Reading the chart:
 - A flat high score is a stable, persistent C2 channel.
-- Climbing ts with stable ds = the beacon is becoming more
-  regular over time (initial-jitter implant settling into a
+- Climbing Timing with stable Data size = the beacon is becoming
+  more regular over time (initial-jitter implant settling into a
   rhythm, or an operator-side scheduling cleanup).
-- Climbing dur with flat ts/ds = the channel is staying alive
-  longer each day; the implant's session-keepalive is
+- Climbing Persistence with flat Timing/Data size = the channel is
+  staying alive longer each day; the implant's session-keepalive is
   succeeding.
 - Sudden drop with no corresponding `IsNew` re-emergence = the
   beacon went silent. Either remediation or the implant
