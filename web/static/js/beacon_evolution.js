@@ -120,13 +120,13 @@ const BeaconEvolution = (() => {
     // marker shape). Centered horizontally across the full viewBox width.
     const legItems = [
       { label: 'Score (0-100)', color: COLORS.score,    diamond: false },
-      { label: 'ts',            color: COLORS.ts,        diamond: false },
-      { label: 'ds',            color: COLORS.ds,        diamond: false },
-      { label: 'hist',          color: COLORS.hist,      diamond: false },
-      { label: 'dur',           color: COLORS.dur,       diamond: false },
+      { label: 'Timing',        color: COLORS.ts,        diamond: false },
+      { label: 'Data size',     color: COLORS.ds,        diamond: false },
+      { label: 'Histogram',     color: COLORS.hist,      diamond: false },
+      { label: 'Persistence',   color: COLORS.dur,       diamond: false },
       { label: 'Spectral rescue', color: COLORS.spectral, diamond: true  },
     ];
-    const SW = 16, SG = 5, IG = 14, CPX = 6;
+    const SW = 16, SG = 5, IG = 10, CPX = 6;
     const iw = it => SW + SG + it.label.length * CPX;
     const totalLegW = legItems.reduce((s, it) => s + iw(it), 0) + IG * (legItems.length - 1);
     const legY = H + 14;
