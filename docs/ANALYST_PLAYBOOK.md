@@ -214,10 +214,11 @@ Two diagnostic charts open from the action footer:
   supports click-drag brush-select to zoom into a slice;
   right-click or **Reset zoom** returns to auto-fit. PNG /
   JPEG export per view.
-- **Score Evolution** (its own dock tab next to TI Results,
-  keyboard `4`, gated on Beaconing / HTTP Beaconing / DNS Beaconing) —
-  30-day trajectory of the composite score plus the four sub-axes,
-  updated once per UTC day on the first full pass.
+- **Score Chart** (action bar button next to Beacon Chart, gated on
+  Beaconing / HTTP Beaconing / DNS Beaconing; grayed out until at
+  least one daily history row exists) — 30-day trajectory of the
+  composite score plus the four sub-axes, updated once per UTC day
+  on the first full pass. Opens the evolution modal directly.
 
 **Step 4 — Read the chart, not the score.** The cadence chart
 is the most diagnostic thing in the UI. You're looking for:
@@ -331,14 +332,14 @@ them. If someone's already acknowledged this exact pattern
 last quarter and the note explains why, your job is over.
 
 **Score evolution chart.** Beaconing / HTTP Beaconing / DNS Beaconing
-findings get a dedicated **Score Evolution** dock tab (next to TI
-Results, keyboard `4`) showing up to 30 daily snapshots of
-the composite score plus the four sub-axes (ts, ds, hist,
-dur). Promoted to its own tab at v0.18.4 — previously a
-sparkline inside the Detail pane. The chart updates once per
-UTC day, on the first full pass — so it's a *trend* view, not
-a real-time stream. The tab button only renders when the
-selected finding's type is one of the three beacon types.
+findings get a **Score Chart** button in the action bar (next to
+Beacon Chart) showing up to 30 daily snapshots of the composite
+score plus the four sub-axes (ts, ds, hist, dur). The button is
+grayed out until at least one daily history row exists for the
+finding — a finding first detected today will have no history yet.
+Click opens the evolution modal with PNG / JPEG export. The chart
+updates once per UTC day, on the first full pass — so it's a
+*trend* view, not a real-time stream.
 
 Read it for trajectory rather than absolute value:
 

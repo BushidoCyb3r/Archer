@@ -683,8 +683,8 @@ distinguish spectral-only days from full-score days. Returns `[]` (not
 404) for non-Beaconing types so the SPA can call unconditionally on any
 finding-detail open. See `docs/API.md` for the full shape.
 
-**The chart.** SVG-rendered in the detail pane immediately below
-the action buttons. Five lines:
+**The chart.** SVG-rendered in a modal opened from the **Score Chart**
+button in the action footer. Five lines:
 - Composite **Score** (bold, severity color) on the 0–100 axis
 - **ts / ds / hist / dur** (thinner, distinct colors) on the
   0–1 axis sharing the same plot
