@@ -362,26 +362,39 @@ distribution is broad and recurring rather than a one-off spike.
 
 #### (d) dur_score — temporal persistence
 
-Did the beacon run across the whole capture, or was it active only for a brief
+Did the beacon run across the recent capture, or was it active only for a brief
 window? Two scores, take the max.
 
-Note: `dur_score` uses **window-relative** 24 buckets (evenly dividing the
-full dataset time span), distinct from the clock-hour buckets `hist_score`
-uses. On a one-day capture the two coincide; on a 30-day capture each
-`dur_score` bucket spans 30 hours, so the two axes measure genuinely different
-things.
+**Persistence is measured over a bounded trailing window, not the full corpus.**
+The 24 window-relative buckets span `[dataset_max − W, dataset_max]` where
+`W = beaconPersistenceWindowSec` (7 days), or the whole corpus when it is
+shorter than `W`. Without this cap, the buckets divided the *entire* ingest
+history, so the credit a beacon earned for "running a long time" shrank as the
+operator retained more logs — a 20-day beacon scored Critical against a 30-day
+store but only High against a 9-month store, purely because the 24 bins got
+wider. Anchoring to the most recent `W` days makes persistence
+**retention-invariant**: a beacon active across the last week scores the same no
+matter how much older history sits behind it. When the corpus is ≤ `W` (most
+synthetic fixtures, short hand-fed captures) the window is the whole corpus and
+the score is identical to the pre-cap behaviour. Activity older than the window
+clamps into the first bin (the same boundary handling the unbounded form used
+for the earliest record). These remain **window-relative** buckets, distinct
+from the clock-hour buckets `hist_score` uses.
 
-**Coverage.** `coverage = (last_ts − first_ts) / (dataset_max − dataset_min)`.
-A beacon that's active end-to-end gets 1.0.
+**Coverage.** `coverage = (last_ts − max(first_ts, window_min)) / W`, clamped to
+1.0. A beacon active end-to-end across the trailing window gets 1.0.
 
 **Longest-consecutive-bucket run.** Walk the 24 window-relative buckets from
 start to end. The longest run of consecutive non-empty buckets, divided by 12,
 is the "consistency" score (clamped to 1.0). A run of 12 consecutive non-empty
-buckets ≈ half the capture window of continuous activity.
+buckets ≈ half the window of continuous activity.
 
 `dur_score = max(coverage, consistency)`. Below 6 populated buckets total
 (`minBars = 6`) the score is forced to 0 — there isn't enough activity to
-meaningfully claim "persistence."
+meaningfully claim "persistence." (At `W = 7 days` with 24 buckets, that floor
+is ~1.75 days of activity; a sub-day-old beacon legitimately has no persistence
+signal yet, which is by design — catch those via timing/data-size regularity and
+the fingerprint-rarity enrichment in §2.3, not persistence.)
 
 #### (e) Prevalence modifier
 
@@ -489,6 +502,29 @@ changed**, and the golden corpus is unchanged:
   family reuses its TLS stack, a shared fingerprint across pairs is
   implant-family attribution — the same logic §10.1–10.2 use for the
   standalone Malicious JA3/JA4 detectors, now joined to the beacon view.
+- **Fingerprint rarity + cross-host cluster (enrichment).** The sibling
+  count above is computed over *emitted beacon findings only*, so it
+  cannot tell a rare implant fingerprint from a ubiquitous browser one,
+  and is blind to siblings that scored below the beacon emit floor.
+  To close that gap, `analyzeSSL` builds a per-fingerprint prevalence map
+  over **every TLS connection** in the pass (not just beacons) — total
+  connections, distinct internal sources, distinct destinations — and
+  `enrichBeaconSNI` stamps a note on each conn-level Beaconing finding's
+  Detail string, e.g. `TLS fp ja4=t13i131000_…: rare (43 conns, 3 src
+  hosts, 1 dsts) — shared by 3 internal hosts`. A fingerprint reaching
+  ≤ `fpRareDstFanoutMax` (8) destinations reads as **rare** (an implant
+  phones a tiny C2 set; a browser/SDK fingerprint reaches thousands), and
+  ≥ `fpClusterMinSrcs` (2) internal hosts sharing one rare fingerprint is
+  the cross-host implant-family signal. JA4 is preferred (GREASE-robust,
+  stable); a JA3-only match is flagged lower-confidence because generic
+  Go/Python/Rust stacks collide on one JA3. **This is enrichment only —
+  it never alters score or severity.** A corpus-wide false-positive sweep
+  showed that on a cloud-heavy network benign automation (DoH resolvers,
+  CDN/SaaS edges) is statistically indistinguishable from cloud-hosted C2
+  by any single axis — including fingerprint rarity — so the rarity signal
+  is surfaced to *rank a hunter's attention*, never to auto-elevate a
+  finding. It also survives cloud-hosting (the fingerprint is the
+  malware's, not the host's), which the destination IP/ASN cannot.
 - **HTTP-beacon URI footprint.** An HTTP Beaconing finding carries the
   request-path footprint of its `(src,dst,host)` group
   (count-descending, capped). A benign beacon hits one stable
@@ -942,9 +978,10 @@ IP pairs, reused here.
   A fixed-FQDN heartbeat has ≈1 unique label (≈1.0); the score decays
   as diversity climbs.
 - **window-coverage (weight 0.25)** — the average of the §2.2(c)
-  histogram-regularity and §2.2(d) duration helpers, scored against
-  the per-sensor DNS capture window (the min/max timestamps seen by
-  that sensor's dns.log files).
+  histogram-regularity and §2.2(d) duration helpers. The duration helper
+  uses the same bounded trailing persistence window as §2.2(d) (most
+  recent 7 days of that sensor's dns.log span, or the whole span when
+  shorter), so DNS-beacon persistence is retention-invariant too.
 
 `score = clamp(100·(ts·0.5 + div·0.25 + cov·0.25), 1, 100)`; Critical
 ≥ 80, else High. DNS Beaconing carries the same structured triage

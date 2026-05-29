@@ -15,6 +15,12 @@ func (a *Analyzer) analyzeSSL(files []string) {
 	seenWeakTLS := make(map[[3]string]bool)
 	seenDoH := make(map[[2]string]bool)
 
+	// Per-fingerprint prevalence over every TLS connection in this pass.
+	// Accumulated locally (the sslFiles loop is sequential) and published to
+	// the analyzer once, below, for enrichBeaconSNI to read after the wg1 barrier.
+	localJA4 := make(map[string]*fpStat)
+	localJA3 := make(map[string]*fpStat)
+
 	sslFiles := filterFiles(files, "ssl")
 	for _, f := range sslFiles {
 		a.parseLog(f, func(rec map[string]any) bool {
@@ -36,6 +42,14 @@ func (a *Analyzer) analyzeSSL(files []string) {
 
 			if src == "" || dst == "" {
 				return true
+			}
+
+			// Fingerprint prevalence (all TLS, not just emitted beacons).
+			if ja4 != "" {
+				fpAdd(localJA4, ja4, src, dst)
+			}
+			if ja3 != "" {
+				fpAdd(localJA3, ja3, src, dst)
 			}
 
 			// Build SSL UID index for domain fronting detection in HTTP pass
@@ -185,4 +199,9 @@ func (a *Analyzer) analyzeSSL(files []string) {
 			return true
 		})
 	}
+
+	a.mu.Lock()
+	a.fpJA4 = localJA4
+	a.fpJA3 = localJA3
+	a.mu.Unlock()
 }

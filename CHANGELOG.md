@@ -28,6 +28,42 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.44.0] — 2026-05-29
+
+### Added
+
+- **TLS-fingerprint rarity + cross-host-cluster enrichment on conn-level
+  Beaconing.** `analyzeSSL` now builds a per-fingerprint prevalence map over
+  *every* TLS connection in the pass (total connections, distinct internal
+  sources, distinct destinations), and `enrichBeaconSNI` stamps a note on each
+  conn-level Beaconing finding's Detail string — e.g. `TLS fp ja4=t13i131000_…:
+  rare (43 conns, 3 src hosts, 1 dsts) — shared by 3 internal hosts`. A
+  fingerprint reaching ≤ 8 destinations reads as *rare*; ≥ 2 internal hosts
+  sharing one rare fingerprint is the cross-host implant-family signal. JA4 is
+  preferred; a JA3-only match is flagged lower-confidence (generic Go/Python/Rust
+  stacks collide on one JA3). This is **enrichment only — it does not alter score
+  or severity**, and it is distinct from the existing JA3/JA4 sibling count
+  (which counts emitted beacons only and so cannot see rarity, nor siblings that
+  scored below the emit floor). Surfaced in the Detail pane; analyst guidance in
+  `docs/ANALYST_PLAYBOOK.md` §11.
+
+### Detection changes
+
+- **Beacon persistence (`dur_score`) is now measured over a bounded trailing
+  7-day window instead of the full ingest history.** Previously the persistence
+  axis bucketed across the entire corpus span (`dataset_max − dataset_min`), so a
+  beacon's persistence credit shrank as log retention grew — the same 20-day
+  beacon scored Critical against a 30-day store but only High against a 9-month
+  store. The window is now `[dataset_max − 7d, dataset_max]`, capped at the corpus
+  length, making persistence **retention-invariant**. **Impact:** deployments
+  retaining more than 7 days of logs will see `Beaconing` / `HTTP Beaconing` /
+  `DNS Beaconing` persistence sub-scores rise (or stop eroding) on re-analysis,
+  which can raise composite scores and severities for long-lived beacons. Captures
+  of 7 days or less are unchanged. Re-grounding existing beacon baselines after
+  upgrade is recommended.
+
+---
+
 ## [v0.43.3] — 2026-05-26
 
 ### Changed

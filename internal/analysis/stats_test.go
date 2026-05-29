@@ -412,11 +412,16 @@ func TestHistScoreFromHourMapSingleHour(t *testing.T) {
 // TestHistAndDurScoreOrthogonal proves the two axes are independent after the fix.
 // A beacon that fires only at 2am but persists for 30 days:
 //   - hScore ≈ 0  (only 1 distinct hour-of-day)
-//   - durScore ≈ 1 (spans the entire capture window)
+//   - durScore high (active across the whole persistence window)
 //
 // A beacon active across all 24 hours but present only on a single day:
 //   - hScore > 0  (all or many hour-of-day buckets active)
 //   - durScore = 0 (window coverage too small, below minBars)
+//
+// durScore is now measured over the trailing beaconPersistenceWindowSec (7 days),
+// not the full corpus, so the daily-for-30-days beacon scores ~0.87 (six of the
+// last seven days covered) rather than ~0.97 — still clearly persistent, which is
+// all this orthogonality test cares about.
 func TestHistAndDurScoreOrthogonal(t *testing.T) {
 	const startHr = 100 * 24 // arbitrary offset well above 24
 	dsMin := float64(startHr) * 3600.0
@@ -436,8 +441,8 @@ func TestHistAndDurScoreOrthogonal(t *testing.T) {
 	if hScore1 != 0 {
 		t.Errorf("case1: hScore = %v, want 0 (only 1 hour-of-day active)", hScore1)
 	}
-	if dScore1 < 0.9 {
-		t.Errorf("case1: durScore = %v, want ≥ 0.9 (spans full 30-day window)", dScore1)
+	if dScore1 < 0.85 {
+		t.Errorf("case1: durScore = %v, want ≥ 0.85 (active across the trailing 7-day persistence window)", dScore1)
 	}
 
 	// Case 2: fires at all 24 hours-of-day, but only on day 0.

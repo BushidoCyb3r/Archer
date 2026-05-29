@@ -862,18 +862,39 @@ func histScoreFromHourMap(hourMap map[int]int) (float64, int) {
 	return score, totalBars
 }
 
+// beaconPersistenceWindowSec caps the span over which temporal persistence is
+// measured. Without it, durationScoreFromHourMap buckets across the entire
+// ingest history (dsMax-dsMin), so the credit a beacon earns for "running a
+// long time" shrinks as the operator retains more logs: a 20-day beacon scores
+// Critical against a 30-day store but only High against a 9-month store, purely
+// because the 24 bins got wider. Anchoring the window to the most recent W days
+// of data makes persistence retention-invariant — a beacon active across the
+// last week scores the same regardless of how much older history sits behind
+// it. When the corpus is shorter than W the window is the whole corpus, so
+// short captures (including the golden fixtures) score exactly as before.
+// 7 days is a hunt-relevant horizon: long enough that a genuinely persistent
+// channel saturates the axis, short enough that retention growth can't erode it.
+const beaconPersistenceWindowSec = 7 * 24 * 3600 // 7 days
+
 // durationScoreFromHourMap measures temporal persistence: how far across the
-// capture window does this pair span, and how consecutive is that run?
-// Uses window-relative bucketing (24 equal-width bins over [dsMin, dsMax]) —
-// orthogonal to histScoreFromHourMap's hour-of-day bucketing.
+// recent capture window does this pair span, and how consecutive is that run?
+// Uses window-relative bucketing (24 equal-width bins over [windowMin, dsMax],
+// windowMin = max(dsMin, dsMax-beaconPersistenceWindowSec)) — orthogonal to
+// histScoreFromHourMap's hour-of-day bucketing. Activity older than the window
+// clamps into the first bin (idx<0 path), the same boundary handling the
+// unbounded form used for the earliest record.
 func durationScoreFromHourMap(hourMap map[int]int, firstTs, lastTs, dsMin, dsMax float64, minBars int) float64 {
 	const nBuckets = 24
+	windowMin := dsMin
+	if dsMax-dsMin > beaconPersistenceWindowSec {
+		windowMin = dsMax - beaconPersistenceWindowSec
+	}
 	freq := make([]int, nBuckets)
-	if dsMax > dsMin {
-		span := dsMax - dsMin
+	if dsMax > windowMin {
+		span := dsMax - windowMin
 		for hr, c := range hourMap {
 			ts := float64(hr) * 3600.0
-			idx := int((ts - dsMin) / span * float64(nBuckets))
+			idx := int((ts - windowMin) / span * float64(nBuckets))
 			if idx >= nBuckets {
 				idx = nBuckets - 1
 			}
@@ -894,8 +915,15 @@ func durationScoreFromHourMap(hourMap map[int]int, firstTs, lastTs, dsMin, dsMax
 	}
 
 	coverage := 0.0
-	if dsMax > dsMin {
-		coverage = (lastTs - firstTs) / (dsMax - dsMin)
+	if dsMax > windowMin {
+		effFirst := firstTs
+		if effFirst < windowMin {
+			effFirst = windowMin
+		}
+		coverage = (lastTs - effFirst) / (dsMax - windowMin)
+		if coverage > 1 {
+			coverage = 1
+		}
 	}
 
 	longestRun := 0

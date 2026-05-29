@@ -69,8 +69,20 @@ type Analyzer struct {
 	sensorWindows  map[string]sensorWindow
 	sslUIDIndex    map[string]sslEntry
 	beaconSNINeeds map[pairKey]beaconSNINeed // conn beacon → SNI candidates + boost context; enriched after wg1
-	parseErrs      []parseErr
-	tiErrs         []tiErr
+
+	// fpJA4 / fpJA3 hold per-fingerprint TLS-client prevalence built over the
+	// whole ssl.log (every TLS connection, not just emitted beacons), keyed by
+	// the lowercased fingerprint. Consumed in enrichBeaconSNI to stamp a
+	// rarity + cross-host-cluster note on conn-level Beaconing findings — the
+	// signal the emitted-beacons-only JA3/JA4 sibling count can't provide
+	// (it can't tell a rare implant fingerprint from a ubiquitous browser one,
+	// and is blind to siblings that scored below the beacon emit floor). Built
+	// in analyzeSSL (phase 1), read in enrichBeaconSNI (phase 2.5) after the
+	// wg1 barrier, so no lock is needed on the read.
+	fpJA4     map[string]*fpStat
+	fpJA3     map[string]*fpStat
+	parseErrs []parseErr
+	tiErrs    []tiErr
 
 	// Pre-fetched threat intel feeds (populated during phase 0)
 	feodoIPs     map[string]bool
@@ -494,6 +506,77 @@ func (a *Analyzer) add(f model.Finding) {
 // enrichBeaconSNI fills Hostname/JA3/JA4 on "Beaconing" findings whose SNI
 // lookup was deferred out of Phase 1 to avoid racing analyzeSSL. Called once
 // after wg1.Wait() when sslUIDIndex is fully populated.
+// fpStat is the per-fingerprint TLS-client prevalence accumulated over all of
+// ssl.log: total connections, the set of distinct internal sources presenting
+// the fingerprint, and the set of distinct destinations it reached.
+type fpStat struct {
+	conns int
+	srcs  map[string]struct{}
+	dsts  map[string]struct{}
+}
+
+// fpAdd records one TLS observation of fingerprint fp from src to dst.
+func fpAdd(m map[string]*fpStat, fp, src, dst string) {
+	s := m[fp]
+	if s == nil {
+		s = &fpStat{srcs: map[string]struct{}{}, dsts: map[string]struct{}{}}
+		m[fp] = s
+	}
+	s.conns++
+	s.srcs[src] = struct{}{}
+	s.dsts[dst] = struct{}{}
+}
+
+const (
+	// fpRareDstFanoutMax: a TLS client fingerprint reaching this many distinct
+	// destinations or fewer reads as "rare" for the enrichment label. An implant
+	// phones a tiny C2 set (measured: 1 dst); a browser/SDK fingerprint reaches
+	// thousands. This is a presentation threshold for the analyst note, not a
+	// scoring gate — it never changes a score or emit decision.
+	fpRareDstFanoutMax = 8
+	// fpClusterMinSrcs: this many distinct internal hosts sharing one rare
+	// fingerprint is the cross-host implant-family signal worth calling out.
+	fpClusterMinSrcs = 2
+)
+
+// fingerprintRarityTag returns an enrichment note for a beacon's TLS client
+// fingerprint, computed over all ssl.log (not just emitted beacons): how rare
+// the fingerprint is environment-wide and how many internal hosts share it.
+// JA4 is preferred (GREASE-robust, stable); JA3 is a weaker fallback because
+// generic Go/Python/Rust stacks collide on one JA3, so a JA3-only match is
+// flagged lower-confidence. Returns "" when no fingerprint resolves or no
+// prevalence was built (e.g. stock Zeek with no JA4, HTTP-only runs).
+func (a *Analyzer) fingerprintRarityTag(ja4, ja3 string) string {
+	var fp, kind string
+	var stat *fpStat
+	if ja4 != "" && a.fpJA4 != nil {
+		if s := a.fpJA4[ja4]; s != nil {
+			fp, kind, stat = ja4, "ja4", s
+		}
+	}
+	if stat == nil && ja3 != "" && a.fpJA3 != nil {
+		if s := a.fpJA3[ja3]; s != nil {
+			fp, kind, stat = ja3, "ja3", s
+		}
+	}
+	if stat == nil {
+		return ""
+	}
+	rarity := "common"
+	if len(stat.dsts) <= fpRareDstFanoutMax {
+		rarity = "rare"
+	}
+	note := fmt.Sprintf(" | TLS fp %s=%s: %s (%d conns, %d src hosts, %d dsts)",
+		kind, fp, rarity, stat.conns, len(stat.srcs), len(stat.dsts))
+	if rarity == "rare" && len(stat.srcs) >= fpClusterMinSrcs {
+		note += fmt.Sprintf(" — shared by %d internal hosts", len(stat.srcs))
+	}
+	if kind == "ja3" {
+		note += " [ja3 fallback — lower confidence]"
+	}
+	return note
+}
+
 func (a *Analyzer) enrichBeaconSNI() {
 	if len(a.beaconSNINeeds) == 0 {
 		return
@@ -543,6 +626,13 @@ func (a *Analyzer) enrichBeaconSNI() {
 			}
 			f.Detail = strings.Replace(f.Detail, need.prevDetail,
 				strings.Replace(need.prevDetail, "score boosted", "boost suppressed (SNI present)", 1), 1)
+		}
+		// Stamp the TLS-fingerprint rarity / cross-host-cluster note. Enrichment
+		// only — never alters score or severity (the FP sweep showed any
+		// auto-elevation on this axis is unsafe); it gives the hunter the rarity
+		// context the emitted-beacons-only sibling count lacks.
+		if tag := a.fingerprintRarityTag(f.JA4, f.JA3); tag != "" {
+			f.Detail += tag
 		}
 	}
 	clear(a.beaconSNINeeds)
