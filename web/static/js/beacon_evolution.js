@@ -1,5 +1,5 @@
 // beacon_evolution.js — 30-day score evolution chart for the
-// Beaconing / HTTP Beaconing finding detail pane.
+// Beaconing / HTTP Beaconing / DNS Beaconing finding detail pane.
 //
 // Pure SVG drawing (no charting library). The chart shows up to 30
 // daily snapshots persisted by store.SetFindings's beacon_history
@@ -7,11 +7,8 @@
 // scores (ts, ds, hist, dur — each on the 0..1 axis, the composite
 // on its own 0..100 scale shown on the right gutter).
 //
-// Two render destinations: the in-place chart inside the Detail tab
-// (small, fixed aspect ratio via CSS) and the expand-to-modal view
-// (larger, exportable as PNG or JPEG). Both share the same render
-// path — _renderInto draws into any (SVG, legend) element pair.
-// v0.18.0 added the modal + export affordance.
+// The legend is rendered inside the SVG (viewBox extended by LEG_PAD
+// below the plot area) so PNG/JPEG exports include it automatically.
 
 'use strict';
 
@@ -28,10 +25,9 @@ const BeaconEvolution = (() => {
   let _lastRows = null;
   let _currentFindingID = null;
 
-  function _empty(svgEl, legendEl, message) {
+  function _empty(svgEl, message) {
     if (svgEl) svgEl.innerHTML =
       `<text x="50%" y="50%" text-anchor="middle" class="label" fill="var(--fg-dim)">${message}</text>`;
-    if (legendEl) legendEl.innerHTML = '';
   }
 
   // load(findingID, type) pre-fetches history for the given finding
@@ -59,24 +55,22 @@ const BeaconEvolution = (() => {
       });
   }
 
-  // _renderInto draws the chart into any (svgEl, legendEl) pair.
-  // Used by both the in-place small chart and the larger modal view.
-  // viewBox stays 600x120; CSS aspect-ratio on each container scales
-  // it to the right display dimensions while keeping the chart's
-  // proportions consistent across both destinations.
-  function _renderInto(rows, svgEl, legendEl) {
+  // _renderInto draws the chart into svgEl. The legend is rendered
+  // as SVG elements in a strip below the plot area (viewBox extended
+  // by LEG_PAD) so it is included in PNG/JPEG exports automatically.
+  function _renderInto(rows, svgEl) {
     if (!svgEl) return;
     if (!rows || rows.length === 0) {
-      _empty(svgEl, legendEl, 'No history yet — first daily snapshot lands on the next full pass.');
+      _empty(svgEl, 'No history yet — first daily snapshot lands on the next full pass.');
       return;
     }
 
-    const W = 600, H = 200;
+    const W = 600, H = 200, LEG_PAD = 24;
     const ML = 36, MR = 32, MT = 12, MB = 22;
     const plotW = W - ML - MR;
     const plotH = H - MT - MB;
 
-    svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svgEl.setAttribute('viewBox', `0 0 ${W} ${H + LEG_PAD}`);
 
     const n = rows.length;
     const xOf = i => n === 1 ? ML + plotW / 2 : ML + (i / (n - 1)) * plotW;
@@ -121,6 +115,36 @@ const BeaconEvolution = (() => {
       return `<circle class="data-point" cx="${cx}" cy="${cy}" r="3.5" fill="${COLORS.score}" stroke="none">${title}</circle>`;
     }).join('');
 
+    // Legend rendered inside the SVG below the plot area. Line swatches
+    // for the five series; diamond for Spectral rescue (matches data-point
+    // marker shape). Centered horizontally across the full viewBox width.
+    const legItems = [
+      { label: 'Score (0-100)', color: COLORS.score,    diamond: false },
+      { label: 'ts',            color: COLORS.ts,        diamond: false },
+      { label: 'ds',            color: COLORS.ds,        diamond: false },
+      { label: 'hist',          color: COLORS.hist,      diamond: false },
+      { label: 'dur',           color: COLORS.dur,       diamond: false },
+      { label: 'Spectral rescue', color: COLORS.spectral, diamond: true  },
+    ];
+    const SW = 16, SG = 5, IG = 14, CPX = 6;
+    const iw = it => SW + SG + it.label.length * CPX;
+    const totalLegW = legItems.reduce((s, it) => s + iw(it), 0) + IG * (legItems.length - 1);
+    const legY = H + 14;
+    let lx = (W - totalLegW) / 2;
+    const legSvg = legItems.map(it => {
+      const x0 = lx;
+      let marker;
+      if (it.diamond) {
+        const mx = x0 + SW / 2, s = 4;
+        marker = `<polygon points="${mx.toFixed(1)},${(legY-s).toFixed(1)} ${(mx+s).toFixed(1)},${legY} ${mx.toFixed(1)},${(legY+s).toFixed(1)} ${(mx-s).toFixed(1)},${legY}" fill="${it.color}" stroke="none"/>`;
+      } else {
+        marker = `<line x1="${x0.toFixed(1)}" y1="${legY}" x2="${(x0+SW).toFixed(1)}" y2="${legY}" stroke="${it.color}" stroke-width="2.5"/>`;
+      }
+      const text = `<text class="label" x="${(x0+SW+SG).toFixed(1)}" y="${(legY+4).toFixed(1)}">${_esc(it.label)}</text>`;
+      lx += iw(it) + IG;
+      return marker + text;
+    }).join('');
+
     svgEl.innerHTML = `
       <line class="axis" x1="${ML}" y1="${MT}"        x2="${ML}" y2="${H - MB}"/>
       <line class="axis" x1="${ML}" y1="${H - MB}"    x2="${W - MR}" y2="${H - MB}"/>
@@ -137,20 +161,8 @@ const BeaconEvolution = (() => {
       <path class="sub-line"   d="${durLine}"   stroke="${COLORS.dur}"/>
       <path class="score-line" d="${scoreLine}" stroke="${COLORS.score}"/>
       ${dataPoints}
+      ${legSvg}
     `;
-
-    if (legendEl) {
-      legendEl.innerHTML = [
-        ['Score (0-100)',   COLORS.score],
-        ['ts',             COLORS.ts],
-        ['ds',             COLORS.ds],
-        ['hist',           COLORS.hist],
-        ['dur',            COLORS.dur],
-        ['Spectral rescue',COLORS.spectral],
-      ].map(([label, color]) =>
-        `<span class="leg-item"><span class="leg-swatch" style="background:${color}"></span>${_esc(label)}</span>`
-      ).join('');
-    }
   }
 
   // expand() opens the modal view with the same rows the in-place
@@ -160,9 +172,7 @@ const BeaconEvolution = (() => {
     if (!_lastRows) return;
     const dlg = document.getElementById('beacon-evolution-modal');
     if (!dlg) return;
-    const svg = document.getElementById('beacon-evolution-modal-svg');
-    const legend = document.getElementById('beacon-evolution-modal-legend');
-    _renderInto(_lastRows, svg, legend);
+    _renderInto(_lastRows, document.getElementById('beacon-evolution-modal-svg'));
     if (typeof dlg.showModal === 'function') dlg.showModal();
     else dlg.setAttribute('open', '');
   }
