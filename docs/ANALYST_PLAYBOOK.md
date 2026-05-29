@@ -823,22 +823,23 @@ reputation and the rest of the beacon shape before calling spread.
 JA4 shows only if the sensor's Zeek emits it (stock Zeek does not);
 its absence means nothing.
 
-**Reading the fingerprint-rarity tag.** The Detail string of a conn-level
-beacon carries a line like `TLS fp ja4=t13i131000_…: rare (43 conns, 3 src
-hosts, 1 dsts) — shared by 3 internal hosts`. Unlike the "matched N other
-beacons" sibling count — which only counts beacons Archer *already flagged* —
-this is computed over **every TLS connection** in the capture, so it sees
-rarity (is this fingerprint a rare implant stack or a ubiquitous browser?) and
-cross-host clustering even when the sibling hosts scored too low to emit their
-own beacon finding. What to look for: **rare + shared by ≥2 internal hosts + a
-small destination set** is the implant-family shape — a rare TLS stack appearing
-on multiple machines all phoning a tight C2 set. A `common` fingerprint
-reaching thousands of dsts is a browser/SDK and means nothing. A `[ja3 fallback
-— lower confidence]` tag means no JA4 was available and the match rests on JA3
-alone, which generic Go/Python/Rust stacks share — weight it down. This tag
-never changes the score (a corpus FP study showed no single network signal,
-fingerprint rarity included, can safely auto-flag a beacon as C2 on a
-cloud-heavy network); it's there to rank where you look first.
+**Reading the FP rarity row.** A conn-level beacon's Detail pane carries a
+colour-coded **FP rarity** row, e.g. `rare — shared by 3 internal hosts · 43
+conns, 1 dst(s)`. Unlike the "matched N other beacons" sibling count — which
+only counts beacons Archer *already flagged* — this is computed over **every
+TLS connection** in the capture, so it sees rarity (is this fingerprint a rare
+implant stack or a ubiquitous browser?) and cross-host clustering even when the
+sibling hosts scored too low to emit their own beacon finding. The row colour is
+the concern level, read it like the severity colour: **red** (rare JA4 shared
+across hosts — the implant-family shape, a rare TLS stack on multiple machines
+all phoning a tight C2 set), **orange** (rare JA4, single host), **yellow** (rare
+JA3 across hosts — JA3 collides on generic stacks, so corroborate), **green**
+(rare JA3, single host), **white** (`common` — a browser/SDK reaching thousands
+of dsts; means nothing). A `JA3 only` note means no JA4 was available and the
+match rests on JA3 alone, which generic Go/Python/Rust stacks share — weight it
+down. This row never changes the score (a corpus FP study showed no single
+network signal, fingerprint rarity included, can safely auto-flag a beacon as C2
+on a cloud-heavy network); it's there to rank where you look first.
 
 ### 3. URI footprint — confirm it's C2, not a chatty app
 

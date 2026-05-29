@@ -124,6 +124,15 @@ const Detail = (() => {
       const n3 = f.ja3_sibling_count || 0;
       ep += _row('JA3 match', `${n3} other beacon${n3 === 1 ? '' : 's'} in dataset${!f.ja4 && n3 > 0 ? '  <span style="color:var(--fg-dim)">(TLS Pivot ▸)</span>' : ''}`);
     }
+    // FP rarity is computed server-side at read time from the corpus-wide
+    // TLS-fingerprint prevalence snapshot. The concern level (critical/high/
+    // medium/low/none) drives the row colour the same way severity colours
+    // the header: rare+clustered JA4 is red, a common browser/SDK shape is
+    // white. Enrichment only — it never moves the score.
+    if (f.fp_concern && f.fp_detail) {
+      const col = _sevColor(f.fp_concern.toUpperCase());
+      ep += _row('FP rarity', `<span style="color:${col}">${_esc(f.fp_detail)}</span>`);
+    }
     if (Array.isArray(f.top_uris) && f.top_uris.length > 1) {
       ep += `<div class="ds-row"><span class="ds-key">Beacon paths</span><span class="ds-val mono">${_esc(f.hostname || 'this host')}</span></div>`;
       f.top_uris.forEach(u => {

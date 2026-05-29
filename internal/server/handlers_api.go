@@ -530,6 +530,14 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 		if f.JA3 != "" && model.IsBeaconType(f.Type) {
 			f.JA3SiblingCount = s.store.CountBeaconsWithJA3(f.JA3, f.ID)
 		}
+		// TLS-fingerprint rarity / cross-host-cluster concern (colour-coded
+		// row in the detail pane). Derived from the prevalence snapshot over
+		// all ssl.log, so it sees rarity and sub-floor siblings the emitted-
+		// beacon sibling counts above cannot. Conn-level Beaconing only —
+		// that's where the seed-connection fingerprint is lifted.
+		if f.Type == "Beaconing" && (f.JA4 != "" || f.JA3 != "") {
+			f.FPConcern, f.FPDetail = s.store.FingerprintConcern(f.JA4, f.JA3)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(f)
 

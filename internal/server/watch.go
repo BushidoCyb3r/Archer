@@ -739,6 +739,7 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool, preStart 
 				s.store.RecordSpectralBlocked(blocked)
 			}
 			newNotifs := s.store.SetFindings(findings)
+			s.store.SetFingerprintPrevalence(az.FingerprintStats())
 			s.crossAnnotateNewTIHits(findings)
 			for _, n := range newNotifs {
 				nData, _ := json.Marshal(n)

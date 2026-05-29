@@ -277,6 +277,8 @@ The most-used surface. Findings are detector outputs, persisted in
   "ja3":             "771,4865-4866-49195",
   "ja4":             "t13d1516h2_8daaf6152771_b0da82dd1658",
   "ja3_sibling_count": 4,
+  "fp_concern":        "critical",
+  "fp_detail":         "rare — shared by 3 internal hosts · 43 conns, 1 dst(s)",
   "top_uris": [{"uri": "/poll", "count": 312}, {"uri": "/cmd", "count": 18}]
 }
 ```
@@ -326,6 +328,19 @@ The most-used surface. Findings are detector outputs, persisted in
   excluded from the list projection and exports). Both are `omitempty`;
   an absent value reads correctly as "matched 0 other beacons." Filter
   to those siblings with the `ja3` or `ja4` query params respectively.
+- `fp_concern` / `fp_detail` are **transient, derived-at-read** fields
+  on conn-level `Beaconing` findings carrying a `ja3` or `ja4`. The
+  single-finding handler resolves the seed fingerprint against the
+  corpus-wide TLS prevalence snapshot (`SetFingerprintPrevalence`, pushed
+  after each full pass) into a severity-style concern level
+  (`critical`/`high`/`medium`/`low`/`none`) and a one-line summary. The
+  SPA colours the detail-pane **FP rarity** row by `fp_concern` (the same
+  palette as severity: critical→red … low→green, none→white). Unlike the
+  sibling counts — emitted-beacon-only — this sees rarity and sub-floor
+  siblings across *all* TLS. **Enrichment only — never alters score or
+  severity.** Both `omitempty`; absent when no fingerprint resolves or no
+  full pass has run this process. Never persisted, excluded from the list
+  projection and exports.
 - `top_uris` is the HTTP Beaconing destination's request-path
   footprint: `[]{uri, count}`, count-descending, capped at 8. The
   `(Type,src,dst,port)` fingerprint dedup keeps one finding per group,

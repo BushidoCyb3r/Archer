@@ -56,6 +56,14 @@ type Store struct {
 	config         config.Config
 	analyzing      bool
 
+	// fpJA4 / fpJA3 are the latest per-fingerprint TLS prevalence snapshot,
+	// pushed by the server after each full analysis (SetFingerprintPrevalence)
+	// and consulted at read time by FingerprintConcern to colour the beacon
+	// detail-pane fingerprint row. Transient like the sibling counts — empty
+	// until the first full analysis after a restart repopulates them.
+	fpJA4 map[string]model.FingerprintStat
+	fpJA3 map[string]model.FingerprintStat
+
 	// Analyzer-side feed-bucket cache. EnabledFeedIndicators() rebuilds
 	// the typed SourcedIndicators slice on every call — that's a
 	// ListFeeds() + per-feed ListFeedIndicators() + CIDR-parse pass
@@ -953,6 +961,82 @@ func (s *Store) GetFinding(id int) (model.Finding, bool) {
 // scan under the same RLock the rest of the read path uses; the
 // finding set is already resident, so this is cheap relative to the
 // per-request detail render that calls it.
+// Fingerprint-concern thresholds. Global + documented in code (not per-deployment
+// Settings), matching Archer's calibration-knob convention.
+const (
+	// fpRareDstFanoutMax: a TLS client fingerprint reaching this many distinct
+	// destinations or fewer is "rare" — an implant phones a tiny C2 set, a
+	// browser/SDK fingerprint reaches thousands.
+	fpRareDstFanoutMax = 8
+	// fpClusterMinSrcs: this many distinct internal hosts sharing one rare
+	// fingerprint is the cross-host implant-family signal.
+	fpClusterMinSrcs = 2
+)
+
+// SetFingerprintPrevalence stores the latest TLS-fingerprint prevalence snapshot
+// from a full analysis pass. Called by the server right after Analyze; consulted
+// by FingerprintConcern at read time.
+func (s *Store) SetFingerprintPrevalence(ja4, ja3 map[string]model.FingerprintStat) {
+	s.mu.Lock()
+	s.fpJA4 = ja4
+	s.fpJA3 = ja3
+	s.mu.Unlock()
+}
+
+// FingerprintConcern derives the rarity/cross-host-cluster concern for a beacon's
+// TLS client fingerprint from the prevalence snapshot. JA4 is preferred; a
+// JA3-only match is capped one tier lower because generic Go/Python/Rust stacks
+// collide on a single JA3. Returns a severity-style level
+// ("critical"/"high"/"medium"/"low"/"none") for the detail-pane row colour and a
+// human-readable summary. Both "" when no fingerprint resolves or the snapshot is
+// empty (no analysis yet this process). Read under RLock like the sibling counts.
+func (s *Store) FingerprintConcern(ja4, ja3 string) (level, detail string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var stat model.FingerprintStat
+	var kind string
+	var ok bool
+	if ja4 != "" {
+		if stat, ok = s.fpJA4[ja4]; ok {
+			kind = "ja4"
+		}
+	}
+	if !ok && ja3 != "" {
+		if stat, ok = s.fpJA3[ja3]; ok {
+			kind = "ja3"
+		}
+	}
+	if !ok {
+		return "", ""
+	}
+
+	rare := stat.Dsts <= fpRareDstFanoutMax
+	clustered := stat.SrcHosts >= fpClusterMinSrcs
+	if !rare {
+		return "none", fmt.Sprintf("common — %d conns across %d dsts (browser/SDK shape)", stat.Conns, stat.Dsts)
+	}
+	// Rare. Rank by JA4-vs-JA3 confidence and cross-host clustering.
+	hostWord := "single host"
+	if clustered {
+		hostWord = fmt.Sprintf("shared by %d internal hosts", stat.SrcHosts)
+	}
+	base := fmt.Sprintf("rare — %s · %d conns, %d dst(s)", hostWord, stat.Conns, stat.Dsts)
+	switch {
+	case kind == "ja4" && clustered:
+		level = "critical"
+	case kind == "ja4":
+		level = "high"
+	case kind == "ja3" && clustered:
+		level = "medium"
+		base += " (JA3 only — generic-stack collision possible)"
+	default: // ja3, single host
+		level = "low"
+		base += " (JA3 only — lower confidence)"
+	}
+	return level, base
+}
+
 func (s *Store) CountBeaconsWithJA3(ja3 string, excludeID int) int {
 	if ja3 == "" {
 		return 0

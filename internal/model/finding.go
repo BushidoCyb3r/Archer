@@ -132,6 +132,17 @@ type Finding struct {
 	// count reads correctly as "matched 0 other beacons".
 	JA3SiblingCount int `json:"ja3_sibling_count,omitempty"`
 	JA4SiblingCount int `json:"ja4_sibling_count,omitempty"`
+	// FPConcern / FPDetail are transient, derived-at-read fields describing how
+	// rare a conn-level beacon's TLS client fingerprint is across ALL ssl.log
+	// (not just emitted beacons) and whether it clusters across multiple internal
+	// hosts. FPConcern is a severity-style level ("critical"/"high"/"medium"/
+	// "low"/"none") that drives the detail-pane row colour; FPDetail is the
+	// human-readable summary. Computed by the single-finding detail handler from
+	// the store's per-fingerprint prevalence snapshot, never persisted — and
+	// blank until the next full analysis repopulates that snapshot after a
+	// restart (same transient contract as the sibling counts).
+	FPConcern string `json:"fp_concern,omitempty"`
+	FPDetail  string `json:"fp_detail,omitempty"`
 	// TopURIs is the HTTP Beaconing destination's request-path
 	// footprint: the most-frequent paths the same (sensor,src,dst,host)
 	// group beaconed on, count-descending, capped. Stamped identically
@@ -286,6 +297,17 @@ func IsBeaconType(t string) bool {
 		return true
 	}
 	return false
+}
+
+// FingerprintStat is the per-TLS-client-fingerprint prevalence over one
+// analysis pass — every ssl.log connection, not just emitted beacons:
+// total connections, distinct internal source hosts, distinct destinations.
+// Built by the analyzer, handed to the store, and consulted at read time to
+// derive Finding.FPConcern / FPDetail.
+type FingerprintStat struct {
+	Conns    int
+	SrcHosts int
+	Dsts     int
 }
 
 // Fingerprint uniquely identifies a finding for delta/baseline comparison.

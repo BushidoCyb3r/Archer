@@ -508,17 +508,23 @@ changed**, and the golden corpus is unchanged:
   and is blind to siblings that scored below the beacon emit floor.
   To close that gap, `analyzeSSL` builds a per-fingerprint prevalence map
   over **every TLS connection** in the pass (not just beacons) — total
-  connections, distinct internal sources, distinct destinations — and
-  `enrichBeaconSNI` stamps a note on each conn-level Beaconing finding's
-  Detail string, e.g. `TLS fp ja4=t13i131000_…: rare (43 conns, 3 src
-  hosts, 1 dsts) — shared by 3 internal hosts`. A fingerprint reaching
+  connections, distinct internal sources, distinct destinations — pushed
+  to the store after each full pass (`SetFingerprintPrevalence`). At read
+  time the single-finding handler resolves a conn-level beacon's seed
+  fingerprint against that snapshot (`Store.FingerprintConcern`) into a
+  severity-style **concern level** and a one-line summary, returned on the
+  finding JSON as `fp_concern` / `fp_detail` and rendered as a colour-coded
+  **FP rarity** row in the Detail pane. A fingerprint reaching
   ≤ `fpRareDstFanoutMax` (8) destinations reads as **rare** (an implant
   phones a tiny C2 set; a browser/SDK fingerprint reaches thousands), and
   ≥ `fpClusterMinSrcs` (2) internal hosts sharing one rare fingerprint is
-  the cross-host implant-family signal. JA4 is preferred (GREASE-robust,
-  stable); a JA3-only match is flagged lower-confidence because generic
-  Go/Python/Rust stacks collide on one JA3. **This is enrichment only —
-  it never alters score or severity.** A corpus-wide false-positive sweep
+  the cross-host implant-family signal. The concern tiers: rare clustered
+  JA4 → `critical` (red), rare single-host JA4 → `high` (orange), rare
+  clustered JA3 → `medium` (yellow), rare single-host JA3 → `low` (green),
+  common → `none` (white). JA4 is preferred (GREASE-robust, stable); a
+  JA3-only match is capped a tier lower and carries a collision warning
+  because generic Go/Python/Rust stacks collide on one JA3. **This is
+  enrichment only — it never alters score or severity.** A corpus-wide false-positive sweep
   showed that on a cloud-heavy network benign automation (DoH resolvers,
   CDN/SaaS edges) is statistically indistinguishable from cloud-hosted C2
   by any single axis — including fingerprint rarity — so the rarity signal

@@ -28,6 +28,36 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.44.1] — 2026-05-29
+
+### Changed
+
+- **TLS-fingerprint rarity moved from the Detail string to a colour-coded
+  detail-pane row.** The v0.44.0 enrichment stamped a free-text note onto each
+  conn-level `Beaconing` finding's Detail string (`TLS fp ja4=…: rare …`). It is
+  now delivered as two transient, derived-at-read JSON fields — `fp_concern`
+  (a severity-style level: `critical`/`high`/`medium`/`low`/`none`) and
+  `fp_detail` (the one-line summary) — rendered as a dedicated **FP rarity** row
+  in the detail pane, coloured by concern with the same palette as severity
+  (rare clustered JA4 → red, rare single-host JA4 → orange, rare clustered JA3 →
+  yellow, rare single-host JA3 → green, common → white). The classification
+  thresholds are unchanged (≤ 8 dsts = rare, ≥ 2 internal hosts = clustered, JA4
+  preferred over JA3); this is purely a presentation + API-shape change. The
+  per-fingerprint prevalence map `analyzeSSL` builds is now pushed to the store
+  after each full pass (`SetFingerprintPrevalence`) and resolved at read time
+  (`Store.FingerprintConcern`) rather than stamped at phase 2.5. Still
+  **enrichment only — it does not alter score or severity.**
+
+### Added
+
+- `fp_concern` / `fp_detail` fields on the single-finding JSON response
+  (`GET /api/findings/{id}`) for conn-level `Beaconing` findings carrying a
+  JA3/JA4. Both `omitempty`; transient (never persisted), excluded from the list
+  projection and exports — same lifecycle as `ja3_sibling_count` /
+  `ja4_sibling_count`.
+
+---
+
 ## [v0.44.0] — 2026-05-29
 
 ### Added
