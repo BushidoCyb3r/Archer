@@ -1232,7 +1232,8 @@ body.dock-resizing {
 .action-btn.ack:not(:disabled)     { color: var(--sev-low); }
 .action-btn.esc:not(:disabled)     { color: var(--sev-critical); }
 .action-btn.dismiss:not(:disabled) { color: var(--fg-dim); }
-.action-btn.chart:not(:disabled)   { color: var(--sev-info); }
+.action-btn.chart:not(:disabled)     { color: var(--sev-info); }
+.action-btn.score-evo:not(:disabled) { color: var(--accent); }
 .action-btn.pcap:not(:disabled)    { color: var(--sev-low); }
 .action-btn.supp:not(:disabled)    { color: var(--sev-high); }
 #analyst-rec {
@@ -1240,107 +1241,6 @@ body.dock-resizing {
   color: var(--fg-muted);
   margin-left: 8px;
   font-style: italic;
-}
-
-/* ============================================================================
-   Beacon evolution chart (inside detail pane)
-============================================================================ */
-#beacon-evolution {
-  /* No border-top — used to sit under #detail-text inside the
-     Detail panel and needed a separator; now lives in its own
-     Score Evolution tab where the panel border handles that role. */
-  padding: 12px 18px;
-}
-#beacon-evolution-header {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  color: var(--fg-muted);
-  text-transform: uppercase;
-  margin-bottom: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-#beacon-evolution-expand {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--fg-secondary);
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: color .12s, border-color .12s, background .12s;
-}
-#beacon-evolution-expand:hover {
-  color: var(--fg-primary);
-  border-color: var(--border-strong);
-  background: var(--bg-elev-3);
-}
-/* In-place chart: fixed aspect ratio + max-height keep the SVG from
-   stretching to whatever vertical space the dock provides. The chart
-   stays readable at any dock size; the expand affordance (↗ button)
-   opens the modal for a larger view. NEW addition v0.18.0. */
-#beacon-evolution-svg {
-  display: block;
-  background: var(--bg-elev-2);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
-  width: 100%;
-  aspect-ratio: 3 / 1;
-  max-height: 180px;
-}
-#beacon-evolution-svg .axis {
-  stroke: var(--border-subtle);
-  stroke-width: 1;
-}
-#beacon-evolution-svg .gridline {
-  stroke: var(--border-subtle);
-  stroke-width: 1;
-  stroke-dasharray: 2 4;
-  opacity: 0.5;
-}
-#beacon-evolution-svg .score-line {
-  fill: none;
-  stroke-width: 2;
-}
-#beacon-evolution-svg .data-point {
-  cursor: help;
-}
-#beacon-evolution-svg .sub-line {
-  fill: none;
-  stroke-width: 1.2;
-  opacity: 0.75;
-}
-#beacon-evolution-svg .label {
-  font-size: 10px;
-  fill: var(--fg-dim);
-  font-family: var(--font-mono, monospace);
-}
-#beacon-evolution-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 8px;
-  font-size: 11px;
-  color: var(--fg-dim);
-}
-#beacon-evolution-legend .leg-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-#beacon-evolution-legend .leg-swatch {
-  display: inline-block;
-  width: 14px;
-  height: 2px;
 }
 
 /* ============================================================================
@@ -1404,16 +1304,6 @@ body.dock-resizing {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
   width: 100%;
-}
-#beacon-evolution-modal-svg .axis,
-#beacon-evolution-modal-svg .gridline,
-#beacon-evolution-modal-svg .score-line,
-#beacon-evolution-modal-svg .data-point,
-#beacon-evolution-modal-svg .sub-line,
-#beacon-evolution-modal-svg .label {
-  /* Inherit shared chart styles via the chart-render path; the
-     modal SVG uses the same class names as the in-place SVG so
-     style rules below apply uniformly. */
 }
 #beacon-evolution-modal-svg .axis      { stroke: var(--border-subtle); stroke-width: 1; }
 #beacon-evolution-modal-svg .gridline  { stroke: var(--border-subtle); stroke-width: 1; stroke-dasharray: 2 4; opacity: 0.5; }

@@ -28,53 +28,34 @@ const BeaconEvolution = (() => {
   let _lastRows = null;
   let _currentFindingID = null;
 
-  function _hide() {
-    const wrap = document.getElementById('beacon-evolution');
-    if (wrap) wrap.style.display = 'none';
-  }
-
-  function _show() {
-    const wrap = document.getElementById('beacon-evolution');
-    if (wrap) wrap.style.display = 'block';
-  }
-
   function _empty(svgEl, legendEl, message) {
     if (svgEl) svgEl.innerHTML =
       `<text x="50%" y="50%" text-anchor="middle" class="label" fill="var(--fg-dim)">${message}</text>`;
     if (legendEl) legendEl.innerHTML = '';
   }
 
-  // load(findingID, type) fetches and renders the chart for the
-  // given finding. type is gating: Beaconing / HTTP Beaconing show
-  // the chart, anything else hides the container entirely.
+  // load(findingID, type) pre-fetches history for the given finding
+  // so Score Evo opens instantly when clicked. Enables #score-evo-btn
+  // only when at least one history row exists. Non-beacon types clear
+  // state and leave the button disabled.
   function load(findingID, type) {
-    if (type !== 'Beaconing' && type !== 'HTTP Beaconing' && type !== 'DNS Beaconing') {
-      _lastRows = null;
-      _currentFindingID = null;
-      _hide();
-      return;
-    }
-    _show();
+    _lastRows = null;
+    _currentFindingID = null;
+    if (type !== 'Beaconing' && type !== 'HTTP Beaconing' && type !== 'DNS Beaconing') return;
     _currentFindingID = findingID;
-    const svg = document.getElementById('beacon-evolution-svg');
-    const legend = document.getElementById('beacon-evolution-legend');
-    _empty(svg, legend, 'Loading…');
     fetch(`/api/findings/${findingID}/history`, { credentials: 'same-origin' })
       .then(r => {
         if (!r.ok) throw new Error(`history HTTP ${r.status}`);
         return r.json();
       })
       .then(rows => {
-        // Drop the result if the analyst clicked a different finding
-        // while the request was in flight — prevents stale rows from
-        // overwriting the now-current chart.
         if (_currentFindingID !== findingID) return;
         _lastRows = rows;
-        _renderInto(rows, svg, legend);
+        const btn = document.getElementById('score-evo-btn');
+        if (btn) btn.disabled = !rows || rows.length === 0;
       })
       .catch(err => {
         console.warn('beacon evolution fetch failed:', err);
-        _empty(svg, legend, 'History unavailable.');
       });
   }
 
@@ -311,16 +292,10 @@ const BeaconEvolution = (() => {
       ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
-  // init() wires the expand button + modal close. The Export button
-  // is a single dropdown (PNG / JPEG); app.js's _initExportDropdown
-  // wires it during boot because that helper lives in app.js's IIFE
-  // scope. Keeps the dropdown behaviour consistent with the other
-  // export dropdowns in the UI (Findings export, beacon chart
-  // export, graph export).
+  // init() wires the modal close button. The Export button is a
+  // single dropdown (PNG / JPEG); app.js's _initExportDropdown wires
+  // it during boot because that helper lives in app.js's IIFE scope.
   function init() {
-    const expandBtn = document.getElementById('beacon-evolution-expand');
-    if (expandBtn) expandBtn.addEventListener('click', expand);
-
     const closeBtn = document.getElementById('beacon-evolution-modal-close');
     if (closeBtn) closeBtn.addEventListener('click', () => {
       const dlg = document.getElementById('beacon-evolution-modal');
@@ -331,7 +306,8 @@ const BeaconEvolution = (() => {
   function clear() {
     _lastRows = null;
     _currentFindingID = null;
-    _hide();
+    const btn = document.getElementById('score-evo-btn');
+    if (btn) btn.disabled = true;
   }
 
   return { init, load, expand, exportImage, clear };

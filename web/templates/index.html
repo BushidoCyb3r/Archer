@@ -384,7 +384,6 @@
         <button class="dock-tab-btn active" type="button" role="tab" data-dock-tab="detail" aria-selected="true">Detail</button>
         <button class="dock-tab-btn"        type="button" role="tab" data-dock-tab="notes"  aria-selected="false">Notes<span class="dock-tab-count" id="notes-badge"></span></button>
         <button class="dock-tab-btn"        type="button" role="tab" data-dock-tab="ti"     aria-selected="false">TI Results<span class="dock-tab-count" id="ti-badge"></span></button>
-        <button class="dock-tab-btn" type="button" role="tab" data-dock-tab="evolution" id="evolution-tab-btn" aria-selected="false" style="display:none">Score Evolution</button>
         <button id="export-notes-btn" type="button" title="Download this finding's detail, TI results, and analyst notes as a .txt file" disabled>Export TXT</button>
       </div>
       <div id="dock-body">
@@ -401,23 +400,14 @@
         <div class="dock-tab-panel" id="dock-panel-ti" role="tabpanel" hidden>
           <div id="ti-results-list"></div>
         </div>
-        <div class="dock-tab-panel" id="dock-panel-evolution" role="tabpanel" hidden>
-          <div id="beacon-evolution" style="display:none">
-            <div id="beacon-evolution-header">
-              <span>Score evolution (last 30 days)</span>
-              <button id="beacon-evolution-expand" type="button" title="Open chart in expanded view with export options" aria-label="Expand chart">↗</button>
-            </div>
-            <svg id="beacon-evolution-svg" preserveAspectRatio="xMidYMid meet"></svg>
-            <div id="beacon-evolution-legend"></div>
-          </div>
-        </div>
       </div>
       <div id="detail-actions">
         <button class="action-btn ack"     id="ack-btn"     disabled>Acknowledge</button>
         <button class="action-btn esc"     id="esc-btn"     disabled>Escalate</button>
         <button class="action-btn dismiss" id="dismiss-btn" disabled>Dismiss</button>
         <span class="action-divider" aria-hidden="true"></span>
-        <button class="action-btn chart" id="chart-btn" disabled>Beacon Chart</button>
+        <button class="action-btn chart"     id="chart-btn"     disabled>Beacon Chart</button>
+        <button class="action-btn score-evo" id="score-evo-btn" disabled>Score Chart</button>
         <button class="action-btn pcap"  id="pcap-btn"  disabled>PCAP Filter</button>
         <button class="action-btn raw"   id="raw-btn"   disabled>Source Records</button>
         <button class="action-btn ja3"   id="tls-btn"   disabled title="Filter every beacon sharing this TLS client fingerprint (JA4 preferred; falls back to JA3)">TLS Pivot</button>

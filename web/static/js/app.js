@@ -189,25 +189,11 @@
   // survives reload. `dock-tab` lives separately from the main tab
   // (Findings/Ack/Esc/Dismissed/...) so flipping main tabs doesn't
   // reset which dock tab the analyst was reading from.
-  let _dockTab = 'detail'; // 'detail' | 'notes' | 'ti' | 'evolution'
+  let _dockTab = 'detail'; // 'detail' | 'notes' | 'ti'
   function _setDockTab(name) {
-    if (name !== 'detail' && name !== 'notes' && name !== 'ti' && name !== 'evolution') name = 'detail';
-    // Evolution tab only exists for beacon-type findings — if the
-    // analyst stored 'evolution' as last-used and lands on a row
-    // that has no chart, fall back to Detail rather than activating
-    // a hidden tab button.
-    if (name === 'evolution') {
-      const btn = document.getElementById('evolution-tab-btn');
-      if (!btn || btn.style.display === 'none') name = 'detail';
-    }
+    if (name !== 'detail' && name !== 'notes' && name !== 'ti') name = 'detail';
     _dockTab = name;
     try { localStorage.setItem('archer:dock-tab', name); } catch (_) {}
-    // Export TXT covers Detail + Notes + TI Results. The Score
-    // Evolution tab has its own PNG/JPEG export inside the expanded
-    // chart modal; showing Export TXT alongside it would imply it
-    // exports the chart, which it doesn't.
-    const exportBtn = document.getElementById('export-notes-btn');
-    if (exportBtn) exportBtn.style.display = name === 'evolution' ? 'none' : '';
     document.querySelectorAll('.dock-tab-btn').forEach(b => {
       const on = b.dataset.dockTab === name;
       b.classList.toggle('active', on);
@@ -330,7 +316,6 @@
       if (e.key === '1') { _setDockTab('detail'); }
       else if (e.key === '2') { _setDockTab('notes'); }
       else if (e.key === '3') { _setDockTab('ti'); }
-      else if (e.key === '4') { _setDockTab('evolution'); }
     });
   }
 
@@ -2495,6 +2480,10 @@
 
     document.getElementById('chart-btn').addEventListener('click', () => {
       if (_selectedFinding) BeaconChart.show(_selectedFinding);
+    });
+
+    document.getElementById('score-evo-btn').addEventListener('click', () => {
+      if (typeof BeaconEvolution !== 'undefined') BeaconEvolution.expand();
     });
 
     document.getElementById('add-note-btn').addEventListener('click', async () => {

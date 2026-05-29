@@ -181,13 +181,14 @@ const Detail = (() => {
     rec.textContent = explain ? explain.split('.')[0] : '';
 
     // Action buttons
-    const ackBtn     = document.getElementById('ack-btn');
-    const escBtn     = document.getElementById('esc-btn');
-    const dismissBtn = document.getElementById('dismiss-btn');
-    const chartBtn   = document.getElementById('chart-btn');
-    const pcapBtn    = document.getElementById('pcap-btn');
-    const rawBtn     = document.getElementById('raw-btn');
-    const suppBtn    = document.getElementById('supp-btn');
+    const ackBtn      = document.getElementById('ack-btn');
+    const escBtn      = document.getElementById('esc-btn');
+    const dismissBtn  = document.getElementById('dismiss-btn');
+    const chartBtn    = document.getElementById('chart-btn');
+    const scoreEvoBtn = document.getElementById('score-evo-btn');
+    const pcapBtn     = document.getElementById('pcap-btn');
+    const rawBtn      = document.getElementById('raw-btn');
+    const suppBtn     = document.getElementById('supp-btn');
 
     // Workflow-state buttons. A dismissed finding can be un-dismissed
     // (Dismiss button label flips) but cannot be acknowledged or
@@ -205,6 +206,9 @@ const Detail = (() => {
     // fetch arrives a tick later, leaving the button momentarily
     // disabled if we gated on the field directly.
     chartBtn.disabled = !(f.type === 'Beaconing' || f.type === 'HTTP Beaconing' || f.type === 'DNS Beaconing');
+    // Score Evo always starts disabled; BeaconEvolution.load() enables it
+    // after the history fetch only when rows exist.
+    if (scoreEvoBtn) scoreEvoBtn.disabled = true;
     if (rawBtn) {
       rawBtn.disabled = !(f.src_ip && f.dst_ip);
       rawBtn.dataset.findingId = f.id;
@@ -237,23 +241,6 @@ const Detail = (() => {
     // tabs surface focused content. Updates badges on each tab.
     _renderNotes(f);
 
-    // Score evolution chart — Beaconing / HTTP Beaconing only.
-    // BeaconEvolution.load is a no-op for other types (hides container).
-    // The Score Evolution tab button is also revealed/hidden in
-    // lockstep so the tab strip only offers it for beacon types.
-    // When switching to a non-beacon finding while the Evolution
-    // tab is active, snap back to Detail — clicking the Detail tab
-    // button routes through the registered handler so behavior
-    // matches an analyst clicking it themselves.
-    const hasEvolution = f.type === 'Beaconing' || f.type === 'HTTP Beaconing' || f.type === 'DNS Beaconing';
-    const evolutionBtn = document.getElementById('evolution-tab-btn');
-    if (evolutionBtn) {
-      evolutionBtn.style.display = hasEvolution ? '' : 'none';
-      if (!hasEvolution && evolutionBtn.classList.contains('active')) {
-        const detailBtn = document.querySelector('.dock-tab-btn[data-dock-tab="detail"]');
-        if (detailBtn) detailBtn.click();
-      }
-    }
     if (typeof BeaconEvolution !== 'undefined') {
       BeaconEvolution.load(f.id, f.type);
     }
@@ -363,21 +350,10 @@ const Detail = (() => {
     if (tl) tl.innerHTML = '';
     _setBadge(document.getElementById('notes-badge'), 0);
     _setBadge(document.getElementById('ti-badge'),    0);
-    ['ack-btn','esc-btn','dismiss-btn','chart-btn','pcap-btn','tls-btn','supp-btn','export-notes-btn'].forEach(id => {
+    ['ack-btn','esc-btn','dismiss-btn','chart-btn','score-evo-btn','pcap-btn','tls-btn','supp-btn','export-notes-btn'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.disabled = true;
     });
-    // Hide the Score Evolution tab when no finding is selected. If
-    // the tab was active, snap back to Detail so the panel area
-    // doesn't look broken.
-    const evolutionBtn = document.getElementById('evolution-tab-btn');
-    if (evolutionBtn) {
-      if (evolutionBtn.classList.contains('active')) {
-        const detailBtn = document.querySelector('.dock-tab-btn[data-dock-tab="detail"]');
-        if (detailBtn) detailBtn.click();
-      }
-      evolutionBtn.style.display = 'none';
-    }
     if (typeof BeaconEvolution !== 'undefined') BeaconEvolution.clear();
   }
 
