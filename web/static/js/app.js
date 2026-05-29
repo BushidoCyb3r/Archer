@@ -1793,6 +1793,34 @@
     });
   }
 
+  // _lastUnseenShown tracks the count the new-findings modal last popped with
+  // this session, so a long-lived tab across hourly watch passes doesn't
+  // re-announce the same set every tick — the modal only re-pops when the
+  // count GROWS (new findings actually arrived). Reset to -1 so the first
+  // login always shows if there's anything.
+  let _lastUnseenShown = -1;
+
+  // _showUnseenModal queries the per-session "new since you last looked"
+  // count and pops the new-findings modal when this analyst has unseen
+  // findings the modal hasn't already shown. The boundary is anchored at
+  // login server-side (the start of the previous session) and is the SAME
+  // cutoff the "New only" table filter uses, so the two always agree and the
+  // set stays stable for the session — closing the modal doesn't empty it.
+  async function _showUnseenModal() {
+    try {
+      const r = await fetch('/api/findings/unseen', { cache: 'no-store' });
+      if (!r.ok) return;
+      const d = await r.json();
+      const count = d.count || 0;
+      const total = d.total || 0;
+      if (count <= 0 || count <= _lastUnseenShown) return;
+      _lastUnseenShown = count;
+      const msg = `${count} new finding${count !== 1 ? 's' : ''} since you last checked\n${total} total`;
+      document.getElementById('analysis-alert-msg').textContent = msg;
+      document.getElementById('analysis-alert-dlg').showModal();
+    } catch (_) { /* best-effort — modal is informational */ }
+  }
+
   // ── SSE ────────────────────────────────────────────────────────────────────
   function initSSE() {
     SSE.on('progress', evt => {
@@ -1834,14 +1862,16 @@
         .then(data => { if (Array.isArray(data)) data.filter(n => !n.dismissed).forEach(n => Notifications.add(n)); })
         .catch(() => {});
       setTimeout(() => { document.getElementById('progress-bar').value = 0; }, 2000);
+      // Route the modal through the per-user "unseen" endpoint rather than
+      // this run's evt.new_count. evt.new_count is the global per-run is_new
+      // flag, which resets every watch tick — an analyst sitting on the page
+      // across hourly passes would only ever see the latest run's new
+      // findings. _showUnseenModal counts everything detected since *this
+      // analyst* last acknowledged, so it accumulates correctly, and it stays
+      // silent when nothing is new to them (the status line already confirms
+      // the run completed).
       if (!evt.cancelled) {
-        const total    = evt.count     || 0;
-        const newCount = evt.new_count || 0;
-        const msg = newCount > 0
-          ? `${newCount} new finding${newCount !== 1 ? 's' : ''} detected\n${total} total`
-          : `No new findings\n${total} finding${total !== 1 ? 's' : ''} total`;
-        document.getElementById('analysis-alert-msg').textContent = msg;
-        document.getElementById('analysis-alert-dlg').showModal();
+        _showUnseenModal();
       }
     });
 
@@ -1951,6 +1981,9 @@
     SSE.connect();
 
     document.getElementById('analysis-alert-ok').addEventListener('click', () => {
+      // Just close. The new-findings boundary is anchored at login, not at
+      // dismiss, so the "New only" filter still surfaces these findings for
+      // review after the modal is closed; it re-anchors on next login.
       document.getElementById('analysis-alert-dlg').close();
     });
   }
@@ -4852,6 +4885,10 @@
       .catch(() => setStatus('Ready — click Import then Analyze'));
     _loadCounts();
     _loadFacets();
+    // Login-time new-findings prompt: show what's accumulated since this
+    // analyst last acknowledged, across every watch pass since — not just
+    // the most recent run. Silent when nothing is new to them.
+    _showUnseenModal();
     setStatus('Ready');
   }
 

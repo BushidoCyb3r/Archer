@@ -9,7 +9,10 @@ import (
 
 type ctxKey int
 
-const ctxUser ctxKey = 0
+const (
+	ctxUser     ctxKey = 0
+	ctxBoundary ctxKey = 1
+)
 
 // requireAuth is middleware that validates the session cookie.
 // Unauthenticated requests are redirected to /login.
@@ -48,6 +51,7 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 			return
 		}
 		ctx := context.WithValue(r.Context(), ctxUser, user)
+		ctx = context.WithValue(ctx, ctxBoundary, s.users.SessionNewBoundary(c.Value))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -83,4 +87,12 @@ func requireRole(roles ...string) func(http.Handler) http.Handler {
 func userFromCtx(r *http.Request) model.User {
 	u, _ := r.Context().Value(ctxUser).(model.User)
 	return u
+}
+
+// newBoundaryFromCtx returns the session's frozen "new since you last looked"
+// cutoff (epoch seconds). Zero when no session set it — which makes the
+// delta/unseen queries treat everything as new, the safe default.
+func newBoundaryFromCtx(r *http.Request) int64 {
+	b, _ := r.Context().Value(ctxBoundary).(int64)
+	return b
 }

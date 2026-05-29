@@ -128,7 +128,13 @@ A new finding's life:
    buttons. `Host Risk Score` is suppressed (it's a roll-up).
 7. **`done` SSE event fires.** UI re-fetches `/api/findings` and
    re-renders. Watch ticks include `incremental: true` so the UI
-   distinguishes them from full passes.
+   distinguishes them from full passes. The UI then calls
+   `/api/findings/unseen` and pops the new-findings modal only if the
+   logged-in analyst has findings detected since their session's
+   new-findings boundary (anchored at login) — a per-user count that
+   accumulates across passes, not the run's `new_count`, and the same
+   cutoff the `delta` "New only" filter uses. The call runs at login and
+   on each `done`; the modal re-pops only when the count grows.
 8. **Analyst sees the finding, optionally clicks Escalate.** That kicks
    off `runTIEscalation` which fans live TI lookups (VirusTotal, OTX,
    AbuseIPDB, etc.) and streams `ti_result` events as they settle.
@@ -195,7 +201,11 @@ CREATE TABLE findings (
     analyst_note TEXT,         -- free-text note
     status_ts    TEXT,         -- when status was set
     ioc_match    INTEGER DEFAULT 0,  -- 0/1 matches the IOC list
-    is_new       INTEGER DEFAULT 0,  -- 0/1 fresh from this run
+    is_new       INTEGER DEFAULT 0,  -- 0/1 fresh from this run (overwritten every run)
+    detected_at  INTEGER NOT NULL DEFAULT 0,  -- migration 0029: epoch the fingerprint first
+                                              -- entered the store; carried forward unchanged on
+                                              -- merge (unlike is_new). Anchors the per-user
+                                              -- "new since you last looked" count.
     sensor       TEXT,         -- formerly 'dataset'; renamed in-place
     intervals    TEXT,         -- JSON, beacon-chart raw intervals
     ts_data      TEXT,         -- JSON, beacon-chart raw timestamps
@@ -388,6 +398,13 @@ ALTER TABLE beacon_history ADD COLUMN spectral_period  REAL    NOT NULL DEFAULT 
 
 -- Users live in a separate file (/data/users.db, sometimes co-located):
 CREATE TABLE users (...);
+-- migration 0029 adds users.findings_seen_at (INTEGER): epoch of the start
+-- of this analyst's most recent session. Each login freezes the PREVIOUS
+-- value as that session's new-findings boundary (held in the in-memory
+-- session), then advances this column to now. Paired with
+-- findings.detected_at to compute the per-session "new since you last logged
+-- in" count (detected_at > boundary) for both the modal and the "New only"
+-- filter. Seeded to account-creation time so new users start caught-up.
 CREATE TABLE sessions (...);
 CREATE TABLE pending_users (...);  -- approval-required new registrations
 ```

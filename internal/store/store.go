@@ -384,7 +384,7 @@ func (s *Store) loadFindings() {
 		s.findingsLoadOK = true
 		return
 	}
-	rows, err := s.db.Query(`SELECT id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size, ja3, ja4, top_uris FROM findings ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, detected_at, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size, ja3, ja4, top_uris FROM findings ORDER BY id`)
 	if err != nil {
 		// A query failure here means we can't establish the canonical
 		// in-memory state. Starting with findingsLoadOK=false silently
@@ -401,7 +401,7 @@ func (s *Store) loadFindings() {
 		var f model.Finding
 		var iocMatch, isNew int
 		var intervals, tsData, notes, correlations, topURIs string
-		if err := rows.Scan(&f.ID, &f.Type, &f.Severity, &f.Score, &f.SrcIP, &f.DstIP, &f.DstPort, &f.Detail, &f.Timestamp, &f.SourceFile, &f.Status, &f.Analyst, &f.AnalystNote, &f.StatusTS, &iocMatch, &isNew, &f.Sensor, &intervals, &tsData, &notes, &correlations, &f.TSScore, &f.DSScore, &f.HistScore, &f.DurScore, &f.MeanInterval, &f.MedianInterval, &f.Jitter, &f.SampleSize, &f.JA3, &f.JA4, &topURIs); err != nil {
+		if err := rows.Scan(&f.ID, &f.Type, &f.Severity, &f.Score, &f.SrcIP, &f.DstIP, &f.DstPort, &f.Detail, &f.Timestamp, &f.SourceFile, &f.Status, &f.Analyst, &f.AnalystNote, &f.StatusTS, &iocMatch, &isNew, &f.DetectedAt, &f.Sensor, &intervals, &tsData, &notes, &correlations, &f.TSScore, &f.DSScore, &f.HistScore, &f.DurScore, &f.MeanInterval, &f.MedianInterval, &f.Jitter, &f.SampleSize, &f.JA3, &f.JA4, &topURIs); err != nil {
 			slog.Error("store: scan finding", "err", err)
 			loadOK = false
 			continue
@@ -470,7 +470,7 @@ func (s *Store) saveFindings() {
 		slog.Error("store: save findings delete", "err", err)
 		return
 	}
-	stmt, err := tx.Prepare(`INSERT INTO findings (id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size, ja3, ja4, top_uris) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+	stmt, err := tx.Prepare(`INSERT INTO findings (id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, detected_at, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size, ja3, ja4, top_uris) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		tx.Rollback()
 		slog.Error("store: save findings prepare", "err", err)
@@ -499,7 +499,7 @@ func (s *Store) saveFindings() {
 		}
 		if _, err := stmt.Exec(
 			f.ID, f.Type, string(f.Severity), f.Score, f.SrcIP, f.DstIP, f.DstPort, f.Detail, f.Timestamp, f.SourceFile,
-			string(f.Status), f.Analyst, f.AnalystNote, f.StatusTS, iocMatch, isNew, f.Sensor,
+			string(f.Status), f.Analyst, f.AnalystNote, f.StatusTS, iocMatch, isNew, f.DetectedAt, f.Sensor,
 			string(intervals), string(tsData), string(notes), string(correlations),
 			f.TSScore, f.DSScore, f.HistScore, f.DurScore, f.MeanInterval, f.MedianInterval, f.Jitter, f.SampleSize,
 			f.JA3, f.JA4, string(topURIs),
@@ -661,6 +661,22 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 	// on the same low IDs.
 	freshToPersisted := make(map[int]int, len(findings))
 
+	// detectedNow stamps a fingerprint's first appearance in the store.
+	// Carried forward unchanged on every later match (like the ID), so it
+	// is the durable anchor for the per-user "new since you last looked"
+	// count — independent of the per-run IsNew flag this loop overwrites.
+	detectedNow := time.Now().Unix()
+	// carryDetectedAt returns the old finding's first-detected time, or
+	// detectedNow if it's missing (defensive — migration 0029 backfills
+	// every existing row, so a zero here would only arise from a row that
+	// somehow escaped it; treating it as new-now is the safe fallback).
+	carryDetectedAt := func(old model.Finding) int64 {
+		if old.DetectedAt > 0 {
+			return old.DetectedAt
+		}
+		return detectedNow
+	}
+
 	newFPSet := make(map[model.Fingerprint]bool, len(findings))
 	nextNewID := maxExistingID
 	for i := range findings {
@@ -678,6 +694,7 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 			findings[i].StatusTS = old.StatusTS
 			findings[i].Notes = old.Notes
 			findings[i].IsNew = false
+			findings[i].DetectedAt = carryDetectedAt(old)
 		} else if fp.Type == "HTTP Beaconing" && (fp.Hostname != "" || fp.URI != "") {
 			// Upgrade-compat path for HTTP Beaconing: Hostname and URI were
 			// added to Fingerprint after Sensor was. Old rows fall into two
@@ -701,6 +718,7 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 					findings[i].StatusTS = old.StatusTS
 					findings[i].Notes = old.Notes
 					findings[i].IsNew = false
+					findings[i].DetectedAt = carryDetectedAt(old)
 					newFPSet[tryFP] = true
 					// Consume the legacy entry so a second new row for the
 					// same src/dst/port/sensor but a different host/URI
@@ -714,6 +732,7 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 				nextNewID++
 				findings[i].ID = nextNewID
 				findings[i].IsNew = emitNotifications
+				findings[i].DetectedAt = detectedNow
 			}
 		} else if fp.Sensor != "" {
 			// Upgrade-compat path: a finding that previously had Sensor=""
@@ -731,12 +750,14 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 				findings[i].StatusTS = old.StatusTS
 				findings[i].Notes = old.Notes
 				findings[i].IsNew = false
+				findings[i].DetectedAt = carryDetectedAt(old)
 				newFPSet[zeroFP] = true
 				delete(existing, zeroFP) // prevent a second new row from inheriting the same old ID
 			} else {
 				nextNewID++
 				findings[i].ID = nextNewID
 				findings[i].IsNew = emitNotifications
+				findings[i].DetectedAt = detectedNow
 			}
 		} else {
 			// Truly new fingerprint — assign an ID guaranteed above any
@@ -745,6 +766,7 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 			nextNewID++
 			findings[i].ID = nextNewID
 			findings[i].IsNew = emitNotifications
+			findings[i].DetectedAt = detectedNow
 		}
 		freshToPersisted[freshID] = findings[i].ID
 	}
@@ -1919,6 +1941,30 @@ func (s *Store) CountNewFindings() int {
 	var n int
 	s.db.QueryRow(`SELECT COUNT(*) FROM findings WHERE is_new=1`).Scan(&n)
 	return n
+}
+
+// CountUnseen returns how many findings were first detected after `since`
+// (epoch seconds), excluding roll-up types (Host Risk Score / Correlated
+// Activity) — those are derived summaries, not new events, and the bell
+// already suppresses their notifications. This is the per-user "new since
+// you last looked" count: callers pass the viewer's findings_seen_at
+// marker. Unlike CountNewFindings (the volatile per-run is_new flag), it
+// rests on detected_at, which survives re-analysis, so it accumulates
+// across the hourly watch passes between one analyst login and the next.
+// Total is every finding regardless of detection time, for the "· M total"
+// half of the modal.
+func (s *Store) CountUnseen(since int64) (unseen, total int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.db == nil {
+		return 0, 0
+	}
+	s.db.QueryRow(
+		`SELECT COUNT(*) FROM findings WHERE detected_at > ? AND type NOT IN (?, ?)`,
+		since, model.TypeHostRiskScore, model.TypeCorrelatedActivity,
+	).Scan(&unseen)
+	s.db.QueryRow(`SELECT COUNT(*) FROM findings`).Scan(&total)
+	return unseen, total
 }
 
 // RecordSpectralBlocked persists the total count of fully-blocked spectral

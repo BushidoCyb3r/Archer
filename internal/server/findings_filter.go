@@ -60,7 +60,13 @@ import (
 // filtering doesn't undo those admin decisions. Shared between the findings
 // listing endpoint and the export endpoints so the exported CSV/JSON matches
 // exactly what the analyst sees on screen.
-func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.Finding {
+// deltaSince is the "New only" cutoff: when delta=true a finding is kept only
+// if it was first detected (detected_at) after deltaSince — the requesting
+// analyst's session new-findings boundary (their previous login time). This
+// is the same boundary the new-findings modal counts against, so the button
+// and the modal agree. Callers pass newBoundaryFromCtx(r); a zero deltaSince
+// keeps every finding with a detected_at set (the no-session fallback).
+func (s *Server) filterFindings(findings []model.Finding, q url.Values, deltaSince int64) []model.Finding {
 	search := strings.ToLower(strings.TrimSpace(q.Get("search")))
 	// When the search box holds a complete IP, fall back to exact-match against
 	// the Src/Dst fields. Otherwise typing "10.18.61.3" would substring-match
@@ -180,7 +186,7 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values) []model.
 		if s.store.IsPairAllowed(f.SrcIP, f.DstIP, f.DstPort, f.Type, f.Sensor) {
 			continue
 		}
-		if delta && !f.IsNew {
+		if delta && f.DetectedAt <= deltaSince {
 			continue
 		}
 		if sensorF != "" && f.Sensor != sensorF {

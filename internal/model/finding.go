@@ -50,12 +50,21 @@ type Finding struct {
 	// out and can switch source on the next refresh. Empty when IOCMatch
 	// is false. TI Hit / Suspicious URL findings (intrinsic IOCs per
 	// the analyzer) get "Threat Intel" as the source label.
-	IOCSource string       `json:"ioc_source,omitempty"`
-	IsNew     bool         `json:"is_new"`
-	Sensor    string       `json:"sensor,omitempty"`
-	Intervals []float64    `json:"intervals,omitempty"`
-	TSData    [][3]float64 `json:"ts_data,omitempty"`
-	Notes     []Note       `json:"notes,omitempty"`
+	IOCSource string `json:"ioc_source,omitempty"`
+	IsNew     bool   `json:"is_new"`
+	// DetectedAt is the epoch-seconds wall-clock time this finding's
+	// fingerprint first entered the store. Unlike IsNew — which the
+	// SetFindings merge overwrites every run (fresh true, carried-forward
+	// false) — DetectedAt is assigned once on first insert and carried
+	// forward unchanged on every subsequent merge, like the stable ID.
+	// It is the durable "new since when" anchor the per-user unseen count
+	// (findings.detected_at > users.findings_seen_at) rests on. Persisted
+	// as an INTEGER column (migration 0029).
+	DetectedAt int64        `json:"detected_at,omitempty"`
+	Sensor     string       `json:"sensor,omitempty"`
+	Intervals  []float64    `json:"intervals,omitempty"`
+	TSData     [][3]float64 `json:"ts_data,omitempty"`
+	Notes      []Note       `json:"notes,omitempty"`
 	// Hostname is the destination hostname the analyzer associated
 	// with this finding at emit time. Populated for Beaconing
 	// (from SNI via sslUIDIndex) and HTTP Beaconing (from the Host

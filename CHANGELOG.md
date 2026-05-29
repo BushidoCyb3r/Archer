@@ -28,6 +28,52 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.45.0] — 2026-05-29
+
+### Fixed
+
+- **The "new findings" modal AND the "New only" table filter now both show
+  what's new since you last logged in, instead of only the most recent run's
+  findings.** Previously both keyed off `findings.is_new`, a global flag the
+  `SetFindings` merge overwrites every run (fresh fingerprints true,
+  carried-forward false). With hourly watch and a once-a-day login an analyst
+  saw only what the last pass minted — a finding first detected at 08:00 read
+  as "not new" by 09:00 — and the flag was shared across all users. Both
+  surfaces now key off a per-finding `detected_at` (stable across re-analysis)
+  compared to a per-session boundary anchored at login (the start of your
+  previous session). The boundary is frozen for the session, so the count
+  accumulates correctly across the intervening watch passes and the modal and
+  the "New only" filter always agree — and closing the modal no longer empties
+  the New view, because the boundary advances on next login, not on dismiss.
+  Roll-ups (Host Risk Score / Correlated Activity) are excluded from the modal
+  count. The modal stays silent when nothing is new to the viewer, and a
+  long-lived session only re-pops it when the count grows.
+
+### Added
+
+- `GET /api/findings/unseen` — per-session count of findings detected since the
+  analyst's login boundary, plus the dataset total (`{count, total, since}`).
+- `detected_at` field on the single-finding JSON — epoch seconds the
+  fingerprint first entered the store, stable across re-analysis.
+
+### Breaking
+
+- **DB schema (migration 0029).** Adds `findings.detected_at` and
+  `users.findings_seen_at` (both INTEGER) and an index on `detected_at`.
+  `findings_seen_at` records the start of the user's most recent session; each
+  login freezes the previous value as that session's new-findings boundary.
+  Applied automatically at startup. Existing rows are backfilled to the
+  upgrade time so every analyst starts caught-up — the first post-upgrade
+  login shows zero new, and genuinely-new findings accrue from there rather
+  than flooding everyone with the entire existing finding set.
+
+- **`delta=true` on `/api/findings` (the "New only" filter) now means "detected
+  since your session boundary," not "is_new from the last run."** The response
+  for a given `delta=true` request is now user/session-dependent. `is_new`
+  itself is unchanged and still serialized.
+
+---
+
 ## [v0.44.1] — 2026-05-29
 
 ### Changed

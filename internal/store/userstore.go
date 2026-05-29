@@ -20,6 +20,14 @@ import (
 type userSession struct {
 	UserID    int
 	ExpiresAt time.Time
+	// NewBoundary is the epoch-seconds cutoff for "new since you last
+	// looked" for this session: findings detected after it are new. It is
+	// captured at login from the user's previous findings_seen_at value
+	// and frozen for the session's life, so the new-findings modal and the
+	// "New only" table filter show the same stable set the whole session —
+	// not a count that resets when the modal is dismissed or shrinks as
+	// hourly watch passes land. The next login re-anchors it.
+	NewBoundary int64
 }
 
 // timingPadHash is a precomputed bcrypt hash used to equalize the latency
@@ -119,10 +127,14 @@ func (us *UserStore) CreateUser(email, firstName, lastName, password, role, stat
 		return model.User{}, err
 	}
 	now := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
+	// Seed findings_seen_at to account-creation time so a brand-new analyst
+	// starts caught-up — they see "new since you registered" rather than
+	// being flooded with the entire pre-existing finding backlog on first
+	// login. Advanced thereafter when they dismiss the new-findings modal.
 	res, err := us.db.Exec(
-		`INSERT INTO users (email, first_name, last_name, password_hash, role, status, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		email, firstName, lastName, string(hash), role, status, now,
+		`INSERT INTO users (email, first_name, last_name, password_hash, role, status, created_at, findings_seen_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		email, firstName, lastName, string(hash), role, status, now, time.Now().Unix(),
 	)
 	if err != nil {
 		return model.User{}, err
@@ -266,15 +278,36 @@ func (us *UserStore) DeleteUser(id int) bool {
 
 // ── Sessions (in-memory, intentionally ephemeral) ─────────────────────────
 
-// CreateSession generates a secure token valid for 24 hours.
+// CreateSession generates a secure token valid for 24 hours. It also rolls
+// the new-findings boundary forward: the session freezes the user's PREVIOUS
+// findings_seen_at as its NewBoundary (what counts as "new since you last
+// checked in" for this login), then advances findings_seen_at to now so the
+// NEXT login anchors against this one. Anything detected after the frozen
+// boundary stays "new" for the whole session — the modal and the "New only"
+// filter both read it — instead of resetting mid-session.
 func (us *UserStore) CreateSession(userID int) string {
 	b := make([]byte, 32)
 	_, _ = rand.Read(b)
 	token := hex.EncodeToString(b)
+
+	var boundary int64
+	us.db.QueryRow(`SELECT findings_seen_at FROM users WHERE id = ?`, userID).Scan(&boundary)
+	us.db.Exec(`UPDATE users SET findings_seen_at = ? WHERE id = ?`, time.Now().Unix(), userID)
+
 	us.mu.Lock()
-	us.sessions[token] = userSession{UserID: userID, ExpiresAt: time.Now().Add(24 * time.Hour)}
+	us.sessions[token] = userSession{UserID: userID, ExpiresAt: time.Now().Add(24 * time.Hour), NewBoundary: boundary}
 	us.mu.Unlock()
 	return token
+}
+
+// SessionNewBoundary returns the frozen new-findings cutoff for a session
+// token (the epoch the user's previous session started). Zero when the token
+// is unknown — which reads as "everything is new," the safe default for a
+// caller that can't resolve a boundary.
+func (us *UserStore) SessionNewBoundary(token string) int64 {
+	us.mu.RLock()
+	defer us.mu.RUnlock()
+	return us.sessions[token].NewBoundary
 }
 
 // GetSession resolves a token to a user. Returns false if missing or expired.

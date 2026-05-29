@@ -105,6 +105,28 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "started"})
 }
 
+// handleFindingsUnseen reports the requesting analyst's "new since you last
+// looked" count — findings first detected (detected_at) after their session's
+// frozen new-findings boundary (the start of their previous session), roll-ups
+// excluded. This is the per-user, retention-invariant replacement for the old
+// global per-run is_new count the modal used: it accumulates across the hourly
+// watch passes between one login and the next instead of resetting every tick,
+// and matches exactly what the "New only" table filter shows.
+func (s *Server) handleFindingsUnseen(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	since := newBoundaryFromCtx(r)
+	unseen, total := s.store.CountUnseen(since)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"count": unseen,
+		"total": total,
+		"since": since,
+	})
+}
+
 // handleAnalyzeReset clears the findings table and relaunches analysis from
 // scratch. Admin-only. Intended for "the config changed, I want a clean
 // baseline" workflows where preserving old findings would be misleading.
@@ -242,7 +264,7 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 
 	limit, offset := parseListPagination(q)
 
-	result := s.filterFindings(s.store.GetFindings(), q)
+	result := s.filterFindings(s.store.GetFindings(), q, newBoundaryFromCtx(r))
 	sortFindings(result, sortCol, sortDir)
 
 	total := len(result)
@@ -402,7 +424,7 @@ func (s *Server) handleFindingsCounts(w http.ResponseWriter, r *http.Request) {
 	q.Del("offset")
 	q.Set("include_dismissed", "true")
 
-	all := s.filterFindings(s.store.GetFindings(), q)
+	all := s.filterFindings(s.store.GetFindings(), q, newBoundaryFromCtx(r))
 	var open, ack, esc, dis, ioc int
 	for _, f := range all {
 		switch f.Status {
@@ -456,7 +478,7 @@ func (s *Server) handleFindingsFacets(w http.ResponseWriter, r *http.Request) {
 	q.Del("limit")
 	q.Del("offset")
 
-	all := s.filterFindings(s.store.GetFindings(), q)
+	all := s.filterFindings(s.store.GetFindings(), q, newBoundaryFromCtx(r))
 	typeSet := make(map[string]struct{})
 	sensorSet := make(map[string]struct{})
 	for _, f := range all {
@@ -625,7 +647,7 @@ func (s *Server) handleFindingPosition(w http.ResponseWriter, r *http.Request, i
 	}
 	sortDir := q.Get("dir")
 
-	result := s.filterFindings(s.store.GetFindings(), q)
+	result := s.filterFindings(s.store.GetFindings(), q, newBoundaryFromCtx(r))
 	sortFindings(result, sortCol, sortDir)
 
 	pos := -1
@@ -1956,7 +1978,7 @@ func (s *Server) launchTIOnly(files []string) bool {
 // parameters exports everything (original behavior); passing filters produces
 // a file that matches exactly what the analyst sees on screen.
 func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
-	findings := s.filterFindings(s.store.GetFindings(), r.URL.Query())
+	findings := s.filterFindings(s.store.GetFindings(), r.URL.Query(), newBoundaryFromCtx(r))
 
 	// Strip the per-finding chart data — it's only useful for the in-UI
 	// beacon chart, and including it bloats exports by 10-20×. Findings
@@ -2004,7 +2026,7 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
-	findings := s.filterFindings(s.store.GetFindings(), r.URL.Query())
+	findings := s.filterFindings(s.store.GetFindings(), r.URL.Query(), newBoundaryFromCtx(r))
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="archer_%s.csv"`, time.Now().Format("20060102_150405")))
 	cw := csv.NewWriter(w)

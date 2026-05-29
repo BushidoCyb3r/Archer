@@ -231,6 +231,7 @@ The most-used surface. Findings are detector outputs, persisted in
 | `GET` | `/api/findings` | any | List with filters + pagination. Returns array of (projected) Finding. Sets `X-Total-Count` and `X-Has-More` response headers. |
 | `GET` | `/api/findings/counts` | any | `{open, ack, esc, ioc, total}` aggregate counts honoring the active filter set (`status` and `ioc_only` are stripped — the counts span all status buckets). Drives the dashboard's info-line counters without forcing a full-set scan from the client. |
 | `GET` | `/api/findings/facets` | any | `{types, sensors}` — distinct values across the filter set. `status`, `ioc_only`, `delta`, `type`, `sensor`, `limit`, `offset` are stripped so the dropdowns reflect every available type/sensor regardless of what's currently selected. Powers the Type and Sensor filter dropdowns. |
+| `GET` | `/api/findings/unseen` | any | Per-session new-findings count: `{count, total, since}` where `count` is findings first detected (`detected_at`) after the requesting analyst's session boundary (`since`, the start of their previous login), roll-ups excluded; `total` is the dataset size. Drives the login / analysis-complete modal — the same boundary the `delta=true` "New only" filter uses, so the two agree. Accumulates across watch passes; stable for the session. |
 | `GET` | `/api/findings/{id}` | any | Single finding (full shape including `ts_data`/`intervals`/`notes`). |
 | `PATCH` | `/api/findings/{id}` | analyst+ | Update status / append analyst-attributed note. |
 | `POST` | `/api/findings/{id}/escalate` | analyst+ | Run TI escalation; emits `ti_result` SSE events. |
@@ -259,6 +260,7 @@ The most-used surface. Findings are detector outputs, persisted in
   "status_ts":    "",
   "ioc_match":    false,
   "is_new":       true,
+  "detected_at":  1748557200,
   "sensor":       "sensor1",
   "hostname":     "kx9j3qm2pflw.com",
   "uri":          "/heartbeat",
@@ -284,6 +286,16 @@ The most-used surface. Findings are detector outputs, persisted in
 ```
 
 - `severity` is one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`.
+- `is_new` is the volatile per-run flag — true only for fingerprints freshly
+  emitted by the most recent analysis, reset to false the next run. It is
+  still serialized but is no longer what `delta`/"New only" filters on. Don't
+  use it for "what's new since I last looked"; that's `detected_at` + the
+  session boundary (see `delta` below and `/api/findings/unseen`).
+- `detected_at` (epoch seconds, `omitempty`) is the stable time the
+  fingerprint first entered the store. Assigned once on first insert and
+  carried forward unchanged on every re-analysis (like the `id`), so it
+  survives the hourly watch passes the `is_new` flag does not. Backs both the
+  new-findings modal and the "New only" filter (migration 0029).
 - `status` is `""` (open), `acknowledged`, `escalated`, or `dismissed`.
   Dismissed is a lightweight reversible view-state bucket — see
   the **Dismissed status** note under **`GET /api/findings`
@@ -365,7 +377,7 @@ The most-used surface. Findings are detector outputs, persisted in
 | `type` | string | Exact-match on `type`. The pseudo-value `beacons` matches the whole beacon family (`Beaconing` / `HTTP Beaconing` / `DNS Beaconing`) in one selector — drives the beacon export target and the all-beacons Findings filter. |
 | `severity` | `CRITICAL`/`HIGH`/`MEDIUM`/`LOW`/`INFO` | Exact-match. |
 | `min_score` | int 0–100 | Lower bound (inclusive). |
-| `delta` | `true` | Only `is_new=true` findings (drift since last analysis). |
+| `delta` | `true` | Only findings first detected (`detected_at`) since the requesting analyst's session boundary — "new since you last logged in." Same cutoff as `/api/findings/unseen`; user/session-dependent. (Pre-v0.45.0 this filtered `is_new=true` — new since the last run.) |
 | `src_ip` | IP or CIDR | Source matcher. CIDR uses standard notation (`10.0.0.0/8`). |
 | `dst_ip` | IP or CIDR | Destination matcher. |
 | `dst_port` | int or comma-list | Port set. e.g., `443` or `80,443,8080`. |

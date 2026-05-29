@@ -295,6 +295,11 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/findings", any(s.handleFindings))
 	s.mux.Handle("/api/findings/counts", any(s.handleFindingsCounts))
 	s.mux.Handle("/api/findings/facets", any(s.handleFindingsFacets))
+	// Per-user "new since you last looked" count for the modal — the same
+	// boundary the "New only" delta filter uses. Exact path registered
+	// before the "/api/findings/" prefix so it isn't swallowed by the {id}
+	// router.
+	s.mux.Handle("/api/findings/unseen", any(s.handleFindingsUnseen))
 	s.mux.Handle("/api/findings/", any(s.handleFindingRouter)) // write checks done per-method inside
 
 	// Config — read=any, write=admin only
