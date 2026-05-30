@@ -60,11 +60,19 @@ type Finding struct {
 	// It is the durable "new since when" anchor the per-user unseen count
 	// (findings.detected_at > users.findings_seen_at) rests on. Persisted
 	// as an INTEGER column (migration 0029).
-	DetectedAt int64        `json:"detected_at,omitempty"`
-	Sensor     string       `json:"sensor,omitempty"`
-	Intervals  []float64    `json:"intervals,omitempty"`
-	TSData     [][3]float64 `json:"ts_data,omitempty"`
-	Notes      []Note       `json:"notes,omitempty"`
+	DetectedAt int64 `json:"detected_at,omitempty"`
+	// IsNewToMe is the per-viewer "new since you last logged in" flag —
+	// DetectedAt > the requesting session's new-findings boundary. Transient,
+	// computed at read time by the list and single-finding handlers (never
+	// persisted), like the sibling counts. It drives the table's blue "new"
+	// dot and the detail pane's "new" flag, so those agree with the "New
+	// only" filter and the new-findings modal — all four key off the same
+	// boundary instead of the volatile per-run IsNew.
+	IsNewToMe bool         `json:"is_new_to_me,omitempty"`
+	Sensor    string       `json:"sensor,omitempty"`
+	Intervals []float64    `json:"intervals,omitempty"`
+	TSData    [][3]float64 `json:"ts_data,omitempty"`
+	Notes     []Note       `json:"notes,omitempty"`
 	// Hostname is the destination hostname the analyzer associated
 	// with this finding at emit time. Populated for Beaconing
 	// (from SNI via sslUIDIndex) and HTTP Beaconing (from the Host

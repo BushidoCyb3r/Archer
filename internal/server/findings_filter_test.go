@@ -122,6 +122,30 @@ func TestFilterFindings_DeltaUsesDetectedAtBoundary(t *testing.T) {
 	}
 }
 
+// TestProjectFindingList_IsNewToMe pins the table "new" dot's data source:
+// the projected list's is_new_to_me is set strictly when a finding was first
+// detected (detected_at) AFTER the session boundary — the same cutoff the
+// "New only" filter and the modal use — and is independent of the volatile
+// per-run is_new flag. A finding minted in an earlier run (is_new false) but
+// detected after the boundary must still light the dot; a freshly-minted one
+// (is_new true) detected before the boundary must not.
+func TestProjectFindingList_IsNewToMe(t *testing.T) {
+	const boundary int64 = 1000
+	in := []model.Finding{
+		{ID: 1, DetectedAt: 500, IsNew: false},  // before boundary → not new to me
+		{ID: 2, DetectedAt: 1000, IsNew: false}, // exactly at boundary (strict >) → not new
+		{ID: 3, DetectedAt: 1500, IsNew: false}, // after boundary, is_new false → STILL new to me
+		{ID: 4, DetectedAt: 800, IsNew: true},   // is_new true but old detection → NOT new to me
+	}
+	want := map[int]bool{1: false, 2: false, 3: true, 4: false}
+	for _, lf := range projectFindingList(in, boundary) {
+		if lf.IsNewToMe != want[lf.ID] {
+			t.Errorf("finding %d: is_new_to_me=%v, want %v (detected_at=%d vs boundary=%d, is_new ignored)",
+				lf.ID, lf.IsNewToMe, want[lf.ID], in[lf.ID-1].DetectedAt, boundary)
+		}
+	}
+}
+
 // TestFilterFindings_PairAllowlist codifies the pair-allowlist
 // invariant end-to-end through the real filter path:
 //

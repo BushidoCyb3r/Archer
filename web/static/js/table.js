@@ -30,13 +30,15 @@ const Table = (() => {
 
   function _statusIcon(f) {
     // Precedence: analyst-action states (esc/ack) win because they show
-    // triage progress. Otherwise IOC match wins over "new" — an IOC hit is
-    // a persistent classification we want surfaced for the lifetime of the
-    // finding, not just on the first analysis run that produced it.
+    // triage progress. Otherwise the IOC diamond wins over the "new" dot —
+    // an IOC hit is a persistent classification we want surfaced for the
+    // lifetime of the finding. The "new" dot is is_new_to_me (detected since
+    // this analyst last logged in), not the per-run is_new flag, so it agrees
+    // with the "New only" filter and the new-findings modal.
     if (f.status === 'escalated')    return '<span class="si-esc">▲</span>';
     if (f.status === 'acknowledged') return '<span class="si-ack">✓</span>';
-    if (f.ioc_match) return '<span class="si-ioc">◆</span>';
-    if (f.is_new)    return '<span class="si-new">●</span>';
+    if (f.ioc_match)    return '<span class="si-ioc">◆</span>';
+    if (f.is_new_to_me) return '<span class="si-new">●</span>';
     return '';
   }
 

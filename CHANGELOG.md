@@ -28,6 +28,30 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.45.1] — 2026-05-30
+
+### Fixed
+
+- **The table's blue "new" dot (and the detail pane's "new" badge) now mark
+  everything new since you last logged in, not just the most recent run's
+  findings.** Both keyed off the per-run `is_new` flag, which the `SetFindings`
+  merge resets every analysis — so a finding first detected this morning lost
+  its dot after the next hourly pass even though it was still new to the
+  analyst, and the dot disagreed with the v0.45.0 "New only" filter and
+  new-findings modal. Both surfaces now key off a new transient `is_new_to_me`
+  flag (`detected_at` after the session's login boundary), so the dot, the
+  detail badge, the "New only" filter, and the modal all agree. The IOC purple
+  diamond is unchanged and still takes precedence over the new dot. The detail
+  badge text changed from "NEW SINCE BASELINE" to "NEW SINCE LAST LOGIN".
+
+### Added
+
+- `is_new_to_me` field on the findings list and single-finding JSON — transient,
+  derived-at-read (never persisted), `omitempty`. True when a finding was first
+  detected after the requesting session's new-findings boundary. Per-viewer.
+
+---
+
 ## [v0.45.0] — 2026-05-29
 
 ### Fixed

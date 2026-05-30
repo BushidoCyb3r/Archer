@@ -204,8 +204,10 @@ CREATE TABLE findings (
     is_new       INTEGER DEFAULT 0,  -- 0/1 fresh from this run (overwritten every run)
     detected_at  INTEGER NOT NULL DEFAULT 0,  -- migration 0029: epoch the fingerprint first
                                               -- entered the store; carried forward unchanged on
-                                              -- merge (unlike is_new). Anchors the per-user
-                                              -- "new since you last looked" count.
+                                              -- merge (unlike is_new). Anchors the per-session
+                                              -- "new since you last looked" surfaces: the modal,
+                                              -- the "New only" filter, and the table's new dot /
+                                              -- detail badge (via the transient is_new_to_me).
     sensor       TEXT,         -- formerly 'dataset'; renamed in-place
     intervals    TEXT,         -- JSON, beacon-chart raw intervals
     ts_data      TEXT,         -- JSON, beacon-chart raw timestamps

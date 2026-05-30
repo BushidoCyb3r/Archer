@@ -165,7 +165,7 @@ const Detail = (() => {
 
     // --- Flags ---
     let flags = '';
-    if (f.is_new)    flags += `<span class="ds-flag new">NEW SINCE BASELINE</span> `;
+    if (f.is_new_to_me) flags += `<span class="ds-flag new">NEW SINCE LAST LOGIN</span> `;
     if (f.ioc_match) flags += `<span class="ds-flag ioc">MATCHED IOC LIST</span> `;
     if (f.status === 'escalated') {
       flags += `<span class="ds-flag esc">ESCALATED</span>`;

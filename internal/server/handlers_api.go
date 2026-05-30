@@ -288,7 +288,7 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Has-More", "false")
 	}
 	w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count, X-Has-More")
-	json.NewEncoder(w).Encode(projectFindingList(page))
+	json.NewEncoder(w).Encode(projectFindingList(page, newBoundaryFromCtx(r)))
 }
 
 // sortFindings sorts the slice in place by the same column / direction
@@ -375,10 +375,17 @@ type listFinding struct {
 	IOCMatch    bool           `json:"ioc_match"`
 	IOCSource   string         `json:"ioc_source,omitempty"`
 	IsNew       bool           `json:"is_new"`
+	IsNewToMe   bool           `json:"is_new_to_me,omitempty"`
 	Sensor      string         `json:"sensor,omitempty"`
 }
 
-func projectFindingList(in []model.Finding) []listFinding {
+// projectFindingList trims findings to the list shape. newBoundary is the
+// requesting session's new-findings cutoff: each row's IsNewToMe is set when
+// it was first detected after that boundary, so the table's "new" dot lights
+// for everything new since the analyst last logged in — the same set the
+// "New only" filter and the new-findings modal use — not just the most recent
+// run's IsNew.
+func projectFindingList(in []model.Finding, newBoundary int64) []listFinding {
 	out := make([]listFinding, len(in))
 	for i, f := range in {
 		out[i] = listFinding{
@@ -387,7 +394,7 @@ func projectFindingList(in []model.Finding) []listFinding {
 			Detail: f.Detail, Timestamp: f.Timestamp, SourceFile: f.SourceFile,
 			Status: f.Status, Analyst: f.Analyst, AnalystNote: f.AnalystNote,
 			StatusTS: f.StatusTS, IOCMatch: f.IOCMatch, IOCSource: f.IOCSource,
-			IsNew: f.IsNew, Sensor: f.Sensor,
+			IsNew: f.IsNew, IsNewToMe: f.DetectedAt > newBoundary, Sensor: f.Sensor,
 		}
 	}
 	return out
@@ -560,6 +567,9 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 		if f.Type == "Beaconing" && (f.JA4 != "" || f.JA3 != "") {
 			f.FPConcern, f.FPDetail = s.store.FingerprintConcern(f.JA4, f.JA3)
 		}
+		// New-to-this-viewer flag for the detail pane's "new" badge — same
+		// session boundary the table dot and the "New only" filter use.
+		f.IsNewToMe = f.DetectedAt > newBoundaryFromCtx(r)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(f)
 

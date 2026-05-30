@@ -261,6 +261,7 @@ The most-used surface. Findings are detector outputs, persisted in
   "ioc_match":    false,
   "is_new":       true,
   "detected_at":  1748557200,
+  "is_new_to_me": true,
   "sensor":       "sensor1",
   "hostname":     "kx9j3qm2pflw.com",
   "uri":          "/heartbeat",
@@ -288,14 +289,23 @@ The most-used surface. Findings are detector outputs, persisted in
 - `severity` is one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`.
 - `is_new` is the volatile per-run flag — true only for fingerprints freshly
   emitted by the most recent analysis, reset to false the next run. It is
-  still serialized but is no longer what `delta`/"New only" filters on. Don't
-  use it for "what's new since I last looked"; that's `detected_at` + the
-  session boundary (see `delta` below and `/api/findings/unseen`).
+  still serialized but no UI surface keys off it any more. Don't use it for
+  "what's new since I last looked"; that's `is_new_to_me` / `detected_at` +
+  the session boundary (see `delta` below and `/api/findings/unseen`).
 - `detected_at` (epoch seconds, `omitempty`) is the stable time the
   fingerprint first entered the store. Assigned once on first insert and
   carried forward unchanged on every re-analysis (like the `id`), so it
-  survives the hourly watch passes the `is_new` flag does not. Backs both the
-  new-findings modal and the "New only" filter (migration 0029).
+  survives the hourly watch passes the `is_new` flag does not. Backs the
+  new-findings modal, the "New only" filter, and `is_new_to_me` (migration
+  0029).
+- `is_new_to_me` is a **transient, derived-at-read** bool — `detected_at`
+  is after the requesting session's new-findings boundary (the start of the
+  analyst's previous login). Computed by both the list and single-finding
+  handlers (never persisted), `omitempty`. It is what the table's blue "new"
+  dot and the detail pane's "NEW SINCE LAST LOGIN" badge key off, so they
+  agree with the "New only" filter and the modal — all four use the same
+  boundary. Per-viewer: the same finding can be `is_new_to_me` for one
+  analyst and not another.
 - `status` is `""` (open), `acknowledged`, `escalated`, or `dismissed`.
   Dismissed is a lightweight reversible view-state bucket — see
   the **Dismissed status** note under **`GET /api/findings`
