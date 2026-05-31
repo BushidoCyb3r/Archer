@@ -134,7 +134,11 @@ A new finding's life:
    new-findings boundary (anchored at login) — a per-user count that
    accumulates across passes, not the run's `new_count`, and the same
    cutoff the `delta` "New only" filter uses. The call runs at login and
-   on each `done`; the modal re-pops only when the count grows.
+   on each `done`; the modal pops only when the count exceeds the session's
+   `ModalHighWater` (a server-side per-session guard, raised via
+   `POST /api/findings/modal-ack` when shown), so a page refresh — which
+   reuses the session — doesn't re-announce; it re-pops only when the count
+   grows, and resets on a fresh login.
 8. **Analyst sees the finding, optionally clicks Escalate.** That kicks
    off `runTIEscalation` which fans live TI lookups (VirusTotal, OTX,
    AbuseIPDB, etc.) and streams `ti_result` events as they settle.

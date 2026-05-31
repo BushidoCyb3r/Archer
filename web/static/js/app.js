@@ -1793,19 +1793,15 @@
     });
   }
 
-  // _lastUnseenShown tracks the count the new-findings modal last popped with
-  // this session, so a long-lived tab across hourly watch passes doesn't
-  // re-announce the same set every tick — the modal only re-pops when the
-  // count GROWS (new findings actually arrived). Reset to -1 so the first
-  // login always shows if there's anything.
-  let _lastUnseenShown = -1;
-
   // _showUnseenModal queries the per-session "new since you last looked"
-  // count and pops the new-findings modal when this analyst has unseen
-  // findings the modal hasn't already shown. The boundary is anchored at
-  // login server-side (the start of the previous session) and is the SAME
-  // cutoff the "New only" table filter uses, so the two always agree and the
-  // set stays stable for the session — closing the modal doesn't empty it.
+  // count and pops the new-findings modal only when there are unseen findings
+  // the modal hasn't already shown THIS SESSION. The "already shown" guard is
+  // the server-side per-session high-water (seen_count) — not a JS variable —
+  // so a page refresh (which reuses the session) doesn't re-announce the same
+  // findings. It re-pops only when the count climbs above seen_count (new
+  // findings arrived) or a fresh login starts a new session. The login
+  // boundary is the same cutoff the "New only" table filter uses, so the two
+  // agree and closing the modal doesn't empty the New view.
   async function _showUnseenModal() {
     try {
       const r = await fetch('/api/findings/unseen', { cache: 'no-store' });
@@ -1813,11 +1809,13 @@
       const d = await r.json();
       const count = d.count || 0;
       const total = d.total || 0;
-      if (count <= 0 || count <= _lastUnseenShown) return;
-      _lastUnseenShown = count;
+      const seen  = d.seen_count || 0;
+      if (count <= 0 || count <= seen) return;
       const msg = `${count} new finding${count !== 1 ? 's' : ''} since you last checked\n${total} total`;
       document.getElementById('analysis-alert-msg').textContent = msg;
       document.getElementById('analysis-alert-dlg').showModal();
+      // Record the pop server-side so a refresh of this session won't repeat it.
+      fetch('/api/findings/modal-ack', { method: 'POST' }).catch(() => {});
     } catch (_) { /* best-effort — modal is informational */ }
   }
 

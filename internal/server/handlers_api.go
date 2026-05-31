@@ -121,10 +121,28 @@ func (s *Server) handleFindingsUnseen(w http.ResponseWriter, r *http.Request) {
 	unseen, total := s.store.CountUnseen(since)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"count": unseen,
-		"total": total,
-		"since": since,
+		"count":      unseen,
+		"total":      total,
+		"since":      since,
+		"seen_count": s.users.SessionModalHighWater(sessionTokenFromCtx(r)),
 	})
+}
+
+// handleFindingsModalAck records that the new-findings modal was shown for
+// this session at the current unseen count, so a page refresh (same session)
+// doesn't re-pop it. The count is recomputed server-side rather than trusted
+// from the client. The boundary is untouched, so the "New only" filter still
+// surfaces the findings — only the modal pop is suppressed until the count
+// climbs higher (genuinely new findings) or a fresh login starts a new session.
+func (s *Server) handleFindingsModalAck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	unseen, _ := s.store.CountUnseen(newBoundaryFromCtx(r))
+	s.users.MarkSessionModalShown(sessionTokenFromCtx(r), unseen)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"seen_count": unseen})
 }
 
 // handleAnalyzeReset clears the findings table and relaunches analysis from

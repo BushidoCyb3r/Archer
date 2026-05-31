@@ -12,6 +12,7 @@ type ctxKey int
 const (
 	ctxUser     ctxKey = 0
 	ctxBoundary ctxKey = 1
+	ctxToken    ctxKey = 2
 )
 
 // requireAuth is middleware that validates the session cookie.
@@ -52,6 +53,7 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 		}
 		ctx := context.WithValue(r.Context(), ctxUser, user)
 		ctx = context.WithValue(ctx, ctxBoundary, s.users.SessionNewBoundary(c.Value))
+		ctx = context.WithValue(ctx, ctxToken, c.Value)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -95,4 +97,11 @@ func userFromCtx(r *http.Request) model.User {
 func newBoundaryFromCtx(r *http.Request) int64 {
 	b, _ := r.Context().Value(ctxBoundary).(int64)
 	return b
+}
+
+// sessionTokenFromCtx returns the requesting session's cookie token, used to
+// read/update per-session state (e.g. the new-findings modal high-water).
+func sessionTokenFromCtx(r *http.Request) string {
+	t, _ := r.Context().Value(ctxToken).(string)
+	return t
 }

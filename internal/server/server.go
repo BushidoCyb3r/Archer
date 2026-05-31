@@ -300,6 +300,7 @@ func (s *Server) routes() {
 	// before the "/api/findings/" prefix so it isn't swallowed by the {id}
 	// router.
 	s.mux.Handle("/api/findings/unseen", any(s.handleFindingsUnseen))
+	s.mux.Handle("/api/findings/modal-ack", any(s.handleFindingsModalAck))
 	s.mux.Handle("/api/findings/", any(s.handleFindingRouter)) // write checks done per-method inside
 
 	// Config — read=any, write=admin only

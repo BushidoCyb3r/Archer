@@ -28,6 +28,30 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.45.2] — 2026-05-31
+
+### Fixed
+
+- **The new-findings modal re-popped on every page refresh.** The "already
+  shown this session" guard lived only in a JavaScript variable, which a page
+  refresh resets — so each reload re-fired the modal (e.g. "724 new findings
+  since you last checked in") even though the login boundary (correctly) hadn't
+  moved. The guard is now a per-session server-side high-water mark
+  (`ModalHighWater`), so a refresh — which reuses the session — no longer
+  re-announces. The modal pops on first login, re-pops only when the unseen
+  count climbs higher (genuinely new findings arrived mid-session), and resets
+  on a fresh login. The login boundary and the "New only" filter are unchanged.
+
+### Added
+
+- `seen_count` field on `GET /api/findings/unseen` — the session's modal
+  high-water; the client pops the modal only when `count > seen_count`.
+- `POST /api/findings/modal-ack` — records that the modal was shown for this
+  session (raises the high-water to the current unseen count). Server-recomputed,
+  not client-trusted. Leaves the login boundary and the "New only" filter intact.
+
+---
+
 ## [v0.45.1] — 2026-05-30
 
 ### Fixed

@@ -176,3 +176,53 @@ func TestSessionNewBoundary(t *testing.T) {
 		t.Errorf("unknown token boundary = %d, want 0", b)
 	}
 }
+
+// TestSessionModalHighWater pins the new-findings modal's per-session pop
+// guard — the fix for the modal re-firing on every page refresh. The guard
+// lives on the session (not in JS, which a refresh wipes): a session starts
+// at zero (modal shows), MarkSessionModalShown raises it monotonically (a
+// refresh at the same count is suppressed), a lower count can't lower it (a
+// transient dip won't re-arm), a higher count is recorded (genuinely new
+// findings re-pop), and a fresh login starts a new session back at zero.
+func TestSessionModalHighWater(t *testing.T) {
+	us := newAuthTestStore(t)
+	u, err := us.CreateUser("hw@example.com", "Hi", "Wa", "password-123456", model.RoleAnalyst, model.StatusActive)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	tok := us.CreateSession(u.ID)
+
+	if hw := us.SessionModalHighWater(tok); hw != 0 {
+		t.Errorf("fresh session high-water = %d, want 0 (modal should show)", hw)
+	}
+
+	// Show at 724 → refresh at 724 is suppressed.
+	us.MarkSessionModalShown(tok, 724)
+	if hw := us.SessionModalHighWater(tok); hw != 724 {
+		t.Errorf("after showing 724, high-water = %d, want 724", hw)
+	}
+
+	// A lower count must not lower the mark (transient dip — no re-arm).
+	us.MarkSessionModalShown(tok, 700)
+	if hw := us.SessionModalHighWater(tok); hw != 724 {
+		t.Errorf("after dip to 700, high-water = %d, want 724 (monotonic)", hw)
+	}
+
+	// A higher count is recorded (genuinely new findings → re-pop next call).
+	us.MarkSessionModalShown(tok, 800)
+	if hw := us.SessionModalHighWater(tok); hw != 800 {
+		t.Errorf("after growth to 800, high-water = %d, want 800", hw)
+	}
+
+	// A fresh login is a new session at zero (modal shows again post-login).
+	tok2 := us.CreateSession(u.ID)
+	if hw := us.SessionModalHighWater(tok2); hw != 0 {
+		t.Errorf("new session high-water = %d, want 0", hw)
+	}
+
+	// Unknown token reads as zero and marking it is a no-op (no panic).
+	us.MarkSessionModalShown("nope", 500)
+	if hw := us.SessionModalHighWater("nope"); hw != 0 {
+		t.Errorf("unknown token high-water = %d, want 0", hw)
+	}
+}

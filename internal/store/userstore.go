@@ -28,6 +28,13 @@ type userSession struct {
 	// not a count that resets when the modal is dismissed or shrinks as
 	// hourly watch passes land. The next login re-anchors it.
 	NewBoundary int64
+	// ModalHighWater is the largest unseen-count the new-findings modal has
+	// already shown this session. The pop guard lives here (not client-side)
+	// so a page refresh — which reuses the session but wipes JS state —
+	// doesn't re-announce the same findings. The modal pops only when the
+	// current unseen count exceeds it (first login, or genuinely new findings
+	// arriving mid-session); a fresh login starts a new session at zero.
+	ModalHighWater int
 }
 
 // timingPadHash is a precomputed bcrypt hash used to equalize the latency
@@ -308,6 +315,32 @@ func (us *UserStore) SessionNewBoundary(token string) int64 {
 	us.mu.RLock()
 	defer us.mu.RUnlock()
 	return us.sessions[token].NewBoundary
+}
+
+// SessionModalHighWater returns the largest unseen count the new-findings
+// modal has already shown for this session. Zero for an unknown token or a
+// session that hasn't shown the modal yet.
+func (us *UserStore) SessionModalHighWater(token string) int {
+	us.mu.RLock()
+	defer us.mu.RUnlock()
+	return us.sessions[token].ModalHighWater
+}
+
+// MarkSessionModalShown records that the new-findings modal was shown for this
+// session at the given unseen count, so a refresh (same session) won't
+// re-announce it. Monotonic: it only ever rises, so a transient dip in the
+// count can't re-arm the modal — only a genuinely higher count does.
+func (us *UserStore) MarkSessionModalShown(token string, count int) {
+	us.mu.Lock()
+	defer us.mu.Unlock()
+	sess, ok := us.sessions[token]
+	if !ok {
+		return
+	}
+	if count > sess.ModalHighWater {
+		sess.ModalHighWater = count
+		us.sessions[token] = sess
+	}
 }
 
 // GetSession resolves a token to a user. Returns false if missing or expired.
