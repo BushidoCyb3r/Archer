@@ -1113,6 +1113,38 @@ func (s *Store) AddNote(id int, note model.Note) (bool, error) {
 	return true, nil
 }
 
+// AddNoteIfAbsent appends note only if no existing note on the finding has
+// the same Author and Text. It exists for idempotent system enrichment
+// notes (TI cross-annotation) that re-fire across analysis runs: a new
+// internal host first contacting an already-flagged dst is IsNew=true and
+// re-enters the cross-note loop, which would otherwise stamp another copy
+// of an identical note on every related finding. Timestamp is deliberately
+// excluded from the comparison so a later run's note still dedups.
+// Returns (found, added, err): found=finding exists, added=note appended.
+func (s *Store) AddNoteIfAbsent(id int, note model.Note) (found, added bool, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i, ok := s.findingsIdx[id]
+	if !ok {
+		return false, false, nil
+	}
+	for _, n := range s.findings[i].Notes {
+		if n.Author == note.Author && n.Text == note.Text {
+			return true, false, nil
+		}
+	}
+	newNotes := append(s.findings[i].Notes, note)
+	if s.db != nil {
+		notesJSON, _ := json.Marshal(newNotes)
+		if _, err := s.db.Exec(`UPDATE findings SET notes=? WHERE id=?`, string(notesJSON), id); err != nil {
+			slog.Error("store: add note to finding", "id", id, "err", err)
+			return true, false, err
+		}
+	}
+	s.findings[i].Notes = newNotes
+	return true, true, nil
+}
+
 func (s *Store) GetConfig() config.Config {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

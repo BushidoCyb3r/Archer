@@ -24,7 +24,10 @@ func (s *Server) crossNoteByIP(ip string, note model.Note, skipIDs map[int]bool)
 			continue
 		}
 		if f.DstIP == ip || f.SrcIP == ip {
-			if found, _ := s.store.AddNote(f.ID, note); found {
+			// Idempotent: the same enrichment re-fires across analysis runs
+			// (a new source contacting an already-flagged dst is IsNew), so
+			// dedup on (Author, Text) keeps notes from accumulating copies.
+			if _, added, _ := s.store.AddNoteIfAbsent(f.ID, note); added {
 				n++
 			}
 		}
