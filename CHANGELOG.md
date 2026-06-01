@@ -28,7 +28,55 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
-## [v0.45.3] — 2026-06-01
+## [v0.46.0] — 2026-06-01
+
+A fingerprint-first beacon-hunt entry point. Archer already pivoted *up*
+from a single beacon to its TLS-fingerprint family (the per-finding **TLS
+Pivot** button) and surfaced per-finding fingerprint rarity in the detail
+pane. This release adds the *top-down* counterpart: a **TLS Fingerprints**
+inventory that ranks every high-signal JA3/JA4 client fingerprint in the
+capture by severity — known-C2 matches plus rare or cross-host shapes — and
+lets a hunter start from the fingerprint and pivot down to its findings,
+including fingerprints that tripped no detector at all.
+
+### Added
+
+- **TLS Fingerprints inventory.** A new modal (filter-bar **TLS
+  Fingerprints** button, next to Reset) lists the high-signal JA3/JA4 client
+  fingerprints from the latest analysis pass, ranked by concern. A
+  fingerprint qualifies if it matches a known-bad C2 list (always critical)
+  or its rarity / cross-host-cluster concern reaches medium or higher —
+  common browser/SDK shapes and low-confidence single-host JA3s are excluded
+  so the surface stays a hunt list, not a full TLS census. Each row carries
+  the prevalence counts (hosts / destinations / connections) and a count of
+  the findings carrying it; clicking a row pivots the Findings tab to every
+  finding with that fingerprint — the same path the per-finding TLS Pivot
+  button uses, but reachable from a fingerprint that emitted no finding of
+  its own. The inventory is computed over the in-memory prevalence snapshot
+  `analyzeSSL` builds across *all* `ssl.log` (the same snapshot behind the
+  detail-pane FP-rarity badge), so it sees fingerprints that scored below
+  every detector's emit floor.
+- **`GET /api/fingerprints`** (any role) — returns the ranked inventory as
+  JSON. Additive; no existing endpoint or field changed.
+
+### Changed
+
+- **`Malicious JA3` / `Malicious JA4` findings now carry their fingerprint.**
+  The `ja3` / `ja4` finding fields (present since migration 0019 but only
+  populated on conn-level beacons) are now also set on the C2-fingerprint
+  match findings themselves. Without this the TLS Pivot — and the new
+  inventory's known-bad rows — landed on an empty list for the single most
+  important target. As a consequence, the `ja3` / `ja4` query params on
+  `GET /api/findings` now return the matching `Malicious JA3` / `Malicious
+  JA4` finding alongside the beacons sharing that fingerprint. The
+  fingerprint is not part of a finding's identity (`Fingerprint()`), so no
+  re-merge, migration, or detection-semantics change results.
+
+### Notes
+
+- **API contract:** the additions above are additive — a new read-only
+  endpoint and newly-populated existing fields. No rename, removal, or shape
+  change to any `/api/*` surface.
 
 Reliability and correctness hardening from a full-repo audit. The recurring
 theme is silent data loss — a boundary condition producing *less data* with

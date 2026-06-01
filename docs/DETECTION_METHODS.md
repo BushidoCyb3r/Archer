@@ -531,6 +531,14 @@ changed**, and the golden corpus is unchanged:
   is surfaced to *rank a hunter's attention*, never to auto-elevate a
   finding. It also survives cloud-hosting (the fingerprint is the
   malware's, not the host's), which the destination IP/ASN cannot.
+  The same snapshot drives a **fingerprint-first hunt surface** — the
+  **TLS Fingerprints** inventory (`Store.FingerprintInventory`,
+  `GET /api/fingerprints`), which ranks every high-signal fingerprint in
+  the capture (known-bad C2 matches plus rare/clustered shapes, concern
+  ≥ medium) so a hunter can start from the fingerprint and pivot down to
+  its findings — including a rare fingerprint that emitted no finding at
+  all. Same concern math as the per-finding badge (`fingerprintConcernLevel`),
+  same enrichment-only contract: the inventory never alters a score.
 - **HTTP-beacon URI footprint.** An HTTP Beaconing finding carries the
   request-path footprint of its `(src,dst,host)` group
   (count-descending, capped). A benign beacon hits one stable
