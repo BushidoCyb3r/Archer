@@ -1908,7 +1908,7 @@ dialog::backdrop {
    max-width: 95vw lets the dialog still shrink gracefully on
    narrower displays. */
 #sensors-dialog               { width: 1250px; max-width: 95vw; }
-#fingerprints-dialog          { width: 1300px; max-width: 95vw; }
+#fingerprints-dialog          { width: 1190px; max-width: 95vw; }
 #feeds-dialog                 { width: 1000px; max-width: 95vw; }
 
 /* TLS Fingerprints table — same scaffold as the Feeds/Sensors dialog
