@@ -28,6 +28,79 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.45.3] — 2026-06-01
+
+Reliability and correctness hardening from a full-repo audit. The recurring
+theme is silent data loss — a boundary condition producing *less data* with
+*no error* while counts imply a complete scan, the worst failure class for a
+detection tool. Each fix ships with a regression test asserting the invariant
+it enforces.
+
+### Fixed
+
+- **A single detector panic could crash the entire server.** There was no
+  `recover()` anywhere in the analysis pipeline, so a panic in any detector
+  (out-of-range index, nil-map write, divide-by-zero on a degenerate record)
+  running in a `parallelEach` worker took down the whole process — HTTP
+  listener, every analyst session, the SSE stream, and the sensor
+  enrollment/checkin endpoints — not just the in-flight pass. Worker bodies now
+  recover per-file: a poison record degrades to a per-file skip recorded in
+  `ParseErrors()`, exactly like a parse failure, and the pass continues. A
+  second backstop on the analysis goroutines covers the synchronous phases
+  (`correlateFindings`, `aggregateRisk`) and post-processing, logging the stack
+  and keeping the server up.
+- **A truncated startup read could permanently destroy the allowlist or IOC
+  list.** `rows.Err()` went unchecked on the startup load loops, so a
+  mid-iteration read error looked identical to a clean end of rows. For the
+  allowlist and ioc_list the partial list was then re-persisted via
+  DELETE-then-reinsert, dropping the unread tail from disk forever (un-hiding
+  allowlisted hosts, silently losing IOCs). An incomplete load is now detected
+  and never re-persisted; the suppressions, pair-allowlist, and notification
+  loads surface read errors instead of silently truncating.
+- **Oversized gzipped logs truncated silently.** A `.gz` decompressing past the
+  4 GiB ceiling hit a bare `io.LimitReader`, which returns EOF (not an error) on
+  a limit hit — so the parser recorded nothing and the analyst got finding
+  counts implying a full scan while the tail was dropped. The limit now surfaces
+  a real error so the file lands in `ParseErrors()`. Same trust-bug class as the
+  earlier 16 MiB line-cap fix.
+- **TI enrichment cross-notes accumulated without bound.** A new internal host
+  contacting an already-flagged destination is a fresh fingerprint
+  (`IsNew=true`), so it re-entered the cross-annotation loop and re-stamped an
+  identical "TI Enrichment — <dst>" note on every related finding each run.
+  Enrichment notes are now idempotent per (finding, destination, source).
+- **An invalid persisted `watch_time` silently scheduled analysis at 00:00.**
+  The HH:MM validators returned an always-nil error, and the schedulers guarded
+  on that dead error instead of the validity bool, so a malformed value reaching
+  the loop via DB restore, migration, or manual edit coerced to `h=0,m=0`. Bad
+  input is now rejected; the watch loop logs and halts rather than firing at
+  midnight. The API path's behaviour (HTTP 400 on a bad time) is unchanged.
+- **Doc drift in `docs/ARCHITECTURE.md`** on two tracked surfaces: the Quiver
+  protocol version (said `1`, code is `2`) and the bell-notification threshold
+  (said score ≥ 99, code is ≥ 95).
+
+### Detection changes
+
+- **Suspicious file downloads are no longer dropped or mis-attributed on
+  awkward host fields.** A `files.log` record whose `tx_hosts` Zeek couldn't
+  attribute (`[]`) but whose `id.orig_h` was present was silently discarded,
+  because the emptiness test ran before the bracket trim and never reached the
+  fallback; multi-element host sets (`["a","b"]`) were trimmed to garbage and
+  became the finding's IP and dedup key. Both detectors now extract a clean
+  first address and fall back consistently. **Impact:** suspicious-MIME /
+  suspicious-extension downloads that were being silently missed will now emit,
+  and multi-host records carry a correct IP — re-analysis may surface
+  previously-absent `Suspicious File Download` and file-hash TI findings.
+- **TI domain hits keep host attribution when the domain is Zeek-normal.** The
+  TI scanner's per-source pass looked up the winner set with the raw DNS query
+  while the winner set was built from the normalized (lowercased,
+  trailing-dot-stripped) query, so a winning bad domain seen only as `EVIL.COM.`
+  lost all host attribution and emitted with `SrcIP="(TI)"`. The lookup now
+  normalizes identically. **Impact:** affected TI Hit (Domain) findings flip
+  from the `(TI)` placeholder to the actual querying host (the host Zeek
+  observed — one hop short of the workstation behind an internal resolver).
+
+---
+
 ## [v0.45.2] — 2026-05-31
 
 ### Fixed
