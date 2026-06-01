@@ -710,7 +710,7 @@ func (a *Analyzer) parallelEach(files []string, fn func(path string)) {
 			if !a.waitIfPaused() {
 				return
 			}
-			fn(f)
+			a.runFile(f, fn)
 		}
 		return
 	}
@@ -728,10 +728,26 @@ func (a *Analyzer) parallelEach(files []string, fn func(path string)) {
 		go func(path string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			fn(path)
+			a.runFile(path, fn)
 		}(f)
 	}
 	wg.Wait()
+}
+
+// runFile invokes fn with panic recovery so a poison record that trips an
+// unguarded detector degrades to a per-file skip — recorded in
+// ParseErrors, just like a parse failure — instead of taking down the
+// whole server process (the analysis goroutine shares it with the HTTP
+// listener, SSE stream, and sensor endpoints). This backstops the
+// per-detector guard discipline the same way recordParseError backstops
+// the parser.
+func (a *Analyzer) runFile(path string, fn func(path string)) {
+	defer func() {
+		if r := recover(); r != nil {
+			a.recordParseError(path, fmt.Errorf("detector panic: %v", r))
+		}
+	}()
+	fn(path)
 }
 
 // memoryBoundedWorkers caps the caller's desired parallelism by the Go memory

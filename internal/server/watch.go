@@ -82,6 +82,22 @@ func (s *Server) runWatchLoop(ctx context.Context, hhmm, tzName string, interval
 	}
 }
 
+// recoverAnalysis is the process-survival backstop for the analysis
+// goroutines. parallelEach already recovers per-file detector panics; this
+// catches a panic in a synchronous phase (correlateFindings, aggregateRisk)
+// or in post-processing, which would otherwise take the whole server down —
+// HTTP, SSE, sensor endpoints. Register it as the FIRST deferred call in the
+// goroutine (so it runs after the channel-close/state-reset cleanup defer)
+// via `defer s.recoverAnalysis(label)`.
+func (s *Server) recoverAnalysis(label string) {
+	if r := recover(); r != nil {
+		slog.Error("analysis goroutine panic recovered", "phase", label, "err", r, "stack", string(debug.Stack()))
+		s.store.SetAnalyzing(false)
+		msg, _ := json.Marshal(map[string]string{"msg": "Analysis aborted: internal error (server kept running)"})
+		s.broker.Publish(SSEEvent{Type: "status", Data: string(msg)})
+	}
+}
+
 // loadLocationOrUTC resolves an IANA timezone name, falling back to UTC for
 // empty or unparseable input. A bad TZ shouldn't break the watch loop —
 // firing in UTC is preferable to not firing at all.
@@ -367,6 +383,7 @@ func (s *Server) launchIncrementalAnalysis(files []string) {
 	s.analysisWg.Add(1)
 	go func() {
 		defer s.analysisWg.Done()
+		defer s.recoverAnalysis("watch-incremental")
 		az := analysis.New(cfg, logsDir, progressCh, statusCh)
 		// Match against MISP/OpenCTI indicators on incremental ticks
 		// using whatever's currently in the DB — no fetch. The watch
@@ -671,6 +688,7 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool, preStart 
 	s.analysisWg.Add(1)
 	go func() {
 		defer s.analysisWg.Done()
+		defer s.recoverAnalysis("watch-full")
 		az := analysis.New(cfg, logsDir, progressCh, statusCh)
 		az.SetFeedProvider(s.store)
 		az.SetFindingsProvider(s.store)

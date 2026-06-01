@@ -1936,6 +1936,7 @@ func (s *Server) launchTIOnly(files []string) bool {
 	s.analysisWg.Add(1)
 	go func() {
 		defer s.analysisWg.Done()
+		defer s.recoverAnalysis("archive-scan")
 		// Archive scan reuses the /logs/<sensor>/<date>/ layout under
 		// /data/archive — so passing archiveDir as the analyzer's path
 		// root yields the same sensor names that the live tree would.
