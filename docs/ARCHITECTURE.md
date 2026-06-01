@@ -555,7 +555,7 @@ subscribers connected to `/events`. Every event has a `type` and a JSON
 | `progress` | analyzer | `{"pct":0-100,"step":"Phase 1: conn"}` | Pipeline progress. |
 | `status` | analyzer, watch | `{"msg":"..."}` | Free-text status line surfaced as a transient toast. |
 | `done` | analyzer, watch | `{"count":N,"new_count":N,"cancelled":bool,"incremental":bool}` | Run complete. UI reloads findings. `incremental:true` for non-full watch ticks. |
-| `notification` | analyzer, watch, sensor heartbeat, feed health | `Notification` row | Bell entry. `kind` disambiguates: `finding` (score ≥ 99), `sensor` (heartbeat alarm), `feed` (reliability alarm). `Host Risk Score` is suppressed. |
+| `notification` | analyzer, watch, sensor heartbeat, feed health | `Notification` row | Bell entry. `kind` disambiguates: `finding` (score ≥ 95), `sensor` (heartbeat alarm), `feed` (reliability alarm). `Host Risk Score` is suppressed. |
 | `ti_result` | escalation handler | `{"finding_id":N,"source":"vt","detail":"...","hit":bool,"informative":bool}` | Per-service TI lookup outcome during escalation. |
 | `ti_done` | escalation handler | `{"finding_id":N,"hits":N}` | All TI lookups for this escalation have settled. Triggers consolidated note write. |
 | `sensor_enrolled` | quiver enroll handler | full `Sensor` row | Drives the in-flight enrollment dialog's confirmation tick. |
@@ -645,7 +645,7 @@ on disk, the ports, the sshd `command="..."` jail — is versioned via
 `internal/server/quiver_protocol.go`. Both enrollment and checkin
 payloads carry a `protocol_version` integer; the server validates
 against `supportedQuiverProtocols` and rejects mismatches with a
-structured error. The current version is `1` (see `QuiverProtocolVersion`
+structured error. The current version is `2` (see `QuiverProtocolVersion`
 in `quiver_protocol.go`). Bumping rules and the deprecation cycle are
 documented in [QUIVER.md](QUIVER.md) under "Protocol versioning."
 
