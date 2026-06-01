@@ -1908,7 +1908,7 @@ dialog::backdrop {
    max-width: 95vw lets the dialog still shrink gracefully on
    narrower displays. */
 #sensors-dialog               { width: 1250px; max-width: 95vw; }
-#fingerprints-dialog          { width: 980px; max-width: 95vw; }
+#fingerprints-dialog          { width: 1180px; max-width: 95vw; }
 #feeds-dialog                 { width: 1000px; max-width: 95vw; }
 
 /* TLS Fingerprints table — same scaffold as the Feeds/Sensors dialog
@@ -1954,6 +1954,14 @@ dialog::backdrop {
 #fingerprints-table td.fp-hash {
   font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
   font-size: 13px;
+}
+/* Concern carries the full rarity/cluster sentence — let it wrap and breathe
+   rather than truncate to an unreadable ellipsis. */
+#fingerprints-table td.fp-concern {
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.4;
+  color: var(--fg);
 }
 #fingerprints-table tr.fp-row { cursor: pointer; }
 #fingerprints-table tr.fp-row:hover td { background: var(--bg-elev-3); }

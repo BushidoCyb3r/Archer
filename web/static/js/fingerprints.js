@@ -56,7 +56,7 @@ const Fingerprints = (() => {
         `<td class="severity">${_esc(sev)}</td>` +
         `<td>${r.kind === 'ja4' ? 'JA4' : 'JA3'}</td>` +
         `<td class="fp-hash" title="${_esc(r.fingerprint)}">${_esc(r.fingerprint)}</td>` +
-        `<td title="${_esc(concern)}">${_esc(concern)}</td>` +
+        `<td class="fp-concern" title="${_esc(concern)}">${_esc(concern)}</td>` +
         `<td>${r.src_hosts}</td>` +
         `<td>${r.dsts}</td>` +
         `<td>${r.conns}</td>` +

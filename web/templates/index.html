@@ -175,6 +175,7 @@
       <button class="filter-btn dim" id="filter-advanced-toggle" type="button" title="Show advanced filters">Advanced ▾</button>
       <button class="filter-btn" id="apply-filter-btn">Apply</button>
       <button class="filter-btn dim" id="reset-filter-btn">Reset</button>
+      <button class="filter-btn dim" id="fingerprints-btn" title="List high-signal TLS client fingerprints (JA3/JA4) by severity; click one to pivot to its findings">TLS Fingerprints</button>
       <span class="filter-spacer"></span>
       <label class="filter-range-label">Time range
         <select class="filter-select" id="filter-range" title="Quick date-window preset. Updates the From field; clear or edit From/To in the Advanced bar for a custom window.">
@@ -201,7 +202,6 @@
           <li data-format="xlsx">XLSX (multi-sheet)</li>
         </ul>
       </div>
-      <button class="filter-btn dim" id="fingerprints-btn" title="List high-signal TLS client fingerprints (JA3/JA4) by severity; click one to pivot to its findings">TLS Fingerprints</button>
     </div>
     <div id="filter-bar-advanced" style="display:none">
       <label>Src IP/CIDR <input class="filter-input" id="filter-src" type="text" placeholder="10.0.0.0/24"></label>
@@ -608,14 +608,14 @@
       <table id="fingerprints-table">
         <thead>
           <tr>
-            <th style="width:90px">Severity</th>
-            <th style="width:60px">Type</th>
-            <th style="width:340px">Fingerprint</th>
+            <th style="width:80px">Severity</th>
+            <th style="width:55px">Type</th>
+            <th style="width:300px">Fingerprint</th>
             <th>Concern</th>
-            <th style="width:70px">Hosts</th>
-            <th style="width:70px">Dsts</th>
-            <th style="width:70px">Conns</th>
-            <th style="width:90px">Findings</th>
+            <th style="width:64px">Hosts</th>
+            <th style="width:64px">Dest.</th>
+            <th style="width:64px">Conns</th>
+            <th style="width:80px">Findings</th>
           </tr>
         </thead>
         <tbody id="fingerprints-tbody"></tbody>
