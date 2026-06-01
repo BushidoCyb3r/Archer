@@ -499,7 +499,10 @@ func (a *Analyzer) checkTI(files []string) {
 	// hop short of the workstation but better than no attribution.
 	a.parallelEach(dnsLogs, func(path string) {
 		a.parseLog(path, func(rec map[string]any) bool {
-			q := parser.GetStr(rec, "query")
+			// Normalize identically to Phase A (ToLower + TrimRight ".") so
+			// a winning domain present only as Zeek-normal "EVIL.COM." still
+			// matches the winner set and the querying host is attributed.
+			q := strings.ToLower(strings.TrimRight(parser.GetStr(rec, "query"), "."))
 			if !winnerDomains[q] {
 				return true
 			}

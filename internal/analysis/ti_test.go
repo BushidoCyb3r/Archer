@@ -1,10 +1,46 @@
 package analysis
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/BushidoCyb3r/Archer/internal/config"
+	"github.com/BushidoCyb3r/Archer/internal/model"
 )
+
+// TestCheckTI_DNSAttribution_NormalizesQuery is F-COR-2: a winning bad
+// domain present in dns.log only in Zeek-normal form (uppercase + trailing
+// dot) must still attribute the querying host. Phase A builds the winner
+// set from the normalized query; Phase B's per-source lookup must normalize
+// identically or the host attribution is lost and the TI Hit emits with the
+// SrcIP="(TI)" placeholder for a confirmed malicious-domain contact.
+func TestCheckTI_DNSAttribution_NormalizesQuery(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dns.log")
+	rec := `{"ts":1700000000.0,"id.orig_h":"192.168.1.50","id.resp_h":"10.0.0.1","query":"EVIL.COM.","qtype_name":"A"}` + "\n"
+	if err := os.WriteFile(path, []byte(rec), 0o644); err != nil {
+		t.Fatalf("write dns.log: %v", err)
+	}
+
+	a := New(config.Default(), "", nil, nil)
+	a.feodoIPs = map[string]bool{}
+	a.urlhausIPs = map[string]bool{}
+	a.urlhausHosts = map[string]bool{"evil.com": true}
+
+	a.checkTI([]string{path})
+
+	f := findingOfType(a.findings, model.TypeTIHitDomain)
+	if f == nil {
+		t.Fatalf("expected a TI Hit (Domain) finding for evil.com; got types: %v", findingTypes(a.findings))
+	}
+	if f.SrcIP != "192.168.1.50" {
+		t.Errorf("SrcIP = %q, want 192.168.1.50 — host attribution lost to the (TI) placeholder", f.SrcIP)
+	}
+	if f.DstIP != "evil.com" {
+		t.Errorf("DstIP = %q, want evil.com", f.DstIP)
+	}
+}
 
 // TestPrefetchFeedsRespectsPrepopulated verifies that the test-injection guard
 // in prefetchFeeds skips network fetches when caches are already populated.
