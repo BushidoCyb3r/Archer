@@ -1954,6 +1954,8 @@ dialog::backdrop {
 #fingerprints-table td.fp-hash {
   font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
   font-size: 13px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 /* Concern carries the full rarity/cluster sentence — let it wrap and breathe
    rather than truncate to an unreadable ellipsis. */

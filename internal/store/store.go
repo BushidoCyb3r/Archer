@@ -1059,40 +1059,48 @@ func (s *Store) FingerprintConcern(ja4, ja3 string) (level, detail string) {
 	if !ok {
 		return "", ""
 	}
-	return fingerprintConcernLevel(kind, stat)
+	level, _, detail = fingerprintConcernLevel(kind, stat)
+	return level, detail
 }
 
 // fingerprintConcernLevel derives the concern level and human summary for one
 // TLS client fingerprint from its prevalence. kind is "ja4" or "ja3"; a JA3
 // match is capped one tier lower than the equivalent JA4 because generic
-// Go/Python/Rust stacks collide on a single JA3. Shared by FingerprintConcern
-// (detail-pane badge) and FingerprintInventory (the TLS Fingerprints modal) so
-// the two surfaces can't drift. Returns ("none", ...) for common shapes.
-func fingerprintConcernLevel(kind string, stat model.FingerprintStat) (level, detail string) {
+// Go/Python/Rust stacks collide on a single JA3. Returns two strings: reason is
+// the count-free qualitative judgment ("why it's flagged"); detail is the same
+// judgment with the prevalence counts folded in. The TLS Fingerprints modal
+// uses reason (it has its own Hosts/Dest/Conns columns, so repeating the counts
+// in prose is noise); the finding detail-pane "FP rarity" badge uses detail
+// (one text row, no columns, so it needs the numbers inline). Both come from
+// the same branch so the two surfaces can't drift. Returns "none" for common
+// shapes.
+func fingerprintConcernLevel(kind string, stat model.FingerprintStat) (level, reason, detail string) {
 	rare := stat.Dsts <= fpRareDstFanoutMax
 	clustered := stat.SrcHosts >= fpClusterMinSrcs
 	if !rare {
-		return "none", fmt.Sprintf("common — %d conns across %d dsts (browser/SDK shape)", stat.Conns, stat.Dsts)
+		return "none",
+			"Common (browser/SDK shape)",
+			fmt.Sprintf("common — %d conns across %d dsts (browser/SDK shape)", stat.Conns, stat.Dsts)
 	}
 	// Rare. Rank by JA4-vs-JA3 confidence and cross-host clustering.
 	hostWord := "single host"
 	if clustered {
 		hostWord = fmt.Sprintf("shared by %d internal hosts", stat.SrcHosts)
 	}
-	base := fmt.Sprintf("rare — %s · %d conns, %d dst(s)", hostWord, stat.Conns, stat.Dsts)
+	detail = fmt.Sprintf("rare — %s · %d conns, %d dst(s)", hostWord, stat.Conns, stat.Dsts)
 	switch {
 	case kind == "ja4" && clustered:
-		level = "critical"
+		level, reason = "critical", "Rare client, clustered across hosts"
 	case kind == "ja4":
-		level = "high"
+		level, reason = "high", "Rare client, single host"
 	case kind == "ja3" && clustered:
-		level = "medium"
-		base += " (JA3 only — generic-stack collision possible)"
+		level, reason = "medium", "Rare, clustered — JA3 only, collision possible"
+		detail += " (JA3 only — generic-stack collision possible)"
 	default: // ja3, single host
-		level = "low"
-		base += " (JA3 only — lower confidence)"
+		level, reason = "low", "Rare, single host — JA3 only, lower confidence"
+		detail += " (JA3 only — lower confidence)"
 	}
-	return level, base
+	return level, reason, detail
 }
 
 // fpLevelRank maps a concern level to a sort/threshold weight (higher = more
@@ -1140,11 +1148,11 @@ func (s *Store) FingerprintInventory(badJA4, badJA3 map[string]string) []model.F
 	rows := make([]model.FingerprintRow, 0)
 	build := func(kind string, snap map[string]model.FingerprintStat, bad map[string]string, counts map[string]int) {
 		for fp, stat := range snap {
-			level, detail := fingerprintConcernLevel(kind, stat)
+			level, reason, _ := fingerprintConcernLevel(kind, stat)
 			label, isBad := bad[fp]
 			if isBad {
 				level = "critical"
-				detail = fmt.Sprintf("known C2 fingerprint — %d conns, %d host(s), %d dst(s)", stat.Conns, stat.SrcHosts, stat.Dsts)
+				reason = "Known C2 fingerprint"
 			} else if fpLevelRank(level) == 0 {
 				continue
 			}
@@ -1158,7 +1166,7 @@ func (s *Store) FingerprintInventory(badJA4, badJA3 map[string]string) []model.F
 				SrcHosts:     stat.SrcHosts,
 				Dsts:         stat.Dsts,
 				FindingCount: counts[fp],
-				Detail:       detail,
+				Detail:       reason,
 			})
 		}
 	}

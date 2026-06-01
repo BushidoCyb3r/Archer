@@ -343,7 +343,10 @@ type FingerprintRow struct {
 	SrcHosts     int    `json:"src_hosts"`
 	Dsts         int    `json:"dsts"`
 	FindingCount int    `json:"finding_count"`
-	Detail       string `json:"detail,omitempty"`
+	// Detail is the count-free qualitative reason ("Rare client, clustered
+	// across hosts") — the modal shows the prevalence counts in their own
+	// columns, so the prose stays judgment-only.
+	Detail string `json:"detail,omitempty"`
 }
 
 // Fingerprint uniquely identifies a finding for delta/baseline comparison.
