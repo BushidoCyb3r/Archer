@@ -175,7 +175,13 @@ func (s *Store) InitDB(db *sql.DB) {
 	defer s.mu.Unlock()
 	s.db = db
 
-	loadOrdered := func(tbl string) []string {
+	// loadOrdered returns (entries, ok). ok is false if the read failed or
+	// stopped mid-iteration (rows.Err) — distinct from a clean empty table.
+	// Callers MUST NOT re-persist a !ok result: a truncated read followed by
+	// the sanitize re-persist below would DELETE-then-reinsert only the rows
+	// that were read, permanently dropping the unread tail of an
+	// authoritative list (allowlist un-hides hosts, ioc_list misses IOCs).
+	loadOrdered := func(tbl string) ([]string, bool) {
 		// tbl is a table identifier (SQL placeholders cannot
 		// parameterize identifiers) and loadOrdered is only ever
 		// called with hardcoded literal table names — not reachable
@@ -183,7 +189,7 @@ func (s *Store) InitDB(db *sql.DB) {
 		rows, err := db.Query(`SELECT entry FROM ` + tbl + ` ORDER BY rowid`) // nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query -- constant table identifier, internal callers only
 		if err != nil {
 			slog.Warn("store: cannot load table", "table", tbl, "err", err)
-			return nil
+			return nil, false
 		}
 		defer rows.Close()
 		var out []string
@@ -193,20 +199,31 @@ func (s *Store) InitDB(db *sql.DB) {
 				out = append(out, e)
 			}
 		}
-		return out
+		if err := rows.Err(); err != nil {
+			slog.Error("store: incomplete table load — refusing sanitize re-persist", "table", tbl, "err", err)
+			return out, false
+		}
+		return out, true
 	}
 	// Sanitize on load so any pre-comment-strip junk from older Archer
 	// installs gets cleaned automatically. If sanitize changes the slice,
-	// re-persist so SQLite reflects the cleaned form on disk too.
-	s.allowlist = loadOrdered("allowlist")
-	if cleaned := sanitizeListEntries(s.allowlist); !slicesEqual(cleaned, s.allowlist) {
-		s.allowlist = cleaned
-		s.persistList("allowlist", s.allowlist)
+	// re-persist so SQLite reflects the cleaned form on disk too — but only
+	// when the load completed cleanly, so a partial read never overwrites the
+	// authoritative list with a truncated copy.
+	var allowOK, iocOK bool
+	s.allowlist, allowOK = loadOrdered("allowlist")
+	if allowOK {
+		if cleaned := sanitizeListEntries(s.allowlist); !slicesEqual(cleaned, s.allowlist) {
+			s.allowlist = cleaned
+			s.persistList("allowlist", s.allowlist)
+		}
 	}
-	s.iocList = loadOrdered("ioc_list")
-	if cleaned := sanitizeListEntries(s.iocList); !slicesEqual(cleaned, s.iocList) {
-		s.iocList = cleaned
-		s.persistList("ioc_list", s.iocList)
+	s.iocList, iocOK = loadOrdered("ioc_list")
+	if iocOK {
+		if cleaned := sanitizeListEntries(s.iocList); !slicesEqual(cleaned, s.iocList) {
+			s.iocList = cleaned
+			s.persistList("ioc_list", s.iocList)
+		}
 	}
 
 	// Compile the cached matchers once at load. Rebuilt only when
@@ -235,6 +252,9 @@ func (s *Store) InitDB(db *sql.DB) {
 				s.suppressions[target] = SuppressionEntry{Expiry: time.Unix(expUnix, 0), Detail: detail}
 			}
 		}
+		if err := rows.Err(); err != nil {
+			slog.Error("store: incomplete suppressions load — some suppressions may re-fire until next restart", "err", err)
+		}
 	}
 
 	if rows, err := db.Query(`SELECT id, src, dst, port, finding_type, sensor, detail, created_by, created_at FROM pair_allowlist ORDER BY id`); err == nil {
@@ -244,6 +264,9 @@ func (s *Store) InitDB(db *sql.DB) {
 			if rows.Scan(&e.ID, &e.Src, &e.Dst, &e.Port, &e.FindingType, &e.Sensor, &e.Detail, &e.CreatedBy, &e.CreatedAt) == nil {
 				s.pairAllow = append(s.pairAllow, e)
 			}
+		}
+		if err := rows.Err(); err != nil {
+			slog.Error("store: incomplete pair_allowlist load — some pair allowlists missing until next restart", "err", err)
 		}
 	}
 	s.rebuildPairAllowIdxLocked()
@@ -317,6 +340,9 @@ func (s *Store) loadNotifications() {
 		if n.ID > maxID {
 			maxID = n.ID
 		}
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("store: incomplete notifications load", "err", err)
 	}
 	s.notifCounter = maxID
 }
