@@ -61,6 +61,10 @@ func (s *Server) runWatchLoop(ctx context.Context, hhmm, tzName string, interval
 		loc := loadLocationOrUTC(tzName)
 		next, err := nextOccurrenceInterval(hhmm, intervalHours, loc)
 		if err != nil {
+			// A persisted watch_time that fails validation (DB restore,
+			// migration, manual edit) stops the loop rather than silently
+			// firing at 00:00. Log it so the halted watch is diagnosable.
+			slog.Warn("watch loop halted: invalid schedule", "time", hhmm, "interval_hours", intervalHours, "err", err)
 			return
 		}
 		select {
@@ -130,8 +134,8 @@ func formatRelativeTime(t time.Time, loc *time.Location) string {
 // occur. If that time has already passed today (in loc), returns tomorrow.
 func nextOccurrence(hhmm string, loc *time.Location) (time.Time, error) {
 	var h, m int
-	if _, err := parseHHMM(hhmm, &h, &m); err != nil {
-		return time.Time{}, err
+	if !parseHHMM(hhmm, &h, &m) {
+		return time.Time{}, fmt.Errorf("invalid watch time %q", hhmm)
 	}
 	now := time.Now().In(loc)
 	next := time.Date(now.Year(), now.Month(), now.Day(), h, m, 0, 0, loc)
@@ -148,8 +152,8 @@ func nextOccurrence(hhmm string, loc *time.Location) (time.Time, error) {
 // 06:30, 10:30, …, regardless of when they enabled it).
 func nextOccurrenceInterval(hhmm string, interval int, loc *time.Location) (time.Time, error) {
 	var h, m int
-	if _, err := parseHHMM(hhmm, &h, &m); err != nil {
-		return time.Time{}, err
+	if !parseHHMM(hhmm, &h, &m) {
+		return time.Time{}, fmt.Errorf("invalid watch time %q", hhmm)
 	}
 	if interval == 0 || interval == 24 {
 		return nextOccurrence(hhmm, loc)
@@ -170,36 +174,42 @@ func nextOccurrenceInterval(hhmm string, interval int, loc *time.Location) (time
 	return candidate, nil
 }
 
-// parseHHMM validates and parses an "HH:MM" string.
-func parseHHMM(hhmm string, h, m *int) (bool, error) {
+// parseHHMM validates and parses an "HH:MM" string, returning false on any
+// malformed or out-of-range input. Callers must check the bool — there is no
+// error channel; invalid input is not an exceptional condition, just a
+// rejection.
+func parseHHMM(hhmm string, h, m *int) bool {
 	parts := strings.SplitN(hhmm, ":", 2)
 	if len(parts) != 2 {
-		return false, nil
+		return false
 	}
 	var ph, pm int
-	if _, err := parseIntRange(parts[0], 0, 23, &ph); err != nil {
-		return false, err
+	if !parseIntRange(parts[0], 0, 23, &ph) {
+		return false
 	}
-	if _, err := parseIntRange(parts[1], 0, 59, &pm); err != nil {
-		return false, err
+	if !parseIntRange(parts[1], 0, 59, &pm) {
+		return false
 	}
 	*h, *m = ph, pm
-	return true, nil
+	return true
 }
 
-func parseIntRange(s string, min, max int, out *int) (bool, error) {
+func parseIntRange(s string, min, max int, out *int) bool {
+	if s == "" {
+		return false
+	}
 	v := 0
 	for _, c := range s {
 		if c < '0' || c > '9' {
-			return false, nil
+			return false
 		}
 		v = v*10 + int(c-'0')
 	}
 	if v < min || v > max {
-		return false, nil
+		return false
 	}
 	*out = v
-	return true, nil
+	return true
 }
 
 // triggerWatchAnalysis scans logsDir and starts the appropriate analysis

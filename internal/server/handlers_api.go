@@ -1743,7 +1743,7 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 		// Validate HH:MM format when enabling
 		if req.Enabled {
 			var h, m int
-			if ok, _ := parseHHMM(req.Time, &h, &m); !ok {
+			if !parseHHMM(req.Time, &h, &m) {
 				jsonError(w, "time must be HH:MM in 24-hour format", http.StatusBadRequest)
 				return
 			}
