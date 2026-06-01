@@ -327,6 +327,25 @@ type FingerprintStat struct {
 	Dsts     int
 }
 
+// FingerprintRow is one entry in the TLS-fingerprint inventory: a single JA3 or
+// JA4 client fingerprint with its prevalence over the latest analysis pass, the
+// derived concern Level, the known-bad C2 Label (when matched), and the count
+// of resident findings carrying it. The inventory endpoint ranks these by
+// severity; the TLS Fingerprints modal renders them as a fingerprint-first
+// pivot surface into findings.
+type FingerprintRow struct {
+	Fingerprint  string `json:"fingerprint"`
+	Kind         string `json:"kind"`  // "ja3" | "ja4"
+	Level        string `json:"level"` // critical | high | medium
+	KnownBad     bool   `json:"known_bad"`
+	Label        string `json:"label,omitempty"`
+	Conns        int    `json:"conns"`
+	SrcHosts     int    `json:"src_hosts"`
+	Dsts         int    `json:"dsts"`
+	FindingCount int    `json:"finding_count"`
+	Detail       string `json:"detail,omitempty"`
+}
+
 // Fingerprint uniquely identifies a finding for delta/baseline comparison.
 // Hostname and URI are only populated for HTTP Beaconing, where two beacons
 // to different hosts or paths on the same (src, dst, port, sensor) are

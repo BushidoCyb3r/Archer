@@ -4813,6 +4813,14 @@
       if (typeof Feeds !== 'undefined' && (u.role === 'admin' || u.role === 'analyst')) {
         Feeds.init(u.role === 'admin');
       }
+      // TLS Fingerprints modal — read-only hunt surface for every role.
+      // The pivot reuses pivotByTLS via an injected callback; JA4 takes
+      // precedence over JA3 the same way the per-finding TLS Pivot does.
+      if (typeof Fingerprints !== 'undefined' && Fingerprints.init) {
+        Fingerprints.init({
+          onPivot: (kind, fp) => pivotByTLS(kind === 'ja4' ? { ja4: fp } : { ja3: fp }),
+        });
+      }
       // Hide write-only controls for viewers
       if (u.role === 'viewer') {
         ['analyze-btn','allowlist-btn','ioc-btn','suppressions-btn',

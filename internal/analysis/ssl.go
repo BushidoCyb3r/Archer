@@ -88,6 +88,7 @@ func (a *Analyzer) analyzeSSL(files []string) {
 							Detail:     detail,
 							Timestamp:  fmtTS(ts),
 							SourceFile: f,
+							JA3:        ja3,
 						})
 					}
 				}
@@ -113,6 +114,7 @@ func (a *Analyzer) analyzeSSL(files []string) {
 							Detail:     detail,
 							Timestamp:  fmtTS(ts),
 							SourceFile: f,
+							JA4:        ja4,
 						})
 					}
 				}

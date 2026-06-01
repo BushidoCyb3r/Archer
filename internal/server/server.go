@@ -293,6 +293,7 @@ func (s *Server) routes() {
 
 	// Findings — read=any, write=analyst+
 	s.mux.Handle("/api/findings", any(s.handleFindings))
+	s.mux.Handle("/api/fingerprints", any(s.handleFingerprints))
 	s.mux.Handle("/api/findings/counts", any(s.handleFindingsCounts))
 	s.mux.Handle("/api/findings/facets", any(s.handleFindingsFacets))
 	// Per-user "new since you last looked" count for the modal — the same

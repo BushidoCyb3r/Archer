@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1058,7 +1059,16 @@ func (s *Store) FingerprintConcern(ja4, ja3 string) (level, detail string) {
 	if !ok {
 		return "", ""
 	}
+	return fingerprintConcernLevel(kind, stat)
+}
 
+// fingerprintConcernLevel derives the concern level and human summary for one
+// TLS client fingerprint from its prevalence. kind is "ja4" or "ja3"; a JA3
+// match is capped one tier lower than the equivalent JA4 because generic
+// Go/Python/Rust stacks collide on a single JA3. Shared by FingerprintConcern
+// (detail-pane badge) and FingerprintInventory (the TLS Fingerprints modal) so
+// the two surfaces can't drift. Returns ("none", ...) for common shapes.
+func fingerprintConcernLevel(kind string, stat model.FingerprintStat) (level, detail string) {
 	rare := stat.Dsts <= fpRareDstFanoutMax
 	clustered := stat.SrcHosts >= fpClusterMinSrcs
 	if !rare {
@@ -1083,6 +1093,91 @@ func (s *Store) FingerprintConcern(ja4, ja3 string) (level, detail string) {
 		base += " (JA3 only — lower confidence)"
 	}
 	return level, base
+}
+
+// fpLevelRank maps a concern level to a sort/threshold weight (higher = more
+// severe). The TLS Fingerprints inventory keeps only rows that rank medium or
+// higher (or are known-bad) — common and low-confidence-single-host shapes are
+// excluded so the surface stays a hunt list, not a full TLS census.
+func fpLevelRank(level string) int {
+	switch level {
+	case "critical":
+		return 3
+	case "high":
+		return 2
+	case "medium":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// FingerprintInventory returns the high-signal TLS client fingerprints from the
+// latest prevalence snapshot, ranked by severity. A fingerprint qualifies if it
+// matches a known-bad C2 list (badJA4/badJA3 — always ranked critical) or its
+// rarity/cross-host concern reaches medium or higher. The known-bad maps are
+// passed in (the analysis package's tables) so the store doesn't import
+// analysis. FindingCount counts every resident finding carrying the
+// fingerprint, so a known-bad row pivots onto its Malicious JA3/JA4 finding.
+// The snapshot is in-memory and rebuilt each full analysis pass; before the
+// first pass of a process it is empty and this returns no rows.
+func (s *Store) FingerprintInventory(badJA4, badJA3 map[string]string) []model.FingerprintRow {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ja3Count := map[string]int{}
+	ja4Count := map[string]int{}
+	for i := range s.findings {
+		f := &s.findings[i]
+		if f.JA3 != "" {
+			ja3Count[f.JA3]++
+		}
+		if f.JA4 != "" {
+			ja4Count[f.JA4]++
+		}
+	}
+
+	rows := make([]model.FingerprintRow, 0)
+	build := func(kind string, snap map[string]model.FingerprintStat, bad map[string]string, counts map[string]int) {
+		for fp, stat := range snap {
+			level, detail := fingerprintConcernLevel(kind, stat)
+			label, isBad := bad[fp]
+			if isBad {
+				level = "critical"
+				detail = fmt.Sprintf("known C2 fingerprint — %d conns, %d host(s), %d dst(s)", stat.Conns, stat.SrcHosts, stat.Dsts)
+			} else if fpLevelRank(level) == 0 {
+				continue
+			}
+			rows = append(rows, model.FingerprintRow{
+				Fingerprint:  fp,
+				Kind:         kind,
+				Level:        level,
+				KnownBad:     isBad,
+				Label:        label,
+				Conns:        stat.Conns,
+				SrcHosts:     stat.SrcHosts,
+				Dsts:         stat.Dsts,
+				FindingCount: counts[fp],
+				Detail:       detail,
+			})
+		}
+	}
+	build("ja4", s.fpJA4, badJA4, ja4Count)
+	build("ja3", s.fpJA3, badJA3, ja3Count)
+
+	sort.Slice(rows, func(i, j int) bool {
+		if ri, rj := fpLevelRank(rows[i].Level), fpLevelRank(rows[j].Level); ri != rj {
+			return ri > rj
+		}
+		if rows[i].SrcHosts != rows[j].SrcHosts {
+			return rows[i].SrcHosts > rows[j].SrcHosts
+		}
+		if rows[i].Conns != rows[j].Conns {
+			return rows[i].Conns > rows[j].Conns
+		}
+		return rows[i].Fingerprint < rows[j].Fingerprint
+	})
+	return rows
 }
 
 func (s *Store) CountBeaconsWithJA3(ja3 string, excludeID int) int {

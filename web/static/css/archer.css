@@ -1908,7 +1908,63 @@ dialog::backdrop {
    max-width: 95vw lets the dialog still shrink gracefully on
    narrower displays. */
 #sensors-dialog               { width: 1250px; max-width: 95vw; }
+#fingerprints-dialog          { width: 980px; max-width: 95vw; }
 #feeds-dialog                 { width: 1000px; max-width: 95vw; }
+
+/* TLS Fingerprints table — same scaffold as the Feeds/Sensors dialog
+   tables. Fixed layout so the inline column widths hold; the Concern
+   column (no declared width) absorbs the slack. */
+.fp-hint {
+  margin: 0 0 12px;
+  color: var(--fg-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.fp-empty {
+  padding: 24px 8px;
+  text-align: center;
+  color: var(--fg-dim);
+  font-size: 14px;
+}
+#fingerprints-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+#fingerprints-table th {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+#fingerprints-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#fingerprints-table td.fp-hash {
+  font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+}
+#fingerprints-table tr.fp-row { cursor: pointer; }
+#fingerprints-table tr.fp-row:hover td { background: var(--bg-elev-3); }
+/* Severity colouring reuses the findings-table convention: the uppercase
+   level class on the row paints the left bar and the .severity cell. */
+#fingerprints-table tr.CRITICAL { box-shadow: inset 3px 0 0 var(--sev-critical); }
+#fingerprints-table tr.HIGH     { box-shadow: inset 3px 0 0 var(--sev-high); }
+#fingerprints-table tr.MEDIUM   { box-shadow: inset 3px 0 0 var(--sev-medium); }
+#fingerprints-table tr.CRITICAL td.severity { color: var(--sev-critical); }
+#fingerprints-table tr.HIGH td.severity     { color: var(--sev-high); }
+#fingerprints-table tr.MEDIUM td.severity   { color: var(--sev-medium); }
 #feeds-edit-dlg               { width: 480px; }
 
 /* Feeds table — same scaffold as the Sensors table. The inline column

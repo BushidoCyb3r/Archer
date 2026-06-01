@@ -201,6 +201,7 @@
           <li data-format="xlsx">XLSX (multi-sheet)</li>
         </ul>
       </div>
+      <button class="filter-btn dim" id="fingerprints-btn" title="List high-signal TLS client fingerprints (JA3/JA4) by severity; click one to pivot to its findings">TLS Fingerprints</button>
     </div>
     <div id="filter-bar-advanced" style="display:none">
       <label>Src IP/CIDR <input class="filter-input" id="filter-src" type="text" placeholder="10.0.0.0/24"></label>
@@ -596,6 +597,34 @@
   <div class="dlg-footer">
     <button class="dlg-btn secondary" id="audit-load-more" style="margin-right:auto">Load older</button>
     <button class="dlg-btn secondary" id="audit-close">Close</button>
+  </div>
+</dialog>
+
+<dialog id="fingerprints-dialog">
+  <div class="dlg-header">TLS Fingerprints</div>
+  <div class="dlg-body">
+    <p class="fp-hint">High-signal JA3/JA4 client fingerprints from the latest analysis — known C2 matches plus rare or cross-host shapes. Click a row to filter findings by that fingerprint.</p>
+    <div id="fingerprints-table-wrap">
+      <table id="fingerprints-table">
+        <thead>
+          <tr>
+            <th style="width:90px">Severity</th>
+            <th style="width:60px">Type</th>
+            <th style="width:340px">Fingerprint</th>
+            <th>Concern</th>
+            <th style="width:70px">Hosts</th>
+            <th style="width:70px">Dsts</th>
+            <th style="width:70px">Conns</th>
+            <th style="width:90px">Findings</th>
+          </tr>
+        </thead>
+        <tbody id="fingerprints-tbody"></tbody>
+      </table>
+    </div>
+    <div id="fingerprints-empty" class="fp-empty" style="display:none">No high-signal TLS fingerprints — run an analysis.</div>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="fingerprints-close">Close</button>
   </div>
 </dialog>
 
@@ -1307,6 +1336,7 @@
 <script src="/static/js/rowmenu.js"></script>
 <script src="/static/js/graph.js"></script>
 <script src="/static/js/sensors.js"></script>
+<script src="/static/js/fingerprints.js"></script>
 <script src="/static/js/feeds.js"></script>
 <script src="/static/js/audit_log.js"></script>
 <script src="/static/js/app.js"></script>
