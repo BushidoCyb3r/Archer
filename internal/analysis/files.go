@@ -28,11 +28,11 @@ func (a *Analyzer) checkFileHashes(files []string) {
 	seen := make(map[[2]string]bool)
 	for _, f := range filterFiles(files, "files") {
 		a.parseLog(f, func(rec map[string]any) bool {
-			tx := strings.Trim(parser.GetStr(rec, "tx_hosts"), "[]\"")
-			rx := strings.Trim(parser.GetStr(rec, "rx_hosts"), "[]\"")
+			tx := firstAddr(parser.GetStr(rec, "tx_hosts"))
 			if tx == "" {
 				tx = parser.GetStr(rec, "id.orig_h")
 			}
+			rx := firstAddr(parser.GetStr(rec, "rx_hosts"))
 			if rx == "" {
 				rx = parser.GetStr(rec, "id.resp_h")
 			}
@@ -101,6 +101,20 @@ func (a *Analyzer) anyFeedHashes() bool {
 	return false
 }
 
+// firstAddr extracts the first address from a Zeek set[addr] field as
+// GetStr hands it back: a JSON-log array (`["a","b"]`) or a TSV comma-set
+// (`a,b`). Returns "" for an empty set (`[]`). The previous
+// strings.Trim(s,"[]\"") mishandled both empty arrays (left "[]" looking
+// non-empty until a late trim blanked it) and multi-element arrays (left
+// the inter-element `","` as garbage in the address).
+func firstAddr(s string) string {
+	s = strings.Trim(s, "[]")
+	if i := strings.IndexByte(s, ','); i >= 0 {
+		s = s[:i]
+	}
+	return strings.Trim(s, "\" ")
+}
+
 func (a *Analyzer) analyzeFiles(files []string) {
 	// Variable naming previously made the dedup-key bug invisible:
 	// `src` held the *sender* (tx_hosts) but the finding's SrcIP was
@@ -115,19 +129,21 @@ func (a *Analyzer) analyzeFiles(files []string) {
 	fileFiles := filterFiles(files, "files")
 	for _, f := range fileFiles {
 		a.parseLog(f, func(rec map[string]any) bool {
-			sender := parser.GetStr(rec, "tx_hosts")
+			// Trim the set[addr] field first, then fall back — mirrors
+			// checkFileHashes. Testing emptiness on the raw GetStr value
+			// missed `[]` (GetStr hands back the literal "[]"), so the
+			// id.orig_h fallback never fired and the record was dropped.
+			sender := firstAddr(parser.GetStr(rec, "tx_hosts"))
 			if sender == "" {
-				// tx_hosts might be an array
 				sender = parser.GetStr(rec, "id.orig_h")
 			}
-			receiver := parser.GetStr(rec, "rx_hosts")
+			receiver := firstAddr(parser.GetStr(rec, "rx_hosts"))
+			if receiver == "" {
+				receiver = parser.GetStr(rec, "id.resp_h")
+			}
 			mime := strings.ToLower(parser.GetStr(rec, "mime_type"))
 			filename := parser.GetStr(rec, "filename")
 			ts := parser.GetFloat(rec, "ts")
-
-			// Clean up array-style fields like ["1.2.3.4"]
-			sender = strings.Trim(sender, "[]\"")
-			receiver = strings.Trim(receiver, "[]\"")
 
 			if sender == "" {
 				return true
