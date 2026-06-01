@@ -4,11 +4,49 @@ import (
 	"bufio"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"strconv"
 	"strings"
 )
+
+// gzipDecompressLimit caps how many decompressed bytes ParseLog reads from
+// a single .gz file. No real Zeek log approaches this; it bounds total work
+// per file against a decompression bomb. A var (not const) so tests can
+// lower it. See limitErrReader for why this errors rather than truncating.
+var gzipDecompressLimit int64 = 4 << 30 // 4 GiB
+
+// errGzipLimit is returned when a gzip stream decompresses past
+// gzipDecompressLimit. Surfacing it — rather than EOF-ing silently like a
+// bare io.LimitReader — keeps analysts from getting finding counts that
+// imply a full scan when the tail was dropped, the same trust-bug class the
+// 16 MiB line-cap fix addressed.
+var errGzipLimit = errors.New("gzip stream exceeds decompression limit")
+
+// limitErrReader passes through up to `remaining` bytes, then probes for a
+// further byte; if the underlying stream has more, Read returns errGzipLimit
+// instead of EOF. A stream ending exactly at the limit reads cleanly.
+type limitErrReader struct {
+	r         io.Reader
+	remaining int64
+}
+
+func (l *limitErrReader) Read(p []byte) (int, error) {
+	if l.remaining <= 0 {
+		var probe [1]byte
+		if n, _ := l.r.Read(probe[:]); n > 0 {
+			return 0, errGzipLimit
+		}
+		return 0, io.EOF
+	}
+	if int64(len(p)) > l.remaining {
+		p = p[:l.remaining]
+	}
+	n, err := l.r.Read(p)
+	l.remaining -= int64(n)
+	return n, err
+}
 
 // ParseLog reads a Zeek log file (plain or gzipped, JSON or TSV format)
 // and calls yield for each record. Returning false from yield stops iteration.
@@ -26,7 +64,7 @@ func ParseLog(path string, yield func(rec map[string]any) bool) error {
 			return err
 		}
 		defer gz.Close()
-		r = io.LimitReader(gz, 4<<30) // 4 GiB ceiling; no real Zeek log approaches this
+		r = &limitErrReader{r: gz, remaining: gzipDecompressLimit}
 	}
 
 	sc := bufio.NewScanner(r)
