@@ -232,7 +232,7 @@ func parseIntRange(s string, min, max int, out *int) bool {
 // run for this watch tick. Two-tier cadence:
 //
 //   - The first watch tick of each UTC calendar day runs the full pipeline
-//     (Beaconing, HTTP analysis, all detectors). Statistical detectors
+//     (Beacon, HTTP analysis, all detectors). Statistical detectors
 //     need the long temporal window to spot patterns — beaconing math
 //     operates on hours/days of (src, dst, port) intervals, not the last
 //     hour in isolation.
@@ -352,7 +352,7 @@ func (s *Server) refreshFeedsBeforeFullPass() {
 // loop on same-day ticks where the expensive analysis already ran
 // earlier in the day. The TI phase is stateless per record (each
 // connection is independently meaningful), so a small file subset is
-// safe — unlike Beaconing or HTTP analysis which need the long window.
+// safe — unlike Beacon or HTTP analysis which need the long window.
 func (s *Server) launchIncrementalAnalysis(files []string) {
 	if !s.store.TryStartAnalysis() {
 		return

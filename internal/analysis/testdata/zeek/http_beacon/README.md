@@ -1,6 +1,6 @@
 # http_beacon
 
-Exercises the **HTTP Beaconing** detector — periodic HTTP requests to
+Exercises the **HTTP Beacon** detector — periodic HTTP requests to
 the same `(src, dst, host, uri)` key with regular timing and
 consistent byte counts, the C2 check-in pattern.
 
@@ -17,5 +17,5 @@ reflect HTTP-only coverage across the ~1.7-hour span.
 
 ## Findings produced
 
-- `HTTP Beaconing` (HIGH, 71) — primary target.
-- `Host Risk Score` (LOW, 24) — HTTP Beaconing contributes to roll-up.
+- `HTTP Beacon` (HIGH, 71) — primary target.
+- `Host Risk Score` (LOW, 24) — HTTP Beacon contributes to roll-up.

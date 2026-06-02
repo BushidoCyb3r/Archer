@@ -36,14 +36,14 @@ import (
 // entry, so any future analyzer adding a Type without a corresponding
 // entry breaks that test.
 var logTypesForFinding = map[string][]string{
-	"Beaconing":                {"conn"},
+	"Beacon":                   {"conn"},
 	"Long Connection":          {"conn"},
 	"Strobe":                   {"conn"},
 	"Data Exfiltration":        {"conn"},
 	"Lateral Movement":         {"conn"},
 	"C2 Port":                  {"conn"},
 	"Off-Hours Transfer":       {"conn"},
-	"HTTP Beaconing":           {"http"},
+	"HTTP Beacon":              {"http"},
 	"Suspicious UA":            {"http"},
 	"Cobalt Strike URI":        {"http"},
 	"C2 URI Pattern":           {"http"},
@@ -53,7 +53,7 @@ var logTypesForFinding = map[string][]string{
 	"DNS Tunneling":            {"dns"},
 	"DNS Subdomain DGA":        {"dns"},
 	"DNS NXDOMAIN Flood":       {"dns"},
-	"DNS Beaconing":            {"dns"},
+	"DNS Beacon":               {"dns"},
 	"Suspicious TLD":           {"dns"},
 	"DoH Bypass":               {"ssl"},
 	"Malicious JA3":            {"ssl"},

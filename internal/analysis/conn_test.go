@@ -70,9 +70,9 @@ func TestOffHoursBadTimezoneFallsBackToUTC(t *testing.T) {
 }
 
 // TestBeaconEmitsStructuredTriageFields asserts the analyzer populates
-// the migration-0018 triage fields at the conn-level Beaconing emit
+// the migration-0018 triage fields at the conn-level Beacon emit
 // site — the producer half of the NEW-89 closure (the store round-trip
-// is covered in store_test.go). Invariant: a Beaconing finding carries
+// is covered in store_test.go). Invariant: a Beacon finding carries
 // a positive sample size and mean/median interval, four sub-scores in
 // [0,1] that are not all zero, and a finite non-negative jitter whose
 // implied spread (mean × jitter) is well-defined. A regression that
@@ -91,13 +91,13 @@ func TestBeaconEmitsStructuredTriageFields(t *testing.T) {
 
 	var b *model.Finding
 	for i := range findings {
-		if findings[i].Type == "Beaconing" {
+		if findings[i].Type == "Beacon" {
 			b = &findings[i]
 			break
 		}
 	}
 	if b == nil {
-		t.Fatalf("expected a Beaconing finding from beacon_url fixture, got types: %v", findingTypes(findings))
+		t.Fatalf("expected a Beacon finding from beacon_url fixture, got types: %v", findingTypes(findings))
 	}
 
 	if b.SampleSize <= 0 {
@@ -141,7 +141,7 @@ func beaconExpectedSeverity(score int) model.Severity {
 }
 
 // TestBeaconScoreSeverityInvariants runs across the beacon-heavy fixture
-// scenarios and asserts that every Beaconing / HTTP Beaconing finding
+// scenarios and asserts that every Beacon / HTTP Beacon finding
 // satisfies two invariants:
 //  1. score >= beaconMinEmitScore (emit floor enforced)
 //  2. severity is consistent with the four-band mapping
@@ -169,7 +169,7 @@ func TestBeaconScoreSeverityInvariants(t *testing.T) {
 			a.urlhausHosts = map[string]bool{}
 			findings := a.Analyze(files)
 			for _, f := range findings {
-				if f.Type != "Beaconing" && f.Type != "HTTP Beaconing" {
+				if f.Type != "Beacon" && f.Type != "HTTP Beacon" {
 					continue
 				}
 				if f.Score < beaconMinEmitScore {
@@ -184,7 +184,7 @@ func TestBeaconScoreSeverityInvariants(t *testing.T) {
 }
 
 // TestStrobeExcludesBeacon verifies that a pair qualifying as a Strobe does
-// not also emit a Beaconing finding. Pre-fix, strobe pairs scored near-perfect
+// not also emit a Beacon finding. Pre-fix, strobe pairs scored near-perfect
 // timing regularity and double-alerted.
 func TestStrobeExcludesBeacon(t *testing.T) {
 	files := collectFixtureLogs(t, "testdata/zeek/strobe")
@@ -202,10 +202,10 @@ func TestStrobeExcludesBeacon(t *testing.T) {
 			continue
 		}
 		for _, beacon := range findings {
-			if beacon.Type == "Beaconing" &&
+			if beacon.Type == "Beacon" &&
 				beacon.SrcIP == strobe.SrcIP &&
 				beacon.DstIP == strobe.DstIP {
-				t.Errorf("strobe pair %s→%s also emitted Beaconing (should be excluded by strobe gate)",
+				t.Errorf("strobe pair %s→%s also emitted Beacon (should be excluded by strobe gate)",
 					strobe.SrcIP, strobe.DstIP)
 			}
 		}
@@ -234,8 +234,8 @@ func TestSlowBeaconNotExcludedByStrobeGate(t *testing.T) {
 		t.Errorf("slow C2 beacon (rate ≈ 0.06/s) should NOT emit Strobe — below StrobeMinRatePerSec=%.2f",
 			config.Default().StrobeMinRatePerSec)
 	}
-	if !hasFindingType(findings, "Beaconing") {
-		t.Errorf("slow C2 beacon (1000 connections at ~16s intervals) should emit Beaconing; got: %v",
+	if !hasFindingType(findings, "Beacon") {
+		t.Errorf("slow C2 beacon (1000 connections at ~16s intervals) should emit Beacon; got: %v",
 			findingTypes(findings))
 	}
 }
@@ -250,7 +250,7 @@ func TestRareBoostSuppressedWhenSNIPresent(t *testing.T) {
 	pk := pairKey{sensor: "s1", src: "192.168.1.10", dst: "172.64.149.56"}
 	boostDetail := " | Prevalence: 1/50 (<2%) — rare dst, score boosted"
 	a.findings = append(a.findings, model.Finding{
-		Type:     "Beaconing",
+		Type:     "Beacon",
 		Score:    90,
 		Severity: model.SevCritical,
 		Sensor:   pk.sensor,
@@ -295,7 +295,7 @@ func TestRareBoostRetainedWhenNoSNI(t *testing.T) {
 	pk := pairKey{sensor: "s1", src: "192.168.1.10", dst: "203.0.113.1"}
 	boostDetail := " | Prevalence: 1/50 (<2%) — rare dst, score boosted"
 	a.findings = append(a.findings, model.Finding{
-		Type:     "Beaconing",
+		Type:     "Beacon",
 		Score:    90,
 		Severity: model.SevCritical,
 		Sensor:   pk.sensor,
@@ -323,6 +323,56 @@ func TestRareBoostRetainedWhenNoSNI(t *testing.T) {
 	}
 	if strings.Contains(f.Detail, "boost suppressed") {
 		t.Error("Detail incorrectly says 'boost suppressed' when no SNI was found")
+	}
+}
+
+// TestBeaconModalPortLabel asserts the dominant-port labeling fix. A
+// single (src,dst) beacon whose connections span two destination ports —
+// 8 early conns on 22, 40 later conns on 443 — must be labeled with the
+// MODAL port (443, the one carrying the beacon), not the first-seen port
+// (22). Pre-fix the analyzer reported st.firstPort, so the earliest stray
+// connection's port mislabeled the finding (the 110382 bug). The minority
+// port must also be surfaced, not silently dropped: the Detail carries a
+// co-traffic line naming port 22, its connection count, byte volume, and
+// first/last-seen timestamps.
+func TestBeaconModalPortLabel(t *testing.T) {
+	a := New(config.Default(), "", nil, nil)
+	a.feodoIPs = map[string]bool{}
+	a.urlhausIPs = map[string]bool{}
+	a.urlhausHosts = map[string]bool{}
+	findings := a.Analyze([]string{"testdata/zeek/beacon_multiport/conn.log"})
+
+	var b *model.Finding
+	for i := range findings {
+		if findings[i].Type == "Beacon" {
+			b = &findings[i]
+			break
+		}
+	}
+	if b == nil {
+		t.Fatalf("expected a Beacon finding from beacon_multiport fixture, got types: %v", findingTypes(findings))
+	}
+
+	if b.DstPort != "443" {
+		t.Errorf("DstPort = %q; want \"443\" — beacon must be labeled with the modal port (40 conns), not the first-seen port 22 (8 conns)", b.DstPort)
+	}
+	if !strings.Contains(b.Detail, "co-traffic to dst:") {
+		t.Errorf("Detail missing co-traffic line, got: %s", b.Detail)
+	}
+	if !strings.Contains(b.Detail, "22×8") {
+		t.Errorf("co-traffic line must name minority port 22 with its 8 conns, got: %s", b.Detail)
+	}
+	if !strings.Contains(b.Detail, "14.1 KB") {
+		t.Errorf("co-traffic line must carry port-22 byte volume (14.1 KB), got: %s", b.Detail)
+	}
+	if !strings.Contains(b.Detail, "2024-01-15 12:00") || !strings.Contains(b.Detail, "2024-01-15 12:35") {
+		t.Errorf("co-traffic line must carry port-22 first/last-seen timestamps (2024-01-15 12:00→12:35), got: %s", b.Detail)
+	}
+	// The dominant port is the label, never duplicated into the co-traffic
+	// list — only the OTHER ports appear there.
+	coIdx := strings.Index(b.Detail, "co-traffic to dst:")
+	if coIdx >= 0 && strings.Contains(b.Detail[coIdx:], "443×") {
+		t.Errorf("dominant port 443 must not appear in its own co-traffic list, got: %s", b.Detail[coIdx:])
 	}
 }
 

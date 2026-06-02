@@ -1,6 +1,6 @@
 # beacon_url
 
-Original golden-file scenario. Exercises Beaconing (perfectly-regular conn
+Original golden-file scenario. Exercises Beacon (perfectly-regular conn
 fan-out) and Suspicious URL (URLhaus host match).
 
 ## Inputs
@@ -16,7 +16,7 @@ fan-out) and Suspicious URL (URLhaus host match).
 
 ## Findings produced
 
-- `Beaconing` (HIGH, 70)
+- `Beacon` (HIGH, 70)
 - `Suspicious URL` (CRITICAL, 96)
 - `TI Hit (Domain)` (CRITICAL, 97) — URLhaus domain match in `checkTI`
 - `Host Risk Score` (HIGH, 60) — composite roll-up of the above

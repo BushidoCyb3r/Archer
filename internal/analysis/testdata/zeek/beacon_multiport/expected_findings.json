@@ -1,0 +1,21 @@
+[
+  {
+    "type": "Beacon",
+    "severity": "MEDIUM",
+    "score": 54,
+    "src_ip": "192.168.1.50",
+    "dst_ip": "198.51.100.77",
+    "dst_port": "443",
+    "detail": "Connections: 48 | Mean interval: 300.0s | CV: 0.00 | Score components: ts=1.00 ds=1.00 hist=1.00 dur=0.00 conf=0.73 | ts_layers: raw=1.00 mm=0.00 ent=0.50 | co-traffic to dst: 22×8 (14.1 KB, 2024-01-15 12:00→2024-01-15 12:35)",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Host Risk Score",
+    "severity": "LOW",
+    "score": 23,
+    "src_ip": "192.168.1.50",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 23 | Detections: [Beacon]",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

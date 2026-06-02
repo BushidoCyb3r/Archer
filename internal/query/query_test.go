@@ -20,7 +20,7 @@ func matches(t *testing.T, q string, f model.Finding) bool {
 
 func beacon() model.Finding {
 	return model.Finding{
-		Type:     "Beaconing",
+		Type:     "Beacon",
 		Severity: model.SevCritical,
 		Score:    98,
 		SrcIP:    "10.2.4.9",
@@ -46,8 +46,8 @@ func TestFieldExactMatch(t *testing.T) {
 		q    string
 		want bool
 	}{
-		{"type:Beaconing", true},
-		{"type:beaconing", true}, // case-insensitive
+		{"type:Beacon", true},
+		{"type:beacon", true}, // case-insensitive
 		{`type:"DNS Tunneling"`, false},
 		{"severity:CRITICAL", true},
 		{"severity:critical", true},
@@ -68,7 +68,7 @@ func TestBareTermSubstringAcrossFields(t *testing.T) {
 		q    string
 		want bool
 	}{
-		{"Beaconing", true},  // type
+		{"Beacon", true},     // type
 		{"rescued", true},    // detail substring
 		{"443", true},        // port
 		{"nonsense", false},  //
@@ -88,14 +88,14 @@ func TestBooleanOperators(t *testing.T) {
 		q    string
 		want bool
 	}{
-		{"type:Beaconing AND severity:CRITICAL", true},
-		{"type:Beaconing AND severity:HIGH", false},
+		{"type:Beacon AND severity:CRITICAL", true},
+		{"type:Beacon AND severity:HIGH", false},
 		{`type:"DNS Tunneling" OR severity:CRITICAL`, true},
 		{`type:"DNS Tunneling" OR severity:HIGH`, false},
-		{"NOT type:Beaconing", false},
+		{"NOT type:Beacon", false},
 		{`NOT type:"DNS Tunneling"`, true},
-		{"type:Beaconing severity:CRITICAL", true}, // implicit AND
-		{"type:Beaconing severity:HIGH", false},    // implicit AND
+		{"type:Beacon severity:CRITICAL", true}, // implicit AND
+		{"type:Beacon severity:HIGH", false},    // implicit AND
 	}
 	for _, tc := range tests {
 		if got := matches(t, tc.q, f); got != tc.want {
@@ -105,7 +105,7 @@ func TestBooleanOperators(t *testing.T) {
 }
 
 func TestPrecedenceAndGrouping(t *testing.T) {
-	f := beacon() // type=Beaconing, sev=CRITICAL
+	f := beacon() // type=Beacon, sev=CRITICAL
 	tests := []struct {
 		q    string
 		want bool
@@ -116,7 +116,7 @@ func TestPrecedenceAndGrouping(t *testing.T) {
 		{`type:"DNS Tunneling" AND (severity:HIGH OR severity:CRITICAL)`, false},
 		// NOT binds tighter than AND.
 		{`NOT type:"DNS Tunneling" AND severity:CRITICAL`, true},
-		{"(type:Beaconing OR type:Strobe) AND severity:CRITICAL", true},
+		{"(type:Beacon OR type:Strobe) AND severity:CRITICAL", true},
 	}
 	for _, tc := range tests {
 		if got := matches(t, tc.q, f); got != tc.want {
@@ -141,13 +141,13 @@ func TestQuotedPhrase(t *testing.T) {
 
 func TestParseErrors(t *testing.T) {
 	bad := []string{
-		"type:",              // missing value
-		"(type:Beaconing",    // unbalanced paren
-		"type:Beaconing )",   // stray close paren
-		"AND type:Beaconing", // leading binary operator
-		"type:Beaconing AND", // trailing binary operator
-		"score:[80 TO]",      // malformed range
-		"score:[TO 100]",     // malformed range
+		"type:",           // missing value
+		"(type:Beacon",    // unbalanced paren
+		"type:Beacon )",   // stray close paren
+		"AND type:Beacon", // leading binary operator
+		"type:Beacon AND", // trailing binary operator
+		"score:[80 TO]",   // malformed range
+		"score:[TO 100]",  // malformed range
 	}
 	for _, q := range bad {
 		if _, err := Parse(q); err == nil {

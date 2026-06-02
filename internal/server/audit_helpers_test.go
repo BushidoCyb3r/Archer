@@ -143,7 +143,7 @@ func TestCapStringSlice_BothEnds(t *testing.T) {
 
 // TestFindingAuditName covers the cosmetic improvement to TargetName
 // on finding_* audit rows — analysts skimming the audit log should
-// see distinguishing detail, not five rows all labeled "Beaconing".
+// see distinguishing detail, not five rows all labeled "Beacon".
 func TestFindingAuditName(t *testing.T) {
 	cases := []struct {
 		name string
@@ -152,8 +152,8 @@ func TestFindingAuditName(t *testing.T) {
 	}{
 		{
 			"full beacon",
-			model.Finding{Type: "Beaconing", SrcIP: "10.4.1.7", DstIP: "185.99.135.7", DstPort: "443"},
-			"Beaconing 10.4.1.7 → 185.99.135.7:443",
+			model.Finding{Type: "Beacon", SrcIP: "10.4.1.7", DstIP: "185.99.135.7", DstPort: "443"},
+			"Beacon 10.4.1.7 → 185.99.135.7:443",
 		},
 		{
 			"no port",

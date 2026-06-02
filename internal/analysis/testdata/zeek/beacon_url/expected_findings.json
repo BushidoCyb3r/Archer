@@ -1,6 +1,6 @@
 [
   {
-    "type": "Beaconing",
+    "type": "Beacon",
     "severity": "HIGH",
     "score": 70,
     "src_ip": "192.168.1.5",
@@ -15,7 +15,7 @@
     "score": 81,
     "src_ip": "192.168.1.5",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 81 | Detections: [Beaconing Suspicious URL TI Hit (Domain)]",
+    "detail": "Composite risk: 81 | Detections: [Beacon Suspicious URL TI Hit (Domain)]",
     "timestamp": "2024-01-15 12:00:00"
   },
   {

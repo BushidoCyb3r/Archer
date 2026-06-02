@@ -1,6 +1,6 @@
 # dns_beacon
 
-Exercises the **DNS Beaconing** detector (§2g) — the DNS-cadence
+Exercises the **DNS Beacon** detector (§2g) — the DNS-cadence
 scorer on the `(src, apex)` key. This is the Cobalt-Strike-style DNS
 C2 heartbeat that slips *both* existing DNS-aware detectors.
 
@@ -20,11 +20,11 @@ C2 heartbeat that slips *both* existing DNS-aware detectors.
   unique subdomain under the apex (≪ `DNSUniqueSubdomainMin=50`).
   Nothing in the per-query length/entropy path or the diversity
   path fires.
-- **Beaconing** (conn-level): keyed on IP pairs from `conn.log`,
+- **Beacon** (conn-level): keyed on IP pairs from `conn.log`,
   which this fixture does not contain. The conn detector never
   consumes DNS query timing, so it sees nothing.
 
-## Why DNS Beaconing fires
+## Why DNS Beacon fires
 
 `(192.168.2.60, update-svc.net)` accumulates 120 NOERROR queries
 (≥ `DNSBeaconMinQueries=20`), perfectly regular intervals
@@ -35,6 +35,6 @@ confMod=1.00 → score 99, CRITICAL.
 
 ## Expected
 
-- `DNS Beaconing` — CRITICAL, score 99, `192.168.2.60 →
+- `DNS Beacon` — CRITICAL, score 99, `192.168.2.60 →
   update-svc.net:53`.
 - `Host Risk Score` — MEDIUM, score 30, the roll-up.

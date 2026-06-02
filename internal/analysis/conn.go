@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand/v2" // nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used -- Algorithm-R reservoir sampling, statistical not security; crypto/rand is wrong here
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/model"
@@ -89,8 +90,14 @@ type beaconState struct {
 	minTs      float64
 	maxTs      float64
 	firstTs    float64
-	firstPort  int
 	firstProto string
+	// portStats accumulates per-destination-port traffic for this
+	// (src,dst) beacon. The label uses the modal (most-connections)
+	// port — not the first-seen one, which mislabeled beacons when an
+	// unrelated early connection landed on a different port. Every
+	// other port is surfaced in the finding's co-traffic Detail line
+	// so a minority port is never silently dropped.
+	portStats map[int]*portStat
 	// firstUID captures the Zeek connection UID of the first
 	// contribution to this beacon. Used at emit time to look up
 	// SNI from sslUIDIndex (when the connection had TLS), which
@@ -107,6 +114,88 @@ type beaconState struct {
 	sniCandidates []string
 	spectralTs    []float64
 	spectralHead  int // next write position in the spectralTs ring buffer
+}
+
+// portStat is the per-destination-port roll-up behind a beacon's modal
+// port label and co-traffic Detail line.
+type portStat struct {
+	conns           int
+	bytes           float64 // orig_bytes + resp_bytes, both directions
+	firstTs, lastTs float64
+}
+
+func (st *beaconState) addPort(port int, origB, respB, ts float64) {
+	if st.portStats == nil {
+		st.portStats = make(map[int]*portStat)
+	}
+	ps := st.portStats[port]
+	if ps == nil {
+		ps = &portStat{}
+		st.portStats[port] = ps
+	}
+	ps.conns++
+	ps.bytes += origB + respB
+	if ts > 0 {
+		if ps.firstTs == 0 || ts < ps.firstTs {
+			ps.firstTs = ts
+		}
+		if ts > ps.lastTs {
+			ps.lastTs = ts
+		}
+	}
+}
+
+// modalAndCoTraffic returns the dominant destination port (most
+// connections, ties broken by lower port number for determinism) and a
+// Detail fragment summarizing every other port the pair touched. The
+// fragment is empty for a single-port beacon — the common case — so
+// normal findings carry no extra text.
+func modalAndCoTraffic(portStats map[int]*portStat) (int, string) {
+	if len(portStats) == 0 {
+		return 0, ""
+	}
+	ports := make([]int, 0, len(portStats))
+	for p := range portStats {
+		ports = append(ports, p)
+	}
+	sort.Slice(ports, func(i, j int) bool {
+		a, b := portStats[ports[i]], portStats[ports[j]]
+		if a.conns != b.conns {
+			return a.conns > b.conns
+		}
+		return ports[i] < ports[j]
+	})
+	modal := ports[0]
+	if len(ports) == 1 {
+		return modal, ""
+	}
+	parts := make([]string, 0, len(ports)-1)
+	for _, p := range ports[1:] {
+		ps := portStats[p]
+		parts = append(parts, fmt.Sprintf("%d×%d (%s, %s→%s)",
+			p, ps.conns, humanBytes(ps.bytes), fmtTSShort(ps.firstTs), fmtTSShort(ps.lastTs)))
+	}
+	return modal, " | co-traffic to dst: " + strings.Join(parts, ", ")
+}
+
+func humanBytes(b float64) string {
+	switch {
+	case b >= 1<<30:
+		return fmt.Sprintf("%.1f GB", b/(1<<30))
+	case b >= 1<<20:
+		return fmt.Sprintf("%.1f MB", b/(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%.1f KB", b/(1<<10))
+	default:
+		return fmt.Sprintf("%.0f B", b)
+	}
+}
+
+func fmtTSShort(ts float64) string {
+	if ts == 0 {
+		return "?"
+	}
+	return time.Unix(int64(ts), 0).UTC().Format("2006-01-02 15:04")
 }
 
 func (a *Analyzer) analyzeConn(files []string) {
@@ -351,7 +440,6 @@ func (a *Analyzer) analyzeConn(files []string) {
 				st = &beaconState{
 					hourMap:    make(map[int]int),
 					firstTs:    ts,
-					firstPort:  dstPort,
 					firstProto: proto,
 					minTs:      ts,
 					maxTs:      ts,
@@ -367,14 +455,12 @@ func (a *Analyzer) analyzeConn(files []string) {
 				// hourMap/tsData were computed on N-2 samples while the
 				// finding still claimed N. Audited 2026-05-10.
 				for _, e := range preBeaconRecs[pk] {
+					st.addPort(e.port, e.origB, e.respB, e.ts)
 					if e.ts > 0 {
 						if st.firstTs == 0 || e.ts < st.firstTs {
 							st.firstTs = e.ts
 							if e.uid != "" {
 								st.firstUID = e.uid
-							}
-							if e.port != 0 {
-								st.firstPort = e.port
 							}
 							if e.proto != "" {
 								st.firstProto = e.proto
@@ -448,6 +534,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 				st.hourMap[int(ts)/3600]++
 				appendSpectralRing(&st.spectralTs, &st.spectralHead, ts)
 			}
+			st.addPort(dstPort, origB, respB, ts)
 			if !wasNew && uid != "" && len(st.sniCandidates) < sniCandidateCap {
 				st.sniCandidates = append(st.sniCandidates, uid)
 			}
@@ -474,7 +561,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 	}
 	a.mu.Unlock()
 
-	// ── Beaconing ────────────────────────────────────────────────────────────
+	// ── Beacon ────────────────────────────────────────────────────────────
 	var spectralBlockedCount int
 	for pk, st := range beacon {
 		totalObserved := pairCounts[pk]
@@ -628,6 +715,8 @@ func (a *Analyzer) analyzeConn(files []string) {
 			}
 		}
 		detail += prevDetail
+		modalPort, coTraffic := modalAndCoTraffic(st.portStats)
+		detail += coTraffic
 		// SNI/JA3/JA4 enrichment is deferred to enrichBeaconSNI(), which
 		// runs after wg1.Wait() when sslUIDIndex is fully populated and
 		// there is no race with analyzeSSL. unboostedScore is carried along
@@ -642,13 +731,13 @@ func (a *Analyzer) analyzeConn(files []string) {
 			a.mu.Unlock()
 		}
 		a.add(model.Finding{
-			Type:            "Beaconing",
+			Type:            "Beacon",
 			Severity:        sev,
 			Score:           score,
 			Sensor:          pk.sensor,
 			SrcIP:           pk.src,
 			DstIP:           pk.dst,
-			DstPort:         fmt.Sprint(st.firstPort),
+			DstPort:         fmt.Sprint(modalPort),
 			Detail:          detail,
 			Timestamp:       fmtTS(st.firstTs),
 			TSData:          tsData,
@@ -772,7 +861,7 @@ func reservoirAddF(buf []float64, seen int, v float64, capN int) ([]float64, int
 }
 
 // beaconMinEmitScore is the minimum composite score (0-100) required before
-// a Beaconing or HTTP Beaconing finding is emitted. Pairs scoring below this
+// a Beacon or HTTP Beacon finding is emitted. Pairs scoring below this
 // threshold are discarded — the statistical signal is too weak to distinguish
 // from coincidental same-order-of-magnitude traffic variance.
 //

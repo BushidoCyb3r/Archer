@@ -28,6 +28,6 @@ unchanged but multi-period beacons stop being punished.
 
 ## Findings produced
 
-- `Beaconing` (HIGH, score 72) — primary target. The multimodal
+- `Beacon` (HIGH, score 72) — primary target. The multimodal
   augmentation lifts the ts sub-score above the raw Bowley/MAD result.
 - `Host Risk Score` (MEDIUM, score 26) — automatic roll-up.

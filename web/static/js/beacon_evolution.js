@@ -1,5 +1,5 @@
 // beacon_evolution.js — 30-day score evolution chart for the
-// Beaconing / HTTP Beaconing / DNS Beaconing finding detail pane.
+// Beacon / HTTP Beacon / DNS Beacon finding detail pane.
 //
 // Pure SVG drawing (no charting library). The chart shows up to 30
 // daily snapshots persisted by store.SetFindings's beacon_history
@@ -37,7 +37,7 @@ const BeaconEvolution = (() => {
   function load(findingID, type) {
     _lastRows = null;
     _currentFindingID = null;
-    if (type !== 'Beaconing' && type !== 'HTTP Beaconing' && type !== 'DNS Beaconing') return;
+    if (type !== 'Beacon' && type !== 'HTTP Beacon' && type !== 'DNS Beacon') return;
     _currentFindingID = findingID;
     fetch(`/api/findings/${findingID}/history`, { credentials: 'same-origin' })
       .then(r => {

@@ -32,32 +32,32 @@ func TestImport_RejectsFabricatedFindings(t *testing.T) {
 		},
 		{
 			name: "Out-of-range Score",
-			body: `{"findings":[{"type":"Beaconing","severity":"HIGH","score":99999,"src_ip":"10.0.0.1","dst_ip":"1.1.1.1","timestamp":"2026-05-10 12:00:00"}]}`,
+			body: `{"findings":[{"type":"Beacon","severity":"HIGH","score":99999,"src_ip":"10.0.0.1","dst_ip":"1.1.1.1","timestamp":"2026-05-10 12:00:00"}]}`,
 			want: http.StatusBadRequest,
 		},
 		{
 			name: "Negative Score",
-			body: `{"findings":[{"type":"Beaconing","severity":"HIGH","score":-1,"src_ip":"10.0.0.1","dst_ip":"1.1.1.1","timestamp":"2026-05-10 12:00:00"}]}`,
+			body: `{"findings":[{"type":"Beacon","severity":"HIGH","score":-1,"src_ip":"10.0.0.1","dst_ip":"1.1.1.1","timestamp":"2026-05-10 12:00:00"}]}`,
 			want: http.StatusBadRequest,
 		},
 		{
 			name: "Bogus Severity",
-			body: `{"findings":[{"type":"Beaconing","severity":"PWNED","score":50,"src_ip":"10.0.0.1","dst_ip":"1.1.1.1","timestamp":"2026-05-10 12:00:00"}]}`,
+			body: `{"findings":[{"type":"Beacon","severity":"PWNED","score":50,"src_ip":"10.0.0.1","dst_ip":"1.1.1.1","timestamp":"2026-05-10 12:00:00"}]}`,
 			want: http.StatusBadRequest,
 		},
 		{
 			name: "Malformed Timestamp",
-			body: `{"findings":[{"type":"Beaconing","severity":"HIGH","score":50,"src_ip":"10.0.0.1","dst_ip":"1.1.1.1","timestamp":"yesterday"}]}`,
+			body: `{"findings":[{"type":"Beacon","severity":"HIGH","score":50,"src_ip":"10.0.0.1","dst_ip":"1.1.1.1","timestamp":"yesterday"}]}`,
 			want: http.StatusBadRequest,
 		},
 		{
 			name: "Bogus Status",
-			body: `{"findings":[{"type":"Beaconing","severity":"HIGH","score":50,"src_ip":"10.0.0.1","dst_ip":"1.1.1.1","timestamp":"2026-05-10 12:00:00","status":"pwned"}]}`,
+			body: `{"findings":[{"type":"Beacon","severity":"HIGH","score":50,"src_ip":"10.0.0.1","dst_ip":"1.1.1.1","timestamp":"2026-05-10 12:00:00","status":"pwned"}]}`,
 			want: http.StatusBadRequest,
 		},
 		{
 			name: "Valid Finding Accepted",
-			body: `{"findings":[{"type":"Beaconing","severity":"HIGH","score":50,"src_ip":"10.0.0.1","dst_ip":"1.1.1.1","timestamp":"2026-05-10 12:00:00"}]}`,
+			body: `{"findings":[{"type":"Beacon","severity":"HIGH","score":50,"src_ip":"10.0.0.1","dst_ip":"1.1.1.1","timestamp":"2026-05-10 12:00:00"}]}`,
 			want: http.StatusOK,
 		},
 	}
@@ -117,7 +117,7 @@ func TestImport_RejectsCorruptJSON(t *testing.T) {
 // contributors, and chains where contributors reference other
 // contributors. The invariant covers all three.
 func TestImport_PreservesCorrelationsAcrossIDRemap(t *testing.T) {
-	// Export shape: Beaconing (old ID 47) and DNS Tunneling (old ID
+	// Export shape: Beacon (old ID 47) and DNS Tunneling (old ID
 	// 92) both contribute to Correlated Activity (old ID 200). Each
 	// contributor lists the sibling + the correlation row. The
 	// correlation row lists both contributors. The old IDs are
@@ -128,7 +128,7 @@ func TestImport_PreservesCorrelationsAcrossIDRemap(t *testing.T) {
 		Findings []model.Finding `json:"findings"`
 	}{
 		Findings: []model.Finding{
-			{ID: 47, Type: "Beaconing", Severity: model.SevHigh, Score: 85, SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Timestamp: "2026-05-10 09:00:00", Correlations: []int{92, 200}},
+			{ID: 47, Type: "Beacon", Severity: model.SevHigh, Score: 85, SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Timestamp: "2026-05-10 09:00:00", Correlations: []int{92, 200}},
 			{ID: 92, Type: "DNS Tunneling", Severity: model.SevMedium, Score: 60, SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Timestamp: "2026-05-10 14:00:00", Correlations: []int{47, 200}},
 			{ID: 200, Type: model.TypeCorrelatedActivity, Severity: model.SevHigh, Score: 85, SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Timestamp: "2026-05-10 09:00:00", Correlations: []int{47, 92}},
 		},
@@ -156,9 +156,9 @@ func TestImport_PreservesCorrelationsAcrossIDRemap(t *testing.T) {
 	for _, f := range stored {
 		byType[f.Type] = f
 	}
-	bcn, ok := byType["Beaconing"]
+	bcn, ok := byType["Beacon"]
 	if !ok {
-		t.Fatal("Beaconing missing from store")
+		t.Fatal("Beacon missing from store")
 	}
 	dns, ok := byType["DNS Tunneling"]
 	if !ok {
@@ -189,7 +189,7 @@ func TestImport_PreservesCorrelationsAcrossIDRemap(t *testing.T) {
 			}
 		}
 	}
-	expect("Beaconing", bcn.Correlations, dns.ID, corr.ID)
+	expect("Beacon", bcn.Correlations, dns.ID, corr.ID)
 	expect("DNS Tunneling", dns.Correlations, bcn.ID, corr.ID)
 	expect("Correlated Activity", corr.Correlations, bcn.ID, dns.ID)
 
@@ -330,7 +330,7 @@ func TestSpreadsheetSafe_PrefixesDangerousLeadingChars(t *testing.T) {
 		// Safe inputs unchanged.
 		{`192.168.1.1`, `192.168.1.1`},
 		{``, ``},
-		{`Beaconing`, `Beaconing`},
+		{`Beacon`, `Beacon`},
 		{`http://example.com`, `http://example.com`},
 	}
 	for _, c := range cases {

@@ -59,7 +59,7 @@ Two design choices matter for understanding what follows:
 
 ---
 
-## 2. Beaconing — the headline detection
+## 2. Beacon — the headline detection
 
 **What it is.** A beacon is a host that "phones home" on a regular cadence:
 every 60 seconds, every 5 minutes, every hour. Malware C2 implants do this so
@@ -82,9 +82,25 @@ Archer tracks:
 - A 24-hour-of-day histogram of when the connections happened.
 - The first and last timestamps in this pair, and the dataset-wide first and
   last timestamps.
+- A per-destination-port roll-up — connection count, byte volume (both
+  directions), and first/last-seen timestamp — for every port the pair
+  touched.
 
 A pair is only scored if it has at least `BeaconMinConnections` connections
 (default 4) and at least 3 intervals.
+
+**Destination-port labeling.** Connections are aggregated per
+`(sensor, source, destination)` — *not* per port — so a beacon that runs on
+a single port is still scored on all of that pair's traffic. The finding's
+`dst_port` is the **modal** port: the one carrying the most connections (ties
+broken by the lower port number for determinism). Earlier the port came from
+the *first-seen* connection, so an unrelated early connection on a different
+port — an SSH probe a few minutes before the HTTPS beacon proper — mislabeled
+the whole finding. Every other port the pair touched is surfaced in the Detail
+line's **co-traffic** segment (§2.3) rather than silently dropped, so the
+minority-port context is never lost. Because `dst_port` feeds `Fingerprint()`
+and the `beacon_history` key, correcting the label re-keys a multi-port
+beacon's identity once on the first pass after the change.
 
 ### 2.2 The four sub-scores
 
@@ -270,7 +286,7 @@ The path is gated to keep its CPU cost off the hot path:
    unreliable on too few samples.
 
 When the spectral path wins (`spec.Score > tsScore`), the
-Beaconing finding's Detail string gets a tag:
+Beacon finding's Detail string gets a tag:
 
 ```
 Connections: 200 | Mean interval: 60.4s | CV: 0.32 |
@@ -417,7 +433,7 @@ meaningful; the ≥ 50-source guard prevents the bonus from firing on small
 sensor deployments where every external IP looks rare by definition.
 
 The modifier uses prevalence data built from `conn.log` Phase 1 observations.
-HTTP Beaconing reads the same map. For HTTP-only analysis runs (no conn.log),
+HTTP Beacon reads the same map. For HTTP-only analysis runs (no conn.log),
 no prevalence adjustment is applied.
 
 #### (f) conf_mod — sample-size confidence
@@ -461,6 +477,14 @@ ts_layers: raw=0.97 mm=0.00 ent=0.91
 - **ts_layers** breaks down the timing score: `raw` (Bowley + MAD),
   `mm` (multimodal rescue), `ent` (entropy rescue). The composed `ts`
   is the max of these three plus spectral if it fired.
+- **co-traffic to dst** appears only on a multi-port pair. It lists every
+  destination port *other* than the labeled (modal) one this `(src, dst)`
+  pair touched, each as `port×conns (bytes, first→last)` — e.g.
+  `co-traffic to dst: 22×8 (14.1 KB, 2026-05-08 04:11→2026-05-31 09:02)`.
+  This is how a minority port — folded into the same beacon because
+  aggregation is per-pair, not per-port (§2.1) — stays visible after the
+  finding is labeled with the dominant port. Absent for the common
+  single-port beacon.
 
 As of v0.25.0 the detail pane renders a **structured triage header**
 above this raw line — jitter % (the interval CV as a percentage),
@@ -500,7 +524,7 @@ changed**, and the golden corpus is unchanged:
   ranges, and beacon-scoping as the sub-scores: `conns:<=10000`,
   `meanint:>=3600`, `jitter:<0.2`. These read the migration-0018 columns
   directly, so they're filterable wherever the sub-scores are.
-- **JA3 / JA4 cross-reference.** A conn-level Beaconing finding carries
+- **JA3 / JA4 cross-reference.** A conn-level Beacon finding carries
   the TLS client fingerprint of its seed connection (lifted from the
   same `ssl.log` index that resolves the SNI). When the sensor runs the
   Zeek JA4+ plugin the finding carries JA4; stock Zeek produces JA3.
@@ -547,7 +571,7 @@ changed**, and the golden corpus is unchanged:
   its findings — including a rare fingerprint that emitted no finding at
   all. Same concern math as the per-finding badge (`fingerprintConcernLevel`),
   same enrichment-only contract: the inventory never alters a score.
-- **HTTP-beacon URI footprint.** An HTTP Beaconing finding carries the
+- **HTTP-beacon URI footprint.** An HTTP Beacon finding carries the
   request-path footprint of its `(src,dst,host)` group
   (count-descending, capped). A benign beacon hits one stable
   endpoint; a C2 has a small fixed set of control paths (`/poll`,
@@ -594,14 +618,14 @@ regularity, or high persistence score provide additional support.
 
 A beacon to `pool.ntp.org` is operational noise; the same timing
 shape to `kx9j3qm2pflw.com` is high-confidence C2. After the
-Beaconing, HTTP Beaconing, and DNS Beaconing detectors emit, a
+Beacon, HTTP Beacon, and DNS Beacon detectors emit, a
 post-Phase-2 sweep in `internal/analysis/dga.go` looks at each
 finding's destination Hostname and decides whether the registrable
 domain looks algorithmically generated.
 
-**Where the Hostname comes from.** conn-level Beaconing gets it
-from `sslUIDIndex` (TLS SNI). HTTP Beaconing gets it from the
-`Host` header in `http.log`. DNS Beaconing gets it from the query
+**Where the Hostname comes from.** conn-level Beacon gets it
+from `sslUIDIndex` (TLS SNI). HTTP Beacon gets it from the
+`Host` header in `http.log`. DNS Beacon gets it from the query
 apex (`k.apex`) — a DNS C2 beacon to a DGA-generated domain name
 is a first-class signal, so the same augmentation applies.
 Pure-TCP beacons to bare IPs without observable DNS get no DGA
@@ -649,7 +673,7 @@ calibrate the thresholds against their own traffic.
 - No DNS-log correlation: TCP beacons to raw IPs that resolved
   via dns.log before the analysis window don't get scored.
 
-**Calibration.** The Settings → Beaconing pane has both
+**Calibration.** The Settings → Beacon pane has both
 threshold inputs alongside an enable toggle. Bump the entropy
 threshold up (3.8) if English-shaped names are tripping; drop
 the bigram threshold (more negative, e.g. -5.0) if DGA names
@@ -667,8 +691,8 @@ client that fixed itself. The score-evolution chart in the
 finding detail pane surfaces this trajectory.
 
 **Where the data comes from.** `internal/store/beacon_history.go`
-hooks `Store.SetFindings`: every time a Beaconing, HTTP Beaconing,
-or DNS Beaconing finding lands, one row is written to `beacon_history`
+hooks `Store.SetFindings`: every time a Beacon, HTTP Beacon,
+or DNS Beacon finding lands, one row is written to `beacon_history`
 keyed by `(Finding.BeaconHistoryKey(), today_UTC)` with the
 composite score plus the four sub-axis components (Timing, Data size,
 Histogram, Persistence — stored as `ts_score`/`ds_score`/`hist_score`/
@@ -739,7 +763,7 @@ dominant period); `spectral_period` is the dominant period in seconds
 (`0` means not rescued or period was not resolved). The evolution chart
 marks rescued days with a distinct indicator so the analyst can
 distinguish spectral-only days from full-score days. Returns `[]` (not
-404) for non-Beaconing types so the SPA can call unconditionally on any
+404) for non-Beacon types so the SPA can call unconditionally on any
 finding-detail open. See `docs/API.md` for the full shape.
 
 **The chart.** SVG-rendered in a modal opened from the **Score Chart**
@@ -771,7 +795,7 @@ like in this analysis window."
 
 ---
 
-## 3. HTTP Beaconing
+## 3. HTTP Beacon
 
 **Where.** `internal/analysis/http_analysis.go`.
 
@@ -783,7 +807,7 @@ hour-of-day histogram, the same persistence test, and the same `conf_mod`
 sample-size modifier with `HTTPBeaconMinRequests` as the base.
 
 The DGA hostname augmentation (see §2.5) applies on the `host`
-component of the (src, host, uri) key — HTTP Beaconing
+component of the (src, host, uri) key — HTTP Beacon
 findings with DGA-shaped Host headers get the same +15 score
 and severity bump.
 
@@ -806,7 +830,7 @@ where `span` is `last_timestamp − first_timestamp` for the pair. If either
 condition fails the pair is not classified as Strobe. The rate gate is the
 primary discriminator: a slow C2 beacon firing once a minute for 30 days has
 count 43 200 (above any count threshold) but rate ≈ 0.017/s (well below
-0.5/s), so it is correctly left for the Beaconing detector.
+0.5/s), so it is correctly left for the Beacon detector.
 
 ```
 score = clamp( 50 + 15·log10(count), 1, 88 )
@@ -814,9 +838,9 @@ score = clamp( 50 + 15·log10(count), 1, 88 )
 
 The detail string reports both count and rate: `Connection count: N | Rate: R/s (threshold: ≥0.5/s)`.
 
-**Strobe suppresses Beaconing.** A pair where Strobe fires (both conditions
-met) is excluded from the Beaconing analyzer's output. A pair where only the
-count floor is met but the rate gate fails is passed to the Beaconing analyzer
+**Strobe suppresses Beacon.** A pair where Strobe fires (both conditions
+met) is excluded from the Beacon analyzer's output. A pair where only the
+count floor is met but the rate gate fails is passed to the Beacon analyzer
 — it is a slow beacon, not a strobe.
 
 ---
@@ -971,13 +995,13 @@ session — it never appears in `dns.log`). When the SNI field is present,
 the detail includes the resolver hostname (e.g. `dns.google`) so the analyst
 can confirm resolver identity without a separate lookup.
 
-### 9.6 DNS Beaconing — query-cadence on (sensor, src, apex)
+### 9.6 DNS Beacon — query-cadence on (sensor, src, apex)
 
 The gap this closes: a regular-cadence, low-entropy, low-diversity DNS
 heartbeat to a single FQDN — the Cobalt-Strike DNS-C2 shape — slips
 *both* other DNS-aware paths and the conn-level beacon detector. DNS
 Tunneling (§9.2/§9.3) needs long high-entropy labels or high subdomain
-diversity; this has neither. Beaconing (§2) is keyed on `conn.log` IP
+diversity; this has neither. Beacon (§2) is keyed on `conn.log` IP
 pairs and never consumes DNS query timing; a DoH-free DNS beacon may
 produce no conn-level beacon at all.
 
@@ -1006,7 +1030,7 @@ IP pairs, reused here.
   shorter), so DNS-beacon persistence is retention-invariant too.
 
 `score = clamp(100·(ts·0.5 + div·0.25 + cov·0.25), 1, 100)`; Critical
-≥ 80, else High. DNS Beaconing carries the same structured triage
+≥ 80, else High. DNS Beacon carries the same structured triage
 fields as §2 (sample size, mean/median interval, jitter), the
 `ts/hist/dur` sub-scores, and the beacon chart TSData payload (the
 timing-scatter chart in the Beacon Chart dock tab is populated the same
@@ -1018,7 +1042,7 @@ surfaced in the Detail string, not overloaded onto `ds_score`).
 
 - **Diversity gate.** At or above `DNSUniqueSubdomainMin` the apex is
   exfil-shaped — DNS Tunneling owns it, and Correlated Activity links
-  the two if the cadence is also regular. DNS Beaconing does not fire.
+  the two if the cadence is also regular. DNS Beacon does not fire.
 - **NXDOMAIN exclusion.** NXDOMAIN responses are dropped from the
   cadence accumulation entirely: a beacon to a sinkholed/dead C2 is
   the NXDOMAIN-flood detector's finding (§9.1), and resolver-retry
@@ -1421,7 +1445,7 @@ roll-up's scoring algorithm.
 
 ### 12.9 Two-tier watch cadence
 
-Statistical detectors (Beaconing, HTTP analysis, DNS NXDOMAIN flood,
+Statistical detectors (Beacon, HTTP analysis, DNS NXDOMAIN flood,
 etc.) need the full temporal window of Zeek logs to spot patterns —
 beaconing math operates on hours/days of `(src, dst, port)` interval
 arrays. TI matching has no such requirement: each connection-to-bad-IP
@@ -1512,7 +1536,7 @@ analysts don't have to swivel-chair between two log surfaces.
 
 **Where.** `internal/analysis/correlate.go`.
 
-Per-record detectors are independent — Beaconing fires on `conn.log`,
+Per-record detectors are independent — Beacon fires on `conn.log`,
 DNS Tunneling fires on `dns.log`, TI Hit (Hash) fires on `files.log`.
 Each is a useful signal on its own, but the *combination* of multiple
 detectors lighting up on the **same (SrcIP, DstIP) pair** is
@@ -1545,17 +1569,17 @@ above the minimum, capped at 99. Severity from standard score bands
 (`≥80 Critical | ≥60 High | ≥40 Medium | else Low`). Concrete
 examples:
 
-- Beaconing(85) + DNS Tunneling(60) → 85 (Critical)
-- Beaconing(70) + DNS Tunneling(60) + Data Exfil(50) + Strobe(40)
+- Beacon(85) + DNS Tunneling(60) → 85 (Critical)
+- Beacon(70) + DNS Tunneling(60) + Data Exfil(50) + Strobe(40)
   → 70 + 5×2 = 80 (Critical, two extra types above minimum of 2)
-- HTTP Beaconing(50) + Suspicious URL(45) → 50 (High)
+- HTTP Beacon(50) + Suspicious URL(45) → 50 (High)
 
 **Historical context.** Like `aggregateRisk`, `correlateFindings`
 unions this-run findings with the historical store snapshot via
 `FindingsProvider` (NEW-67 pattern). A pair whose contributing
 detections existed last run but didn't re-fire this run still
 correlates as long as the historical findings are still in the store
-— removes the "yesterday's DNS Tunneling + today's Beaconing don't
+— removes the "yesterday's DNS Tunneling + today's Beacon don't
 correlate because we only see today's findings" gap.
 
 **Sensor resolution timing (v0.20.2).** `correlateFindings` partitions
@@ -1563,7 +1587,7 @@ pairs on `(Sensor, SrcIP, DstIP)` so multi-sensor overlapping captures
 don't conflate findings emitted by different Quiver collectors
 observing the same flow. The Fingerprint used by `SetFindings` for
 merge/dedup is `(Type, SrcIP, DstIP, DstPort, Sensor)`. Sensor is
-included because sensor-partitioned aggregate detectors (DNS Beaconing,
+included because sensor-partitioned aggregate detectors (DNS Beacon,
 DNS Subdomain DGA, and all conn/HTTP beacon types) emit one finding per
 sensor per pair; without Sensor in the key, two sensors observing the
 same (src, apex) would collapse to a single DB row, discarding one
@@ -1610,7 +1634,7 @@ last run keeps its `Correlations` slice through SetFindings, but
 correlate.go's annotation pass walks only this-run's `a.findings`
 slice and doesn't touch historical findings. The result: a
 contributor preserved across re-analyses (e.g. DNS Tunneling fires
-once a week, Beaconing fires daily) carries its slice as a record
+once a week, Beacon fires daily) carries its slice as a record
 of *past co-firing* rather than a guarantee of *current
 co-firing*. This is honest for analyst use — the chip click still
 resolves to a Correlated Activity row by (src, dst) triple, and if
@@ -1655,11 +1679,11 @@ contributes a weight:
 | TI Hit (Domain)         | 35     |
 | TI Hit (Hash)           | 35     |
 | Domain Fronting         | 32     |
-| Beaconing               | 30     |
-| DNS Beaconing           | 30     |
+| Beacon               | 30     |
+| DNS Beacon           | 30     |
 | SSL No-SNI on C2 Port   | 30     |
 | Suspicious URL          | 30     |
-| HTTP Beaconing          | 28     |
+| HTTP Beacon          | 28     |
 | Data Exfiltration       | 25     |
 | Suspicious File Download| 25     |
 | DNS Subdomain DGA       | 22     |
@@ -1777,7 +1801,7 @@ Score components: ts=1.00 ds=0.97 hist=0.92 dur=1.00 conf=1.00
 
 That same host might also pick up a `C2 Port` finding (port 443 is not on
 that list, so probably not), and would feed a Host Risk Score contribution of
-approximately 30 from Beaconing (weight 30 × (0.5 + 0.5×0.97) ≈ 30). Add a `Malicious JA3` or `Malicious JA4` hit with score 95 and the
+approximately 30 from Beacon (weight 30 × (0.5 + 0.5×0.97) ≈ 30). Add a `Malicious JA3` or `Malicious JA4` hit with score 95 and the
 composite jumps to approximately 30 + 39 = 69 — High severity (weight
 40, score-scale 0.975, one destination).
 
@@ -1785,7 +1809,7 @@ composite jumps to approximately 30 + 39 = 69 — High severity (weight
 
 ## 16. Retention vs. detection window — tuning the analyzer's reach
 
-Every statistical detector (Beaconing, HTTP Beaconing, DNS NXDOMAIN flood,
+Every statistical detector (Beacon, HTTP Beacon, DNS NXDOMAIN flood,
 DNS tunneling diversity, off-hours transfer) operates only on the records
 currently in `/logs`. Archived files under `/data/archive/` are out of scope
 for the regular analyzer — the manual "Scan Archive for IOCs" admin button

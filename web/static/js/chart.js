@@ -127,8 +127,8 @@ const BeaconChart = (() => {
       el.innerHTML = `<span class="stat-label">No timeline data on this finding.</span>`;
       return;
     }
-    const countLabel = _finding && _finding.type === 'HTTP Beaconing' ? 'Requests'
-                     : _finding && _finding.type === 'DNS Beaconing'  ? 'Queries'
+    const countLabel = _finding && _finding.type === 'HTTP Beacon' ? 'Requests'
+                     : _finding && _finding.type === 'DNS Beacon'  ? 'Queries'
                      : 'Connections';
     el.innerHTML =
       `<span><span class="stat-label">${countLabel}</span><span class="stat-value">${s.count.toLocaleString()}</span></span>` +
@@ -531,10 +531,10 @@ const BeaconChart = (() => {
     _finding = finding;
     _xRange = null;
     _brushing = false;
-    // DNS Beaconing emits timing-only TSData (byte columns are zero).
+    // DNS Beacon emits timing-only TSData (byte columns are zero).
     // Drop back to timeline if the analyst was on the bytes view, and
     // hide the Bytes button so they can't navigate to a meaningless chart.
-    const hasByteData = finding.type !== 'DNS Beaconing';
+    const hasByteData = finding.type !== 'DNS Beacon';
     if (!hasByteData && _viewMode === 'bytes') _viewMode = 'timeline';
     const dialog = document.getElementById('chart-dialog');
     document.getElementById('chart-title').textContent =

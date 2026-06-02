@@ -14,7 +14,7 @@ It assumes you already know what Zeek is, what C2 is, and that
 already know how attackers tune their beacons in 2026 — that's
 covered below.
 
-The current edition focuses on the **Beaconing** detection family
+The current edition focuses on the **Beacon** detection family
 (Archer's headline detection — see CLAUDE.md). The same shape
 applies to other detector families; per-family triage sections
 for HTTP Beacon, Suspicious Certificate, DNS Tunneling, Data
@@ -216,7 +216,7 @@ Two diagnostic charts open from the action footer:
   right-click or **Reset zoom** returns to auto-fit. PNG /
   JPEG export per view.
 - **Score Chart** (action bar button next to Beacon Chart, gated on
-  Beaconing / HTTP Beaconing / DNS Beaconing; grayed out until at
+  Beacon / HTTP Beacon / DNS Beacon; grayed out until at
   least one daily history row exists) — 30-day trajectory of the
   composite score plus the four sub-axes, updated once per UTC day
   on the first full pass. Opens the evolution modal directly.
@@ -287,7 +287,7 @@ expected, read the error before trusting the result.
 
 ### The shape of a query
 
-- **Field term:** `field:value` — `type:Beaconing`, `dst:185.220.101.7`,
+- **Field term:** `field:value` — `type:Beacon`, `dst:185.220.101.7`,
   `severity:critical`.
 - **Bare term:** a word with no field is a case-insensitive
   substring match across type, src, dst, port, detail, timestamp,
@@ -295,7 +295,7 @@ expected, read the error before trusting the result.
   literal (`185.220.101.7`) matches the src **or** dst exactly.
 - **Boolean logic:** `AND`, `OR`, `NOT`, and `()` grouping.
   Adjacent terms with no operator are an implicit `AND`, so
-  `type:Beaconing severity:critical` means both.
+  `type:Beacon severity:critical` means both.
 - **Wildcards:** `*` (any run) and `?` (one character) on string
   fields — `dst:185.220.*`, `hostname:cdn?.example.com`,
   `detail:*jitter*`.
@@ -320,7 +320,7 @@ expected, read the error before trusting the result.
 | Field | Matches | Notes |
 |---|---|---|
 | `id` | Finding ID | Numeric — `id:1542` exact, plus comparisons and `[lo TO hi]` ranges. Reads the finding's stable ID directly (not the Detail text), so it works regardless of what the Detail string says. The ID is shown in the detail pane's identity block. |
-| `type` | Finding type, e.g. `type:Beaconing` | Exact (case-insensitive). `type:beacons` matches the **whole** beacon family (Beaconing / HTTP Beaconing / DNS Beaconing). |
+| `type` | Finding type, e.g. `type:Beacon` | Exact (case-insensitive). `type:beacons` matches the **whole** beacon family (Beacon / HTTP Beacon / DNS Beacon). |
 | `severity` | `critical` / `high` / `medium` / `low` | Exact. |
 | `score` | Composite score | Numeric — comparisons and ranges. |
 | `src` / `dst` | Source / destination IP | Bare IP = exact; CIDR (`dst:185.220.101.0/24`) = containment; wildcard (`dst:185.220.*`) = prefix/substring. |
@@ -390,6 +390,20 @@ means either the malware uses a hardcoded IP (commodity,
 older) or it uses DoH and Archer didn't see the
 resolution.
 
+**Destination port + co-traffic.** The labeled port is the
+*modal* one — the port carrying the most connections for this
+src→dst pair. Archer aggregates a pair's connections across
+ports, so when a host reaches the same destination on more
+than one port the finding shows the dominant port and lists
+the rest in the detail line's **co-traffic** segment:
+`co-traffic to dst: 22×8 (14.1 KB, 2026-05-08 04:11→2026-05-31
+09:02)` — port, connection count, byte volume, and first/last
+seen. Co-traffic is your cue that the beacon shares a
+destination with other activity — an HTTPS implant on a host
+that also SSHes to the same box, say. A *regular* minority
+port deserves a second look (it may be a second channel); an
+irregular one is usually unrelated administrative traffic.
+
 **Connection count.** How many flows the detector saw to this
 pair in the analysis window. Below `BeaconMinConnections`
 (10 default) the finding doesn't fire; just above the
@@ -431,7 +445,7 @@ it survived across analysis runs via fingerprint merge). Read
 them. If someone's already acknowledged this exact pattern
 last quarter and the note explains why, your job is over.
 
-**Score evolution chart.** Beaconing / HTTP Beaconing / DNS Beaconing
+**Score evolution chart.** Beacon / HTTP Beacon / DNS Beacon
 findings get a **Score Chart** button in the action bar (next to
 Beacon Chart) showing up to 30 daily snapshots of the composite
 score plus the four sub-axes (Timing, Data size, Histogram,
@@ -475,7 +489,7 @@ that `(src, dst)` pair — every contributor *and* the Correlated
 Activity roll-up row land in one view (it clears any active
 filter/page first, so it works regardless of where you were).
 This is the fastest way to spot kill-chain progression — a
-Beaconing finding plus a DNS Tunneling finding plus a Suspicious File
+Beacon finding plus a DNS Tunneling finding plus a Suspicious File
 Download on the same pair is a much higher-signal story than
 any one of them alone.
 
@@ -726,7 +740,7 @@ trail to pick up.
 
 ### Example A — the textbook benign
 
-**Finding**: Beaconing, score 78, src `10.4.1.50` → dst
+**Finding**: Beacon, score 78, src `10.4.1.50` → dst
 `17.250.x.y:5223`, mean interval 32 seconds, `ds_cv 0.1`,
 `dur_score 0.95`.
 
@@ -742,7 +756,7 @@ ranges). Note: "APNs push channel; verified `17.249.0.0/16` +
 
 ### Example B — the textbook malicious
 
-**Finding**: Beaconing, score 81, src `10.4.1.7` → dst
+**Finding**: Beacon, score 81, src `10.4.1.7` → dst
 `185.x.y.z:8443`, mean interval 60 seconds, `ds_cv 0.0`,
 `dur_score 0.99`.
 
@@ -766,7 +780,7 @@ see ticket #2026-0312."
 
 ### Example C — the realistic ambiguous
 
-**Finding**: Beaconing, score 62, src `10.4.1.92` → dst
+**Finding**: Beacon, score 62, src `10.4.1.92` → dst
 `52.x.y.z:443`, mean interval 5 minutes, `ds_cv 0.4`,
 `dur_score 0.6`.
 
@@ -792,7 +806,7 @@ finding that happens to share the destination.
 
 ### Example D — the slow-burn
 
-**Finding**: Beaconing, score 51, src `10.4.1.7` → dst
+**Finding**: Beacon, score 51, src `10.4.1.7` → dst
 `91.x.y.z:443`, mean interval 24 hours, `ds_cv 0.3`,
 `dur_score 0.4`.
 

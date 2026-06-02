@@ -26,8 +26,8 @@ func TestDampenComposite_AsymptoticAbove75(t *testing.T) {
 		// Identity below threshold preserves single-detector hosts at
 		// their unscaled score — same shape goldens exercise.
 		{raw: 0, want: 0},
-		{raw: 30, want: 30, whyMatter: "single Beaconing finding"},
-		{raw: 65, want: 65, whyMatter: "Beaconing + Suspicious URL + TI Hit (Domain)"},
+		{raw: 30, want: 30, whyMatter: "single Beacon finding"},
+		{raw: 65, want: 65, whyMatter: "Beacon + Suspicious URL + TI Hit (Domain)"},
 		{raw: 75, want: 75, whyMatter: "threshold boundary"},
 
 		// Above threshold, dampened toward 99 with monotonic increase.
@@ -80,12 +80,12 @@ func TestDampenComposite_NeverExceeds99(t *testing.T) {
 // detection footprint.
 func TestAggregateRisk_UnionsHistoricalFindings(t *testing.T) {
 	a := New(config.Default(), "", nil, nil)
-	// This run sees only host B with a fresh Beaconing finding.
-	a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.2", DstIP: "1.1.1.1", Score: 60, Timestamp: "2026-05-11 09:00:00 UTC"})
-	// Historical store carries host A's Beaconing + TI Hit (Domain)
+	// This run sees only host B with a fresh Beacon finding.
+	a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.2", DstIP: "1.1.1.1", Score: 60, Timestamp: "2026-05-11 09:00:00 UTC"})
+	// Historical store carries host A's Beacon + TI Hit (Domain)
 	// from a prior run; host A is quiet this run.
 	a.SetFindingsProvider(&stubFindingsProvider{findings: []model.Finding{
-		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "2.2.2.2", Score: 60, Timestamp: "2026-05-10 12:00:00 UTC"},
+		{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "2.2.2.2", Score: 60, Timestamp: "2026-05-10 12:00:00 UTC"},
 		{Type: "TI Hit (Domain)", SrcIP: "10.0.0.1", DstIP: "evil.example", Score: 50, Timestamp: "2026-05-10 12:00:15 UTC"},
 		// A stale Host Risk Score row for the same host MUST NOT
 		// feed back into the new composite — that's the double-
@@ -112,13 +112,13 @@ func TestAggregateRisk_UnionsHistoricalFindings(t *testing.T) {
 	if hrsA == nil {
 		t.Fatal("expected fresh Host Risk Score for 10.0.0.1 (the quiet-this-run host with historical detections); got none")
 	}
-	// 10.0.0.1 has Beaconing (score=60) + TI Hit (Domain) (score=50).
+	// 10.0.0.1 has Beacon (score=60) + TI Hit (Domain) (score=50).
 	// New formula: weight × (0.5 + 0.5×score/100).
-	//   Beaconing:       30 × (0.5 + 0.3)  = 24
+	//   Beacon:       30 × (0.5 + 0.3)  = 24
 	//   TI Hit (Domain): 35 × (0.5 + 0.25) = 26.25 → 26 (Round)
 	//   composite = 50; below dampen threshold → identity.
 	if hrsA.Score != 50 {
-		t.Errorf("10.0.0.1 HRS = %d; want 50 (Beaconing×0.8 + TI Hit Domain×0.75)", hrsA.Score)
+		t.Errorf("10.0.0.1 HRS = %d; want 50 (Beacon×0.8 + TI Hit Domain×0.75)", hrsA.Score)
 	}
 	// firstTS should come from the earliest contributing finding —
 	// proves the union path runs through contribute()'s timestamp
@@ -129,9 +129,9 @@ func TestAggregateRisk_UnionsHistoricalFindings(t *testing.T) {
 	if hrsB == nil {
 		t.Fatal("expected Host Risk Score for 10.0.0.2 (the fresh-this-run host); got none")
 	}
-	// 10.0.0.2 has Beaconing (score=60): 30 × 0.8 = 24.
+	// 10.0.0.2 has Beacon (score=60): 30 × 0.8 = 24.
 	if hrsB.Score != 24 {
-		t.Errorf("10.0.0.2 HRS = %d; want 24 (Beaconing weight×scoreScale)", hrsB.Score)
+		t.Errorf("10.0.0.2 HRS = %d; want 24 (Beacon weight×scoreScale)", hrsB.Score)
 	}
 }
 
@@ -146,9 +146,9 @@ func TestAggregateRisk_DeterministicHostOrder(t *testing.T) {
 		a := New(config.Default(), "", nil, nil)
 		// Three hosts whose alphabetical order is unambiguous so we
 		// can assert the exact ordering rather than just stability.
-		a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.3", DstIP: "x", Score: 50, Timestamp: "2026-05-11 09:00:00 UTC"})
-		a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "x", Score: 50, Timestamp: "2026-05-11 09:00:00 UTC"})
-		a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.2", DstIP: "x", Score: 50, Timestamp: "2026-05-11 09:00:00 UTC"})
+		a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.3", DstIP: "x", Score: 50, Timestamp: "2026-05-11 09:00:00 UTC"})
+		a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "x", Score: 50, Timestamp: "2026-05-11 09:00:00 UTC"})
+		a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.2", DstIP: "x", Score: 50, Timestamp: "2026-05-11 09:00:00 UTC"})
 		a.aggregateRisk(nil)
 		var hrsHosts []string
 		for _, f := range a.findings {
@@ -179,11 +179,11 @@ func TestAggregateRisk_DeterministicHostOrder(t *testing.T) {
 // in the dst set; the same DstIP repeated via the historical union counts
 // only once.
 func TestAggregateRisk_MultiplicityBoost(t *testing.T) {
-	// Single Beaconing dst at score 80.
+	// Single Beacon dst at score 80.
 	// weight=30, scoreScale=0.9, multiMod=1.0 → contribution=27.
 	single := func() int {
 		a := New(config.Default(), "", nil, nil)
-		a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Timestamp: "2026-01-01 00:00:00 UTC"})
+		a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Timestamp: "2026-01-01 00:00:00 UTC"})
 		a.aggregateRisk(nil)
 		for _, f := range a.findings {
 			if f.Type == "Host Risk Score" {
@@ -193,13 +193,13 @@ func TestAggregateRisk_MultiplicityBoost(t *testing.T) {
 		return -1
 	}()
 
-	// Four distinct Beaconing dsts at score 80.
+	// Four distinct Beacon dsts at score 80.
 	// multiMod = 1 + 0.5·log₂(4) = 1 + 0.5·2 = 2.0 → contribution=54.
 	four := func() int {
 		a := New(config.Default(), "", nil, nil)
 		for i, dst := range []string{"1.1.1.1", "2.2.2.2", "3.3.3.3", "4.4.4.4"} {
 			_ = i
-			a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: dst, Score: 80, Timestamp: "2026-01-01 00:00:00 UTC"})
+			a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: dst, Score: 80, Timestamp: "2026-01-01 00:00:00 UTC"})
 		}
 		a.aggregateRisk(nil)
 		for _, f := range a.findings {
@@ -224,9 +224,9 @@ func TestAggregateRisk_MultiplicityBoost(t *testing.T) {
 	// the historical union must count as 1, not 2.
 	dedup := func() int {
 		a := New(config.Default(), "", nil, nil)
-		a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Timestamp: "2026-01-01 00:00:00 UTC"})
+		a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Timestamp: "2026-01-01 00:00:00 UTC"})
 		a.SetFindingsProvider(&stubFindingsProvider{findings: []model.Finding{
-			{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Timestamp: "2026-01-01 00:00:00 UTC"},
+			{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Timestamp: "2026-01-01 00:00:00 UTC"},
 		}})
 		a.aggregateRisk(nil)
 		for _, f := range a.findings {

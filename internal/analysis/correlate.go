@@ -311,9 +311,9 @@ func (a *Analyzer) correlateFindings() {
 	//      correlate. Historical-only findings (not in a.findings,
 	//      preserved by SetFindings) keep their old Correlations as
 	//      a record of past co-firing; this is honest for the
-	//      common case (DNS Tunneling fires once a week, Beaconing
+	//      common case (DNS Tunneling fires once a week, Beacon
 	//      fires daily, the correlation is meaningful even on
-	//      Beaconing-only days).
+	//      Beacon-only days).
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for i := range a.findings {

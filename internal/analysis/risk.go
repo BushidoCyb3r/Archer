@@ -25,9 +25,9 @@ import (
 // The cost of changing a weight is two lines (here + a CHANGELOG
 // entry) — the value of leaving it operator-configurable is negative.
 var riskWeights = map[string]int{
-	"Beaconing":                30,
-	"HTTP Beaconing":           28,
-	"DNS Beaconing":            30,
+	"Beacon":                   30,
+	"HTTP Beacon":              28,
+	"DNS Beacon":               30,
 	"Cobalt Strike URI":        40,
 	"C2 URI Pattern":           38,
 	"Domain Fronting":          32,

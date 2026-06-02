@@ -1,6 +1,6 @@
 [
   {
-    "type": "Beaconing",
+    "type": "Beacon",
     "severity": "MEDIUM",
     "score": 51,
     "src_ip": "192.168.1.50",
@@ -15,7 +15,7 @@
     "score": 23,
     "src_ip": "192.168.1.50",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 23 | Detections: [Beaconing]",
+    "detail": "Composite risk: 23 | Detections: [Beacon]",
     "timestamp": "2024-01-15 11:59:45"
   }
 ]

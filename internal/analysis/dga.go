@@ -32,8 +32,8 @@ import (
 // timing regularity has already done most of the suspicion work; DGA
 // adds "and the destination doesn't look like a real domain."
 //
-// Where the hostname comes from. The conn-level Beaconing detector
-// gets it from sslUIDIndex (TLS SNI). The HTTP Beaconing detector
+// Where the hostname comes from. The conn-level Beacon detector
+// gets it from sslUIDIndex (TLS SNI). The HTTP Beacon detector
 // gets it directly from the Host header in http.log records. The
 // dns.log correlation path (for non-TLS, non-HTTP beacons that
 // resolved a name before the analysis window) is deferred to a
@@ -345,11 +345,11 @@ func isIPLiteral(host string) bool {
 	return net.ParseIP(host) != nil
 }
 
-// applyDGAScoring walks emitted Beaconing and HTTP Beaconing findings
+// applyDGAScoring walks emitted Beacon and HTTP Beacon findings
 // and bumps the score + severity for those whose destination
 // Hostname looks DGA-shaped under the operator's configured
 // thresholds. Runs once after Phase 2 completes (sslUIDIndex stable,
-// HTTP Beaconing already emitted) so all findings are settled before
+// HTTP Beacon already emitted) so all findings are settled before
 // the augmentation pass touches them.
 //
 // The bump is additive: +15 to score (capped at 99), one-step
@@ -388,7 +388,7 @@ func (a *Analyzer) applyDGAScoring(allowlistMatches func(string) bool) {
 	defer a.mu.Unlock()
 	for i := range a.findings {
 		f := &a.findings[i]
-		if f.Type != "Beaconing" && f.Type != "HTTP Beaconing" && f.Type != "DNS Beaconing" {
+		if f.Type != "Beacon" && f.Type != "HTTP Beacon" && f.Type != "DNS Beacon" {
 			continue
 		}
 		if f.Hostname == "" {

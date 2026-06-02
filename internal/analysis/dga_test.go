@@ -301,7 +301,7 @@ func TestApplyDGAScoring_SkipsIPLiteralHostnames(t *testing.T) {
 	// that lowers the SLD floor, or an edge-case IP shape that
 	// happens to bypass the floor, would re-introduce the issue.
 	a.findings = append(a.findings, model.Finding{
-		Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "185.43.7.92", DstPort: "443",
+		Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "185.43.7.92", DstPort: "443",
 		Score: 50, Severity: model.SevHigh,
 		Hostname: "185.43.7.92",
 	})
@@ -321,7 +321,7 @@ func TestApplyDGAScoring_SkipsIPLiteralHostnames(t *testing.T) {
 // explicitly populated. Necessary because applyDGAScoring early-
 // returns on DGAEnabled=false, and a freshly-constructed Analyzer
 // in a test doesn't inherit settings from the operator's
-// Settings → Beaconing pane.
+// Settings → Beacon pane.
 func defaultCfgWithDGA() config.Config {
 	cfg := config.Default()
 	cfg.DGAEnabled = true

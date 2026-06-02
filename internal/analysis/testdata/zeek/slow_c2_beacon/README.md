@@ -20,5 +20,5 @@ weight. This fixture is the regression anchor that proves the fix holds.
 ## Invariant
 
 - **No Strobe finding** — rate (0.06/s) is below the threshold.
-- **Beaconing fires** — count (1000) ≥ BeaconMinConnections (4); the pair
+- **Beacon fires** — count (1000) ≥ BeaconMinConnections (4); the pair
   reaches the beacon scorer unimpeded.

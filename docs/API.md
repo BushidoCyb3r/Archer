@@ -239,14 +239,14 @@ The most-used surface. Findings are detector outputs, persisted in
 | `POST` | `/api/findings/{id}/notes` | analyst+ | Append a note to the finding. |
 | `GET` | `/api/findings/{id}/raw` | any | Raw-log pivot — the Zeek lines that produced this finding. |
 | `GET` | `/api/findings/{id}/position` | any | Absolute zero-indexed position of finding `{id}` within `/api/findings` under the same filter + sort query parameters. Returns `{found: bool, offset: N, total: M}` (200) or `{found: false, total: M}` (404) when the finding does not match. The bell-notification **Jump** action uses this to navigate to the page containing the target finding regardless of the analyst's current pagination offset. |
-| `GET` | `/api/findings/{id}/history` | any | 30-day beacon score evolution rows for Beaconing / HTTP Beaconing findings. Returns `[]` (not 404) for other finding types so the SPA can call unconditionally. See `BeaconHistoryRow` shape below. |
+| `GET` | `/api/findings/{id}/history` | any | 30-day beacon score evolution rows for Beacon / HTTP Beacon findings. Returns `[]` (not 404) for other finding types so the SPA can call unconditionally. See `BeaconHistoryRow` shape below. |
 
 **Finding shape** (`model.Finding`, `internal/model/finding.go:23`):
 
 ```json
 {
   "id":           42,
-  "type":         "Beaconing",
+  "type":         "Beacon",
   "severity":     "HIGH",
   "score":        85,
   "src_ip":       "192.168.1.5",
@@ -314,10 +314,10 @@ The most-used surface. Findings are detector outputs, persisted in
 - `intervals`, `ts_data`, `notes`, `sensor`, `hostname`, `uri`,
   `correlations` are `omitempty` — expect their absence on findings
   that don't carry that data.
-- `hostname` is populated for Beaconing (from TLS SNI) and HTTP
-  Beaconing (from the `Host` header). Consumed by the DGA scoring
+- `hostname` is populated for Beacon (from TLS SNI) and HTTP
+  Beacon (from the `Host` header). Consumed by the DGA scoring
   pass and surfaced in the finding-detail pane.
-- `uri` is populated for HTTP Beaconing (the request path that
+- `uri` is populated for HTTP Beacon (the request path that
   participated in the grouping key).
 - `correlations` is the list of sibling finding IDs that share this
   finding's `(src_ip, dst_ip)` pair and contributed to a Correlated
@@ -330,17 +330,17 @@ The most-used surface. Findings are detector outputs, persisted in
   and median in seconds; `jitter` is their coefficient of variation
   (the "± Ns" spread the triage header renders as a percentage);
   `sample_size` is the observation count the score rests on. All eight
-  are `omitempty`, populated only for `Beaconing`, `HTTP Beaconing`,
-  and `DNS Beaconing` (which leaves `ds_score` zero — DNS has no
+  are `omitempty`, populated only for `Beacon`, `HTTP Beacon`,
+  and `DNS Beacon` (which leaves `ds_score` zero — DNS has no
   data-size axis). Persisted as columns (migration 0018) so they
   survive a restart and the carry-forward. They are part of the
   **full** single-finding shape only — the projected list endpoint
   does not include them (next bullet).
 - `ja3` / `ja4` are the TLS client fingerprints of the connection that
-  seeded a conn-level `Beaconing` finding, lifted at emit time from
+  seeded a conn-level `Beacon` finding, lifted at emit time from
   `sslUIDIndex` (the same lookup that resolves `hostname` from the
-  SNI). Empty for non-TLS beacons, HTTP Beaconing (cleartext by
-  construction), DNS Beaconing, and every non-beacon type. `ja4` is
+  SNI). Empty for non-TLS beacons, HTTP Beacon (cleartext by
+  construction), DNS Beacon, and every non-beacon type. `ja4` is
   empty unless the sensor's Zeek emits a `ja4` field (stock `ssl.log`
   is ja3/ja3s — JA4 needs the JA4+ plugin). Persisted as columns
   (migration 0019) so they survive a restart and the carry-forward.
@@ -352,7 +352,7 @@ The most-used surface. Findings are detector outputs, persisted in
   an absent value reads correctly as "matched 0 other beacons." Filter
   to those siblings with the `ja3` or `ja4` query params respectively.
 - `fp_concern` / `fp_detail` are **transient, derived-at-read** fields
-  on conn-level `Beaconing` findings carrying a `ja3` or `ja4`. The
+  on conn-level `Beacon` findings carrying a `ja3` or `ja4`. The
   single-finding handler resolves the seed fingerprint against the
   corpus-wide TLS prevalence snapshot (`SetFingerprintPrevalence`, pushed
   after each full pass) into a severity-style concern level
@@ -364,13 +364,13 @@ The most-used surface. Findings are detector outputs, persisted in
   severity.** Both `omitempty`; absent when no fingerprint resolves or no
   full pass has run this process. Never persisted, excluded from the list
   projection and exports.
-- `top_uris` is the HTTP Beaconing destination's request-path
+- `top_uris` is the HTTP Beacon destination's request-path
   footprint: `[]{uri, count}`, count-descending, capped at 8. The
   `(Type,src,dst,port)` fingerprint dedup keeps one finding per group,
   so this is aggregated pre-dedup over the `(sensor,src,dst,host)`
   beacon keys and stamped identically on every finding in the group —
   whichever survives the dedup carries the whole footprint. Empty for
-  every non-HTTP-Beaconing type. Persisted as a JSON column (migration
+  every non-HTTP-Beacon type. Persisted as a JSON column (migration
   0020) for the same restart / carry-forward reason.
 - **`GET /api/findings` returns a projected list** that drops
   `ts_data`, `intervals`, and `notes` regardless of whether they're
@@ -386,7 +386,7 @@ The most-used surface. Findings are detector outputs, persisted in
 |-------|-------|--------|
 | `q` | query-language string | The Lucene-style findings query language (v0.48.0) — the primary filter surface. Field terms (`id:`, `type:`, `severity:`, `score:`, `src:`/`dst:` IP or CIDR, `port:`, `detail:`, `hostname:`, `sensor:`, `status:`, `ts:`, `ioc:`, `spectral:`, `new:`, `ja3:`/`ja4:`, `file:`, the beacon sub-scores `tscore:`/`dscore:`/`hist:`/`dur:`, and the beacon timing/volume metrics `conns:`/`meanint:`/`medint:`/`jitter:`), boolean `AND`/`OR`/`NOT` with `()` grouping and implicit-AND between adjacent terms, leading/trailing `*`/`?` wildcards on string fields, numeric comparisons (`>=` `<=` `>` `<` `=`) and `[lo TO hi]` ranges, date/datetime literals interpreted in the operator timezone, and quoted phrases. A bare term is a case-insensitive substring match over `type`/`src_ip`/`dst_ip`/`dst_port`/`detail`/`timestamp`/`severity` (a bare IP literal matches src or dst exactly). ANDed on top of every other param and the view scoping. A malformed query returns **`400`** with the parse error — never match-all or match-none. Grammar in `internal/query`; analyst reference in `docs/ANALYST_PLAYBOOK.md`. The legacy single-field params below remain for back-compat and the export flow. |
 | `search` | string | Case-insensitive substring match on `type`/`detail`/`src_ip`/`dst_ip`. |
-| `type` | string | Exact-match on `type`. The pseudo-value `beacons` matches the whole beacon family (`Beaconing` / `HTTP Beaconing` / `DNS Beaconing`) in one selector — drives the beacon export target and the all-beacons Findings filter. |
+| `type` | string | Exact-match on `type`. The pseudo-value `beacons` matches the whole beacon family (`Beacon` / `HTTP Beacon` / `DNS Beacon`) in one selector — drives the beacon export target and the all-beacons Findings filter. |
 | `severity` | `CRITICAL`/`HIGH`/`MEDIUM`/`LOW`/`INFO` | Exact-match. |
 | `min_score` | int 0–100 | Lower bound (inclusive). |
 | `delta` | `true` | Only findings first detected (`detected_at`) since the requesting analyst's session boundary — "new since you last logged in." Same cutoff as `/api/findings/unseen`; user/session-dependent. (Pre-v0.45.0 this filtered `is_new=true` — new since the last run.) |
@@ -398,8 +398,8 @@ The most-used surface. Findings are detector outputs, persisted in
 | `status` | `open`/`acknowledged`/`escalated`/`dismissed` | Status filter. |
 | `ioc_only` | `true` | Only findings whose `src_ip` or `dst_ip` is in the IOC list. |
 | `include_dismissed` | `true` | Counts-style flag for callers that want dismissed findings included in an otherwise-unscoped result. Has no effect when `status` is explicitly set. Default behavior (omitted or `false`): if no `status` filter is provided, dismissed findings are excluded — the "I don't want to see this again" semantic carries through every non-Dismissed tab. Used internally by `/api/findings/counts` to bucket dismissed separately. |
-| `spectral_only` | `true` | Only Beaconing findings whose timing score was rescued by the spectral path. Matches on the `Spectral rescued:` substring in the Detail field. Useful during spectral-tuning calibration — see `docs/SPECTRAL_TUNING.md`. |
-| `ts_min`/`ts_max`, `ds_min`/`ds_max`, `hist_min`/`hist_max`, `dur_min`/`dur_max` | float `[0,1]` | Inclusive bound on one beacon sub-axis (timing / data-size / hour-coverage / duration). Either bound of a pair may be omitted; a non-numeric value disables that one axis rather than blanking the filter. **Setting any sub-score bound implicitly scopes the result to beacon types** (`Beaconing`/`HTTP Beaconing`/`DNS Beaconing`) — a bare upper bound like `dur_max=0.3` would otherwise surface every non-beacon, whose sub-scores are a structural `0 ≤ 0.3`. Lets a hunter query a beacon *signature* the composite score averages away (e.g. `ts_min=0.8&dur_max=0.3` = short-lived tight-cadence spikes). DNS Beaconing leaves `ds_score` a structural zero, so a `ds_min>0` filter correctly excludes it. |
+| `spectral_only` | `true` | Only Beacon findings whose timing score was rescued by the spectral path. Matches on the `Spectral rescued:` substring in the Detail field. Useful during spectral-tuning calibration — see `docs/SPECTRAL_TUNING.md`. |
+| `ts_min`/`ts_max`, `ds_min`/`ds_max`, `hist_min`/`hist_max`, `dur_min`/`dur_max` | float `[0,1]` | Inclusive bound on one beacon sub-axis (timing / data-size / hour-coverage / duration). Either bound of a pair may be omitted; a non-numeric value disables that one axis rather than blanking the filter. **Setting any sub-score bound implicitly scopes the result to beacon types** (`Beacon`/`HTTP Beacon`/`DNS Beacon`) — a bare upper bound like `dur_max=0.3` would otherwise surface every non-beacon, whose sub-scores are a structural `0 ≤ 0.3`. Lets a hunter query a beacon *signature* the composite score averages away (e.g. `ts_min=0.8&dur_max=0.3` = short-lived tight-cadence spikes). DNS Beacon leaves `ds_score` a structural zero, so a `ds_min>0` filter correctly excludes it. |
 | `ja3` | string | Exact JA3 client-fingerprint match (case-insensitive — stored lowercased at emit). Powers **TLS Pivot** for sensors on stock Zeek (no JA4+ plugin). Filters to every finding carrying that JA3 so one beacon unravels the whole implant family. |
 | `ja4` | string | Exact JA4 client-fingerprint match (case-insensitive — stored lowercased at emit). Powers **TLS Pivot** for sensors running the Zeek JA4+ plugin. Independent of `ja3`; both filters may be set simultaneously (AND). |
 | `sort` | `score`/`severity`/`type`/`src_ip`/`dst_ip`/`timestamp` | Sort key (default `score`). |
@@ -527,7 +527,7 @@ the new score exceeds the existing max; last_* always updates.
 This captures mid-day score shifts that pre-v0.16.1's
 `DO NOTHING` semantics silently dropped — see CHANGELOG v0.16.1
 NEW-76. The endpoint returns `[]` for finding types other than
-Beaconing / HTTP Beaconing.
+Beacon / HTTP Beacon.
 
 ### Configuration
 
@@ -791,7 +791,7 @@ Event types currently published:
 
 | Event | When | Payload |
 |-------|------|---------|
-| `progress` | During analysis | `{step:"Beaconing", pct:55}` |
+| `progress` | During analysis | `{step:"Beacon", pct:55}` |
 | `status` | Worker state changes | `{state:"running"\|"paused"\|"idle"}` |
 | `done` | Analysis finishes | `{findings_added:int, duration_ms:int}` |
 | `notification` | New bell alarm — finding (`score >= 95`), sensor (heartbeat), or feed (reliability) | `Notification` shape (`internal/model/finding.go`). Fields: `id`, `kind` (`finding` / `sensor` / `feed`; empty reads as `finding`), `target` (sensor / feed name for non-finding kinds), `detail` (human-readable text for sensor/feed alarms), `finding_id` (finding kind only), `severity`, `type`, `src_ip`, `dst_ip`, `dst_port`, `dismissed`. **Bell-emit gate (v0.18.1+):** finding notifications are skipped when the finding's src or dst matches the allowlist or an active suppression — the bell only rings for rows that will appear in the table. Existing finding notifications are dismissed in-place when an admin updates the allowlist or adds a suppression that covers their src/dst. NEW-111. Bell threshold for findings was tightened to `score >= 95` at v0.17.1 (was 99 in v0.17.0, over-corrected). |

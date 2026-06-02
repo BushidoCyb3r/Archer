@@ -171,7 +171,7 @@
     <div id="query-bar">
       <div class="query-input-row">
         <textarea class="query-input" id="filter-query" rows="1" autocomplete="off" spellcheck="false"
-               placeholder="type:Beaconing AND score:&gt;=90 AND NOT dst:10.0.0.0/8"></textarea>
+               placeholder="type:Beacon AND score:&gt;=90 AND NOT dst:10.0.0.0/8"></textarea>
         <button class="filter-btn" id="run-query-btn" title="Run the query (Enter runs it, Shift+Enter for a new line)">Run</button>
         <button class="filter-btn dim" id="reset-filter-btn" title="Clear the query">Clear</button>
         <button class="filter-btn dim" id="fingerprints-btn" title="List high-signal TLS client fingerprints (JA3/JA4) by severity; click one to pivot to its findings">TLS Fingerprints</button>
@@ -368,7 +368,7 @@
               <th class="score" data-col="score" style="width:145px">Risk Score</th>
               <th data-col="ip" style="width:180px">Host IP</th>
               <th data-col="count" style="width:115px">Findings</th>
-              <th data-col="beacon" style="width:110px" title="Active Beaconing / HTTP Beaconing findings for this host — a high count flags a likely staging point">Beacons</th>
+              <th data-col="beacon" style="width:110px" title="Active Beacon / HTTP Beacon findings for this host — a high count flags a likely staging point">Beacons</th>
               <th data-col="severity" style="width:130px">Severity</th>
               <th>Top Finding Types</th>
             </tr>
@@ -1133,7 +1133,7 @@
 
 <!-- Pair-allowlist add: opened from the finding context menu, pre-filled
      with that finding's tuple. Permanent view filter — no expiry. Scope
-     defaults to the finding's own type (safer: muting "Beaconing" on a
+     defaults to the finding's own type (safer: muting "Beacon" on a
      known-good DNS pair still lets DNS Tunneling on the same pair fire).
      "All types on this pair" is the deliberate broaden. -->
 <dialog id="pair-allow-add-dialog">
@@ -1201,7 +1201,7 @@
   <div class="dlg-header">Settings</div>
   <div class="dlg-body">
     <div class="settings-group">
-      <div class="settings-group-title">Beaconing</div>
+      <div class="settings-group-title">Beacon</div>
       <div class="settings-grid">
         <label>Min Connections<input class="dlg-input" id="cfg-beacon-thresh" type="number" min="1"></label>
         <label>HTTP Min Requests<input class="dlg-input" id="cfg-http-beacon-thresh" type="number" min="1"></label>
@@ -1222,7 +1222,7 @@
         <label>Rescue gate<input class="dlg-input" id="cfg-spectral-rescue" type="number" min="0" max="1" step="0.05" title="Statistical timing-score threshold below which spectral is allowed to run. Pairs scoring above this skip spectral entirely (the statistical path was confident enough). Lower (0.3) = only rescue clear failures, higher (0.7) = attempt rescue on more pairs. Default 0.5."></label>
       </div>
       <div style="color:var(--fg-dim);font-size:0.9em;margin-top:14px;margin-bottom:8px">
-        DGA hostname augmentation bumps Beaconing / HTTP Beaconing scores when the destination's registrable domain looks algorithmically generated (high Shannon entropy + non-English character bigrams). +15 to score, one-step severity upgrade. Built-in CDN allowlist already exempts cloudfront/azure/akamai/etc. Disable if your traffic includes legitimate algorithmic hostnames not covered by the built-in list.
+        DGA hostname augmentation bumps Beacon / HTTP Beacon scores when the destination's registrable domain looks algorithmically generated (high Shannon entropy + non-English character bigrams). +15 to score, one-step severity upgrade. Built-in CDN allowlist already exempts cloudfront/azure/akamai/etc. Disable if your traffic includes legitimate algorithmic hostnames not covered by the built-in list.
       </div>
       <label><input id="cfg-dga-enabled" type="checkbox"> Enable DGA scoring on beacon destinations</label>
       <div style="color:var(--fg-dim);font-size:0.85em;margin-top:10px;margin-bottom:6px">
@@ -1272,7 +1272,7 @@
     <div class="settings-group">
       <div class="settings-group-title">Watch Mode</div>
       <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
-        By default, only the first watch tick of each UTC day runs the full pipeline (Beaconing, HTTP analysis, all detectors); subsequent same-day ticks run a cheaper incremental TI/IOC pass. Turn this on to make every tick a full scan instead — uses more CPU per tick but eliminates the "wait until tomorrow" gap on statistical detectors. Useful during active hunts.
+        By default, only the first watch tick of each UTC day runs the full pipeline (Beacon, HTTP analysis, all detectors); subsequent same-day ticks run a cheaper incremental TI/IOC pass. Turn this on to make every tick a full scan instead — uses more CPU per tick but eliminates the "wait until tomorrow" gap on statistical detectors. Useful during active hunts.
       </div>
       <label><input id="cfg-watch-always-full" type="checkbox"> Always run full scan on every watch tick</label>
     </div>

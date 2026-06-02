@@ -2890,7 +2890,7 @@
   // ── Pair allowlist (tuple-scoped permanent view filter) ───────────────────
   // _openPairAllowAdd pre-fills the add dialog from the right-clicked
   // finding. Scope defaults to that finding's own type — muting
-  // "Beaconing" on a known-good DNS pair must not also blind the DNS
+  // "Beacon" on a known-good DNS pair must not also blind the DNS
   // Tunneling detector on the same pair. "All finding types" is the
   // deliberate broaden.
   function _openPairAllowAdd(f) {
@@ -4144,12 +4144,12 @@
       }
 
       // Beacon Chart only matters for findings carrying timeseries data —
-      // the analyzer attaches TSData to "Beaconing" and "HTTP Beaconing"
+      // the analyzer attaches TSData to "Beacon" and "HTTP Beacon"
       // findings only. The list-response projection strips ts_data
       // (see handlers_api.go's listFinding), so we can't gate on its
       // presence here; type is a reliable proxy and always available.
       const chartItem = document.getElementById('ctx-chart');
-      const hasChart = !!(f && (f.type === 'Beaconing' || f.type === 'HTTP Beaconing' || f.type === 'DNS Beaconing'));
+      const hasChart = !!(f && (f.type === 'Beacon' || f.type === 'HTTP Beacon' || f.type === 'DNS Beacon'));
       if (chartItem) chartItem.style.display = hasChart ? '' : 'none';
 
       // Campaign-only items: revealed when campaigns.js attached _campaign.
@@ -4208,12 +4208,16 @@
     // ── Column-aware items ──────────────────────────────────────────────
     document.getElementById('ctx-pivot').addEventListener('click', () => {
       if (!_ctxTarget) return;
-      // A bare term in the query box matches the value across src/dst (and
-      // the other searched fields) — the "show me every finding for this
-      // IP" intent. Clear first so this is the only predicate.
+      // Scope the query to the column the analyst right-clicked: Pivot on a
+      // Src cell writes `src:<ip>`, a Dst cell writes `dst:<ip>` — the "show
+      // me every finding where this IP is the source / destination" intent.
+      // Falls back to a bare term if the column is somehow unresolved (the
+      // term then matches across src/dst). Clear first so this is the only
+      // predicate.
       _resetFilterUI();
       const box = document.getElementById('filter-query');
-      if (box) { box.value = _ctxTarget; _autoGrowQuery(); }
+      const token = _ctxTargetCol ? `${_ctxTargetCol}:${_ctxTarget}` : _ctxTarget;
+      if (box) { box.value = token; _autoGrowQuery(); }
       // On an aggregate panel (Campaigns / Hosts / Dismissed-Campaigns)
       // a row is a synthesised roll-up, not a finding, so applying a
       // filter in place is a no-op the analyst can't see. The intent of

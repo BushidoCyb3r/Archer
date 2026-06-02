@@ -723,8 +723,8 @@ size; the diff makes it human-useful for "who added entry X on
 date Y" queries. v0.14.2 NEW-34.
 
 `finding_*` audit rows show TargetName as
-`Type src → dst:port` (e.g. `Beaconing 10.4.1.7 → 185.99.135.7:443`)
-rather than just the finding type — five "Beaconing" rows in a
+`Type src → dst:port` (e.g. `Beacon 10.4.1.7 → 185.99.135.7:443`)
+rather than just the finding type — five "Beacon" rows in a
 row are otherwise indistinguishable in the audit-log UI. v0.14.2
 cosmetic.
 

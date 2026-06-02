@@ -722,8 +722,8 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 			findings[i].Notes = old.Notes
 			findings[i].IsNew = false
 			findings[i].DetectedAt = carryDetectedAt(old)
-		} else if fp.Type == "HTTP Beaconing" && (fp.Hostname != "" || fp.URI != "") {
-			// Upgrade-compat path for HTTP Beaconing: Hostname and URI were
+		} else if fp.Type == "HTTP Beacon" && (fp.Hostname != "" || fp.URI != "") {
+			// Upgrade-compat path for HTTP Beacon: Hostname and URI were
 			// added to Fingerprint after Sensor was. Old rows fall into two
 			// shapes depending on which version the operator is upgrading from:
 			//   post-Sensor, pre-host/URI: {Type, SrcIP, DstIP, DstPort, Sensor, "", ""}
@@ -918,7 +918,7 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 		// high-confidence indicators stayed silent. NEW-99 in the
 		// twenty-third audit round: 95 captures the top of both the
 		// discrete-tier population AND the computed-score
-		// population (Beaconing/Correlated Activity hit 95+ when
+		// population (Beacon/Correlated Activity hit 95+ when
 		// the underlying signal is strong) without arbitrary
 		// compression of either. See CHANGELOG v0.17.1 for the
 		// enumerated tier (which specific detectors ring vs don't);

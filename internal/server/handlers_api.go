@@ -374,7 +374,7 @@ func parseListPagination(q url.Values) (limit, offset int) {
 // per-finding chart/evidence payload that bloats the response. The
 // analyst's table view uses none of TSData / Intervals / Notes — those
 // are read by the detail panel via /api/findings/{id}, which keeps the
-// full shape. On a corpus with thousands of Beaconing findings, omitting
+// full shape. On a corpus with thousands of Beacon findings, omitting
 // TSData alone cut the list response by ~100 MB in measurement.
 //
 // Field tags match model.Finding so existing UI code reads the same JSON
@@ -592,9 +592,9 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 		// TLS-fingerprint rarity / cross-host-cluster concern (colour-coded
 		// row in the detail pane). Derived from the prevalence snapshot over
 		// all ssl.log, so it sees rarity and sub-floor siblings the emitted-
-		// beacon sibling counts above cannot. Conn-level Beaconing only —
+		// beacon sibling counts above cannot. Conn-level Beacon only —
 		// that's where the seed-connection fingerprint is lifted.
-		if f.Type == "Beaconing" && (f.JA4 != "" || f.JA3 != "") {
+		if f.Type == "Beacon" && (f.JA4 != "" || f.JA3 != "") {
 			f.FPConcern, f.FPDetail = s.store.FingerprintConcern(f.JA4, f.JA3)
 		}
 		// New-to-this-viewer flag for the detail pane's "new" badge — same

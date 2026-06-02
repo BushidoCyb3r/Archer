@@ -28,6 +28,75 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.50.0] — 2026-06-02
+
+The beacon finding types lose their `-ing`: `Beaconing` → `Beacon`,
+`HTTP Beaconing` → `HTTP Beacon`, `DNS Beaconing` → `DNS Beacon`. Plus two
+beacon-labeling fixes that were waiting on a re-key event to ride along —
+the destination-port label now reports the port the beacon actually used,
+and the right-click Pivot now scopes to the column you clicked. All three
+re-key beacon fingerprints, so they ship together: an upgraded instance
+re-keys once, not three times.
+
+### Changed
+
+- **Beacon finding types renamed.** `Beaconing` → `Beacon`,
+  `HTTP Beaconing` → `HTTP Beacon`, `DNS Beaconing` → `DNS Beacon`. The
+  shorter noun reads better as a column value and a query term
+  (`type:Beacon`). The `type:beacons` family selector is unchanged. The
+  type string is the user-facing label but is also load-bearing in three
+  persisted places — finding identity, pair-allowlist suppression scope,
+  and beacon-history keys — so the rename ships with a migration that
+  rewrites all three in place (see **Breaking** / migration 0031 below)
+  rather than stranding analyst work on the old strings.
+- **Beacon destination-port label is the modal port, not the first-seen
+  port.** A beacon's `DstPort` now reports the port carrying the most
+  connections for the `(src, dst)` pair, with ties broken by lower port
+  number for determinism. The previous label used the first connection's
+  port, which mislabeled a beacon when an unrelated early connection landed
+  on a different port. Every other port the pair touched is now summarized
+  in a `co-traffic to dst:` Detail fragment (per-port connection count,
+  bytes, and first→last timestamp) so a minority port is surfaced rather
+  than silently dropped. Single-port beacons — the common case — carry no
+  extra Detail text.
+- **Right-click Pivot scopes to the clicked column.** Pivoting on a Src
+  cell now writes `src:<ip>` into the query bar and a Dst cell writes
+  `dst:<ip>`, matching the "every finding where this IP is the
+  source / destination" intent of where you clicked. It previously wrote a
+  bare `<ip>` term that matched across both src and dst. Pivot from a
+  context where the column can't be resolved still falls back to the bare
+  term.
+
+### Breaking
+
+- **Finding-type strings renamed (detection semantics + DB schema).** Any
+  consumer that matches on the literal type strings is affected: saved or
+  bookmarked `type:Beaconing` / `type:"HTTP Beaconing"` / `type:"DNS
+  Beaconing"` queries now match nothing (re-type them without the `-ing`),
+  and exported findings, the `/api/findings` `type` field, and the audit
+  log carry the new strings going forward. No back-compat alias is shipped.
+  Migration **0031_rename_beaconing_to_beacon** rewrites the old strings in
+  place across `findings.type`, `pair_allowlist.finding_type`, and
+  `beacon_history.finding_type` + `.fingerprint`, so on upgrade analyst
+  notes/status/IDs carry forward, "known-good relationship" suppression
+  rules keep suppressing, and beacon-history persistence stays continuous.
+  Fresh installs match nothing and no-op through it.
+
+### Detection changes
+
+- **Beacon `DstPort` re-keys the fingerprint.** Because `DstPort` is one of
+  the fields a beacon finding's fingerprint is computed from, the
+  modal-port label (above) re-keys every multi-port beacon — the merge
+  layer treats the corrected finding as the live one and the old
+  first-port-keyed row as historical. The type rename re-keys every beacon
+  for the same reason; migration 0031 absorbs that by rewriting the stored
+  history keys so the next analysis upserts onto the same rows. Net effect
+  on upgrade: one re-key pass, analyst work preserved. Scores, thresholds,
+  and the timing math are unchanged — only the port label and the type
+  string moved.
+
+---
+
 ## [v0.49.0] — 2026-06-02
 
 Five new queryable fields on the findings table, all reading structured

@@ -34,15 +34,15 @@ const Detail = (() => {
     return m ? `${h}h ${String(m).padStart(2, '0')}m` : `${h}h`;
   }
 
-  // _beaconTriage builds the structured triage header for Beaconing /
-  // HTTP Beaconing findings from the additive fields the analyzer now
+  // _beaconTriage builds the structured triage header for Beacon /
+  // HTTP Beacon findings from the additive fields the analyzer now
   // persists (migration 0018). Returns [] for non-beacon findings or
   // when sample_size is zero — a pre-0018 historical beacon row reads
   // back zeroed, so it cleanly falls back to the raw Detail string with
   // no broken header. stddev is reconstructed mean × jitter (jitter is
   // the interval CV); that's the "± Ns" spread an analyst reads first.
   function _beaconTriage(f) {
-    const isBeacon = f.type === 'Beaconing' || f.type === 'HTTP Beaconing' || f.type === 'DNS Beaconing';
+    const isBeacon = f.type === 'Beacon' || f.type === 'HTTP Beacon' || f.type === 'DNS Beacon';
     if (!isBeacon || !(f.sample_size > 0)) return [];
     const mean = f.mean_interval || 0;
     const cv   = f.jitter || 0;
@@ -215,7 +215,7 @@ const Detail = (() => {
     // responses are projected (no ts_data) and the row-click upgrade
     // fetch arrives a tick later, leaving the button momentarily
     // disabled if we gated on the field directly.
-    chartBtn.disabled = !(f.type === 'Beaconing' || f.type === 'HTTP Beaconing' || f.type === 'DNS Beaconing');
+    chartBtn.disabled = !(f.type === 'Beacon' || f.type === 'HTTP Beacon' || f.type === 'DNS Beacon');
     // Score Evo always starts disabled; BeaconEvolution.load() enables it
     // after the history fetch only when rows exist.
     if (scoreEvoBtn) scoreEvoBtn.disabled = true;

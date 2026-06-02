@@ -11,7 +11,7 @@ import (
 )
 
 // httpBeaconTopURICap bounds the per-(sensor,src,dst,host) request-path
-// footprint stamped on each HTTP Beaconing finding. A footprint is the
+// footprint stamped on each HTTP Beacon finding. A footprint is the
 // multi-path implant shape, not an exhaustive site map — top-N by
 // request count is enough signal and keeps the persisted JSON small.
 const httpBeaconTopURICap = 8
@@ -279,7 +279,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 				}
 			}
 
-			// HTTP Beaconing: group by (src, dst, host, uri).
+			// HTTP Beacon: group by (src, dst, host, uri).
 			// Lazy-create per-key state after a minimum count to keep
 			// high-cardinality low-count keys at O(1) memory.
 			if uri != "" && host != "" {
@@ -400,7 +400,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 	a.mu.Unlock()
 
 	// Footprint aggregation. The (Type,src,dst,port) fingerprint dedup
-	// in setFindingsImpl keeps one HTTP Beaconing finding per group, so
+	// in setFindingsImpl keeps one HTTP Beacon finding per group, so
 	// the multi-path footprint ("this implant beacons /a, /b, /c on the
 	// same host") is destroyed before storage. Collect the beacon-shaped
 	// paths here, under the SAME gate the emit loop below applies (a
@@ -421,7 +421,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 	}
 	footprint := topURIFootprint(fpEntries, httpBeaconTopURICap)
 
-	// ── HTTP Beaconing ────────────────────────────────────────────────────────
+	// ── HTTP Beacon ────────────────────────────────────────────────────────
 	var spectralBlockedCount int
 	for bk, st := range beacon {
 		totalObserved := beaconCounts[bk]
@@ -451,7 +451,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 		if tsEnt > tsScore {
 			tsScore = tsEnt
 		}
-		// Spectral rescue — same shape as the conn-level Beaconing
+		// Spectral rescue — same shape as the conn-level Beacon
 		// path. C2-over-HTTP is the same fingerprint as conn-level
 		// C2 except the periodicity is at the request layer; the
 		// detector inputs are different but the rescue logic is
@@ -538,7 +538,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 		}
 		detail += prevDetail
 		a.add(model.Finding{
-			Type:            "HTTP Beaconing",
+			Type:            "HTTP Beacon",
 			Severity:        sev,
 			Score:           score,
 			Sensor:          bk.sensor,

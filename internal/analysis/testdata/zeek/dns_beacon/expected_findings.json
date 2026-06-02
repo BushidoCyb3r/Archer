@@ -1,6 +1,6 @@
 [
   {
-    "type": "DNS Beaconing",
+    "type": "DNS Beacon",
     "severity": "CRITICAL",
     "score": 99,
     "src_ip": "192.168.2.60",
@@ -15,7 +15,7 @@
     "score": 30,
     "src_ip": "192.168.2.60",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 30 | Detections: [DNS Beaconing]",
+    "detail": "Composite risk: 30 | Detections: [DNS Beacon]",
     "timestamp": "2024-01-15 12:00:00"
   }
 ]

@@ -28,11 +28,11 @@ func TestPruneFindingsBefore_DropsOldAndTimestamplessFindings(t *testing.T) {
 	fresh := now.Add(-1 * time.Hour).Format("2006-01-02 15:04:05")
 
 	s.findings = []model.Finding{
-		{Type: "Beaconing", Timestamp: old},         // dropped — old
+		{Type: "Beacon", Timestamp: old},            // dropped — old
 		{Type: "Long Connection", Timestamp: fresh}, // kept — within window
 		{Type: "Strobe", Timestamp: ""},             // dropped — empty (was kept under old behavior)
 		{Type: "Data Exfiltration", Timestamp: ""},  // dropped — empty
-		{Type: "Beaconing", Timestamp: "garbage"},   // dropped — unparseable
+		{Type: "Beacon", Timestamp: "garbage"},      // dropped — unparseable
 	}
 
 	cutoff := now.Add(-24 * time.Hour)
@@ -58,7 +58,7 @@ func TestPruneFindingsBefore_NoOp(t *testing.T) {
 	fresh := now.Add(-1 * time.Hour).Format("2006-01-02 15:04:05")
 
 	s.findings = []model.Finding{
-		{Type: "Beaconing", Timestamp: fresh},
+		{Type: "Beacon", Timestamp: fresh},
 		{Type: "Long Connection", Timestamp: fresh},
 	}
 
@@ -130,7 +130,7 @@ func TestFindingsIdx_StaysConsistentAcrossMutations(t *testing.T) {
 	s := New(config.Default())
 
 	notifs := s.SetFindings([]model.Finding{
-		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
+		{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
 		{Type: "Long Connection", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 40, Severity: model.SevMedium, Timestamp: "2026-05-10 12:01:00"},
 	})
 	_ = notifs
@@ -228,7 +228,7 @@ func TestSetFindingsIncremental_PreservesRollups(t *testing.T) {
 	// (src, dst). This mirrors the steady state after a midnight full
 	// pass has run.
 	s.SetFindings([]model.Finding{
-		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
+		{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
 		{Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 60, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
 		{Type: "Host Risk Score", SrcIP: "10.0.0.1", DstIP: "(network)", Score: 50, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
 		{Type: "Correlated Activity", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 85, Severity: model.SevCritical, Timestamp: "2026-05-10 12:00:00"},
@@ -258,8 +258,8 @@ func TestSetFindingsIncremental_PreservesRollups(t *testing.T) {
 	if got := countByType(s, "TI Hit (IP)"); got != 1 {
 		t.Errorf("TI Hit (IP) count after incremental = %d, want 1", got)
 	}
-	if got := countByType(s, "Beaconing"); got != 1 {
-		t.Errorf("Beaconing contributor count = %d, want 1 (non-rollup historical must persist regardless of which entry point)", got)
+	if got := countByType(s, "Beacon"); got != 1 {
+		t.Errorf("Beacon contributor count = %d, want 1 (non-rollup historical must persist regardless of which entry point)", got)
 	}
 }
 
@@ -276,29 +276,29 @@ func countByType(s *Store, typ string) int {
 func TestSetFindings_PurgesStaleRollups(t *testing.T) {
 	s := New(config.Default())
 
-	// Seed: Beaconing finding + an HRS row for the same host + a
+	// Seed: Beacon finding + an HRS row for the same host + a
 	// Correlated Activity row for the same pair.
 	s.SetFindings([]model.Finding{
-		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
+		{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
 		{Type: "Host Risk Score", SrcIP: "10.0.0.1", DstIP: "(network)", Score: 50, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
 		{Type: "Correlated Activity", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 85, Severity: model.SevCritical, Timestamp: "2026-05-10 12:00:00"},
 	})
 
-	// Second run regenerates only the Beaconing finding — neither
+	// Second run regenerates only the Beacon finding — neither
 	// the roll-up phase has anything to emit (suppose the operator
 	// re-ran analysis after toggling a setting that suppresses HRS
 	// and correlation). Both roll-up rows should be purged; the
-	// Beaconing finding should remain.
+	// Beacon finding should remain.
 	s.SetFindings([]model.Finding{
-		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00"},
+		{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00"},
 	})
 
 	gotTypes := map[string]int{}
 	for _, f := range s.findings {
 		gotTypes[f.Type]++
 	}
-	if gotTypes["Beaconing"] != 1 {
-		t.Errorf("Beaconing count = %d, want 1", gotTypes["Beaconing"])
+	if gotTypes["Beacon"] != 1 {
+		t.Errorf("Beacon count = %d, want 1", gotTypes["Beacon"])
 	}
 	if gotTypes["Host Risk Score"] != 0 {
 		t.Errorf("stale Host Risk Score not purged; got %d row(s)", gotTypes["Host Risk Score"])
@@ -331,7 +331,7 @@ func TestSetFindings_CorrelationsPersistAcrossReload(t *testing.T) {
 	// Seed: three findings, two of which carry Correlations referencing
 	// the third (a Correlated Activity roll-up).
 	s1.SetFindings([]model.Finding{
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00",
 			Correlations: []int{2, 3}},
 		{ID: 2, Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "53",
@@ -404,7 +404,7 @@ func TestSetFindings_BeaconDetailFieldsPersistAcrossReload(t *testing.T) {
 	s1 := New(config.Default())
 	s1.InitDB(db1)
 	beacon := model.Finding{
-		ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 		Score: 88, Severity: model.SevCritical, Timestamp: "2026-05-17 09:00:00",
 		TSScore: 0.92, DSScore: 0.81, HistScore: 0.75, DurScore: 0.88,
 		MeanInterval: 47.0, MedianInterval: 46.0, Jitter: 0.064, SampleSize: 312,
@@ -455,12 +455,12 @@ func TestSetFindings_BeaconDetailFieldsPersistAcrossReload(t *testing.T) {
 	})
 	var carried *model.Finding
 	for i := range s2.findings {
-		if s2.findings[i].Type == "Beaconing" {
+		if s2.findings[i].Type == "Beacon" {
 			carried = &s2.findings[i]
 		}
 	}
 	if carried == nil {
-		t.Fatal("carry-forward: Beaconing finding was not preserved")
+		t.Fatal("carry-forward: Beacon finding was not preserved")
 	}
 	assertBeacon("after carry-forward", *carried)
 	_ = db2.Close()
@@ -477,18 +477,18 @@ func TestSetFindings_BeaconDetailFieldsPersistAcrossReload(t *testing.T) {
 	s3.InitDB(db3)
 	var reloaded *model.Finding
 	for i := range s3.findings {
-		if s3.findings[i].Type == "Beaconing" {
+		if s3.findings[i].Type == "Beacon" {
 			reloaded = &s3.findings[i]
 		}
 	}
 	if reloaded == nil {
-		t.Fatal("after carry-forward reload: Beaconing finding missing")
+		t.Fatal("after carry-forward reload: Beacon finding missing")
 	}
 	assertBeacon("after carry-forward reload", *reloaded)
 }
 
 // TestSetFindings_JA3PersistAcrossReload codifies the migration-0019
-// closure. JA3/JA4 are lifted onto a conn-level Beaconing finding at
+// closure. JA3/JA4 are lifted onto a conn-level Beacon finding at
 // emit time from sslUIDIndex. Pre-0019 they had no columns, so the
 // same two failure modes the 0018 fields had would recur: a server
 // restart, or SetFindings's carry-forward for a beacon that didn't
@@ -515,7 +515,7 @@ func TestSetFindings_JA3PersistAcrossReload(t *testing.T) {
 	s1 := New(config.Default())
 	s1.InitDB(db1)
 	s1.SetFindings([]model.Finding{
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 			Score: 88, Severity: model.SevCritical, Timestamp: "2026-05-18 09:00:00",
 			JA3: "771,4865-4866", JA4: "t13d1516h2_8daaf6152771_b0da82dd1658"},
 	})
@@ -553,12 +553,12 @@ func TestSetFindings_JA3PersistAcrossReload(t *testing.T) {
 	})
 	var carried *model.Finding
 	for i := range s2.findings {
-		if s2.findings[i].Type == "Beaconing" {
+		if s2.findings[i].Type == "Beacon" {
 			carried = &s2.findings[i]
 		}
 	}
 	if carried == nil {
-		t.Fatal("carry-forward: Beaconing finding was not preserved")
+		t.Fatal("carry-forward: Beacon finding was not preserved")
 	}
 	assertJA("after carry-forward", *carried)
 	_ = db2.Close()
@@ -573,12 +573,12 @@ func TestSetFindings_JA3PersistAcrossReload(t *testing.T) {
 	s3.InitDB(db3)
 	var reloaded *model.Finding
 	for i := range s3.findings {
-		if s3.findings[i].Type == "Beaconing" {
+		if s3.findings[i].Type == "Beacon" {
 			reloaded = &s3.findings[i]
 		}
 	}
 	if reloaded == nil {
-		t.Fatal("after carry-forward reload: Beaconing finding missing")
+		t.Fatal("after carry-forward reload: Beacon finding missing")
 	}
 	assertJA("after carry-forward reload", *reloaded)
 }
@@ -607,7 +607,7 @@ func TestSetFindings_TopURIsPersistAcrossReload(t *testing.T) {
 	s1.InitDB(db1)
 	want := []model.URIStat{{URI: "/b", Count: 300}, {URI: "/c", Count: 120}, {URI: "/a", Count: 50}}
 	s1.SetFindings([]model.Finding{
-		{ID: 1, Type: "HTTP Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "80",
+		{ID: 1, Type: "HTTP Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "80",
 			Score: 82, Severity: model.SevHigh, Timestamp: "2026-05-18 09:00:00",
 			Hostname: "evil.example", URI: "/b", TopURIs: want},
 	})
@@ -645,12 +645,12 @@ func TestSetFindings_TopURIsPersistAcrossReload(t *testing.T) {
 	})
 	var carried *model.Finding
 	for i := range s2.findings {
-		if s2.findings[i].Type == "HTTP Beaconing" {
+		if s2.findings[i].Type == "HTTP Beacon" {
 			carried = &s2.findings[i]
 		}
 	}
 	if carried == nil {
-		t.Fatal("carry-forward: HTTP Beaconing finding was not preserved")
+		t.Fatal("carry-forward: HTTP Beacon finding was not preserved")
 	}
 	assertFP("after carry-forward", *carried)
 	_ = db2.Close()
@@ -665,12 +665,12 @@ func TestSetFindings_TopURIsPersistAcrossReload(t *testing.T) {
 	s3.InitDB(db3)
 	var reloaded *model.Finding
 	for i := range s3.findings {
-		if s3.findings[i].Type == "HTTP Beaconing" {
+		if s3.findings[i].Type == "HTTP Beacon" {
 			reloaded = &s3.findings[i]
 		}
 	}
 	if reloaded == nil {
-		t.Fatal("after carry-forward reload: HTTP Beaconing finding missing")
+		t.Fatal("after carry-forward reload: HTTP Beacon finding missing")
 	}
 	assertFP("after carry-forward reload", *reloaded)
 }
@@ -698,17 +698,17 @@ func TestCountBeaconsWithJA3(t *testing.T) {
 	s := New(config.Default())
 	s.InitDB(db)
 	s.SetFindings([]model.Finding{
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-18 09:00:00", JA3: "aabb"},
-		{ID: 2, Type: "Beaconing", SrcIP: "10.0.0.2", DstIP: "1.1.1.1", DstPort: "443",
+		{ID: 2, Type: "Beacon", SrcIP: "10.0.0.2", DstIP: "1.1.1.1", DstPort: "443",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-18 09:01:00", JA3: "aabb"},
-		{ID: 3, Type: "Beaconing", SrcIP: "10.0.0.3", DstIP: "2.2.2.2", DstPort: "443",
+		{ID: 3, Type: "Beacon", SrcIP: "10.0.0.3", DstIP: "2.2.2.2", DstPort: "443",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-18 09:02:00", JA3: "aabb"},
-		{ID: 4, Type: "Beaconing", SrcIP: "10.0.0.4", DstIP: "3.3.3.3", DstPort: "443",
+		{ID: 4, Type: "Beacon", SrcIP: "10.0.0.4", DstIP: "3.3.3.3", DstPort: "443",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-18 09:03:00", JA3: "ccdd"},
 		{ID: 5, Type: "Malicious JA3", SrcIP: "10.0.0.5", DstIP: "4.4.4.4", DstPort: "443",
 			Score: 95, Severity: model.SevCritical, Timestamp: "2026-05-18 09:04:00", JA3: "aabb"},
-		{ID: 6, Type: "Beaconing", SrcIP: "10.0.0.6", DstIP: "5.5.5.5", DstPort: "443",
+		{ID: 6, Type: "Beacon", SrcIP: "10.0.0.6", DstIP: "5.5.5.5", DstPort: "443",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-18 09:05:00", JA3: ""},
 	})
 
@@ -741,9 +741,9 @@ func TestCountBeaconsWithJA3(t *testing.T) {
 // retains stale fresh-IDs that either don't exist or collide with
 // unrelated findings from prior runs.
 //
-// Worked example: a fresh Beaconing emitted at fresh ID 1 with
+// Worked example: a fresh Beacon emitted at fresh ID 1 with
 // Correlations=[2,3] (sibling + correlation-row IDs from the same
-// run) lands on top of a preserved Beaconing fingerprint at persisted
+// run) lands on top of a preserved Beacon fingerprint at persisted
 // ID 47. After SetFindings, the merged row must have ID 47 AND
 // Correlations translated to the corresponding persisted IDs of
 // findings 2 and 3 in the same run — not the raw [2,3] from the
@@ -754,7 +754,7 @@ func TestSetFindings_TranslatesCorrelationIDs(t *testing.T) {
 	// Seed two findings whose fingerprints will be re-fired in run 2.
 	// They get high persisted IDs because they're the only seed rows.
 	s.SetFindings([]model.Finding{
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-10 09:00:00"},
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-10 09:00:00"},
 		{ID: 2, Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "53", Score: 60, Severity: model.SevMedium, Timestamp: "2026-05-10 09:00:00"},
 	})
 
@@ -763,7 +763,7 @@ func TestSetFindings_TranslatesCorrelationIDs(t *testing.T) {
 	var bcnPersisted, dnsPersisted int
 	for _, f := range s.findings {
 		switch f.Type {
-		case "Beaconing":
+		case "Beacon":
 			bcnPersisted = f.ID
 		case "DNS Tunneling":
 			dnsPersisted = f.ID
@@ -781,7 +781,7 @@ func TestSetFindings_TranslatesCorrelationIDs(t *testing.T) {
 	freshBcnID, freshDnsID, freshCorrID := 1, 2, 3
 	s.SetFindings([]model.Finding{
 		{
-			ID: freshBcnID, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+			ID: freshBcnID, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00",
 			Correlations: []int{freshDnsID, freshCorrID}, // sibling + roll-up
 		},
@@ -802,7 +802,7 @@ func TestSetFindings_TranslatesCorrelationIDs(t *testing.T) {
 	for i := range s.findings {
 		f := &s.findings[i]
 		switch f.Type {
-		case "Beaconing":
+		case "Beacon":
 			bcn = f
 		case "DNS Tunneling":
 			dns = f
@@ -814,9 +814,9 @@ func TestSetFindings_TranslatesCorrelationIDs(t *testing.T) {
 		t.Fatalf("missing finding after run 2: bcn=%v dns=%v corr=%v", bcn, dns, corr)
 	}
 
-	// Beaconing/DNS Tunneling kept their preserved IDs (fingerprint match).
+	// Beacon/DNS Tunneling kept their preserved IDs (fingerprint match).
 	if bcn.ID != bcnPersisted {
-		t.Errorf("Beaconing.ID = %d; want preserved %d", bcn.ID, bcnPersisted)
+		t.Errorf("Beacon.ID = %d; want preserved %d", bcn.ID, bcnPersisted)
 	}
 	if dns.ID != dnsPersisted {
 		t.Errorf("DNS Tunneling.ID = %d; want preserved %d", dns.ID, dnsPersisted)
@@ -824,11 +824,11 @@ func TestSetFindings_TranslatesCorrelationIDs(t *testing.T) {
 
 	// Correlations must reference the post-translation persisted IDs,
 	// not the analyzer's fresh per-run IDs. Specifically:
-	//   Beaconing.Correlations should be [dnsPersisted, corr.ID]
+	//   Beacon.Correlations should be [dnsPersisted, corr.ID]
 	//   DNS Tunneling.Correlations should be [bcnPersisted, corr.ID]
 	//   Correlated Activity.Correlations should be [bcnPersisted, dnsPersisted]
 	if !sameIntSet(bcn.Correlations, []int{dnsPersisted, corr.ID}) {
-		t.Errorf("Beaconing.Correlations = %v; want [%d, %d] (translated fresh→persisted)", bcn.Correlations, dnsPersisted, corr.ID)
+		t.Errorf("Beacon.Correlations = %v; want [%d, %d] (translated fresh→persisted)", bcn.Correlations, dnsPersisted, corr.ID)
 	}
 	if !sameIntSet(dns.Correlations, []int{bcnPersisted, corr.ID}) {
 		t.Errorf("DNS Tunneling.Correlations = %v; want [%d, %d]", dns.Correlations, bcnPersisted, corr.ID)
@@ -848,18 +848,18 @@ func TestSetFindings_TranslatesCorrelationIDs(t *testing.T) {
 //
 // Worked example (the common case):
 //
-//	Run 1: Beaconing fires, persisted ID 47.
+//	Run 1: Beacon fires, persisted ID 47.
 //	       DNS Tunneling fires, persisted ID 92.
-//	Run 2: Beaconing fires (fresh ID 5) — DNS Tunneling does NOT.
+//	Run 2: Beacon fires (fresh ID 5) — DNS Tunneling does NOT.
 //	       correlate.go consults findingsProvider, sees historical
-//	       DNS Tunneling, includes its persisted ID 92 in Beaconing's
+//	       DNS Tunneling, includes its persisted ID 92 in Beacon's
 //	       Correlations alongside the fresh correlation-row ID.
 //
-// The post-SetFindings invariant: Beaconing.Correlations must
+// The post-SetFindings invariant: Beacon.Correlations must
 // contain BOTH the translated correlation-row persisted ID AND the
 // historical DNS Tunneling persisted ID (92), unchanged. Pre-fix,
 // only the translated ID survived; the historical reference was
-// dropped, and the "+N corr" chip on Beaconing showed the wrong
+// dropped, and the "+N corr" chip on Beacon showed the wrong
 // count for every cross-run correlation.
 //
 // The fix: SetFindings builds a historicalIDs set from s.findings
@@ -891,7 +891,7 @@ func TestSetFindings_PreservesHistoricalCorrelationIDs(t *testing.T) {
 		})
 	}
 	run1 = append(run1,
-		model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		model.Finding{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-10 09:00:00"},
 		model.Finding{Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "53",
 			Score: 60, Severity: model.SevMedium, Timestamp: "2026-05-10 09:00:00"},
@@ -903,7 +903,7 @@ func TestSetFindings_PreservesHistoricalCorrelationIDs(t *testing.T) {
 			continue
 		}
 		switch f.Type {
-		case "Beaconing":
+		case "Beacon":
 			bcnPersisted = f.ID
 		case "DNS Tunneling":
 			dnsPersisted = f.ID
@@ -913,11 +913,11 @@ func TestSetFindings_PreservesHistoricalCorrelationIDs(t *testing.T) {
 		t.Fatalf("setup: failed to locate seeded contributors: bcn=%d dns=%d", bcnPersisted, dnsPersisted)
 	}
 
-	// Run 2: only Beaconing re-fires. correlate.go would build the
-	// pair from a.findings (fresh Beaconing) + findingsProvider
-	// (historical Beaconing + historical DNS Tunneling) and emit a
+	// Run 2: only Beacon re-fires. correlate.go would build the
+	// pair from a.findings (fresh Beacon) + findingsProvider
+	// (historical Beacon + historical DNS Tunneling) and emit a
 	// Correlated Activity row. With NEW-92's fingerprint-dedup
-	// preferring the historical Beaconing's persisted ID, the
+	// preferring the historical Beacon's persisted ID, the
 	// resulting Correlations slice on the Correlated Activity row
 	// would be [bcnPersisted, dnsPersisted]. We simulate that
 	// directly here — the contract under test is SetFindings's
@@ -925,7 +925,7 @@ func TestSetFindings_PreservesHistoricalCorrelationIDs(t *testing.T) {
 	freshBcnID, freshCorrID := 1, 2
 	s.SetFindings([]model.Finding{
 		{
-			ID: freshBcnID, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+			ID: freshBcnID, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00",
 			// Historical DNS Tunneling's persisted ID is in this slice
 			// directly (not a fresh ID). Pre-NEW-91, the translation
@@ -935,7 +935,7 @@ func TestSetFindings_PreservesHistoricalCorrelationIDs(t *testing.T) {
 		{
 			ID: freshCorrID, Type: model.TypeCorrelatedActivity, SrcIP: "10.0.0.1", DstIP: "1.1.1.1",
 			Score: 85, Severity: model.SevCritical, Timestamp: "2026-05-11 09:00:00",
-			// Contributors: fresh Beaconing + historical DNS Tunneling
+			// Contributors: fresh Beacon + historical DNS Tunneling
 			// (already in persisted-ID space).
 			Correlations: []int{freshBcnID, dnsPersisted},
 		},
@@ -945,7 +945,7 @@ func TestSetFindings_PreservesHistoricalCorrelationIDs(t *testing.T) {
 	for i := range s.findings {
 		f := &s.findings[i]
 		switch f.Type {
-		case "Beaconing":
+		case "Beacon":
 			bcn = f
 		case model.TypeCorrelatedActivity:
 			corr = f
@@ -956,7 +956,7 @@ func TestSetFindings_PreservesHistoricalCorrelationIDs(t *testing.T) {
 	}
 
 	if !sameIntSet(bcn.Correlations, []int{dnsPersisted, corr.ID}) {
-		t.Errorf("Beaconing.Correlations = %v; want [%d, %d] (historical DNS persisted ID preserved + fresh corr translated)",
+		t.Errorf("Beacon.Correlations = %v; want [%d, %d] (historical DNS persisted ID preserved + fresh corr translated)",
 			bcn.Correlations, dnsPersisted, corr.ID)
 	}
 	if !sameIntSet(corr.Correlations, []int{bcnPersisted, dnsPersisted}) {
@@ -984,10 +984,10 @@ func sameIntSet(a, b []int) bool {
 }
 
 // TestSetFindings_PreservesNonRollupHistorical confirms the purge is
-// scoped to roll-up types only. A Beaconing finding from a prior run
+// scoped to roll-up types only. A Beacon finding from a prior run
 // that doesn't re-fire must still be preserved — its absence from the
 // TestSetFindings_WritesBeaconHistory codifies the slice-3 contract:
-// a SetFindings call carrying a Beaconing or HTTP Beaconing finding
+// a SetFindings call carrying a Beacon or HTTP Beacon finding
 // also writes a row to beacon_history keyed by (BeaconHistoryKey,
 // today_UTC). Non-beacon types must NOT write history rows — the
 // table is per-beacon-evolution, not a general finding log.
@@ -1006,7 +1006,7 @@ func TestSetFindings_WritesBeaconHistory(t *testing.T) {
 	s.InitDB(db)
 
 	beacon := model.Finding{
-		Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 		Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00",
 		Hostname:  "kx9j3qm2pflw.com",
 		TSScore:   0.92,
@@ -1015,7 +1015,7 @@ func TestSetFindings_WritesBeaconHistory(t *testing.T) {
 		DurScore:  0.95,
 	}
 	httpBeacon := model.Finding{
-		Type: "HTTP Beaconing", SrcIP: "10.0.0.2", DstIP: "1.1.1.2", DstPort: "443",
+		Type: "HTTP Beacon", SrcIP: "10.0.0.2", DstIP: "1.1.1.2", DstPort: "443",
 		Score: 65, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00",
 		Hostname:  "tracker.evil.com",
 		URI:       "/heartbeat",
@@ -1033,14 +1033,14 @@ func TestSetFindings_WritesBeaconHistory(t *testing.T) {
 	today := time.Now().UTC().Format("2006-01-02")
 
 	if maxScore, lastScore, ok := s.beaconHistoryRowSnapshot(beacon.BeaconHistoryKey(), today); !ok {
-		t.Errorf("Beaconing history row missing for %s on %s", beacon.BeaconHistoryKey(), today)
+		t.Errorf("Beacon history row missing for %s on %s", beacon.BeaconHistoryKey(), today)
 	} else if maxScore != 80 || lastScore != 80 {
-		t.Errorf("Beaconing first-write: max=%d last=%d, want max=80 last=80", maxScore, lastScore)
+		t.Errorf("Beacon first-write: max=%d last=%d, want max=80 last=80", maxScore, lastScore)
 	}
 	if maxScore, lastScore, ok := s.beaconHistoryRowSnapshot(httpBeacon.BeaconHistoryKey(), today); !ok {
-		t.Errorf("HTTP Beaconing history row missing")
+		t.Errorf("HTTP Beacon history row missing")
 	} else if maxScore != 65 || lastScore != 65 {
-		t.Errorf("HTTP Beaconing first-write: max=%d last=%d, want max=65 last=65", maxScore, lastScore)
+		t.Errorf("HTTP Beacon first-write: max=%d last=%d, want max=65 last=65", maxScore, lastScore)
 	}
 	if _, _, ok := s.beaconHistoryRowSnapshot(dns.BeaconHistoryKey(), today); ok {
 		t.Errorf("DNS Tunneling wrote a beacon_history row; only beacon types should")
@@ -1077,7 +1077,7 @@ func TestSetFindings_BeaconHistorySameDayUPSERT(t *testing.T) {
 	s.InitDB(db)
 
 	morning := model.Finding{
-		Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 		Score: 60, Severity: model.SevHigh, Timestamp: "2026-05-11 06:00:00",
 	}
 	s.SetFindings([]model.Finding{morning})
@@ -1155,7 +1155,7 @@ func TestSetFindings_BeaconHistory_NEW84_SameScoreSeverityBump(t *testing.T) {
 	}
 
 	base := model.Finding{
-		Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 		Hostname: "kx9j3qm2pflw.com", Timestamp: "2026-05-17 06:00:00",
 	}
 
@@ -1230,7 +1230,7 @@ func TestPurgeBeaconHistory(t *testing.T) {
             (fingerprint, day_utc, finding_type, src_ip, dst_ip, dst_port, host, uri,
              max_score, max_score_at, last_score, last_score_at,
              severity, ts_score, ds_score, hist_score, dur_score, created_at)
-            VALUES (?, ?, 'Beaconing', '10.0.0.1', '1.1.1.1', '443', '', '',
+            VALUES (?, ?, 'Beacon', '10.0.0.1', '1.1.1.1', '443', '', '',
                     80, ?, 80, ?, 'HIGH', 1, 1, 0, 1, ?)`,
 			"fp-"+day, day, now.Unix(), now.Unix(), now.Unix())
 		if err != nil {
@@ -1292,9 +1292,9 @@ func TestBeaconHistory_TSLayers(t *testing.T) {
 		srcIP       string
 		dstIP       string
 	}{
-		{"Beaconing", "10.0.0.1", "1.1.1.1"},
-		{"HTTP Beaconing", "10.0.0.2", "1.1.1.2"},
-		{"DNS Beaconing", "10.0.0.3", "apex.example.com"},
+		{"Beacon", "10.0.0.1", "1.1.1.1"},
+		{"HTTP Beacon", "10.0.0.2", "1.1.1.2"},
+		{"DNS Beacon", "10.0.0.3", "apex.example.com"},
 	} {
 		t.Run(tc.findingType, func(t *testing.T) {
 			f := model.Finding{
@@ -1343,22 +1343,22 @@ func TestSetFindings_PreservesNonRollupHistorical(t *testing.T) {
 	s := New(config.Default())
 
 	s.SetFindings([]model.Finding{
-		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
+		{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-10 12:00:00"},
 		{Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 60, Severity: model.SevMedium, Timestamp: "2026-05-10 12:00:00"},
 	})
 
-	// Second run only emits Beaconing; DNS Tunneling must be
+	// Second run only emits Beacon; DNS Tunneling must be
 	// preserved as a historical detection.
 	s.SetFindings([]model.Finding{
-		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00"},
+		{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00"},
 	})
 
 	gotTypes := map[string]int{}
 	for _, f := range s.findings {
 		gotTypes[f.Type]++
 	}
-	if gotTypes["Beaconing"] != 1 {
-		t.Errorf("Beaconing count = %d, want 1", gotTypes["Beaconing"])
+	if gotTypes["Beacon"] != 1 {
+		t.Errorf("Beacon count = %d, want 1", gotTypes["Beacon"])
 	}
 	if gotTypes["DNS Tunneling"] != 1 {
 		t.Errorf("DNS Tunneling not preserved; got %d row(s)", gotTypes["DNS Tunneling"])
@@ -1394,7 +1394,7 @@ func TestBeaconHistory_CapsAtRetentionWindow(t *testing.T) {
             (fingerprint, day_utc, finding_type, src_ip, dst_ip, dst_port, host, uri,
              max_score, max_score_at, last_score, last_score_at,
              severity, ts_score, ds_score, hist_score, dur_score, created_at)
-            VALUES (?, ?, 'Beaconing', '10.0.0.1', '1.1.1.1', '443', '', '',
+            VALUES (?, ?, 'Beacon', '10.0.0.1', '1.1.1.1', '443', '', '',
                     80, ?, 80, ?, 'HIGH', 1, 1, 0, 1, ?)`,
 			key, day, now.Unix(), now.Unix(), now.Unix())
 		if err != nil {
@@ -1463,22 +1463,22 @@ func TestSuggestedPairAllowlist(t *testing.T) {
 	}
 
 	// Pair A — 15 days, acknowledged, sensor="" → must appear (single row).
-	insertHistory("fp-a", "10.0.0.1", "1.1.1.1", "443", "Beaconing", "", 15)
-	insertFinding("10.0.0.1", "1.1.1.1", "443", "Beaconing", "", "acknowledged")
+	insertHistory("fp-a", "10.0.0.1", "1.1.1.1", "443", "Beacon", "", 15)
+	insertFinding("10.0.0.1", "1.1.1.1", "443", "Beacon", "", "acknowledged")
 
 	// Pair B — only 7 days → must NOT appear (below SuggestMinDays).
-	insertHistory("fp-b", "10.0.0.2", "2.2.2.2", "80", "Beaconing", "", 7)
-	insertFinding("10.0.0.2", "2.2.2.2", "80", "Beaconing", "", "acknowledged")
+	insertHistory("fp-b", "10.0.0.2", "2.2.2.2", "80", "Beacon", "", 7)
+	insertFinding("10.0.0.2", "2.2.2.2", "80", "Beacon", "", "acknowledged")
 
 	// Pair C — 15 days, open status → must NOT appear (not acknowledged).
-	insertHistory("fp-c", "10.0.0.3", "3.3.3.3", "443", "Beaconing", "", 15)
-	insertFinding("10.0.0.3", "3.3.3.3", "443", "Beaconing", "", "")
+	insertHistory("fp-c", "10.0.0.3", "3.3.3.3", "443", "Beacon", "", 15)
+	insertFinding("10.0.0.3", "3.3.3.3", "443", "Beacon", "", "")
 
 	// Pair D — 15 days, acknowledged, wildcard rule → must NOT appear.
-	insertHistory("fp-d", "10.0.0.4", "4.4.4.4", "443", "Beaconing", "", 15)
-	insertFinding("10.0.0.4", "4.4.4.4", "443", "Beaconing", "", "acknowledged")
+	insertHistory("fp-d", "10.0.0.4", "4.4.4.4", "443", "Beacon", "", 15)
+	insertFinding("10.0.0.4", "4.4.4.4", "443", "Beacon", "", "acknowledged")
 	if _, err := s.AddPairAllow(model.PairAllowEntry{
-		Src: "10.0.0.4", Dst: "4.4.4.4", Port: "443", FindingType: "Beaconing",
+		Src: "10.0.0.4", Dst: "4.4.4.4", Port: "443", FindingType: "Beacon",
 		Sensor: "", CreatedBy: "test", CreatedAt: now.Unix(),
 	}); err != nil {
 		t.Fatalf("add pair allow for D: %v", err)
@@ -1486,12 +1486,12 @@ func TestSuggestedPairAllowlist(t *testing.T) {
 
 	// Pair E — two sensors, sensorX rule suppresses only that sensor's row;
 	// sensorY's row must still appear.
-	insertHistory("fp-e-x", "10.0.0.5", "5.5.5.5", "443", "Beaconing", "sensorX", 15)
-	insertFinding("10.0.0.5", "5.5.5.5", "443", "Beaconing", "sensorX", "acknowledged")
-	insertHistory("fp-e-y", "10.0.0.5", "5.5.5.5", "443", "Beaconing", "sensorY", 15)
-	insertFinding("10.0.0.5", "5.5.5.5", "443", "Beaconing", "sensorY", "acknowledged")
+	insertHistory("fp-e-x", "10.0.0.5", "5.5.5.5", "443", "Beacon", "sensorX", 15)
+	insertFinding("10.0.0.5", "5.5.5.5", "443", "Beacon", "sensorX", "acknowledged")
+	insertHistory("fp-e-y", "10.0.0.5", "5.5.5.5", "443", "Beacon", "sensorY", 15)
+	insertFinding("10.0.0.5", "5.5.5.5", "443", "Beacon", "sensorY", "acknowledged")
 	if _, err := s.AddPairAllow(model.PairAllowEntry{
-		Src: "10.0.0.5", Dst: "5.5.5.5", Port: "443", FindingType: "Beaconing",
+		Src: "10.0.0.5", Dst: "5.5.5.5", Port: "443", FindingType: "Beacon",
 		Sensor: "sensorX", CreatedBy: "test", CreatedAt: now.Unix(),
 	}); err != nil {
 		t.Fatalf("add pair allow for E/sensorX: %v", err)
@@ -1565,7 +1565,7 @@ func TestNotifications_PersistAcrossReload(t *testing.T) {
 	s := New(config.Default())
 	s.InitDB(db)
 	s.SetFindings([]model.Finding{
-		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 			Score: 99, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
 	})
 	s.AddAlarm(model.Notification{
@@ -1652,14 +1652,14 @@ func TestNotifications_PersistAcrossReload(t *testing.T) {
 //
 // Articulating the invariant rather than the failure case: the
 // score axis has two semantics in this codebase (continuous-
-// composite for Beaconing-class detectors, discrete-tier for the
+// composite for Beacon-class detectors, discrete-tier for the
 // hard-coded hit detectors); this test asserts the gate behaves
 // consistently across both populations at the chosen boundary.
 //
 // The tier enumeration this test pins down (matches CHANGELOG):
 //
 //	Rings the bell:  URLhaus/FeodoTracker (96-97), Malicious JA3 (95),
-//	                 DGA-bumped Beaconing (up to 99), Correlated
+//	                 DGA-bumped Beacon (up to 99), Correlated
 //	                 Activity stacks (up to 99), score-100 catch-all.
 //	Does NOT ring:   Cobalt Strike URI (93), Zeek attack notice (92),
 //	                 C2 URI Pattern (91), MISP/OpenCTI broad (90),
@@ -1679,7 +1679,7 @@ func TestSetFindings_BellGate_AtLeast95Notifies(t *testing.T) {
 			Score: 93, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
 		// Below threshold by score; CRITICAL severity is no longer
 		// enough on its own (this was the old gate).
-		{Type: "Beaconing", SrcIP: "10.0.0.5", DstIP: "1.1.1.5", DstPort: "443",
+		{Type: "Beacon", SrcIP: "10.0.0.5", DstIP: "1.1.1.5", DstPort: "443",
 			Score: 88, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
 
 		// Boundary: exactly 95 — rings (Malicious JA3 lives here).
@@ -1692,7 +1692,7 @@ func TestSetFindings_BellGate_AtLeast95Notifies(t *testing.T) {
 		{Type: "TI Hit (IP)", SrcIP: "10.0.0.8", DstIP: "1.1.1.8",
 			Score: 97, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
 		// Score-100 catch-all: rings.
-		{Type: "Beaconing", SrcIP: "10.0.0.9", DstIP: "1.1.1.9", DstPort: "443",
+		{Type: "Beacon", SrcIP: "10.0.0.9", DstIP: "1.1.1.9", DstPort: "443",
 			Score: 100, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
 
 		// Excluded by type even at max score — Host Risk Score is a roll-up.
@@ -1702,7 +1702,7 @@ func TestSetFindings_BellGate_AtLeast95Notifies(t *testing.T) {
 	notifs := s.SetFindings(findings)
 
 	// Expected: Malicious JA3 (95), Suspicious URL (96), TI Hit (IP) (97),
-	// Beaconing (100). Four rings, in any order.
+	// Beacon (100). Four rings, in any order.
 	if len(notifs) != 4 {
 		t.Fatalf("got %d notifications, want 4 (the score>=95 non-rollup findings); notifs=%+v", len(notifs), notifs)
 	}
@@ -1713,7 +1713,7 @@ func TestSetFindings_BellGate_AtLeast95Notifies(t *testing.T) {
 			t.Errorf("notification for %s has Kind=%q, want \"finding\"", n.Type, n.Kind)
 		}
 	}
-	wantRinging := []string{"Malicious JA3", "Suspicious URL", "TI Hit (IP)", "Beaconing"}
+	wantRinging := []string{"Malicious JA3", "Suspicious URL", "TI Hit (IP)", "Beacon"}
 	for _, want := range wantRinging {
 		if !ringingByType[want] {
 			t.Errorf("expected %q to ring (>=95), missing from %+v", want, notifs)
@@ -1753,10 +1753,10 @@ func TestSetFindings_BellGate_HiddenByAllowlistOrSuppression(t *testing.T) {
 		{Type: "Malicious JA3", SrcIP: "10.0.0.1", DstIP: "1.1.1.1",
 			Score: 95, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
 		// Hidden by allowlist CIDR match on src.
-		{Type: "Beaconing", SrcIP: "10.0.99.5", DstIP: "1.1.1.2", DstPort: "443",
+		{Type: "Beacon", SrcIP: "10.0.99.5", DstIP: "1.1.1.2", DstPort: "443",
 			Score: 96, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
 		// Hidden by allowlist CIDR match on dst.
-		{Type: "Beaconing", SrcIP: "10.0.0.2", DstIP: "10.0.99.6", DstPort: "443",
+		{Type: "Beacon", SrcIP: "10.0.0.2", DstIP: "10.0.99.6", DstPort: "443",
 			Score: 97, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
 		// Hidden by allowlist exact-match on dst (IPv6 multicast).
 		{Type: "Correlated Activity", SrcIP: "fe80::fafc:e1ff:fe70:4334", DstIP: "ff02::fb",
@@ -1799,7 +1799,7 @@ func TestSetAllowlist_DismissesHiddenFindingNotifications(t *testing.T) {
 	s.SetFindings([]model.Finding{
 		{Type: "Malicious JA3", SrcIP: "10.0.0.1", DstIP: "1.1.1.1",
 			Score: 95, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
-		{Type: "Beaconing", SrcIP: "10.0.99.5", DstIP: "8.8.8.8", DstPort: "443",
+		{Type: "Beacon", SrcIP: "10.0.99.5", DstIP: "8.8.8.8", DstPort: "443",
 			Score: 96, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
 		{Type: "Correlated Activity", SrcIP: "fe80::fafc:e1ff:fe70:4334", DstIP: "ff02::fb",
 			Score: 99, Severity: model.SevCritical, Timestamp: "2026-05-12 09:00:00"},
@@ -1870,10 +1870,10 @@ func TestSetFindings_NEW91_CaseB2_HistoricalIDCollision(t *testing.T) {
 	s := New(config.Default())
 	s.InitDB(db)
 
-	// Seed store with one historical Beaconing. SetFindings assigns
+	// Seed store with one historical Beacon. SetFindings assigns
 	// persisted IDs starting above maxExistingID (0), so this gets ID 1.
 	s.SetFindings([]model.Finding{
-		{ID: 99, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "80",
+		{ID: 99, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "80",
 			Score: 70, Severity: model.SevHigh, Timestamp: "2026-01-01 00:00:00"},
 	})
 	// Verify the seeded ID is 1 (maxExistingID was 0 → first new ID is 1).
@@ -1883,24 +1883,24 @@ func TestSetFindings_NEW91_CaseB2_HistoricalIDCollision(t *testing.T) {
 	}
 
 	// Second run: the analyzer assigns fresh IDs starting at 1 each run.
-	// The fresh Beaconing (different DstPort → different fingerprint) gets
-	// fresh ID 1, colliding with the historical Beaconing's persisted ID 1.
+	// The fresh Beacon (different DstPort → different fingerprint) gets
+	// fresh ID 1, colliding with the historical Beacon's persisted ID 1.
 	// The CA's Correlations carries:
-	//   -1 (negative sentinel for the historical Beaconing, persisted ID 1)
+	//   -1 (negative sentinel for the historical Beacon, persisted ID 1)
 	//    2 (fresh DNS Tunneling, to be translated to its persisted ID)
 	// After translation:
 	//   -1 → abs=1, historicalIDs[1]=true → 1 (the historical finding) ✓
 	//    2 → freshToPersisted[2] → new persisted ID for DNS Tunneling ✓
 	// Without the fix, -1 would be passed as +1 and freshToPersisted[1]
-	// would return the fresh Beaconing's new persisted ID — wrong finding.
+	// would return the fresh Beacon's new persisted ID — wrong finding.
 	s.SetFindings([]model.Finding{
-		// Fresh Beaconing: fresh ID 1, different fingerprint (DstPort 443).
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		// Fresh Beacon: fresh ID 1, different fingerprint (DstPort 443).
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-01-02 00:00:00"},
 		// Fresh DNS Tunneling: fresh ID 2.
 		{ID: 2, Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.1.1.1",
 			Score: 60, Severity: model.SevMedium, Timestamp: "2026-01-02 00:00:00"},
-		// CA: fresh ID 3. Correlations: -1 (historical Beaconing sentinel) + 2 (DNS).
+		// CA: fresh ID 3. Correlations: -1 (historical Beacon sentinel) + 2 (DNS).
 		{ID: 3, Type: model.TypeCorrelatedActivity, SrcIP: "10.0.0.1", DstIP: "1.1.1.1",
 			Score: 85, Severity: model.SevCritical, Timestamp: "2026-01-02 00:00:00",
 			Correlations: []int{-1, 2}},
@@ -1920,39 +1920,39 @@ func TestSetFindings_NEW91_CaseB2_HistoricalIDCollision(t *testing.T) {
 		t.Fatal("Correlated Activity finding not found after SetFindings")
 	}
 
-	// Find the fresh Beaconing (DstPort 443) and the historical Beaconing
+	// Find the fresh Beacon (DstPort 443) and the historical Beacon
 	// (DstPort 80, preserved because its fingerprint didn't re-fire).
 	var freshBcn, histBcn *model.Finding
 	for i := range all {
-		if all[i].Type == "Beaconing" && all[i].DstPort == "443" {
+		if all[i].Type == "Beacon" && all[i].DstPort == "443" {
 			freshBcn = &all[i]
 		}
-		if all[i].Type == "Beaconing" && all[i].DstPort == "80" {
+		if all[i].Type == "Beacon" && all[i].DstPort == "80" {
 			histBcn = &all[i]
 		}
 	}
 	if freshBcn == nil {
-		t.Fatal("fresh Beaconing (port 443) not found")
+		t.Fatal("fresh Beacon (port 443) not found")
 	}
 	if histBcn == nil {
-		t.Fatal("historical Beaconing (port 80) not found after preservation")
+		t.Fatal("historical Beacon (port 80) not found after preservation")
 	}
 	if histBcn.ID != 1 {
-		t.Fatalf("historical Beaconing persisted ID = %d, want 1", histBcn.ID)
+		t.Fatalf("historical Beacon persisted ID = %d, want 1", histBcn.ID)
 	}
 
-	// The CA's Correlations must reference the historical Beaconing (ID=3)
-	// and the fresh DNS Tunneling — NOT the fresh Beaconing's persisted ID.
+	// The CA's Correlations must reference the historical Beacon (ID=3)
+	// and the fresh DNS Tunneling — NOT the fresh Beacon's persisted ID.
 	hasHistorical, hasDNS := false, false
 	for _, id := range ca.Correlations {
 		if id == histBcn.ID { // 3
 			hasHistorical = true
 		}
 		if freshBcn != nil && id == freshBcn.ID {
-			// The fresh Beaconing (port 443) must NOT be in CA.Correlations —
+			// The fresh Beacon (port 443) must NOT be in CA.Correlations —
 			// it was not a contributor. Pre-fix, -3 was mis-translated via
-			// freshToPersisted[3] to the fresh Beaconing's persisted ID.
-			t.Errorf("CA.Correlations = %v; contains fresh Beaconing ID %d — B2 mis-translation: historical sentinel -3 was mapped to freshToPersisted[3] instead of persisted ID 3", ca.Correlations, freshBcn.ID)
+			// freshToPersisted[3] to the fresh Beacon's persisted ID.
+			t.Errorf("CA.Correlations = %v; contains fresh Beacon ID %d — B2 mis-translation: historical sentinel -3 was mapped to freshToPersisted[3] instead of persisted ID 3", ca.Correlations, freshBcn.ID)
 		}
 	}
 	// Find DNS Tunneling persisted ID.
@@ -1966,7 +1966,7 @@ func TestSetFindings_NEW91_CaseB2_HistoricalIDCollision(t *testing.T) {
 		}
 	}
 	if !hasHistorical {
-		t.Errorf("CA.Correlations = %v; missing historical Beaconing persisted ID 1", ca.Correlations)
+		t.Errorf("CA.Correlations = %v; missing historical Beacon persisted ID 1", ca.Correlations)
 	}
 	if !hasDNS {
 		t.Errorf("CA.Correlations = %v; missing DNS Tunneling persisted ID", ca.Correlations)
@@ -1994,11 +1994,11 @@ func TestDeleteOrphanedHostRiskScores(t *testing.T) {
 	//   10.0.0.1 — findings from sensor-a only; HRS should be deleted after purge.
 	//   10.0.0.2 — findings from both sensor-a and sensor-b; HRS should survive.
 	s.SetFindings([]model.Finding{
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Sensor: "sensor-a",
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Sensor: "sensor-a",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-01-01 00:00:00"},
 		{ID: 2, Type: "Host Risk Score", SrcIP: "10.0.0.1", DstIP: "(network)", Sensor: "",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-01-01 00:00:00"},
-		{ID: 3, Type: "Beaconing", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Sensor: "sensor-a",
+		{ID: 3, Type: "Beacon", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Sensor: "sensor-a",
 			Score: 70, Severity: model.SevMedium, Timestamp: "2026-01-01 00:00:00"},
 		{ID: 4, Type: "DNS Tunneling", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Sensor: "sensor-b",
 			Score: 60, Severity: model.SevMedium, Timestamp: "2026-01-01 00:00:00"},

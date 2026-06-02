@@ -10,11 +10,11 @@ import (
 )
 
 // TestCorrelate_EmitsOnTwoDistinctTypes verifies the basic
-// kill-chain shape: Beaconing + DNS Tunneling to the same (src, dst)
+// kill-chain shape: Beacon + DNS Tunneling to the same (src, dst)
 // pair → a Correlated Activity finding plus annotated contributors.
 func TestCorrelate_EmitsOnTwoDistinctTypes(t *testing.T) {
 	a := New(config.Default(), "", nil, nil)
-	a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 85, Timestamp: "2026-05-11 09:00:00 UTC"})
+	a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 85, Timestamp: "2026-05-11 09:00:00 UTC"})
 	a.add(model.Finding{Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 60, Timestamp: "2026-05-11 09:00:15 UTC"})
 
 	a.correlateFindings()
@@ -42,18 +42,18 @@ func TestCorrelate_EmitsOnTwoDistinctTypes(t *testing.T) {
 	if corr.Timestamp != "2026-05-11 09:00:00 UTC" {
 		t.Errorf("Timestamp = %q; want earliest contributor 2026-05-11 09:00:00 UTC", corr.Timestamp)
 	}
-	if !strings.Contains(corr.Detail, "Beaconing") || !strings.Contains(corr.Detail, "DNS Tunneling") {
+	if !strings.Contains(corr.Detail, "Beacon") || !strings.Contains(corr.Detail, "DNS Tunneling") {
 		t.Errorf("Detail %q missing one of the contributing types", corr.Detail)
 	}
 
 	// Contributors annotated with siblings + correlation row's ID.
-	bcn := findOne(t, a.findings, "Beaconing")
+	bcn := findOne(t, a.findings, "Beacon")
 	dns := findOne(t, a.findings, "DNS Tunneling")
 	if got, want := bcn.Correlations, append(append([]int{}, dns.ID), corr.ID); !sameInts(got, want) {
-		t.Errorf("Beaconing.Correlations = %v; want %v (DNS Tunneling ID + correlation ID)", got, want)
+		t.Errorf("Beacon.Correlations = %v; want %v (DNS Tunneling ID + correlation ID)", got, want)
 	}
 	if got, want := dns.Correlations, append(append([]int{}, bcn.ID), corr.ID); !sameInts(got, want) {
-		t.Errorf("DNS Tunneling.Correlations = %v; want %v (Beaconing ID + correlation ID)", got, want)
+		t.Errorf("DNS Tunneling.Correlations = %v; want %v (Beacon ID + correlation ID)", got, want)
 	}
 	// The Correlated Activity row carries the contributor list itself.
 	if got, want := corr.Correlations, append(append([]int{}, bcn.ID), dns.ID); !sameInts(got, want) {
@@ -65,8 +65,8 @@ func TestCorrelate_EmitsOnTwoDistinctTypes(t *testing.T) {
 // on a pair is not enough — correlation needs distinct signal.
 func TestCorrelate_NoEmitOnSingleType(t *testing.T) {
 	a := New(config.Default(), "", nil, nil)
-	a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 85})
-	a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 70})
+	a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 85})
+	a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 70})
 
 	a.correlateFindings()
 
@@ -83,11 +83,11 @@ func TestCorrelate_NoEmitOnSingleType(t *testing.T) {
 // TestCorrelate_ExcludesIneligibleTypes verifies that the consultant's
 // no-contribute list (Host Risk Score, Zeek Notice, Long Connection,
 // and Correlated Activity itself) doesn't count toward the type set.
-// A pair with one Beaconing + one Long Connection has only one
+// A pair with one Beacon + one Long Connection has only one
 // eligible distinct type and must not correlate.
 func TestCorrelate_ExcludesIneligibleTypes(t *testing.T) {
 	a := New(config.Default(), "", nil, nil)
-	a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 85})
+	a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 85})
 	a.add(model.Finding{Type: "Long Connection", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 50})
 	a.add(model.Finding{Type: "Zeek Notice", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 68})
 
@@ -107,8 +107,8 @@ func TestCorrelate_ExcludesIneligibleTypes(t *testing.T) {
 // boundary.
 func TestCorrelate_UnionsHistoricalFindings(t *testing.T) {
 	a := New(config.Default(), "", nil, nil)
-	// This run sees only Beaconing fresh.
-	a.add(model.Finding{ID: 10, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 85})
+	// This run sees only Beacon fresh.
+	a.add(model.Finding{ID: 10, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 85})
 	// Historical: a DNS Tunneling against the same pair from yesterday.
 	a.SetFindingsProvider(&stubFindingsProvider{findings: []model.Finding{
 		{ID: 11, Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 60, Timestamp: "2026-05-10 14:00:00 UTC"},
@@ -129,7 +129,7 @@ func TestCorrelate_UnionsHistoricalFindings(t *testing.T) {
 	if corr == nil {
 		t.Fatal("expected a fresh Correlated Activity finding from union(this-run, historical); got none")
 	}
-	// Beaconing(85) is the higher score; bump = 0 (numTypes == minTypes).
+	// Beacon(85) is the higher score; bump = 0 (numTypes == minTypes).
 	if corr.Score != 85 {
 		t.Errorf("Score = %d; want 85 (no recursive bump from the historical Correlated Activity row)", corr.Score)
 	}
@@ -145,11 +145,11 @@ func TestCorrelate_DeterministicOrder(t *testing.T) {
 		// Three pairs, each crossing the threshold. Alphabetical
 		// src+dst order is unambiguous so we can assert exact
 		// ordering rather than just stability.
-		a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.3", DstIP: "9.9.9.9", Score: 80})
+		a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.3", DstIP: "9.9.9.9", Score: 80})
 		a.add(model.Finding{Type: "DNS Tunneling", SrcIP: "10.0.0.3", DstIP: "9.9.9.9", Score: 60})
-		a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80})
+		a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80})
 		a.add(model.Finding{Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 60})
-		a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.2", DstIP: "5.5.5.5", Score: 80})
+		a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.2", DstIP: "5.5.5.5", Score: 80})
 		a.add(model.Finding{Type: "DNS Tunneling", SrcIP: "10.0.0.2", DstIP: "5.5.5.5", Score: 60})
 
 		a.correlateFindings()
@@ -180,7 +180,7 @@ func TestCorrelate_DeterministicOrder(t *testing.T) {
 // type beyond the minimum adds 5 to the score, capped at 99.
 func TestCorrelate_ScoreBump(t *testing.T) {
 	a := New(config.Default(), "", nil, nil)
-	a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 70})
+	a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 70})
 	a.add(model.Finding{Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 60})
 	a.add(model.Finding{Type: "Data Exfiltration", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 50})
 	a.add(model.Finding{Type: "Strobe", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 40})
@@ -210,7 +210,7 @@ func TestCorrelate_DisabledThresholdSkipsPhase(t *testing.T) {
 	cfg := config.Default()
 	cfg.CorrelationMinTypes = 1
 	a := New(cfg, "", nil, nil)
-	a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 85})
+	a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 85})
 
 	a.correlateFindings()
 
@@ -230,8 +230,8 @@ func TestCorrelate_DisabledThresholdSkipsPhase(t *testing.T) {
 // (Sensor field is constant across findings).
 func TestCorrelate_PartitionsBySensor(t *testing.T) {
 	a := New(config.Default(), "", nil, nil)
-	// Sensor-A observation: Beaconing + DNS Tunneling on (10.0.0.1 → 1.2.3.4).
-	a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 80, Sensor: "sensor-a"})
+	// Sensor-A observation: Beacon + DNS Tunneling on (10.0.0.1 → 1.2.3.4).
+	a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 80, Sensor: "sensor-a"})
 	a.add(model.Finding{Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 60, Sensor: "sensor-a"})
 	// Sensor-B observation: Strobe + Data Exfiltration on the SAME pair
 	// (because both sensors capture the same flow). These should NOT
@@ -262,7 +262,7 @@ func TestCorrelate_PartitionsBySensor(t *testing.T) {
 		t.Error("missing correlation for sensor-b")
 	}
 	// Pre-fix the test would have surfaced ONE correlation conflating
-	// Beaconing+DNS Tunneling+Strobe+Data Exfil into a single 4-type
+	// Beacon+DNS Tunneling+Strobe+Data Exfil into a single 4-type
 	// roll-up keyed only on (src, dst). The sensor field would have
 	// reflected whichever finding's Sensor happened to win the
 	// (non-existent) merge — silently wrong.
@@ -274,17 +274,17 @@ func TestCorrelate_PartitionsBySensor(t *testing.T) {
 // doesn't render a "+N correlated" chip pointing at dead siblings.
 func TestCorrelate_ClearsStaleCorrelations(t *testing.T) {
 	a := New(config.Default(), "", nil, nil)
-	// Single Beaconing finding with stale Correlations from a prior
+	// Single Beacon finding with stale Correlations from a prior
 	// run when DNS Tunneling also fired. This run, DNS Tunneling
 	// doesn't fire on this pair so the correlation shouldn't hold.
 	a.add(model.Finding{
-		Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 85,
+		Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 85,
 		Correlations: []int{99, 100}, // stale from prior run
 	})
 
 	a.correlateFindings()
 
-	bcn := findOne(t, a.findings, "Beaconing")
+	bcn := findOne(t, a.findings, "Beacon")
 	if bcn.Correlations != nil {
 		t.Errorf("expected stale Correlations cleared; got %v", bcn.Correlations)
 	}
@@ -302,32 +302,32 @@ func TestCorrelate_ClearsStaleCorrelations(t *testing.T) {
 // annotation apply pass keyed lookups on a.findings[i].ID (the fresh
 // ID), found nothing, and silently cleared the this-run finding's
 // Correlations to nil. Asymmetric result: the Correlated Activity row
-// listed Beaconing as a contributor while the Beaconing finding
+// listed Beacon as a contributor while the Beacon finding
 // itself claimed no correlations.
 //
 // We articulate the invariant ("every this-run participant gets its
 // Correlations populated") rather than the narrow failure case ("the
-// specific fresh-vs-historical-Beaconing collision"). Multiple shapes
+// specific fresh-vs-historical-Beacon collision"). Multiple shapes
 // touch the same code path: this asserts the contract holds for the
 // shape that broke, and the non-collision shape continues to work.
 func TestCorrelate_ThisRunContributorRetainsCorrelationsWhenHistoricalTwinAlsoFires(t *testing.T) {
 	a := New(config.Default(), "", nil, nil)
-	// This-run Beaconing. Fresh ID assigned by a.add (will be 1).
-	a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", DstPort: "443", Score: 85, Timestamp: "2026-05-12 09:00:00 UTC"})
+	// This-run Beacon. Fresh ID assigned by a.add (will be 1).
+	a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", DstPort: "443", Score: 85, Timestamp: "2026-05-12 09:00:00 UTC"})
 	// Historical fingerprint-twin (same Type/Src/Dst/Port) at a
 	// persisted ID well above any fresh ID this run will assign.
 	// Plus a historical DNS Tunneling on the same pair so the pair
 	// has the >=2 distinct types it needs to correlate.
 	a.SetFindingsProvider(&stubFindingsProvider{findings: []model.Finding{
-		{ID: 47, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", DstPort: "443", Score: 70, Timestamp: "2026-05-11 09:00:00 UTC"},
+		{ID: 47, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", DstPort: "443", Score: 70, Timestamp: "2026-05-11 09:00:00 UTC"},
 		{ID: 92, Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 60, Timestamp: "2026-05-11 14:00:00 UTC"},
 	}})
 
 	a.correlateFindings()
 
-	bcn := findOne(t, a.findings, "Beaconing")
+	bcn := findOne(t, a.findings, "Beacon")
 	if bcn.ID == 47 {
-		t.Fatalf("expected this-run Beaconing in a.findings, got the historical row (ID=47) — test setup wrong")
+		t.Fatalf("expected this-run Beacon in a.findings, got the historical row (ID=47) — test setup wrong")
 	}
 	var corr *model.Finding
 	for i := range a.findings {
@@ -339,13 +339,13 @@ func TestCorrelate_ThisRunContributorRetainsCorrelationsWhenHistoricalTwinAlsoFi
 		t.Fatal("expected a Correlated Activity finding from the cross-run pair; got none")
 	}
 
-	// The invariant: this-run Beaconing's Correlations must contain at
+	// The invariant: this-run Beacon's Correlations must contain at
 	// least the historical DNS Tunneling ID + the correlation row's
 	// ID. Pre-fix this slice was nil because the annotation map was
-	// keyed on the historical Beaconing ID and the apply pass looked
+	// keyed on the historical Beacon ID and the apply pass looked
 	// up under the fresh ID.
 	if len(bcn.Correlations) == 0 {
-		t.Fatalf("invariant violated: this-run Beaconing has empty Correlations after correlateFindings — historical fingerprint-twin override silently cleared it")
+		t.Fatalf("invariant violated: this-run Beacon has empty Correlations after correlateFindings — historical fingerprint-twin override silently cleared it")
 	}
 	// Historical-only DNS Tunneling (ID 92, no fresh twin) must appear as
 	// sentinel -92 in Correlations slices before SetFindings translation.
@@ -359,13 +359,13 @@ func TestCorrelate_ThisRunContributorRetainsCorrelationsWhenHistoricalTwinAlsoFi
 		}
 	}
 	if !hasDNS {
-		t.Errorf("Beaconing.Correlations = %v; missing historical DNS Tunneling sentinel (-92)", bcn.Correlations)
+		t.Errorf("Beacon.Correlations = %v; missing historical DNS Tunneling sentinel (-92)", bcn.Correlations)
 	}
 	if !hasCorr {
-		t.Errorf("Beaconing.Correlations = %v; missing the new Correlated Activity row ID (%d)", bcn.Correlations, corr.ID)
+		t.Errorf("Beacon.Correlations = %v; missing the new Correlated Activity row ID (%d)", bcn.Correlations, corr.ID)
 	}
 
-	// The Correlated Activity row must include the this-run Beaconing's
+	// The Correlated Activity row must include the this-run Beacon's
 	// fresh ID (not historical 47) and the historical DNS sentinel (-92).
 	hasThisRun, hasDNSSentinel := false, false
 	for _, id := range corr.Correlations {
@@ -376,11 +376,11 @@ func TestCorrelate_ThisRunContributorRetainsCorrelationsWhenHistoricalTwinAlsoFi
 			hasDNSSentinel = true
 		}
 		if id == 47 {
-			t.Errorf("Correlated Activity.Correlations = %v; contains historical Beaconing ID 47 — fingerprint dedup should have collapsed it onto fresh ID %d", corr.Correlations, bcn.ID)
+			t.Errorf("Correlated Activity.Correlations = %v; contains historical Beacon ID 47 — fingerprint dedup should have collapsed it onto fresh ID %d", corr.Correlations, bcn.ID)
 		}
 	}
 	if !hasThisRun {
-		t.Errorf("Correlated Activity.Correlations = %v; missing the this-run Beaconing ID (%d)", corr.Correlations, bcn.ID)
+		t.Errorf("Correlated Activity.Correlations = %v; missing the this-run Beacon ID (%d)", corr.Correlations, bcn.ID)
 	}
 	if !hasDNSSentinel {
 		t.Errorf("Correlated Activity.Correlations = %v; missing historical DNS Tunneling sentinel (-92)", corr.Correlations)
@@ -416,7 +416,7 @@ func TestCorrelate_NoDuplicateWhenFreshSensorResolvedAtEmit(t *testing.T) {
 	// Fresh contributor — Sensor left empty so a.add must resolve it
 	// from defaultSensor. This mimics what aggregate detectors emit
 	// (empty SourceFile, no caller-set Sensor).
-	a.add(model.Finding{Type: "Beaconing", SrcIP: "10.18.61.48", DstIP: "35.163.162.183", Score: 88, Timestamp: "2026-05-10 00:03:31 UTC"})
+	a.add(model.Finding{Type: "Beacon", SrcIP: "10.18.61.48", DstIP: "35.163.162.183", Score: 88, Timestamp: "2026-05-10 00:03:31 UTC"})
 
 	// Historical contributor for the SAME pair, persisted with Sensor
 	// already populated — the shape findingsProvider returns from
@@ -466,7 +466,7 @@ func TestAnalyzerAdd_PreservesExplicitSensor(t *testing.T) {
 	a := New(config.Default(), "/logs", nil, nil)
 	a.SetDefaultSensor("default-name")
 	a.add(model.Finding{
-		Type:       "Beaconing",
+		Type:       "Beacon",
 		SrcIP:      "10.0.0.1",
 		DstIP:      "1.2.3.4",
 		Sensor:     "explicit-name",
@@ -495,10 +495,10 @@ func findOne(t *testing.T, findings []model.Finding, typ string) *model.Finding 
 // distinguish it from the fresh ID and avoid mis-mapping it.
 func TestCorrelate_HistoricalOnlyContributorEmitsSentinel(t *testing.T) {
 	a := New(config.Default(), "", nil, nil)
-	// This-run Beaconing gets fresh ID 1. No DNS Tunneling this run.
-	a.add(model.Finding{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 85, Timestamp: "2026-05-12 09:00:00 UTC"})
+	// This-run Beacon gets fresh ID 1. No DNS Tunneling this run.
+	a.add(model.Finding{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 85, Timestamp: "2026-05-12 09:00:00 UTC"})
 	// Historical DNS Tunneling with persisted ID = 1, the same as the
-	// fresh Beaconing. This is the B2 collision: a fresh ID and a
+	// fresh Beacon. This is the B2 collision: a fresh ID and a
 	// historical persisted ID share the same numeric value.
 	a.SetFindingsProvider(&stubFindingsProvider{findings: []model.Finding{
 		{ID: 1, Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.2.3.4", Score: 60, Timestamp: "2026-05-11 09:00:00 UTC"},
@@ -516,12 +516,12 @@ func TestCorrelate_HistoricalOnlyContributorEmitsSentinel(t *testing.T) {
 		t.Fatal("expected a Correlated Activity finding; got none")
 	}
 
-	// Historical DNS Tunneling (persisted ID=1, same value as fresh Beaconing
+	// Historical DNS Tunneling (persisted ID=1, same value as fresh Beacon
 	// ID=1) must appear as sentinel -1 in corr.Correlations before
 	// SetFindings translation. If it appeared as positive 1, the translation
 	// pass would map it via freshToPersisted[1] to whatever persisted ID the
-	// Beaconing receives — silently referencing the wrong finding.
-	bcn := findOne(t, a.findings, "Beaconing")
+	// Beacon receives — silently referencing the wrong finding.
+	bcn := findOne(t, a.findings, "Beacon")
 	hasSentinel := false
 	for _, id := range corr.Correlations {
 		if id == -1 {
@@ -534,7 +534,7 @@ func TestCorrelate_HistoricalOnlyContributorEmitsSentinel(t *testing.T) {
 	if !hasSentinel {
 		t.Errorf("Correlated Activity.Correlations = %v; missing historical DNS Tunneling sentinel (-1) for B2 collision", corr.Correlations)
 	}
-	// Beaconing's fresh ID must be the positive value in corr.Correlations.
+	// Beacon's fresh ID must be the positive value in corr.Correlations.
 	hasFresh := false
 	for _, id := range corr.Correlations {
 		if id == bcn.ID {
@@ -542,7 +542,7 @@ func TestCorrelate_HistoricalOnlyContributorEmitsSentinel(t *testing.T) {
 		}
 	}
 	if !hasFresh {
-		t.Errorf("Correlated Activity.Correlations = %v; missing this-run Beaconing fresh ID (%d)", corr.Correlations, bcn.ID)
+		t.Errorf("Correlated Activity.Correlations = %v; missing this-run Beacon fresh ID (%d)", corr.Correlations, bcn.ID)
 	}
 }
 

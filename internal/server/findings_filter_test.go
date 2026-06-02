@@ -23,11 +23,11 @@ import (
 func TestFilterFindings_DismissedHiddenByDefault(t *testing.T) {
 	s := newAuditTestServer(t)
 	findings := []model.Finding{
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-12 09:00:00"},
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-12 09:00:00"},
 		{ID: 2, Type: "TI Hit (IP)", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 96, Status: model.StatusAcknowledged, Timestamp: "2026-05-12 09:01:00"},
 		{ID: 3, Type: "Suspicious URL", SrcIP: "10.0.0.3", DstIP: "3.3.3.3", Score: 97, Status: model.StatusEscalated, Timestamp: "2026-05-12 09:02:00"},
 		{ID: 4, Type: "TI Hit (IP)", SrcIP: "10.0.0.4", DstIP: "4.4.4.4", Score: 96, Status: model.StatusDismissed, Timestamp: "2026-05-12 09:03:00"},
-		{ID: 5, Type: "Beaconing", SrcIP: "10.0.0.5", DstIP: "5.5.5.5", Score: 70, Status: model.StatusDismissed, Timestamp: "2026-05-12 09:04:00"},
+		{ID: 5, Type: "Beacon", SrcIP: "10.0.0.5", DstIP: "5.5.5.5", Score: 70, Status: model.StatusDismissed, Timestamp: "2026-05-12 09:04:00"},
 	}
 
 	cases := []struct {
@@ -100,10 +100,10 @@ func TestFilterFindings_DeltaUsesDetectedAtBoundary(t *testing.T) {
 	// one) to prove the filter ignores it.
 	const boundary int64 = 1_000
 	findings := []model.Finding{
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Timestamp: "2026-05-30 09:00:00", DetectedAt: 500, IsNew: true},   // before boundary, is_new true
-		{ID: 2, Type: "Beaconing", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 80, Timestamp: "2026-05-30 09:01:00", DetectedAt: 1500, IsNew: false}, // after boundary, is_new false
-		{ID: 3, Type: "Beaconing", SrcIP: "10.0.0.3", DstIP: "3.3.3.3", Score: 80, Timestamp: "2026-05-30 09:02:00", DetectedAt: 1000, IsNew: true},  // exactly at boundary (strict >, excluded)
-		{ID: 4, Type: "Beaconing", SrcIP: "10.0.0.4", DstIP: "4.4.4.4", Score: 80, Timestamp: "2026-05-30 09:03:00", DetectedAt: 2000, IsNew: false}, // after boundary
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Timestamp: "2026-05-30 09:00:00", DetectedAt: 500, IsNew: true},   // before boundary, is_new true
+		{ID: 2, Type: "Beacon", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 80, Timestamp: "2026-05-30 09:01:00", DetectedAt: 1500, IsNew: false}, // after boundary, is_new false
+		{ID: 3, Type: "Beacon", SrcIP: "10.0.0.3", DstIP: "3.3.3.3", Score: 80, Timestamp: "2026-05-30 09:02:00", DetectedAt: 1000, IsNew: true},  // exactly at boundary (strict >, excluded)
+		{ID: 4, Type: "Beacon", SrcIP: "10.0.0.4", DstIP: "4.4.4.4", Score: 80, Timestamp: "2026-05-30 09:03:00", DetectedAt: 2000, IsNew: false}, // after boundary
 	}
 
 	// delta off: every finding passes regardless of detected_at.
@@ -153,7 +153,7 @@ func TestProjectFindingList_IsNewToMe(t *testing.T) {
 //     matching all four — not a different port, not a different dst,
 //     not a different type on the same pair.
 //  2. The type-scope is the beacon-hunter safety property: muting
-//     "Beaconing" on a known-good DNS pair must leave "DNS Tunneling"
+//     "Beacon" on a known-good DNS pair must leave "DNS Tunneling"
 //     on that same pair visible (real tradecraft to a legit resolver
 //     still surfaces). An empty FindingType is the deliberate broaden
 //     that hides every type on the tuple.
@@ -168,11 +168,11 @@ func TestProjectFindingList_IsNewToMe(t *testing.T) {
 func TestFilterFindings_PairAllowlist(t *testing.T) {
 	s := newAuditTestServer(t)
 	findings := []model.Finding{
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "53", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-16 09:00:00"},
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "53", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-16 09:00:00"},
 		{ID: 2, Type: "DNS Tunneling", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "53", Score: 90, Status: model.StatusOpen, Timestamp: "2026-05-16 09:01:00"},
-		{ID: 3, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-16 09:02:00"},
-		{ID: 4, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "9.9.9.9", DstPort: "53", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-16 09:03:00"},
-		{ID: 5, Type: "Beaconing", SrcIP: "10.0.0.9", DstIP: "8.8.8.8", DstPort: "53", Score: 75, Status: model.StatusOpen, Timestamp: "2026-05-16 09:04:00"},
+		{ID: 3, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-16 09:02:00"},
+		{ID: 4, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "9.9.9.9", DstPort: "53", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-16 09:03:00"},
+		{ID: 5, Type: "Beacon", SrcIP: "10.0.0.9", DstIP: "8.8.8.8", DstPort: "53", Score: 75, Status: model.StatusOpen, Timestamp: "2026-05-16 09:04:00"},
 		{ID: 6, Type: "TI Hit (IP)", SrcIP: "10.0.0.9", DstIP: "8.8.8.8", DstPort: "53", Score: 96, Status: model.StatusOpen, Timestamp: "2026-05-16 09:05:00"},
 	}
 	filterIDs := func() []int {
@@ -188,9 +188,9 @@ func TestFilterFindings_PairAllowlist(t *testing.T) {
 		t.Fatalf("baseline: got %v, want all 6 visible", got)
 	}
 
-	// Scoped rule: only "Beaconing" on the exact DNS tuple.
+	// Scoped rule: only "Beacon" on the exact DNS tuple.
 	scopedID, err := s.store.AddPairAllow(model.PairAllowEntry{
-		Src: "10.0.0.1", Dst: "1.1.1.1", Port: "53", FindingType: "Beaconing",
+		Src: "10.0.0.1", Dst: "1.1.1.1", Port: "53", FindingType: "Beacon",
 	})
 	if err != nil {
 		t.Fatalf("AddPairAllow scoped: %v", err)
@@ -228,7 +228,7 @@ func TestFilterFindings_PairAllowlist(t *testing.T) {
 //     non-beacon, whose dur_score is a structural 0 ≤ 0.3.
 //  3. Multiple axes AND together — the documented "ts high but dur
 //     low" query is one filter call, not two passes.
-//  4. DNS Beaconing is a beacon type but leaves DSScore a structural
+//  4. DNS Beacon is a beacon type but leaves DSScore a structural
 //     zero: a ds floor correctly excludes it; a ds ceiling includes
 //     it. The gate must not special-case it out.
 //  5. A non-numeric bound disables that one axis (defensive, same
@@ -243,11 +243,11 @@ func TestFilterFindings_PairAllowlist(t *testing.T) {
 func TestFilterFindings_SubScoreRanges(t *testing.T) {
 	s := newAuditTestServer(t)
 	findings := []model.Finding{
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:00:00",
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:00:00",
 			TSScore: 0.90, DSScore: 0.80, HistScore: 0.50, DurScore: 0.10},
-		{ID: 2, Type: "HTTP Beaconing", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 75, Status: model.StatusOpen, Timestamp: "2026-05-18 09:01:00",
+		{ID: 2, Type: "HTTP Beacon", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 75, Status: model.StatusOpen, Timestamp: "2026-05-18 09:01:00",
 			TSScore: 0.30, DSScore: 0.90, HistScore: 0.90, DurScore: 0.90},
-		{ID: 3, Type: "DNS Beaconing", SrcIP: "10.0.0.3", DstIP: "3.3.3.3", Score: 60, Status: model.StatusOpen, Timestamp: "2026-05-18 09:02:00",
+		{ID: 3, Type: "DNS Beacon", SrcIP: "10.0.0.3", DstIP: "3.3.3.3", Score: 60, Status: model.StatusOpen, Timestamp: "2026-05-18 09:02:00",
 			TSScore: 0.95, DSScore: 0.00, HistScore: 0.70, DurScore: 0.60},
 		{ID: 4, Type: "Suspicious URL", SrcIP: "10.0.0.4", DstIP: "4.4.4.4", Score: 50, Status: model.StatusOpen, Timestamp: "2026-05-18 09:03:00",
 			TSScore: 0.00, DSScore: 0.00, HistScore: 0.00, DurScore: 0.00},
@@ -279,12 +279,12 @@ func TestFilterFindings_SubScoreRanges(t *testing.T) {
 			wantIDs: []int{1},
 		},
 		{
-			name:    "ds floor excludes DNS Beaconing's structural-zero ds",
+			name:    "ds floor excludes DNS Beacon's structural-zero ds",
 			query:   url.Values{"ds_min": []string{"0.5"}},
 			wantIDs: []int{1, 2},
 		},
 		{
-			name:    "ds ceiling includes DNS Beaconing (gate must not special-case it out)",
+			name:    "ds ceiling includes DNS Beacon (gate must not special-case it out)",
 			query:   url.Values{"ds_max": []string{"0.1"}},
 			wantIDs: []int{3},
 		},
@@ -325,11 +325,11 @@ func TestFilterFindings_SubScoreRanges(t *testing.T) {
 func TestFilterFindings_JA3(t *testing.T) {
 	s := newAuditTestServer(t)
 	findings := []model.Finding{
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:00:00", JA3: "aabb"},
-		{ID: 2, Type: "Beaconing", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:01:00", JA3: "aabb"},
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:00:00", JA3: "aabb"},
+		{ID: 2, Type: "Beacon", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:01:00", JA3: "aabb"},
 		{ID: 3, Type: "Malicious JA3", SrcIP: "10.0.0.3", DstIP: "3.3.3.3", Score: 95, Status: model.StatusOpen, Timestamp: "2026-05-18 09:02:00", JA3: "aabb"},
-		{ID: 4, Type: "Beaconing", SrcIP: "10.0.0.4", DstIP: "4.4.4.4", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:03:00", JA3: "ccdd"},
-		{ID: 5, Type: "Beaconing", SrcIP: "10.0.0.5", DstIP: "5.5.5.5", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:04:00", JA3: ""},
+		{ID: 4, Type: "Beacon", SrcIP: "10.0.0.4", DstIP: "4.4.4.4", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:03:00", JA3: "ccdd"},
+		{ID: 5, Type: "Beacon", SrcIP: "10.0.0.5", DstIP: "5.5.5.5", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:04:00", JA3: ""},
 	}
 	cases := []struct {
 		name    string
@@ -362,11 +362,11 @@ func TestFilterFindings_JA3(t *testing.T) {
 func TestFilterFindings_JA4(t *testing.T) {
 	s := newAuditTestServer(t)
 	findings := []model.Finding{
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-26 09:00:00", JA4: "t12d190800_d83cc789557e_16bbda4055b2"},
-		{ID: 2, Type: "Beaconing", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-26 09:01:00", JA4: "t12d190800_d83cc789557e_16bbda4055b2"},
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-26 09:00:00", JA4: "t12d190800_d83cc789557e_16bbda4055b2"},
+		{ID: 2, Type: "Beacon", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-26 09:01:00", JA4: "t12d190800_d83cc789557e_16bbda4055b2"},
 		{ID: 3, Type: "Malicious JA4", SrcIP: "10.0.0.3", DstIP: "3.3.3.3", Score: 95, Status: model.StatusOpen, Timestamp: "2026-05-26 09:02:00", JA4: "t12d190800_d83cc789557e_16bbda4055b2"},
-		{ID: 4, Type: "Beaconing", SrcIP: "10.0.0.4", DstIP: "4.4.4.4", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-26 09:03:00", JA4: "t13d201100_2b729b4bf6f3_9e7b989ebec8"},
-		{ID: 5, Type: "Beaconing", SrcIP: "10.0.0.5", DstIP: "5.5.5.5", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-26 09:04:00", JA4: ""},
+		{ID: 4, Type: "Beacon", SrcIP: "10.0.0.4", DstIP: "4.4.4.4", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-26 09:03:00", JA4: "t13d201100_2b729b4bf6f3_9e7b989ebec8"},
+		{ID: 5, Type: "Beacon", SrcIP: "10.0.0.5", DstIP: "5.5.5.5", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-26 09:04:00", JA4: ""},
 	}
 	cases := []struct {
 		name    string
@@ -396,7 +396,7 @@ func TestFilterFindings_JA4(t *testing.T) {
 
 // TestFilterFindings_BeaconsPseudoType codifies the type=beacons
 // invariant: the pseudo-value matches exactly the beacon family
-// (Beaconing / HTTP Beaconing / DNS Beaconing) and nothing else, while
+// (Beacon / HTTP Beacon / DNS Beacon) and nothing else, while
 // an exact type and the empty/All cases keep their prior meaning. This
 // is the selector the beacon export and the all-beacons Findings
 // filter both ride, so a regression in the special-case ordering
@@ -405,9 +405,9 @@ func TestFilterFindings_JA4(t *testing.T) {
 func TestFilterFindings_BeaconsPseudoType(t *testing.T) {
 	s := newAuditTestServer(t)
 	findings := []model.Finding{
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:00:00"},
-		{ID: 2, Type: "HTTP Beaconing", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 75, Status: model.StatusOpen, Timestamp: "2026-05-18 09:01:00"},
-		{ID: 3, Type: "DNS Beaconing", SrcIP: "10.0.0.3", DstIP: "3.3.3.3", Score: 60, Status: model.StatusOpen, Timestamp: "2026-05-18 09:02:00"},
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-18 09:00:00"},
+		{ID: 2, Type: "HTTP Beacon", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 75, Status: model.StatusOpen, Timestamp: "2026-05-18 09:01:00"},
+		{ID: 3, Type: "DNS Beacon", SrcIP: "10.0.0.3", DstIP: "3.3.3.3", Score: 60, Status: model.StatusOpen, Timestamp: "2026-05-18 09:02:00"},
 		{ID: 4, Type: "Suspicious URL", SrcIP: "10.0.0.4", DstIP: "4.4.4.4", Score: 70, Status: model.StatusOpen, Timestamp: "2026-05-18 09:03:00"},
 		{ID: 5, Type: "Strobe", SrcIP: "10.0.0.5", DstIP: "5.5.5.5", Score: 50, Status: model.StatusOpen, Timestamp: "2026-05-18 09:04:00"},
 	}
@@ -417,7 +417,7 @@ func TestFilterFindings_BeaconsPseudoType(t *testing.T) {
 		wantIDs []int
 	}{
 		{"beacons pseudo-type → whole beacon family only", url.Values{"type": []string{"beacons"}}, []int{1, 2, 3}},
-		{"exact type still exact", url.Values{"type": []string{"Beaconing"}}, []int{1}},
+		{"exact type still exact", url.Values{"type": []string{"Beacon"}}, []int{1}},
 		{"empty type → all", url.Values{}, []int{1, 2, 3, 4, 5}},
 		{"All → all", url.Values{"type": []string{"All"}}, []int{1, 2, 3, 4, 5}},
 	}

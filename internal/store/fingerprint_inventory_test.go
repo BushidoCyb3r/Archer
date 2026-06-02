@@ -56,9 +56,9 @@ func TestFingerprintInventory(t *testing.T) {
 	// Findings give the per-fingerprint count. Two beacons share the rare
 	// clustered JA4; one Malicious JA3 finding carries the known-bad JA3.
 	s.SetFindings([]model.Finding{
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-18 09:00:00", JA4: "rare_clustered_ja4"},
-		{ID: 2, Type: "Beaconing", SrcIP: "10.0.0.2", DstIP: "1.1.1.1", DstPort: "443",
+		{ID: 2, Type: "Beacon", SrcIP: "10.0.0.2", DstIP: "1.1.1.1", DstPort: "443",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-18 09:01:00", JA4: "rare_clustered_ja4"},
 		{ID: 3, Type: "Malicious JA3", SrcIP: "10.0.0.3", DstIP: "2.2.2.2", DstPort: "443",
 			Score: 95, Severity: model.SevCritical, Timestamp: "2026-05-18 09:02:00", JA3: "kb_ja3"},

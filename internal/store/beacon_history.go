@@ -57,7 +57,7 @@ type BeaconHistoryRow struct {
 }
 
 // saveBeaconHistory writes one beacon_history row per this-run
-// Beaconing / HTTP Beaconing finding. Called from SetFindings after
+// Beacon / HTTP Beacon finding. Called from SetFindings after
 // saveFindings completes — beacon_history is independent of the
 // findings table (its key is self-describing via BeaconHistoryKey),
 // so the order doesn't matter for crash consistency, but doing it
@@ -157,7 +157,7 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
 	defer stmt.Close()
 
 	for _, f := range findings {
-		if f.Type != "Beaconing" && f.Type != "HTTP Beaconing" && f.Type != "DNS Beaconing" {
+		if f.Type != "Beacon" && f.Type != "HTTP Beacon" && f.Type != "DNS Beacon" {
 			continue
 		}
 		if !newFPSet[f.Fingerprint()] {

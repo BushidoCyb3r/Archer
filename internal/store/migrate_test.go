@@ -103,7 +103,11 @@ func TestRunMigrations_ExistingPreFrameworkDB_StampsVersion1(t *testing.T) {
 	// against a single-table seed (e.g. 0007 ADD COLUMN on `sensors`,
 	// or any future ALTER of `users`).
 	preFrameworkTables := []string{
-		`CREATE TABLE findings (id INTEGER PRIMARY KEY)`,
+		// findings carries `type` because a real pre-framework install
+		// created it with the full 0001 schema, and migration 0031 reads
+		// findings.type. The stub still omits the rest of 0001's columns so
+		// the re-run check below can detect a spurious 0001 re-create.
+		`CREATE TABLE findings (id INTEGER PRIMARY KEY, type TEXT)`,
 		`CREATE TABLE sensors (id INTEGER PRIMARY KEY)`,
 		`CREATE TABLE users (id INTEGER PRIMARY KEY)`,
 		`CREATE TABLE allowlist (id INTEGER PRIMARY KEY)`,
@@ -161,12 +165,12 @@ func TestRunMigrations_ExistingPreFrameworkDB_StampsVersion1(t *testing.T) {
 		t.Errorf("seeded findings table missing the `id` column; expected stub to survive")
 	}
 	// If 0001 had been re-run, the table would have ~20+ columns from
-	// the full v0.1.0 schema. The stub had 1; migrations 0002-0009 don't
-	// touch findings; 0010 adds correlations. So only id + columns from
-	// post-0001 migrations should be present. If anything from 0001's
-	// schema (like `type`, `severity`, `src_ip`) shows up, 0001 was
-	// re-run against the seeded table.
-	for _, postStub := range []string{"type", "severity", "src_ip", "dst_ip", "score"} {
+	// the full v0.1.0 schema. The stub had id + type (the latter needed by
+	// 0031); migrations 0002-0009 don't touch findings; 0010 adds
+	// correlations. So only id, type, and columns from post-0001 migrations
+	// should be present. If any other 0001 column (like `severity`,
+	// `src_ip`) shows up, 0001 was re-run against the seeded table.
+	for _, postStub := range []string{"severity", "src_ip", "dst_ip", "score"} {
 		if cols[postStub] {
 			t.Errorf("seeded findings table has %q column — 0001 was re-run against the existing stub", postStub)
 		}

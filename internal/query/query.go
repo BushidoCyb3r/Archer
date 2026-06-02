@@ -1,7 +1,7 @@
 // Package query implements Archer's findings query language — a practical
 // subset of Lucene-style syntax evaluated over the in-memory finding slice.
 //
-// Grammar: field terms (type:Beaconing), boolean AND/OR/NOT with implicit-AND
+// Grammar: field terms (type:Beacon), boolean AND/OR/NOT with implicit-AND
 // between adjacent terms, grouping with (), quoted phrases, numeric
 // comparisons (score:>=90) and ranges (score:[80 TO 100]), and leading/
 // trailing wildcards on string fields. A bare term with no field is a

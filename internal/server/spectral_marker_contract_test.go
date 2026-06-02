@@ -8,7 +8,7 @@ import (
 )
 
 // TestSpectralRescueMarker_Contract asserts that the literal string
-// "Spectral rescued:" — written into a Beaconing or HTTP Beaconing
+// "Spectral rescued:" — written into a Beacon or HTTP Beacon
 // finding's Detail field when the spectral rescue path wins the
 // timing-axis score — appears in both the emitter sites (conn.go,
 // http_analysis.go) and the consumer site (findings_filter.go's

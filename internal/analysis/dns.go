@@ -155,7 +155,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			// detector's responsibility — a beacon to a sinkholed/dead
 			// C2 is that finding, and resolver retry behaviour on
 			// failed lookups contaminates the inter-arrival timing.
-			// Excluding them keeps DNS Beaconing scoped to the cadence
+			// Excluding them keeps DNS Beacon scoped to the cadence
 			// of real lookups and prevents a second HIGH finding on the
 			// exact same evidence the flood detector already flags.
 			if rcode != "NXDOMAIN" {
@@ -173,7 +173,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 						}
 					}
 					// Guard against out-of-order timestamps — same fix
-					// conn.go:436-442 applied for Beaconing. An OOO record
+					// conn.go:436-442 applied for Beacon. An OOO record
 					// rewinds lastTS, inflating the next forward interval.
 					if ts > bs.lastTS {
 						bs.lastTS = ts
@@ -356,7 +356,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 	// ── DNS-cadence beaconing (§2g) ───────────────────────────────────────────
 	// A regular-cadence, low-entropy, low-diversity DNS heartbeat (the
 	// Cobalt-Strike DNS C2 shape) slips DNS Tunneling (entropy/diversity
-	// too low) and conn-level Beaconing (IP-pair keyed, never consumes
+	// too low) and conn-level Beacon (IP-pair keyed, never consumes
 	// query timing). This closes that gap on the (src, apex) key.
 	var spectralBlockedCount int
 	for k, bs := range beaconApex {
@@ -481,7 +481,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 		// keep their conn-level meaning; the timing-summary fields are
 		// the same as every other beacon.
 		a.add(model.Finding{
-			Type:            "DNS Beaconing",
+			Type:            "DNS Beacon",
 			Severity:        sev,
 			Score:           score,
 			Sensor:          k.sensor,

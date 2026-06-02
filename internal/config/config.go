@@ -39,7 +39,7 @@ type Config struct {
 	// CorrelationMinTypes is the minimum number of distinct detector
 	// types on the same (SrcIP, DstIP) pair required to emit a
 	// Correlated Activity roll-up. Default 2 catches the high-value
-	// kill-chain shape (e.g. DNS Tunneling + Beaconing to the same
+	// kill-chain shape (e.g. DNS Tunneling + Beacon to the same
 	// destination); raising to 3 trades coverage for false-positive
 	// resistance on multi-protocol SaaS traffic. Pairs below the
 	// threshold rely on their individual detector findings.
@@ -63,8 +63,8 @@ type Config struct {
 	SpectralFAPThreshold    float64 `json:"spectral_fap_threshold"`
 	SpectralRescueThreshold float64 `json:"spectral_rescue_threshold"`
 
-	// DGA hostname augmentation for beacon scoring. When a Beaconing
-	// or HTTP Beaconing finding's destination hostname (SNI for TLS,
+	// DGA hostname augmentation for beacon scoring. When a Beacon
+	// or HTTP Beacon finding's destination hostname (SNI for TLS,
 	// Host header for HTTP) is algorithmic-shaped (high character
 	// entropy AND low bigram log-likelihood against an embedded
 	// English-corpus frequency table), bump the score and severity
@@ -127,7 +127,7 @@ type Config struct {
 	LastAnalysisFingerprint string `json:"last_analysis_fingerprint"`
 
 	// Two-tier watch cadence telemetry. The first watch tick of each UTC
-	// calendar day is a full statistical run (Beaconing, HTTP analysis, all
+	// calendar day is a full statistical run (Beacon, HTTP analysis, all
 	// detectors); subsequent same-day ticks are incremental TI-only runs
 	// over logs modified since the last run. These two timestamps drive
 	// that decision and the incremental file-mtime filter respectively.

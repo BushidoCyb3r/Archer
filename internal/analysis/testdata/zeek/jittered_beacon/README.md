@@ -45,7 +45,7 @@ on real captures is operator work, not synthetic-test work.
 
 ## Expected output
 
-One `Beaconing` finding plus the host-risk roll-up. The Detail
+One `Beacon` finding plus the host-risk roll-up. The Detail
 string carries the standard `ts/ds/hist/dur` components; no
 "Spectral rescued:" tag because the rescue gate didn't open on
 this fixture.

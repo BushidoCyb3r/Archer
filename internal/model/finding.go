@@ -74,8 +74,8 @@ type Finding struct {
 	TSData    [][3]float64 `json:"ts_data,omitempty"`
 	Notes     []Note       `json:"notes,omitempty"`
 	// Hostname is the destination hostname the analyzer associated
-	// with this finding at emit time. Populated for Beaconing
-	// (from SNI via sslUIDIndex) and HTTP Beaconing (from the Host
+	// with this finding at emit time. Populated for Beacon
+	// (from SNI via sslUIDIndex) and HTTP Beacon (from the Host
 	// header in http.log records). Empty when no hostname signal
 	// was available — pure-IP beacons that don't observe DNS, SNI,
 	// or Host headers get no Hostname. Consumed by the DGA
@@ -93,11 +93,11 @@ type Finding struct {
 	// other detectors firing on the same host pair.
 	Correlations []int `json:"correlations,omitempty"`
 	// URI is the request path the analyzer associated with this
-	// finding at emit time. Populated for HTTP Beaconing (from the
+	// finding at emit time. Populated for HTTP Beacon (from the
 	// http.log uri field). Empty for non-HTTP findings.
 	URI string `json:"uri,omitempty"`
 	// TSScore / DSScore / HistScore / DurScore are the four per-axis
-	// sub-scores that compose the Beaconing and HTTP Beaconing total
+	// sub-scores that compose the Beacon and HTTP Beacon total
 	// score (each is in [0, 1]; total = sum × 25). Populated by the
 	// conn and http_analysis emit sites and serialized to the findings
 	// JSON API so the detail-pane triage header can break the score
@@ -119,8 +119,8 @@ type Finding struct {
 	// (stddev / mean) of those intervals — the "± Ns" spread the
 	// triage header renders as a percentage. SampleSize is the count
 	// of observations the score is based on (connections for
-	// Beaconing, requests for HTTP Beaconing) — the confidence signal.
-	// Populated only for Beaconing / HTTP Beaconing; zero elsewhere.
+	// Beacon, requests for HTTP Beacon) — the confidence signal.
+	// Populated only for Beacon / HTTP Beacon; zero elsewhere.
 	// Persisted alongside the sub-scores (migration 0018) for the same
 	// restart-survival reason.
 	MeanInterval   float64 `json:"mean_interval,omitempty"`
@@ -128,11 +128,11 @@ type Finding struct {
 	Jitter         float64 `json:"jitter,omitempty"`
 	SampleSize     int     `json:"sample_size,omitempty"`
 	// JA3 / JA4 are the TLS client fingerprints of the connection that
-	// seeded a conn-level Beaconing finding, lifted from the sslUIDIndex
+	// seeded a conn-level Beacon finding, lifted from the sslUIDIndex
 	// at emit time (the same index lookup that already resolves the SNI
-	// into Hostname). Empty for non-TLS beacons, HTTP Beaconing (http.log
+	// into Hostname). Empty for non-TLS beacons, HTTP Beacon (http.log
 	// is cleartext by construction — TLS lands in ssl.log, not http.log),
-	// DNS Beaconing, and every non-beacon type. JA4 stays empty unless
+	// DNS Beacon, and every non-beacon type. JA4 stays empty unless
 	// the sensor's Zeek emits a ja4 field (stock ssl.log is ja3/ja3s; JA4
 	// needs the JA4+ plugin) — read opportunistically, never required.
 	// Persisted as TEXT columns (migration 0019) for the same restart-
@@ -160,16 +160,16 @@ type Finding struct {
 	// restart (same transient contract as the sibling counts).
 	FPConcern string `json:"fp_concern,omitempty"`
 	FPDetail  string `json:"fp_detail,omitempty"`
-	// TopURIs is the HTTP Beaconing destination's request-path
+	// TopURIs is the HTTP Beacon destination's request-path
 	// footprint: the most-frequent paths the same (sensor,src,dst,host)
 	// group beaconed on, count-descending, capped. Stamped identically
-	// on every HTTP Beaconing finding in the group at emit time, so the
+	// on every HTTP Beacon finding in the group at emit time, so the
 	// one that survives the (Type,src,dst,port) fingerprint dedup still
 	// carries the full footprint regardless of which single path scored
 	// highest — deriving it from the surviving finding's own URI would
 	// reintroduce the dedup blind spot. Persisted as a JSON TEXT column
 	// (migration 0020) for the same restart / carry-forward survival
-	// reason as the JA3 fields. Empty for every non-HTTP-Beaconing type.
+	// reason as the JA3 fields. Empty for every non-HTTP-Beacon type.
 	TopURIs []URIStat `json:"top_uris,omitempty"`
 	// SpectralRescued / SpectralPeriod are set at emit time when the
 	// Lomb-Scargle periodogram rescued a beacon whose ts score fell below
@@ -302,7 +302,7 @@ func IsThreatIntelType(t string) bool {
 
 // IsBeaconType reports whether a finding type carries the migration-0018
 // triage fields (the four ts/ds/hist/dur sub-scores + mean/median/jitter/
-// sample_size). DNS Beaconing leaves DSScore a structural zero — it has no
+// sample_size). DNS Beacon leaves DSScore a structural zero — it has no
 // data-size axis — but still populates the rest, so it counts. Bare string
 // literals rather than constants: the analyzer emit sites use the literals
 // directly and introducing a constant set is a wider refactor than this
@@ -310,7 +310,7 @@ func IsThreatIntelType(t string) bool {
 // justify.
 func IsBeaconType(t string) bool {
 	switch t {
-	case "Beaconing", "HTTP Beaconing", "DNS Beaconing":
+	case "Beacon", "HTTP Beacon", "DNS Beacon":
 		return true
 	}
 	return false
@@ -350,7 +350,7 @@ type FingerprintRow struct {
 }
 
 // Fingerprint uniquely identifies a finding for delta/baseline comparison.
-// Hostname and URI are only populated for HTTP Beaconing, where two beacons
+// Hostname and URI are only populated for HTTP Beacon, where two beacons
 // to different hosts or paths on the same (src, dst, port, sensor) are
 // genuinely distinct findings with independent analyst state. All other types
 // leave them empty, preserving the existing identity contract.
@@ -366,7 +366,7 @@ type Fingerprint struct {
 
 func (f Finding) Fingerprint() Fingerprint {
 	fp := Fingerprint{Type: f.Type, SrcIP: f.SrcIP, DstIP: f.DstIP, DstPort: f.DstPort, Sensor: f.Sensor}
-	if f.Type == "HTTP Beaconing" {
+	if f.Type == "HTTP Beacon" {
 		fp.Hostname = f.Hostname
 		fp.URI = f.URI
 	}
@@ -408,7 +408,7 @@ type Notification struct {
 
 // ScoreExplanations provides analyst context for each detection type.
 var ScoreExplanations = map[string]string{
-	"Beaconing": "Score = ts×0.25 + ds×0.25 + hist×0.25 + dur×0.25 (0–100)\n" +
+	"Beacon": "Score = ts×0.25 + ds×0.25 + hist×0.25 + dur×0.25 (0–100)\n" +
 		"ts = max(Bowley+MAD on intervals, multimodal log2-bucket peaks, entropy of bucket occupancy, spectral rescue)\n" +
 		"  Spectral rescue: Lomb-Scargle periodogram over reservoir timestamps, runs when ts < SpectralRescueThreshold (default 0.5)\n" +
 		"  Catches jittered C2 (σ/period < 0.45) where the interval distribution defeats statistical scoring\n" +
@@ -420,7 +420,7 @@ var ScoreExplanations = map[string]string{
 		"DGA augmentation: +15 score, one-step severity upgrade when the destination Hostname's SLD has Shannon entropy > dga_entropy_threshold (default 3.5) AND bigram log-likelihood < dga_bigram_threshold (default -4.5). Detail tags 'DGA-suspect destination: <host> (SLD=..., entropy=..., bigram=...)'.\n" +
 		"False positives: backup clients, update agents, NTP heartbeats.",
 
-	"HTTP Beaconing": "Same multi-dimensional analysis as conn-level but on (src, host, URI path) triples.\n" +
+	"HTTP Beacon": "Same multi-dimensional analysis as conn-level but on (src, host, URI path) triples.\n" +
 		"ts+ds+hist+dur components — catches C2 over CDN where many IPs share one domain.\n" +
 		"DGA augmentation applies on the destination Host header: +15 score / severity bump when SLD entropy and bigram log-likelihood both cross their thresholds.\n" +
 		"False positives: telemetry endpoints, analytics beacons, keepalive polls.",
@@ -503,13 +503,13 @@ var ScoreExplanations = map[string]string{
 	"TI Hit (Hash)":   "Score: 90 (HIGH). md5 / sha1 / sha256 from files.log matched against MISP/OpenCTI hash indicators.",
 
 	"Host Risk Score": "Composite weighted sum, capped at 99\n" +
-		"Beaconing +30 | HTTP Beaconing +28 | CS URI +40 | C2 URI Pattern +38\n" +
+		"Beacon +30 | HTTP Beacon +28 | CS URI +40 | C2 URI Pattern +38\n" +
 		"Domain Fronting +32 | Malicious JA3 +40 | Malicious JA4 +40 | TI Hit +35 | Exfiltration +25\n" +
 		"CRITICAL ≥75 | HIGH ≥50 | MEDIUM ≥25",
 
 	"Correlated Activity": "Cross-detector roll-up: same (src, dst) pair, ≥N distinct detector types\n" +
 		"N defaults to 2 (correlation_min_types). Catches kill-chain progression:\n" +
-		"Beaconing + DNS Tunneling, Suspicious File + TI Hit (Hash), etc.\n" +
+		"Beacon + DNS Tunneling, Suspicious File + TI Hit (Hash), etc.\n" +
 		"Score = max(contributor scores) + 5 per extra distinct type above N, capped 99.\n" +
 		"Contributing findings get a `+N corr` chip linking back to this roll-up.\n" +
 		"Excluded from contribution: Host Risk Score, Correlated Activity (recursion), Zeek Notice, Long Connection.",

@@ -34,7 +34,7 @@ func TestDetectedAt_SurvivesReanalysis(t *testing.T) {
 
 	beacon := func() model.Finding {
 		return model.Finding{
-			Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+			Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-29 09:00:00",
 		}
 	}
@@ -98,7 +98,7 @@ func TestCountUnseen(t *testing.T) {
 
 	// Two per-record detections plus one roll-up, all stamped this pass.
 	s.SetFindings([]model.Finding{
-		{Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-29 09:00:00"},
 		{Type: "DNS Tunneling", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", DstPort: "53",
 			Score: 70, Severity: model.SevMedium, Timestamp: "2026-05-29 09:00:00"},

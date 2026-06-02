@@ -207,7 +207,7 @@ func capStringSlice(xs []string, n int) []string {
 // "Type src → dst:port" shape used as TargetName on
 // finding_status_change / finding_escalate / finding_note_add
 // audit rows. Pre-fix the TargetName was just f.Type, which made
-// the audit-log UI render five "Beaconing" rows in a row with no
+// the audit-log UI render five "Beacon" rows in a row with no
 // distinguishing detail — an analyst skimming the log had to
 // click into each row to see which finding was acted on.
 // Including src/dst/port answers the question the analyst was

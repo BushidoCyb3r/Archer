@@ -37,7 +37,7 @@ interval is the correct ~120 seconds (since index 10 was skipped).
 
 ## Findings produced
 
-`Beaconing` (HIGH) at `192.168.7.10 → 203.0.113.50:443`. The
+`Beacon` (HIGH) at `192.168.7.10 → 203.0.113.50:443`. The
 golden's exact score and component breakdown is captured in
 `expected_findings.json`. A regression that re-introduced the
 unconditional `lastTs` assignment would shift `ts_score` down

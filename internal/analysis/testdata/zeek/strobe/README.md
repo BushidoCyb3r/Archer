@@ -18,6 +18,6 @@ from one source to one destination (port scanner / aggressive automated tool).
 
 ## What is NOT produced
 
-- `Beaconing` — the strobe gate excludes this pair from beacon scoring
+- `Beacon` — the strobe gate excludes this pair from beacon scoring
   because rate ≥ StrobeMinRatePerSec. `TestStrobeExcludesBeacon` asserts
   this invariant.

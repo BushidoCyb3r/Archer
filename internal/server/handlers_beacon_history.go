@@ -12,7 +12,7 @@ import (
 // BeaconHistoryKey, sorted ascending by day_utc. Consumed by the
 // SPA's finding-detail evolution chart.
 //
-// Only Beaconing, HTTP Beaconing, and DNS Beaconing findings have history rows;
+// Only Beacon, HTTP Beacon, and DNS Beacon findings have history rows;
 // other types get an empty array (not a 404) so the SPA can
 // unconditionally call this endpoint when opening a detail pane
 // without having to first check the type — the empty response
@@ -27,7 +27,7 @@ func (s *Server) handleFindingHistory(w http.ResponseWriter, r *http.Request, id
 		http.NotFound(w, r)
 		return
 	}
-	if f.Type != "Beaconing" && f.Type != "HTTP Beaconing" && f.Type != "DNS Beaconing" {
+	if f.Type != "Beacon" && f.Type != "HTTP Beacon" && f.Type != "DNS Beacon" {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte("[]"))
 		return

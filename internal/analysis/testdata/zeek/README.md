@@ -58,7 +58,7 @@ Each scenario subdirectory contains:
 
 | Scenario | Primary detector(s) |
 |----------|---------------------|
-| `beacon_url/` | Beaconing, Suspicious URL, Threat Intel Hit |
+| `beacon_url/` | Beacon, Suspicious URL, Threat Intel Hit |
 | `strobe/` | Strobe |
 | `long_connection/` | Long Connection |
 | `exfil/` | Data Exfiltration |
@@ -75,7 +75,7 @@ Each scenario subdirectory contains:
 | `http_c2_uri_pattern/` | C2 URI Pattern |
 | `http_domain_fronting/` | Domain Fronting (uses paired ssl.log) |
 | `http_suspicious_file/` | Suspicious File Download |
-| `http_beacon/` | HTTP Beaconing |
+| `http_beacon/` | HTTP Beacon |
 | `ssl_malicious_ja3/` | Malicious JA3 |
 | `ssl_weak_tls/` | Weak TLS |
 | `ssl_no_sni/` | SSL No-SNI |

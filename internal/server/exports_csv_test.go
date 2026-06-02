@@ -26,7 +26,7 @@ import (
 func TestExportCSV_BeaconScopedColumns(t *testing.T) {
 	s := newAuditTestServer(t)
 	s.store.SetFindings([]model.Finding{
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 			Score: 88, Severity: model.SevCritical, Status: model.StatusOpen,
 			Timestamp: "2026-05-18 09:00:00",
 			TSScore:   0.92, DSScore: 0.81, HistScore: 0.75, DurScore: 0.88,
@@ -71,8 +71,8 @@ func TestExportCSV_BeaconScopedColumns(t *testing.T) {
 		t.Fatalf("beacon header = %v; want base+triage %v", b[0], wantHeader)
 	}
 	// Base columns 0..12 must still align with the default schema.
-	if b[1][2] != "Beaconing" {
-		t.Errorf("beacon row type col = %q; want Beaconing", b[1][2])
+	if b[1][2] != "Beacon" {
+		t.Errorf("beacon row type col = %q; want Beacon", b[1][2])
 	}
 	// Triage tail begins at index len(baseHeader).
 	tail := b[1][len(baseHeader):]

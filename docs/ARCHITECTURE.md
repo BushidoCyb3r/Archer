@@ -155,7 +155,7 @@ runs in the background overlapping phase 1; phases 2–4 are sequential.
 | 0 | Threat-intel feed prefetch. Built-in feeds (Feodo, URLhaus) fetch over the network; configured MISP/OpenCTI feeds load their cached indicators from SQLite via `FeedProvider`. Overlaps with phase 1. | `ti.go: prefetchFeeds` |
 | 1 | All log-type analyzers in parallel — they're independent. Conn (beacon/strobe/exfil/long-conn), DNS, SSL, X.509, Files, Weird, Notice. | `conn.go`, `dns.go`, `ssl.go`, `x509.go`, `files.go`, `weird.go`, `notice.go` |
 | 2 | HTTP analysis (sequential — needs `sslUIDIndex` populated by `analyzeSSL` in phase 1). | `http_analysis.go` |
-| 2.5 | SNI/JA3/JA4 enrichment for conn Beaconing — deferred here so `sslUIDIndex` is fully populated before the lookup. `analyzeSSL` also builds a per-fingerprint prevalence map over all `ssl.log` (conns, distinct src hosts, distinct dsts); the server pushes it to the store after the pass (`SetFingerprintPrevalence`) and the **TLS-fingerprint rarity + cross-host-cluster** concern (`fp_concern`/`fp_detail`, enrichment only, no score change) is derived from it at read time, not stamped here. The same snapshot also backs the **TLS Fingerprints** inventory (`store.FingerprintInventory` → `GET /api/fingerprints`): the ranked high-signal JA3/JA4 list the modal renders, top-down counterpart to the per-finding TLS Pivot. Then DGA hostname augmentation: sweep over Beaconing / HTTP Beaconing findings; bumps score (+15) and severity when the destination Hostname's SLD looks algorithmically generated (high entropy + low English bigram log-likelihood). | `analyzer.go: enrichBeaconSNI`, `store.go: FingerprintConcern`, `dga.go: applyDGAScoring` |
+| 2.5 | SNI/JA3/JA4 enrichment for conn Beacon — deferred here so `sslUIDIndex` is fully populated before the lookup. `analyzeSSL` also builds a per-fingerprint prevalence map over all `ssl.log` (conns, distinct src hosts, distinct dsts); the server pushes it to the store after the pass (`SetFingerprintPrevalence`) and the **TLS-fingerprint rarity + cross-host-cluster** concern (`fp_concern`/`fp_detail`, enrichment only, no score change) is derived from it at read time, not stamped here. The same snapshot also backs the **TLS Fingerprints** inventory (`store.FingerprintInventory` → `GET /api/fingerprints`): the ranked high-signal JA3/JA4 list the modal renders, top-down counterpart to the per-finding TLS Pivot. Then DGA hostname augmentation: sweep over Beacon / HTTP Beacon findings; bumps score (+15) and severity when the destination Hostname's SLD looks algorithmically generated (high entropy + low English bigram log-likelihood). | `analyzer.go: enrichBeaconSNI`, `store.go: FingerprintConcern`, `dga.go: applyDGAScoring` |
 | 3 | URL + TI checks in parallel (need cached feeds from phase 0, plus the per-file dst sets). Two-phase TI scan: cheap dst-only sweep, then targeted per-source for "winners" only. | `ti.go`, `http_analysis.go: analyzeURLs` |
 | 3.5 | Cross-detector correlation. Walks emitted findings, groups by (sensor, src, dst), emits a Correlated Activity roll-up when ≥N distinct detector types fire on the same pair. Contributing findings get their sibling IDs in `Correlations`. Sees historical findings via `findingsProvider` (same NEW-67 union pattern aggregateRisk uses). | `correlate.go` |
 | 4 | Host risk scoring — composite per-host roll-up of all findings touching each host. Excludes roll-up types from the contributor set (HRS recursion + Correlated Activity double-counting). | `risk.go` |
@@ -191,7 +191,7 @@ CREATE TABLE ioc_list  (entry TEXT PRIMARY KEY);
 
 CREATE TABLE findings (
     id           INTEGER PRIMARY KEY,
-    type         TEXT,         -- 'Beaconing', 'TI Hit (IP)', etc.
+    type         TEXT,         -- 'Beacon', 'TI Hit (IP)', etc.
     severity     TEXT,         -- 'low'/'medium'/'high'/'critical'
     score        INTEGER,      -- 0-100
     src_ip       TEXT,
@@ -218,7 +218,7 @@ CREATE TABLE findings (
     notes        TEXT,         -- JSON array of operator notes (escalation, TI cross-notes)
     correlations TEXT,         -- JSON []int of sibling finding IDs (Correlated Activity participants)
     ts_score        REAL NOT NULL DEFAULT 0,  -- migration 0018: per-axis beacon sub-scores
-    ds_score        REAL NOT NULL DEFAULT 0,  -- (NEW-89 closure). DNS Beaconing leaves
+    ds_score        REAL NOT NULL DEFAULT 0,  -- (NEW-89 closure). DNS Beacon leaves
     hist_score      REAL NOT NULL DEFAULT 0,  -- ds_score zero — no data-size axis.
     dur_score       REAL NOT NULL DEFAULT 0,
     mean_interval   REAL NOT NULL DEFAULT 0,  -- triage-header timing summary; persisted
@@ -226,7 +226,7 @@ CREATE TABLE findings (
     jitter          REAL NOT NULL DEFAULT 0,  -- interval coefficient of variation
     sample_size     INTEGER NOT NULL DEFAULT 0,
     ja3             TEXT NOT NULL DEFAULT '',  -- migration 0019: TLS client fingerprint of
-    ja4             TEXT NOT NULL DEFAULT '',  -- the conn-level Beaconing seed connection
+    ja4             TEXT NOT NULL DEFAULT '',  -- the conn-level Beacon seed connection
     top_uris        TEXT NOT NULL DEFAULT ''   -- migration 0020: JSON []{uri,count} HTTP-beacon
                                                -- path footprint, aggregated pre-dedup
 );
@@ -235,7 +235,7 @@ CREATE TABLE beacon_history (
     fingerprint    TEXT NOT NULL,        -- BeaconHistoryKey: canonical-string identity
                                          -- (Type|SrcIP|DstIP|DstPort|Host|URI joined by \x1f)
     day_utc        TEXT NOT NULL,        -- YYYY-MM-DD
-    finding_type   TEXT NOT NULL,        -- 'Beaconing', 'HTTP Beaconing', or 'DNS Beaconing'
+    finding_type   TEXT NOT NULL,        -- 'Beacon', 'HTTP Beacon', or 'DNS Beacon'
     src_ip         TEXT NOT NULL,
     dst_ip         TEXT NOT NULL,
     dst_port       TEXT NOT NULL DEFAULT '',
@@ -370,7 +370,7 @@ CREATE TABLE pair_allowlist (
 -- — they were in-memory only and zeroed on every restart and on the
 -- preserve-historical carry-forward; now durable.
 
--- v0.27.0 / migrations 0019 + 0020. ja3/ja4 (the conn-level Beaconing
+-- v0.27.0 / migrations 0019 + 0020. ja3/ja4 (the conn-level Beacon
 -- seed connection's TLS client fingerprint, lifted from sslUIDIndex at
 -- emit) and top_uris (the HTTP-beacon path footprint, JSON []{uri,
 -- count} aggregated over the pre-dedup (sensor,src,dst,host) keys).
@@ -499,7 +499,7 @@ have no src/dst IPs and pass through unchanged (they surface on their
 nav buttons, not the bell).
 
 After the merge persists, `SetFindings` also writes one row per
-Beaconing / HTTP Beaconing / DNS Beaconing finding to `beacon_history`, keyed by
+Beacon / HTTP Beacon / DNS Beacon finding to `beacon_history`, keyed by
 `(Finding.BeaconHistoryKey(), today_UTC)` with the four sub-axis
 scores. The composite PRIMARY KEY + `INSERT … ON CONFLICT DO
 UPDATE` means a single daily row carries both the max score
@@ -523,7 +523,7 @@ Two identity functions on `model.Finding` with deliberately
 different granularity:
 
 - `Fingerprint()` is `{Type, SrcIP, DstIP, DstPort, Sensor}` for
-  all beacon types. For `HTTP Beaconing` it additionally includes
+  all beacon types. For `HTTP Beacon` it additionally includes
   `Hostname` and `URI`, because two HTTP beacons to different hosts
   or paths on the same (src, dst, port, sensor) are genuinely
   distinct detections with independent analyst state — without this,

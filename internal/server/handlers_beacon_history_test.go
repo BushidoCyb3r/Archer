@@ -49,12 +49,12 @@ func TestFindingHistory_EmptyArrayForNonBeacon(t *testing.T) {
 }
 
 // TestFindingHistory_ReturnsBeaconRows asserts the happy path: a
-// Beaconing finding's history endpoint returns the row written by the
+// Beacon finding's history endpoint returns the row written by the
 // preceding SetFindings call, with the four sub-axis scores intact.
 func TestFindingHistory_ReturnsBeaconRows(t *testing.T) {
 	s := newAuditTestServer(t)
 	s.store.SetFindings([]model.Finding{
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00",
 			Hostname:  "kx9j3qm2pflw.com",
 			TSScore:   0.92,
@@ -103,7 +103,7 @@ func TestFindingHistory_ReturnsBeaconRows(t *testing.T) {
 func TestFindingHistory_MethodNotAllowed(t *testing.T) {
 	s := newAuditTestServer(t)
 	s.store.SetFindings([]model.Finding{
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 			Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-11 09:00:00"},
 	})
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {

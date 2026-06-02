@@ -9,10 +9,10 @@ import (
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
 
-// TestDNSBeaconing_WritesToBeaconHistory asserts that a DNS Beaconing
+// TestDNSBeaconing_WritesToBeaconHistory asserts that a DNS Beacon
 // finding emitted by setFindingsImpl is recorded in beacon_history, matching
-// the Beaconing / HTTP Beaconing types that were already tracked. Prior to
-// the fix, the type filter in saveBeaconHistory excluded DNS Beaconing, so
+// the Beacon / HTTP Beacon types that were already tracked. Prior to
+// the fix, the type filter in saveBeaconHistory excluded DNS Beacon, so
 // no 30-day trajectory accumulated for DNS-cadence C2 beacons.
 func TestDNSBeaconing_WritesToBeaconHistory(t *testing.T) {
 	s := newTestStore(t)
@@ -20,7 +20,7 @@ func TestDNSBeaconing_WritesToBeaconHistory(t *testing.T) {
 
 	findings := []model.Finding{
 		{
-			ID: 1, Type: "DNS Beaconing",
+			ID: 1, Type: "DNS Beacon",
 			SrcIP: "10.0.0.1", DstIP: "8.8.8.8", DstPort: "53",
 			Score: 75, Severity: model.SevHigh,
 			Timestamp: time.Now().UTC().Format("2006-01-02 15:04:05"),
@@ -31,7 +31,7 @@ func TestDNSBeaconing_WritesToBeaconHistory(t *testing.T) {
 	f := s.findings[0]
 	maxScore, _, ok := s.beaconHistoryRowSnapshot(f.BeaconHistoryKey(), day)
 	if !ok {
-		t.Fatal("no beacon_history row written for DNS Beaconing finding")
+		t.Fatal("no beacon_history row written for DNS Beacon finding")
 	}
 	if maxScore != 75 {
 		t.Errorf("beacon_history max_score = %d, want 75", maxScore)
@@ -50,13 +50,13 @@ func TestSetFindings_CorrelationDedup_PreservesDroppedRef(t *testing.T) {
 
 	// Two findings with the same fingerprint (beacon A wins on score).
 	beaconA := model.Finding{
-		ID: 1, Type: "Beaconing",
+		ID: 1, Type: "Beacon",
 		SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 		Score: 85, Severity: model.SevHigh,
 		Timestamp: "2026-05-18 10:00:00",
 	}
 	beaconB := model.Finding{
-		ID: 2, Type: "Beaconing", // same fingerprint as A
+		ID: 2, Type: "Beacon", // same fingerprint as A
 		SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
 		Score: 70, Severity: model.SevMedium,
 		Timestamp: "2026-05-18 10:00:00",

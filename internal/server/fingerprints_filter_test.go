@@ -19,11 +19,11 @@ import (
 func TestFilterFindings_TLSPivotIncludesMaliciousFindings(t *testing.T) {
 	s := newAuditTestServer(t)
 	findings := []model.Finding{
-		{ID: 1, Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80,
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80,
 			Status: model.StatusOpen, Timestamp: "2026-05-18 09:00:00", JA3: "aabb"},
 		{ID: 2, Type: "Malicious JA3", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 95,
 			Status: model.StatusOpen, Timestamp: "2026-05-18 09:01:00", JA3: "aabb"},
-		{ID: 3, Type: "Beaconing", SrcIP: "10.0.0.3", DstIP: "3.3.3.3", Score: 70,
+		{ID: 3, Type: "Beacon", SrcIP: "10.0.0.3", DstIP: "3.3.3.3", Score: 70,
 			Status: model.StatusOpen, Timestamp: "2026-05-18 09:02:00", JA3: "ccdd"},
 		{ID: 4, Type: "Malicious JA4", SrcIP: "10.0.0.4", DstIP: "4.4.4.4", Score: 95,
 			Status: model.StatusOpen, Timestamp: "2026-05-18 09:03:00", JA4: "t13d_ja4"},

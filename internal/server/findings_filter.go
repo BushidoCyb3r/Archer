@@ -34,7 +34,7 @@ import (
 //	dst_ip        — IP or CIDR; matches finding.DstIP
 //	sensor        — exact sensor match
 //	from, to      — inclusive Timestamp window; either "2006-01-02 15:04:05" or RFC3339
-//	spectral_only — "true" restricts to Beaconing findings whose timing axis
+//	spectral_only — "true" restricts to Beacon findings whose timing axis
 //	                was rescued by the spectral path (Detail contains
 //	                "Spectral rescued:"). Used by the calibration loop to
 //	                triage which rescue candidates are true vs false positives.
@@ -151,8 +151,8 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values, deltaSin
 	for i := range findings {
 		f := &findings[i]
 		if typeF == "beacons" {
-			// Pseudo-type: the beacon family (Beaconing / HTTP Beaconing /
-			// DNS Beaconing) as one selector. Powers "export just the
+			// Pseudo-type: the beacon family (Beacon / HTTP Beacon /
+			// DNS Beacon) as one selector. Powers "export just the
 			// beacons" and an all-beacons Findings filter without three
 			// separate passes.
 			if !model.IsBeaconType(f.Type) {

@@ -6,7 +6,7 @@ vs. true-positive trade-off against your traffic. The math is in
 companion.
 
 > **Default values ship calibrated for typical enterprise traffic.**
-> If you're seeing reasonable Beaconing findings and no flood of
+> If you're seeing reasonable Beacon findings and no flood of
 > spectral-rescued false positives, you don't need this doc.
 
 ---
@@ -90,11 +90,11 @@ when the spectral code or corpus changes.
 
 ## The four knobs
 
-All four live in **Settings → Beaconing**. Each one shifts a
+All four live in **Settings → Beacon**. Each one shifts a
 different trade-off.
 
 > As of v0.25.0 these same four knobs also govern the timing axis of
-> the **DNS Beaconing** detector (`docs/DETECTION_METHODS.md` §9.6) —
+> the **DNS Beacon** detector (`docs/DETECTION_METHODS.md` §9.6) —
 > it reuses the identical statistical→multimodal→entropy→Lomb-Scargle
 > pipeline on `(src, apex)` query timing. There are no
 > DNS-beacon-specific spectral knobs; tuning here moves conn-level,
@@ -103,7 +103,7 @@ different trade-off.
 ### 1. Enable spectral rescue *(default: ON)*
 
 The master kill switch. Off means the spectral path never runs;
-Beaconing scoring falls back to the three statistical paths
+Beacon scoring falls back to the three statistical paths
 (Bowley + MAD, multimodal-peak, entropy-on-occupancy). The
 statistical paths are still strong on tight beacons — turning
 spectral off doesn't blind the detector, it just gives up on the
@@ -214,7 +214,7 @@ There's no closed-form "tune to these numbers for your network"
 recipe — you have to measure. The shape of the loop:
 
 1. **Run an analyze pass with current settings.** Note: total
-   Beaconing findings, count of spectral-rescued findings (filter
+   Beacon findings, count of spectral-rescued findings (filter
    chip on the Findings tab), CPU/wall time of the analyze phase.
 2. **Triage the rescue chip.** Click each spectral-rescued
    finding. For each, decide: true positive (matches your

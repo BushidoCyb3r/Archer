@@ -11,13 +11,13 @@ import "testing"
 //	Finding 1: Hostname="evil.com\x1fa", URI="/b"
 //	Finding 2: Hostname="evil.com",      URI="a\x1f/b"
 //
-// Both produce "Beaconing\x1f10.0.0.1\x1f2.2.2.2\x1f443\x1fevil.com\x1fa\x1f/b"
+// Both produce "Beacon\x1f10.0.0.1\x1f2.2.2.2\x1f443\x1fevil.com\x1fa\x1f/b"
 // pre-scrub. The threat model accepts that compromised sensors can
 // ship crafted Host headers, so we defensively scrub the delimiter
 // byte out of each field before join. After the scrub, the keys diverge.
 func TestBeaconHistoryKey_ScrubsSeparatorInjection(t *testing.T) {
 	base := Finding{
-		Type:    "Beaconing",
+		Type:    "Beacon",
 		SrcIP:   "10.0.0.1",
 		DstIP:   "2.2.2.2",
 		DstPort: "443",
@@ -44,7 +44,7 @@ func TestBeaconHistoryKey_ScrubsSeparatorInjection(t *testing.T) {
 // don't contain \x1f must not allocate or otherwise mutate.
 func TestBeaconHistoryKey_NormalInputUnchanged(t *testing.T) {
 	f := Finding{
-		Type:     "HTTP Beaconing",
+		Type:     "HTTP Beacon",
 		SrcIP:    "10.0.0.1",
 		DstIP:    "2.2.2.2",
 		DstPort:  "443",
@@ -52,7 +52,7 @@ func TestBeaconHistoryKey_NormalInputUnchanged(t *testing.T) {
 		URI:      "/heartbeat",
 	}
 	got := f.BeaconHistoryKey()
-	want := "HTTP Beaconing\x1f10.0.0.1\x1f2.2.2.2\x1f443\x1ftracker.evil.com\x1f/heartbeat\x1f"
+	want := "HTTP Beacon\x1f10.0.0.1\x1f2.2.2.2\x1f443\x1ftracker.evil.com\x1f/heartbeat\x1f"
 	if got != want {
 		t.Errorf("normal-input BeaconHistoryKey = %q, want %q", got, want)
 	}

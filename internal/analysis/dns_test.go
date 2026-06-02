@@ -27,8 +27,8 @@ func findingOfType(fs []model.Finding, typ string) *model.Finding {
 // TestDNSBeaconing_ClosesCadenceGap is the §2g exit-goal invariant: a
 // regular-cadence, low-entropy, low-diversity DNS heartbeat to a fixed
 // FQDN — the Cobalt-Strike DNS C2 shape — must now produce a DNS
-// Beaconing finding, and must still slip the two detectors it slipped
-// before (DNS Tunneling: entropy/diversity too low; conn Beaconing:
+// Beacon finding, and must still slip the two detectors it slipped
+// before (DNS Tunneling: entropy/diversity too low; conn Beacon:
 // IP-pair keyed, no conn.log). Asserting the gap-closure plus the
 // continued-miss on the other two is the end-to-end invariant; a
 // regression in the scorer, the keying, or the composition fails here
@@ -37,19 +37,19 @@ func TestDNSBeaconing_ClosesCadenceGap(t *testing.T) {
 	a := newDNSTestAnalyzer()
 	findings := a.Analyze([]string{"testdata/zeek/dns_beacon/dns.log"})
 
-	b := findingOfType(findings, "DNS Beaconing")
+	b := findingOfType(findings, "DNS Beacon")
 	if b == nil {
-		t.Fatalf("DNS Beaconing did not fire on the cadence fixture; got types: %v", findingTypes(findings))
+		t.Fatalf("DNS Beacon did not fire on the cadence fixture; got types: %v", findingTypes(findings))
 	}
 	if b.Severity != model.SevCritical {
-		t.Errorf("DNS Beaconing severity = %s; want CRITICAL", b.Severity)
+		t.Errorf("DNS Beacon severity = %s; want CRITICAL", b.Severity)
 	}
 	if b.SrcIP != "192.168.2.60" || b.DstIP != "update-svc.net" || b.DstPort != "53" {
-		t.Errorf("DNS Beaconing target = %s → %s:%s; want 192.168.2.60 → update-svc.net:53",
+		t.Errorf("DNS Beacon target = %s → %s:%s; want 192.168.2.60 → update-svc.net:53",
 			b.SrcIP, b.DstIP, b.DstPort)
 	}
 	if b.Score < 80 {
-		t.Errorf("DNS Beaconing score = %d; want >= 80 for a perfectly regular heartbeat", b.Score)
+		t.Errorf("DNS Beacon score = %d; want >= 80 for a perfectly regular heartbeat", b.Score)
 	}
 	// Sprint-1 structured fields must be populated on this beacon type
 	// too (they feed §2e sub-score filtering and persist via 0018).
@@ -71,14 +71,14 @@ func TestDNSBeaconing_ClosesCadenceGap(t *testing.T) {
 	if hasFindingType(findings, "DNS Tunneling") {
 		t.Error("DNS Tunneling fired on the low-entropy/low-diversity fixture — it should still slip it")
 	}
-	if hasFindingType(findings, "Beaconing") {
-		t.Error("conn-level Beaconing fired without a conn.log — impossible unless keying changed")
+	if hasFindingType(findings, "Beacon") {
+		t.Error("conn-level Beacon fired without a conn.log — impossible unless keying changed")
 	}
 }
 
 // TestDNSBeaconing_DefersHighDiversityToDGA codifies the diversity-gate
 // invariant: a high-subdomain-diversity apex is exfil-shaped and owned
-// by DNS Subdomain DGA, so DNS Beaconing must not also fire on it even
+// by DNS Subdomain DGA, so DNS Beacon must not also fire on it even
 // when the cadence is perfectly regular (the dns_subdomain_diversity
 // fixture is exactly that — 50 unique subdomains, 1s spacing). Without
 // the gate, pure timing regularity would double-emit a HIGH finding on
@@ -90,15 +90,15 @@ func TestDNSBeaconing_DefersHighDiversityToDGA(t *testing.T) {
 	if !hasFindingType(findings, "DNS Subdomain DGA") {
 		t.Fatalf("setup: DNS Subdomain DGA should fire on the diversity fixture; got: %v", findingTypes(findings))
 	}
-	if hasFindingType(findings, "DNS Beaconing") {
-		t.Error("DNS Beaconing fired on a high-diversity apex — the diversity gate is not holding")
+	if hasFindingType(findings, "DNS Beacon") {
+		t.Error("DNS Beacon fired on a high-diversity apex — the diversity gate is not holding")
 	}
 }
 
 // TestDNSBeaconing_IgnoresNXDOMAINFlood codifies the NXDOMAIN-exclusion
 // invariant: an NXDOMAIN-dominated stream is the DNS NXDOMAIN Flood
 // detector's responsibility (a sinkholed/dead C2, with resolver-retry
-// timing contamination). DNS Beaconing must not also fire on it and
+// timing contamination). DNS Beacon must not also fire on it and
 // double-count the evidence.
 func TestDNSBeaconing_IgnoresNXDOMAINFlood(t *testing.T) {
 	a := newDNSTestAnalyzer()
@@ -107,7 +107,7 @@ func TestDNSBeaconing_IgnoresNXDOMAINFlood(t *testing.T) {
 	if !hasFindingType(findings, "DNS NXDOMAIN Flood") {
 		t.Fatalf("setup: DNS NXDOMAIN Flood should fire on the flood fixture; got: %v", findingTypes(findings))
 	}
-	if hasFindingType(findings, "DNS Beaconing") {
-		t.Error("DNS Beaconing fired on an NXDOMAIN flood — NXDOMAIN records must be excluded from cadence")
+	if hasFindingType(findings, "DNS Beacon") {
+		t.Error("DNS Beacon fired on an NXDOMAIN flood — NXDOMAIN records must be excluded from cadence")
 	}
 }

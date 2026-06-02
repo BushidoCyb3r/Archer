@@ -17,7 +17,7 @@ import (
 )
 
 // sensorWindow is the per-sensor capture window used by time-based
-// scoring (Beaconing histogram + duration). Keying the window by
+// scoring (Beacon histogram + duration). Keying the window by
 // sensor keeps multi-sensor /logs/ trees independent — a January
 // capture and an October capture each get scored against their own
 // span instead of being smeared across the union of both.
@@ -73,7 +73,7 @@ type Analyzer struct {
 	// fpJA4 / fpJA3 hold per-fingerprint TLS-client prevalence built over the
 	// whole ssl.log (every TLS connection, not just emitted beacons), keyed by
 	// the lowercased fingerprint. Consumed in enrichBeaconSNI to stamp a
-	// rarity + cross-host-cluster note on conn-level Beaconing findings — the
+	// rarity + cross-host-cluster note on conn-level Beacon findings — the
 	// signal the emitted-beacons-only JA3/JA4 sibling count can't provide
 	// (it can't tell a rare implant fingerprint from a ubiquitous browser one,
 	// and is blind to siblings that scored below the beacon emit floor). Built
@@ -105,15 +105,15 @@ type Analyzer struct {
 	findingsProvider FindingsProvider
 
 	// Optional callback consulted by applyDGAScoring to honour the
-	// operator's allowlist when bumping Beaconing scores. Returns
+	// operator's allowlist when bumping Beacon scores. Returns
 	// true when the candidate (typically a hostname) should be
 	// exempt from the DGA bump. Nil = no extra suppression beyond
 	// the built-in CDN suffix list inside dgaHostnameScore.
 	allowlistMatches func(string) bool
 
 	// Fallback sensor name applied at emit time when a finding has
-	// no SourceFile to infer from (aggregate detectors: Beaconing,
-	// Strobe, HTTP Beaconing, Off-Hours Transfer, Host Risk Score,
+	// no SourceFile to infer from (aggregate detectors: Beacon,
+	// Strobe, HTTP Beacon, Off-Hours Transfer, Host Risk Score,
 	// Correlated Activity). Single-sensor deployments set this to
 	// the lone sensor name so correlateFindings — which partitions
 	// pairs by Sensor — sees a consistent value across fresh and
@@ -124,7 +124,7 @@ type Analyzer struct {
 
 	// sensorPrev holds the per-sensor prevalence maps built during analyzeConn.
 	// Read by analyzeHTTP (phase 2) to apply the same prevalence modifier to
-	// HTTP Beaconing findings. Protected by a.mu.
+	// HTTP Beacon findings. Protected by a.mu.
 	sensorPrev map[string]*sensorPrevData
 
 	// spectralBlocked counts pairs where the plausibility gate rejected the
@@ -367,9 +367,9 @@ func (a *Analyzer) Analyze(files []string) []model.Finding {
 		return collect()
 	}
 
-	// ── Phase 2.5: DGA hostname augmentation on Beaconing findings ───────────
+	// ── Phase 2.5: DGA hostname augmentation on Beacon findings ───────────
 	// Enrich conn beacons with SNI/JA3/JA4 now that sslUIDIndex is complete,
-	// then score Beaconing + HTTP Beaconing for DGA-shaped hostnames.
+	// then score Beacon + HTTP Beacon for DGA-shaped hostnames.
 	a.enrichBeaconSNI()
 	a.sendStatus("Scoring beacon destinations for DGA shape…")
 	a.applyDGAScoring(a.allowlistMatches)
@@ -469,10 +469,10 @@ func (a *Analyzer) add(f model.Finding) {
 	// SourceFile is intentionally not defaulted. Per-record analyzers fill
 	// it with the originating Zeek log path; aggregate detections (Beacon-
 	// ing, Strobe, Exfil, NXDOMAIN flood, Subdomain Diversity, HTTP
-	// Beaconing, Host Risk Score) span many records across many files and
+	// Beacon, Host Risk Score) span many records across many files and
 	// honestly have no single source file — leaving the field empty is
 	// truthful, where the old behaviour of defaulting to f.Type produced
-	// misleading values like "Beaconing" or "URLhaus" in CSV/JSON exports.
+	// misleading values like "Beacon" or "URLhaus" in CSV/JSON exports.
 	//
 	// Sensor is resolved at emit time so downstream phases — specifically
 	// correlateFindings, which partitions (src, dst) pairs by Sensor — see
@@ -503,7 +503,7 @@ func (a *Analyzer) add(f model.Finding) {
 	a.mu.Unlock()
 }
 
-// enrichBeaconSNI fills Hostname/JA3/JA4 on "Beaconing" findings whose SNI
+// enrichBeaconSNI fills Hostname/JA3/JA4 on "Beacon" findings whose SNI
 // lookup was deferred out of Phase 1 to avoid racing analyzeSSL. Called once
 // after wg1.Wait() when sslUIDIndex is fully populated.
 // fpStat is the per-fingerprint TLS-client prevalence accumulated over all of
@@ -552,7 +552,7 @@ func (a *Analyzer) enrichBeaconSNI() {
 	defer a.mu.Unlock()
 	for i := range a.findings {
 		f := &a.findings[i]
-		if f.Type != "Beaconing" {
+		if f.Type != "Beacon" {
 			continue
 		}
 		pk := pairKey{f.Sensor, f.SrcIP, f.DstIP}

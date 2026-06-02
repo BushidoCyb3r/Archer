@@ -1,6 +1,6 @@
 [
   {
-    "type": "HTTP Beaconing",
+    "type": "HTTP Beacon",
     "severity": "CRITICAL",
     "score": 86,
     "src_ip": "192.168.4.70",
@@ -15,7 +15,7 @@
     "score": 26,
     "src_ip": "192.168.4.70",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 26 | Detections: [HTTP Beaconing]",
+    "detail": "Composite risk: 26 | Detections: [HTTP Beacon]",
     "timestamp": "2024-01-15 12:00:00"
   }
 ]

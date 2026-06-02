@@ -16,7 +16,7 @@ import (
 func TestAddNoteIfAbsent_Idempotent(t *testing.T) {
 	s := newTestStore(t)
 	s.SetFindings([]model.Finding{{
-		Type: "Beaconing", SrcIP: "10.0.0.1", DstIP: "203.0.113.9", DstPort: "443",
+		Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "203.0.113.9", DstPort: "443",
 		Score: 80, Severity: model.SevHigh, Timestamp: "2026-05-29 09:00:00",
 	}})
 	id := s.GetFindings()[0].ID
