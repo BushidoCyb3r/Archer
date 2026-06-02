@@ -1,8 +1,9 @@
 // Package query implements Archer's findings query language — a practical
 // subset of Lucene-style syntax evaluated over the in-memory finding slice.
 //
-// Grammar: field terms (type:Beacon), boolean AND/OR/NOT with implicit-AND
-// between adjacent terms, grouping with (), quoted phrases, numeric
+// Grammar: field terms (type:Beacon), boolean AND/OR/NOT — an explicit
+// operator is required between adjacent terms — grouping with (), quoted
+// phrases, numeric
 // comparisons (score:>=90) and ranges (score:[80 TO 100]), and leading/
 // trailing wildcards on string fields. A bare term with no field is a
 // case-insensitive substring match across the same fields the legacy Search
@@ -185,7 +186,7 @@ func lex(input string) ([]token, error) {
 //
 // expr    := orExpr
 // orExpr  := andExpr (OR andExpr)*
-// andExpr := unary ((AND)? unary)*
+// andExpr := unary (AND unary)*
 // unary   := NOT unary | primary
 // primary := '(' expr ')' | TERM
 
@@ -238,18 +239,29 @@ func (p *parser) parseAnd() (node, error) {
 			left = andNode{left, right}
 			continue
 		}
-		// Implicit AND: another unary starts here (term, NOT, or '(').
+		// A boolean operator is required between terms. Another unary
+		// starting here (term, NOT, or '(') with no AND/OR/AND NOT in
+		// front of it is a missing-operator error, not an implicit AND.
 		if k == tokTerm || k == tokNot || k == tokLParen {
-			right, err := p.parseUnary()
-			if err != nil {
-				return nil, err
-			}
-			left = andNode{left, right}
-			continue
+			return nil, fmt.Errorf("missing operator before %s (use AND, OR, or AND NOT between terms)", p.describeNext())
 		}
 		break
 	}
 	return left, nil
+}
+
+// describeNext renders the upcoming token for a missing-operator error so the
+// message points at what the user wrote, not just "syntax error".
+func (p *parser) describeNext() string {
+	t := p.peek()
+	switch t.kind {
+	case tokNot:
+		return "NOT"
+	case tokLParen:
+		return "("
+	default:
+		return fmt.Sprintf("%q", t.text)
+	}
 }
 
 func (p *parser) parseUnary() (node, error) {

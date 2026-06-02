@@ -283,11 +283,14 @@ the view again.
 
 A bad query doesn't silently match everything or nothing — a red
 toast drops in from the top of the page with the reason, and the
-table keeps your last good results. You'll see it for a malformed
-query (`score:[80 TO]`), an unknown field (`dest:1.2.3.4` — it's
-`dst`), or a finding type that doesn't exist (`type:"Correlatd
-Activity"` — a typo never silently matches zero rows). Read the
-toast before trusting the result.
+table keeps your last good results. It fires from every view —
+Findings, Campaigns, Hosts — not just the findings list. You'll see
+it for a malformed query (`score:[80 TO]`), an unknown field
+(`dest:1.2.3.4` — it's `dst`), a finding type that doesn't exist
+(`type:"Correlatd Activity"` — a typo never silently matches zero
+rows), or a missing operator between terms (`type:Beacon
+severity:critical` — put an `AND` between them). Read the toast
+before trusting the result.
 
 ### The shape of a query
 
@@ -297,9 +300,11 @@ toast before trusting the result.
   substring match across type, src, dst, port, detail, timestamp,
   and severity — the same reach the old Search box had. A bare IP
   literal (`185.220.101.7`) matches the src **or** dst exactly.
-- **Boolean logic:** `AND`, `OR`, `NOT`, and `()` grouping.
-  Adjacent terms with no operator are an implicit `AND`, so
-  `type:Beacon severity:critical` means both.
+- **Boolean logic:** `AND`, `OR`, `NOT`, and `()` grouping. An
+  explicit operator is **required** between terms — `type:Beacon AND
+  severity:critical`, not `type:Beacon severity:critical` (which is a
+  parse error and toasts). Use `AND NOT` to exclude
+  (`type:Beacon AND NOT sensor:sensor-a`).
 - **Wildcards:** `*` (any run) and `?` (one character) on string
   fields — `dst:185.220.*`, `hostname:cdn?.example.com`,
   `detail:*jitter*`.

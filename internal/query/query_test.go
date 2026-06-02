@@ -94,8 +94,7 @@ func TestBooleanOperators(t *testing.T) {
 		{`type:"DNS Tunneling" OR severity:HIGH`, false},
 		{"NOT type:Beacon", false},
 		{`NOT type:"DNS Tunneling"`, true},
-		{"type:Beacon severity:CRITICAL", true}, // implicit AND
-		{"type:Beacon severity:HIGH", false},    // implicit AND
+		{"type:Beacon AND NOT type:Strobe", true},
 	}
 	for _, tc := range tests {
 		if got := matches(t, tc.q, f); got != tc.want {
@@ -141,17 +140,23 @@ func TestQuotedPhrase(t *testing.T) {
 
 func TestParseErrors(t *testing.T) {
 	bad := []string{
-		"type:",                     // missing value
-		"(type:Beacon",              // unbalanced paren
-		"type:Beacon )",             // stray close paren
-		"AND type:Beacon",           // leading binary operator
-		"type:Beacon AND",           // trailing binary operator
-		"score:[80 TO]",             // malformed range
-		"score:[TO 100]",            // malformed range
-		"dest:1.2.3.4",              // unknown field (misspelled dst)
-		"type:Beaon",                // unknown finding type (misspelled, plain)
-		`type:"Correlatd Activity"`, // unknown finding type (misspelled, quoted)
-		"type:Beaconing",            // retired pre-v0.50 type
+		"type:",                         // missing value
+		"(type:Beacon",                  // unbalanced paren
+		"type:Beacon )",                 // stray close paren
+		"AND type:Beacon",               // leading binary operator
+		"type:Beacon AND",               // trailing binary operator
+		"score:[80 TO]",                 // malformed range
+		"score:[TO 100]",                // malformed range
+		"dest:1.2.3.4",                  // unknown field (misspelled dst)
+		"type:Beaon",                    // unknown finding type (misspelled, plain)
+		`type:"Correlatd Activity"`,     // unknown finding type (misspelled, quoted)
+		"type:Beaconing",                // retired pre-v0.50 type
+		"type:Beacon severity:CRITICAL", // missing operator between terms
+		"type:Beacon NOT type:Strobe",   // missing operator before NOT
+		"type:Beacon (severity:HIGH)",   // missing operator before group
+		"severity:HIGH score:>=90",      // missing operator between terms
+		"185.220.101.7 type:Beacon",     // bare term then field, no operator
+		`type:Beacon "DNS Tunneling"`,   // field then bare phrase, no operator
 	}
 	for _, q := range bad {
 		if _, err := Parse(q); err == nil {

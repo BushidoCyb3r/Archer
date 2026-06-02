@@ -455,7 +455,7 @@ func (s *Server) handleFindingsCounts(w http.ResponseWriter, r *http.Request) {
 
 	all, err := s.filterFindings(s.store.GetFindings(), q, newBoundaryFromCtx(r))
 	if err != nil {
-		http.Error(w, "invalid query: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "invalid query: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	var open, ack, esc, dis, ioc int

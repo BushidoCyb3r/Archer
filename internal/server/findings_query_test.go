@@ -62,7 +62,7 @@ func TestFilterFindings_BadQueryErrors(t *testing.T) {
 	findings := []model.Finding{
 		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 98, Status: model.StatusOpen, Timestamp: "2026-05-12 09:00:00"},
 	}
-	for _, bad := range []string{"type:", "(type:Beacon", "bogus:value", "dest:1.2.3.4", "type:Beaon", `type:"Correlatd Activity"`} {
+	for _, bad := range []string{"type:", "(type:Beacon", "bogus:value", "dest:1.2.3.4", "type:Beaon", `type:"Correlatd Activity"`, "type:Beacon severity:critical"} {
 		q := url.Values{"q": []string{bad}}
 		if _, err := s.filterFindings(append([]model.Finding{}, findings...), q, 0); err == nil {
 			t.Errorf("q=%q: expected error, got nil", bad)
@@ -72,26 +72,41 @@ func TestFilterFindings_BadQueryErrors(t *testing.T) {
 
 // TestHandleFindings_BadQueryReturnsJSON400 pins the contract the red query
 // toast rests on: a rejected query is a 400 with a JSON {error} body (not the
-// old text/plain), so the front-end can read the message and surface it.
+// old text/plain) on every query-bearing endpoint the toast reads, so the
+// front-end gets a consistent message no matter which view is active when the
+// bad query is run (list vs the Campaigns/Hosts roll-up, which also pulls the
+// counts endpoint).
 func TestHandleFindings_BadQueryReturnsJSON400(t *testing.T) {
 	s := newAuditTestServer(t)
-	req := httptest.NewRequest(http.MethodGet, "/api/findings?q="+url.QueryEscape("dest:1.2.3.4"), nil)
-	w := httptest.NewRecorder()
-	s.handleFindings(w, req)
+	endpoints := []struct {
+		name    string
+		path    string
+		handler http.HandlerFunc
+	}{
+		{"list", "/api/findings", s.handleFindings},
+		{"counts", "/api/findings/counts", s.handleFindingsCounts},
+	}
+	for _, ep := range endpoints {
+		t.Run(ep.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, ep.path+"?q="+url.QueryEscape("dest:1.2.3.4"), nil)
+			w := httptest.NewRecorder()
+			ep.handler(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d; want 400", w.Code)
-	}
-	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
-		t.Errorf("Content-Type = %q; want application/json", ct)
-	}
-	var body struct {
-		Error string `json:"error"`
-	}
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if body.Error == "" || !strings.Contains(body.Error, "unknown field") {
-		t.Errorf("error body = %q; want a message naming the unknown field", body.Error)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d; want 400", w.Code)
+			}
+			if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+				t.Errorf("Content-Type = %q; want application/json", ct)
+			}
+			var body struct {
+				Error string `json:"error"`
+			}
+			if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+				t.Fatalf("decode body: %v", err)
+			}
+			if body.Error == "" || !strings.Contains(body.Error, "unknown field") {
+				t.Errorf("error body = %q; want a message naming the unknown field", body.Error)
+			}
+		})
 	}
 }

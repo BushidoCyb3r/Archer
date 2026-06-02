@@ -363,6 +363,19 @@
     t.classList.remove('show');
   }
 
+  // _surfaceQueryError inspects a failed findings fetch: when it's the 400 a
+  // rejected query produces, it shows the red toast and returns true so the
+  // caller can stop. Every query-bearing endpoint (list, aggregate roll-up,
+  // counts) routes its !r.ok path through this, so no submission path can let
+  // a bad query fail silently — the bug was that only the list view toasted,
+  // leaving the Campaigns/Hosts tabs quiet.
+  async function _surfaceQueryError(r) {
+    if (r.status !== 400) return false;
+    const e = await r.json().catch(() => ({}));
+    showQueryError(e.error || r.statusText);
+    return true;
+  }
+
   // navigator.clipboard is only available in secure contexts (HTTPS or
   // localhost). When the UI is reached over plain HTTP on a remote host
   // (common for on-prem deployments), the API is undefined and any direct
@@ -448,14 +461,12 @@
     const qs = new URLSearchParams(merged).toString();
     const r = await fetch('/api/findings' + (qs ? '?' + qs : ''));
     if (!r.ok) {
-      const e = await r.json().catch(() => ({}));
-      const msg = e.error || r.statusText;
       // A bad query (unknown field, malformed syntax, unknown finding type)
       // is the only 400 this endpoint returns. Surface it as a red toast and
       // keep the prior results on screen rather than throwing an unhandled
       // rejection that leaves the analyst with no feedback.
-      if (r.status === 400) { showQueryError(msg); return; }
-      throw (msg);
+      if (await _surfaceQueryError(r)) return;
+      throw (r.statusText);
     }
     hideQueryError();
     const page = await r.json();
@@ -509,7 +520,8 @@
       const qs = new URLSearchParams(params).toString();
       try {
         const r = await fetch('/api/findings' + (qs ? '?' + qs : ''));
-        if (!r.ok) return;
+        if (!r.ok) { await _surfaceQueryError(r); return; }
+        hideQueryError();
         const all = await r.json();
         _aggregateState.findings = Array.isArray(all) ? all : [];
         _aggregateState.loaded = true;
@@ -619,7 +631,7 @@
     const qs = new URLSearchParams(params).toString();
     try {
       const r = await fetch('/api/findings/counts' + (qs ? '?' + qs : ''));
-      if (!r.ok) return;
+      if (!r.ok) { await _surfaceQueryError(r); return; }
       const c = await r.json();
       _tabState.findings.total  = c.open || 0;
       _tabState.ack.total       = c.ack  || 0;
@@ -1058,21 +1070,44 @@
 
   // _setQueryToken upserts `field:value` into the query box, replacing any
   // existing token for the same field. An empty value removes the field's
-  // token entirely. The query box stays the one source of truth.
+  // token entirely. The query box stays the one source of truth. The grammar
+  // requires an explicit operator between terms, so an appended token is
+  // joined with AND and a removed token takes its adjacent operator with it.
   function _setQueryToken(field, value) {
     const box = document.getElementById('filter-query');
     if (!box) return;
     let q = box.value;
     const re = _queryTokenRE(field);
     if (value === '' || value == null) {
-      q = q.replace(re, '').replace(/\s{2,}/g, ' ').trim();
+      q = _removeQueryToken(q, field);
     } else {
       const token = field + ':' + value;
       if (re.test(q)) q = q.replace(re, (m, lead) => lead + token);
-      else q = (q.trim() + ' ' + token).trim();
+      else q = _joinQueryTerm(q, token);
     }
     box.value = q;
     _autoGrowQuery();
+  }
+
+  // _joinQueryTerm appends a term to an existing query with the required AND,
+  // or returns it alone when the box is empty.
+  function _joinQueryTerm(q, term) {
+    return q.trim() ? q.trim() + ' AND ' + term : term;
+  }
+
+  // _removeQueryToken drops a field's token and the one boolean operator that
+  // bound it (the preceding operator when present, otherwise the following
+  // one) so the remaining expression stays well-formed under the
+  // operator-required grammar.
+  function _removeQueryToken(q, field) {
+    const tok = field + ':(?:"[^"]*"|\\[[^\\]]*\\]|\\S+)';
+    const op = '(?:AND\\s+NOT|AND|OR|NOT)';
+    const withLead = new RegExp('\\s+' + op + '\\s+' + tok, 'i');
+    const withTrail = new RegExp('(^|\\s)' + tok + '\\s+' + op + '\\s+', 'i');
+    if (withLead.test(q)) q = q.replace(withLead, '');
+    else if (withTrail.test(q)) q = q.replace(withTrail, (m, lead) => lead);
+    else q = q.replace(_queryTokenRE(field), '');
+    return q.replace(/\s{2,}/g, ' ').trim();
   }
 
   // _appendQueryToken adds a ready-made token (e.g. "ioc:true") if it isn't
@@ -1082,7 +1117,7 @@
     if (!box) return;
     const present = new RegExp('(^|\\s)' + token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\s|$)', 'i');
     if (present.test(box.value)) return;
-    box.value = (box.value.trim() + ' ' + token).trim();
+    box.value = _joinQueryTerm(box.value, token);
     _autoGrowQuery();
   }
 
@@ -1092,7 +1127,7 @@
   function _insertQueryTemplate(field) {
     const box = document.getElementById('filter-query');
     if (!box) return;
-    box.value = (box.value.trim() + ' ' + field).replace(/^\s+/, '');
+    box.value = _joinQueryTerm(box.value, field);
     _autoGrowQuery();
     box.focus();
     box.setSelectionRange(box.value.length, box.value.length);

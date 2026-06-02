@@ -28,6 +28,56 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.52.0] — 2026-06-02
+
+The query bar stops guessing. An operator between two terms is now
+required — `type:Beacon severity:critical` was silently read as an
+implicit `AND`, which hid the case where an analyst meant two separate
+conditions and got their intersection without noticing. And the red
+error toast from v0.51.0 now fires from every view, not just the
+findings list.
+
+### Changed
+
+- **A boolean operator is required between query terms.** The grammar no
+  longer inserts an implicit `AND` between adjacent terms.
+  `type:Beacon AND severity:critical` is the only accepted form;
+  `type:Beacon severity:critical` is a parse error
+  (`missing operator before "severity:critical" — use AND, OR, or AND NOT
+  between terms`) and drops the red toast. Use `AND NOT` to exclude. The
+  motivation is the silent failure: implicit-AND meant a missing operator
+  changed the result set with no signal, and two terms an analyst expected
+  to OR were quietly ANDed. Grouping, quoted phrases, wildcards, numeric
+  comparisons, and bare-term substring search are unchanged. The query-bar
+  shortcut chips and right-click pivots already compose with explicit
+  operators — clicking a chip inserts ` AND <token>` and clearing one
+  removes the operator that bound it, so the assisted paths stay valid.
+
+### Fixed
+
+- **The query-error toast now opens for any rejected query, on every
+  view.** v0.51.0 wired the toast into the findings-list fetch only. A bad
+  query run from the Campaigns or Hosts roll-up — which fetch the
+  aggregate and counts endpoints, not the list — returned `400` but the
+  front-end swallowed it: no toast, stale results. Every query-bearing
+  fetch (`list`, aggregate roll-up, counts) now routes its failure through
+  one path that shows the toast, and `GET /api/findings/counts` returns the
+  same JSON `{"error"}` body the list endpoint does so the message is
+  identical regardless of which view raised it.
+
+### Breaking
+
+- **The `q` param rejects operator-less adjacent terms (API contract +
+  detection-query semantics).** Any saved or scripted query that relied on
+  implicit-AND (`type:Beacon severity:critical`, `score:>=90 ioc:true`)
+  now returns `400` instead of the ANDed result it used to. Insert the
+  explicit operator: `type:Beacon AND severity:critical`. No back-compat
+  fallback is shipped — the implicit-AND was the source of the silent
+  failure this release closes. Single bare terms, single field terms, and
+  any query already using explicit `AND`/`OR`/`NOT` are unaffected.
+
+---
+
 ## [v0.51.0] — 2026-06-02
 
 A typo in the query bar no longer fails silently. A bad query now drops a
