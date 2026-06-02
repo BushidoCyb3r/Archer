@@ -28,6 +28,94 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.48.0] — 2026-06-02
+
+A query language for the findings table, a one-command local demo, and the
+sidebar/query-bar refinements that came out of building both. The headline
+is the query bar: a Lucene-style filter surface that replaces single-field
+filtering with field terms, boolean logic, wildcards, numeric ranges, and
+date windows — typed once and ANDed on top of the view scoping. The demo
+(`./demo.sh`) stands up a populated workbench from sample Zeek logs without
+Docker, a sensor, or a real capture, so the query language (and everything
+else) has something to bite on out of the box.
+
+### Added
+
+- **Lucene-style query language (`q` on `GET /api/findings`).** The query
+  bar is the primary findings filter. It supports field terms
+  (`type:Beaconing`, `dst:185.220.101.0/24`, `severity:critical`), boolean
+  `AND` / `OR` / `NOT` with implicit-AND between adjacent terms and `()`
+  grouping, leading/trailing wildcards on string fields (`dst:185.220.*`,
+  `hostname:cdn?.example.com`), numeric comparisons and ranges
+  (`score:>=90`, `score:[80 TO 100]`), date/datetime predicates in the
+  operator timezone (`ts:>=2026-03-15`, `ts:["2026-03-15 08:00" TO ...]`),
+  and a bare term that case-insensitively substring-matches the same fields
+  the old Search box covered (a bare IP literal matches src or dst exactly).
+  Recognized fields: `type` (with `type:beacons` for the whole beacon
+  family), `severity`, `score`, `src`, `dst`, `port`, `detail`, `hostname`,
+  `sensor`, `status` (`status:open` = no status set), `ts`, `ioc`,
+  `spectral`, `new`, `ja3`, `ja4`, `file`, and the beacon sub-scores
+  `tscore` / `dscore` / `hist` / `dur` (which implicitly scope to the beacon
+  family). The grammar lives in the new `internal/query` package and is
+  evaluated server-side over the in-memory finding slice, ANDed on top of
+  view scoping and the always-on exclusions. A malformed query returns a
+  parse error rather than silently matching everything or nothing. See the
+  new "Querying the findings table" section in `docs/ANALYST_PLAYBOOK.md`.
+- **`./demo.sh` — one-command local demo.** From the repo root it builds the
+  binary, seeds a throwaway data directory from the sample logs in
+  `demo/logs/`, registers a demo admin, runs one analysis pass, and serves
+  the workbench at `https://localhost:18443` until Ctrl-C — then wipes the
+  temp directory on exit. No Docker, no sensor fleet, no production
+  deployment touched. Port and credentials override via `ARCHER_DEMO_PORT` /
+  `ARCHER_DEMO_EMAIL` / `ARCHER_DEMO_PASSWORD`.
+- **`demo/logs/` sample corpus.** 40 curated single-scenario captures in a
+  Zeek date tree (`<scenario>/<date>/<zeek>.log`), covering every from-logs
+  detector family — beaconing (steady / jittered / scrambled / slow /
+  multimode / URL / DNS), strobe, long connection, exfil, lateral movement,
+  off-hours, DNS tunneling / NXDOMAIN / subdomain-diversity / suspicious-TLD
+  / DoH-bypass, HTTP C2 URIs and domain fronting, suspicious user-agents and
+  files, malicious JA3/JA4, weak TLS, no-SNI, x509 anomalies, suspicious
+  files/MIME, and Zeek weird/notice passthrough. A full demo pass surfaces
+  ~67 findings. Derived from the detector fixtures under
+  `internal/analysis/testdata/zeek/`; the TI-feed scenarios are omitted
+  because they need external feeds loaded to match.
+
+### Changed
+
+- **Selected view is filled, not edge-marked.** The active entry in the
+  Views list fills with the accent blue (matching the Analyze logs button)
+  with white text and a dark count pill, instead of the easy-to-miss 2px
+  left edge.
+- **Watch Mode sidebar is read-only for every role; settings moved to an
+  admin-only modal.** All roles now see whether watch is enabled/disabled
+  plus the configured cadence, run time, and timezone directly in the
+  sidebar. The cadence / time / timezone controls and the enable-disable
+  toggle live in a modal opened by a **Watch Mode** button shown only to
+  admins — analysts and viewers see the status but not the controls. This
+  aligns the UI with the server, which already enforced admin on the
+  `POST /api/watch` write. The "Always run full scan on every watch tick"
+  override is unchanged, still in Settings.
+- **Advanced filter panel replaced by the query bar.** The collapsible
+  per-field inputs (Src IP/CIDR, Dst IP/CIDR, Dst Port, Sensor, From, To)
+  and the beacon sub-score min/max boxes are gone; their reach now lives in
+  the query language and the shortcut chips. UI-only — the legacy
+  single-field query params (`src_ip`, `dst_ip`, `dst_port`, `sensor`,
+  `from`, `to`, `ts_min`…`dur_max`, …) remain on `GET /api/findings` for
+  back-compat and the export flow.
+- **Show Dismissed moved to the query bar.** The Dismissed-view toggle now
+  sits in the query-bar chip row next to the **+ more** pill — styled as a
+  pill, accent blue when active — instead of a sidebar checkbox.
+- **Query-bar layout.** The query field is wider and slightly taller; Run /
+  Clear / TLS Fingerprints are left-grouped to it with Logs and Export
+  right-packed; the analysis progress bar sits directly under the Analyze
+  logs button (above Views); the Export button shows its full label.
+
+### Detection changes
+
+None. This release is query/UI surface and demo tooling only — score
+formulas, thresholds, finding types, and feed-matching logic are unchanged,
+so existing baselines do not need re-grounding.
+
 ## [v0.47.0] — 2026-06-02
 
 A mixed-fleet version surface for Quiver sensors. Archer has validated the

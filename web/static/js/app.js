@@ -18,16 +18,6 @@
   let _currentUser     = null;
   let _orgCIDRs        = []; // admin-supplied CIDRs that augment the built-in private ranges for the Hosts tab
 
-  // The eight beacon sub-score range inputs (4 axes × min/max). Listed
-  // once so Reset, the bell-jump filter clear, and Enter-to-apply all
-  // cover them: a stale sub-score bound left in the form would silently
-  // exclude a bell-jump target beacon — the cached-state action-failure
-  // class the clear-all path exists to prevent.
-  const _ssFilterIds = [
-    'filter-ss-ts-min', 'filter-ss-ts-max', 'filter-ss-ds-min', 'filter-ss-ds-max',
-    'filter-ss-hist-min', 'filter-ss-hist-max', 'filter-ss-dur-min', 'filter-ss-dur-max',
-  ];
-
   // Per-tab state. Each findings-style tab (findings / ack / esc / ioc)
   // keeps its own loaded findings, pagination position, and total count.
   // Tab switches read from cache when loaded=true (instant), fetch when
@@ -154,15 +144,20 @@
   }
   function _applyShowDismissed(on) {
     _showDismissed = !!on;
-    const btn = document.getElementById('dismissed-tab-btn');
-    const cb  = document.getElementById('filter-show-dismissed');
+    const btn = document.getElementById('dismissed-view-btn');
+    const tog = document.getElementById('show-dismissed-btn');
     if (btn) btn.style.display = on ? '' : 'none';
-    if (cb)  cb.checked = !!on;
-    // If the analyst hides the Dismissed tab while it's the active
-    // view, route them back to the Findings tab so they don't end up
-    // staring at an invisible tab.
+    // Toggle chip lives in the query-chips row, right of "+ more": accent
+    // blue (like Run) when on, the default chip look when off.
+    if (tog) {
+      tog.classList.toggle('chip-on', on);
+      tog.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    // If the analyst hides the Dismissed view while it's active, route
+    // them back to Findings so they don't end up staring at an invisible
+    // view.
     if (!on && _activeTab === 'dismissed') {
-      const def = document.querySelector('.tab-btn[data-tab="findings"]');
+      const def = document.querySelector('.view-btn[data-tab="findings"]');
       if (def) def.click();
     }
     updateInfoLine();
@@ -174,10 +169,10 @@
     } catch (_) {
       _applyShowDismissed(false);
     }
-    const cb = document.getElementById('filter-show-dismissed');
-    if (!cb) return;
-    cb.addEventListener('change', () => {
-      const next = !!cb.checked;
+    const tog = document.getElementById('show-dismissed-btn');
+    if (!tog) return;
+    tog.addEventListener('click', () => {
+      const next = !_showDismissed;
       try { localStorage.setItem('archer:show-dismissed', String(next)); } catch (_) {}
       _applyShowDismissed(next);
     });
@@ -505,6 +500,7 @@
     _clampAggOffset(_aggTabState.campaigns);
     _clampAggOffset(_aggTabState.hosts);
     _updatePaginationFooter();
+    _updateViewBadges();
   }
 
   // _clampAggOffset keeps an aggregate tab's offset within [0, total).
@@ -538,63 +534,50 @@
   // every analysis completes; refresh-on-filter-change is intentionally
   // omitted so the dropdowns don't reshape under the cursor.
   async function _loadFacets() {
-    const params = _currentFilterParams();
-    delete params.status;
-    delete params.ioc_only;
-    delete params.delta;
-    delete params.type;
-    delete params.sensor;
-    delete params.limit;
-    delete params.offset;
-    const qs = new URLSearchParams(params).toString();
     try {
-      const r = await fetch('/api/findings/facets' + (qs ? '?' + qs : ''));
+      // The Type chip lists every type in the corpus, not just those
+      // matching the current query — narrowing it by `q` would make a type
+      // vanish from the menu the moment you picked it. So no params.
+      const r = await fetch('/api/findings/facets');
       if (!r.ok) return;
       const data = await r.json();
-      _populateTypeDropdown(Array.isArray(data.types) ? data.types : []);
-      _populateSensorDropdown(Array.isArray(data.sensors) ? data.sensors : []);
-    } catch (e) { /* swallow — stale dropdown is acceptable */ }
+      _populateTypeChip(Array.isArray(data.types) ? data.types : []);
+    } catch (e) { /* swallow — a stale chip menu is acceptable */ }
   }
 
-  function _populateTypeDropdown(types) {
-    const sel = document.getElementById('filter-type');
-    if (!sel) return;
-    const cur = sel.value;
-    sel.innerHTML = '<option value="">All Types</option>';
-    // Synthetic beacon-family selector. Server-side filterFindings maps
-    // type=beacons to model.IsBeaconType, so picking this filters the
-    // Findings tab to every beacon type and "Export current tab" then
-    // produces the beacon export (wide CSV / triage-bearing JSON).
-    {
-      const b = document.createElement('option');
-      b.value = 'beacons';
-      b.textContent = 'Beacons (all types)';
-      if (cur === 'beacons') b.selected = true;
-      sel.appendChild(b);
-    }
+  // _populateTypeChip rebuilds the Type chip menu from the facet list.
+  // Picking an item upserts a type: token into the query box; multi-word
+  // types are quoted so they parse as a single value.
+  function _populateTypeChip(types) {
+    const menu = document.getElementById('chip-menu-type');
+    if (!menu) return;
+    const items = [];
+    // Synthetic beacon-family selector. Server-side the query maps
+    // type:beacons to model.IsBeaconType, scoping to every beacon type.
+    items.push({value: 'beacons', label: 'Beacons (all types)'});
     types.forEach(t => {
-      // Host Risk Score is a per-host roll-up surfaced through the
-      // Hosts tab — not a network event the Findings filter should
-      // expose as a discrete option.
+      // Host Risk Score is a per-host roll-up surfaced through the Hosts
+      // view — not a network event the Type chip should expose.
       if (HOST_FINDING_TYPES.has(t)) return;
-      const opt = document.createElement('option');
-      opt.value = t; opt.textContent = t;
-      if (t === cur) opt.selected = true;
-      sel.appendChild(opt);
+      items.push({value: t, label: t});
     });
-  }
-
-  function _populateSensorDropdown(sensors) {
-    const sel = document.getElementById('filter-sensor');
-    if (!sel) return;
-    const cur = sel.value;
-    while (sel.options.length > 1) sel.remove(1);
-    sensors.forEach(s => {
-      const opt = document.createElement('option');
-      opt.value = s; opt.textContent = s;
-      if (s === cur) opt.selected = true;
-      sel.appendChild(opt);
+    menu.innerHTML = '';
+    items.forEach(it => {
+      const li = document.createElement('li');
+      li.textContent = it.label;
+      li.addEventListener('click', () => {
+        const v = /\s/.test(it.value) ? `"${it.value}"` : it.value;
+        _setQueryToken('type', v);
+        applyFilter();
+        menu.classList.add('hidden');
+      });
+      menu.appendChild(li);
     });
+    const clear = document.createElement('li');
+    clear.className = 'chip-clear';
+    clear.textContent = 'Clear type';
+    clear.addEventListener('click', () => { _setQueryToken('type', ''); applyFilter(); menu.classList.add('hidden'); });
+    menu.appendChild(clear);
   }
 
   // _loadCounts fetches the per-status totals for the info line so the
@@ -763,6 +746,32 @@
     const cur = _curTab();
     document.getElementById('findings-count').textContent =
       cur.loaded ? `${cur.total.toLocaleString()} total` : '';
+
+    _updateViewBadges();
+  }
+
+  // _updateViewBadges paints the count next to each sidebar view button.
+  // The five status views read straight from the counts endpoint totals;
+  // Campaigns and Hosts read from the aggregate cache once it's loaded
+  // (dash until then, since those counts aren't in the counts endpoint).
+  function _updateViewBadges() {
+    const set = (id, val) => {
+      const el = document.getElementById('view-count-' + id);
+      if (el) el.textContent = val;
+    };
+    const ts = _tabState;
+    const fmt = n => _countsLoaded ? Number(n || 0).toLocaleString() : '—';
+    set('findings', fmt(ts.findings.total));
+    set('ack', fmt(ts.ack.total));
+    set('esc', fmt(ts.esc.total));
+    set('ioc', fmt(ts.ioc.total));
+    set('dismissed', fmt(ts.dismissed.total));
+    try {
+      const camps = (typeof Campaigns !== 'undefined' && Campaigns.getCampaigns) ? Campaigns.getCampaigns() : null;
+      const hosts = (typeof Campaigns !== 'undefined' && Campaigns.getHosts) ? Campaigns.getHosts() : null;
+      set('campaigns', camps && camps.length ? camps.length.toLocaleString() : (camps ? '0' : '—'));
+      set('hosts', hosts && hosts.length ? hosts.length.toLocaleString() : (hosts ? '0' : '—'));
+    } catch (_) { /* aggregate not built yet */ }
   }
 
   // Fetch IOC list into _iocSet; re-applies tab filter if IOC tab is active.
@@ -785,77 +794,88 @@
     } catch (_) {}
   }
 
-  // ── Tabs ───────────────────────────────────────────────────────────────────
-  function initTabs() {
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const tab = btn.dataset.tab;
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        _activeTab = tab;
-
-        // Dismissed sub-tabs are only visible on the Dismissed top-
-        // level tab. Switching to any other tab hides them; switching
-        // to Dismissed shows them and applies the saved sub-tab.
-        const subTabs = document.getElementById('dismissed-subtabs');
-        if (subTabs) subTabs.style.display = tab === 'dismissed' ? 'flex' : 'none';
-
-        const findingsTab = tab === 'findings' || tab === 'ack' || tab === 'esc' || tab === 'ioc';
-        if (findingsTab) {
-          // All four share #tab-findings panel; just change the cache slot.
-          // Cached tabs render instantly; first-visit tabs fetch their
-          // own page with the right server-side filter.
-          document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-          document.getElementById('tab-findings').classList.add('active');
-          _tabMode = tab;
-          _showCurrentTab();
-        } else if (tab === 'dismissed') {
-          // Dismissed routes through the sub-tab dispatch so the
-          // analyst lands on Findings or Campaigns view as they
-          // last chose.
-          _routeDismissedSubTab();
-        } else {
-          document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-          const panel = document.getElementById('tab-' + tab);
-          if (panel) panel.classList.add('active');
-          // Campaigns / Hosts are roll-ups — they need every finding in
-          // the time range, not whatever's loaded for the current
-          // findings tab. Lazy-fetch the aggregate cache on first visit.
-          // Setting _tabMode here lets the pagination footer pick the
-          // right per-tab Load More state.
-          if (tab === 'campaigns' || tab === 'hosts') {
-            _tabMode = tab;
-            _ensureAggregate();
-          }
-        }
-      });
+  // ── Views (left-sidebar navigation) ─────────────────────────────────────────
+  // Each view button in the sidebar carries data-tab; the dispatch below
+  // mirrors the old horizontal tab strip. The findings-style views
+  // (findings/ack/esc/ioc) share the #tab-findings panel and differ only in
+  // the server-side status scoping _currentFilterParams emits.
+  const VIEW_META = {
+    findings:  {title: 'Findings',     subtitle: 'Open findings awaiting triage'},
+    ack:       {title: 'Acknowledged', subtitle: "Findings you've acknowledged"},
+    esc:       {title: 'Escalated',    subtitle: 'Findings escalated for follow-up'},
+    ioc:       {title: 'IOC Hits',     subtitle: 'Findings whose IP matches an IOC list entry'},
+    campaigns: {title: 'Campaigns',    subtitle: 'Destinations grouped across the hosts beaconing to them'},
+    hosts:     {title: 'Hosts',        subtitle: 'Per-host risk roll-up across all findings'},
+    dismissed: {title: 'Dismissed',    subtitle: 'Findings removed from active triage'},
+  };
+  // _setViewActive moves the active highlight to the named view button,
+  // toggles the Dismissed sub-tabs, and updates the main-column header. It
+  // does NOT fetch — callers that need a load (the click handler, pivots,
+  // the bell-jump) drive that themselves.
+  function _setViewActive(tab) {
+    document.querySelectorAll('.view-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    _activeTab = tab;
+    const subTabs = document.getElementById('dismissed-subtabs');
+    if (subTabs) subTabs.style.display = tab === 'dismissed' ? 'flex' : 'none';
+    const meta = VIEW_META[tab] || VIEW_META.findings;
+    const title = document.getElementById('view-title');
+    const sub   = document.getElementById('view-subtitle');
+    if (title) title.textContent = meta.title;
+    if (sub)   sub.textContent   = meta.subtitle;
+  }
+  function _activateView(tab) {
+    _setViewActive(tab);
+    const findingsView = tab === 'findings' || tab === 'ack' || tab === 'esc' || tab === 'ioc';
+    if (findingsView) {
+      // All four share #tab-findings panel; just change the cache slot.
+      // Cached views render instantly; first-visit views fetch their own
+      // page with the right server-side filter.
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.getElementById('tab-findings').classList.add('active');
+      _tabMode = tab;
+      _showCurrentTab();
+    } else if (tab === 'dismissed') {
+      // Dismissed routes through the sub-tab dispatch so the analyst lands
+      // on Findings or Campaigns view as they last chose.
+      _routeDismissedSubTab();
+    } else {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      const panel = document.getElementById('tab-' + tab);
+      if (panel) panel.classList.add('active');
+      // Campaigns / Hosts are roll-ups — they need every finding in the
+      // time range, not whatever's loaded for the current findings view.
+      // Lazy-fetch the aggregate cache on first visit.
+      if (tab === 'campaigns' || tab === 'hosts') {
+        _tabMode = tab;
+        _ensureAggregate();
+      }
+    }
+  }
+  function initViews() {
+    document.querySelectorAll('.view-btn').forEach(btn => {
+      btn.addEventListener('click', () => _activateView(btn.dataset.tab));
     });
   }
 
-  // ── Filter bar ─────────────────────────────────────────────────────────────
+  // ── Query bar ──────────────────────────────────────────────────────────────
   function initFilterBar() {
-    // Time-range preset dropdown. Independent of the From/To inputs in
-    // the Advanced bar — selecting a preset applies it immediately and
-    // doesn't touch any other filter field. Power users wanting a
-    // specific date window open Advanced and set From/To, which
-    // override the preset when present.
-    const rangeSel = document.getElementById('filter-range');
-    if (rangeSel) {
-      rangeSel.addEventListener('change', () => {
-        _invalidateAllTabs();
-        applyFilter();
-      });
-    }
-
-    document.getElementById('apply-filter-btn').addEventListener('click', applyFilter);
+    const queryInput = document.getElementById('filter-query');
+    document.getElementById('run-query-btn').addEventListener('click', applyFilter);
     document.getElementById('reset-filter-btn').addEventListener('click', () => {
       _resetFilterUI();
       applyFilter();
     });
-    ['filter-search','filter-src','filter-dst','filter-port','filter-ja3','filter-ja4', ..._ssFilterIds].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') applyFilter(); });
-    });
+    if (queryInput) {
+      // Enter runs the query; Shift+Enter inserts a newline so a long
+      // expression can be split across lines. The box grows downward to
+      // fit whatever it holds, so the full query is always visible.
+      queryInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); applyFilter(); }
+      });
+      queryInput.addEventListener('input', () => _autoGrowQuery());
+      _autoGrowQuery();
+    }
+    _initQueryChips();
 
     // Pagination footer wiring. Page-size dropdown resets to page 1
     // and re-fetches; Load More appends the next page in place.
@@ -906,54 +926,77 @@
     // tabs go through the server (server-side filters apply); Campaigns
     // and Hosts are aggregations built client-side, so we serialize the
     // in-memory rows directly.
-    _initExportDropdown('export-current-btn', 'export-current-menu', format => {
-      switch (_activeTab) {
-        case 'campaigns':
-          if (format === 'csv') _downloadCampaignsCSV(Campaigns.getCampaigns());
-          else                  _downloadCampaignsJSON(Campaigns.getCampaigns());
-          return;
-        case 'hosts':
-          if (format === 'csv') _downloadHostsCSV(Campaigns.getHosts());
-          else                  _downloadHostsJSON(Campaigns.getHosts());
-          return;
-        default:
-          window.location.href = `/api/export/${format}?${_exportQSForCurrentTab()}`;
-      }
-    });
-    _initExportDropdown('export-all-btn', 'export-all-menu', format => {
-      window.location.href = `/api/export/${format}`;
-    });
-    // Close any open export menu when clicking outside it. The button
-    // handler's stopPropagation prevents this from firing on its own click.
+    _initExportDialog();
+    // Logs preview pill: toggles its popover, closing any sibling menu.
+    const logsBtn = document.getElementById('logs-preview-btn');
+    const logsMenu = document.getElementById('logs-menu');
+    if (logsBtn && logsMenu) {
+      logsBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        document.querySelectorAll('.export-menu, .chip-menu, .logs-menu').forEach(m => { if (m !== logsMenu) m.classList.add('hidden'); });
+        logsMenu.classList.toggle('hidden');
+      });
+      // Clicks inside the popover (expanding a sensor's dates) must not
+      // bubble to the document handler that closes it.
+      logsMenu.addEventListener('click', e => e.stopPropagation());
+    }
+    // Close any open export, chip, or logs menu when clicking outside it.
+    // Each trigger's stopPropagation prevents this from firing on its own click.
     document.addEventListener('click', () => {
-      document.querySelectorAll('.export-menu').forEach(m => m.classList.add('hidden'));
+      document.querySelectorAll('.export-menu, .chip-menu, .logs-menu').forEach(m => m.classList.add('hidden'));
     });
-
-    // Advanced-filters toggle. Remembered in localStorage so the panel stays
-    // in whatever state the analyst left it in across page reloads.
-    const advToggle = document.getElementById('filter-advanced-toggle');
-    const advPanel  = document.getElementById('filter-bar-advanced');
-    const ssPanel   = document.getElementById('filter-bar-subscore');
-    const setAdv = open => {
-      advPanel.style.display = open ? 'flex' : 'none';
-      if (ssPanel) ssPanel.style.display = open ? 'flex' : 'none';
-      advToggle.classList.toggle('active', open);
-      advToggle.textContent = open ? 'Advanced ▴' : 'Advanced ▾';
-      try { localStorage.setItem('archer.filter.advanced', open ? '1' : '0'); } catch (e) {}
-    };
-    advToggle.addEventListener('click', () => setAdv(advPanel.style.display === 'none'));
-    try {
-      if (localStorage.getItem('archer.filter.advanced') === '1') setAdv(true);
-    } catch (e) {}
   }
 
-  // _rangeFromDate translates a preset key (1d/7d/1mo/3mo/6mo/all) into
-  // an ISO datetime string for the matching window's start, or '' for
-  // "all time". The dropdown is independent of the From/To inputs in
-  // the Advanced bar — those override the preset when set, but the
-  // dropdown does NOT write to them. Selecting a preset applies
-  // immediately without touching anything else in the filter bar.
-  function _rangeFromDate(key) {
+  // ── Query chips ──────────────────────────────────────────────────────────
+  // Chips are shortcut menus that write canonical field tokens into the
+  // query box. The query text is the single source of truth: selecting a
+  // chip value upserts (or, for a "clear" item, removes) one field token;
+  // typing in the box directly is equally valid. No chip holds hidden state.
+  function _initQueryChips() {
+    // Each chip button toggles its own menu and closes siblings.
+    document.querySelectorAll('.chip').forEach(btn => {
+      const menu = document.getElementById('chip-menu-' + btn.id.replace('chip-', ''));
+      if (!menu) return;
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        document.querySelectorAll('.export-menu, .chip-menu, .logs-menu').forEach(m => { if (m !== menu) m.classList.add('hidden'); });
+        menu.classList.toggle('hidden');
+      });
+    });
+    const close = menu => menu.classList.add('hidden');
+
+    const sevMenu = document.getElementById('chip-menu-severity');
+    sevMenu.querySelectorAll('li').forEach(li => li.addEventListener('click', () => {
+      _setQueryToken('severity', li.dataset.sev); applyFilter(); close(sevMenu);
+    }));
+
+    const scoreMenu = document.getElementById('chip-menu-score');
+    scoreMenu.querySelectorAll('li').forEach(li => li.addEventListener('click', () => {
+      _setQueryToken('score', li.dataset.score === '' ? '' : '>=' + li.dataset.score);
+      applyFilter(); close(scoreMenu);
+    }));
+
+    const timeMenu = document.getElementById('chip-menu-time');
+    timeMenu.querySelectorAll('li').forEach(li => li.addEventListener('click', () => {
+      _setQueryToken('ts', _tsTokenForRange(li.dataset.range)); applyFilter(); close(timeMenu);
+    }));
+
+    // +more inserts a field token template the analyst completes, or a
+    // ready-made boolean token. Templates focus the box with the cursor
+    // after the colon; nothing fetches until the analyst hits Run/Enter.
+    const moreMenu = document.getElementById('chip-menu-more');
+    moreMenu.querySelectorAll('li').forEach(li => li.addEventListener('click', () => {
+      if (li.dataset.token) { _appendQueryToken(li.dataset.token); applyFilter(); }
+      else if (li.dataset.field) { _insertQueryTemplate(li.dataset.field); }
+      close(moreMenu);
+    }));
+  }
+
+  // _tsTokenForRange turns a preset key into the value half of a ts token
+  // (e.g. ">=2026-05-26"), or '' for "all time" which clears the ts filter.
+  // The boundary date is computed in UTC to line up with the UTC timestamps
+  // the findings table displays.
+  function _tsTokenForRange(key) {
     if (key === 'all' || !key) return '';
     const day = 24 * 60 * 60 * 1000;
     const offsets = {
@@ -965,51 +1008,85 @@
     };
     const off = offsets[key];
     if (!off) return '';
-    return new Date(Date.now() - off).toISOString().slice(0, 16);
+    return '>=' + new Date(Date.now() - off).toISOString().slice(0, 10);
+  }
+
+  // _queryTokenRE builds a matcher for an existing `field:<value>` token in
+  // the query text, where the value may be a quoted phrase, a [lo TO hi]
+  // range, or a bare run (which itself may carry a comparison operator).
+  function _queryTokenRE(field) {
+    return new RegExp('(^|\\s)' + field + ':(?:"[^"]*"|\\[[^\\]]*\\]|\\S+)', 'i');
+  }
+
+  // _autoGrowQuery sizes the elastic query box to its content so the whole
+  // expression stays visible. Called on user input and after every
+  // programmatic write (chip insert, reset, pivot). Reset-to-auto first so
+  // the box shrinks back when a long query is cleared.
+  function _autoGrowQuery() {
+    const box = document.getElementById('filter-query');
+    if (!box) return;
+    box.style.height = 'auto';
+    box.style.height = box.scrollHeight + 'px';
+  }
+
+  // _setQueryToken upserts `field:value` into the query box, replacing any
+  // existing token for the same field. An empty value removes the field's
+  // token entirely. The query box stays the one source of truth.
+  function _setQueryToken(field, value) {
+    const box = document.getElementById('filter-query');
+    if (!box) return;
+    let q = box.value;
+    const re = _queryTokenRE(field);
+    if (value === '' || value == null) {
+      q = q.replace(re, '').replace(/\s{2,}/g, ' ').trim();
+    } else {
+      const token = field + ':' + value;
+      if (re.test(q)) q = q.replace(re, (m, lead) => lead + token);
+      else q = (q.trim() + ' ' + token).trim();
+    }
+    box.value = q;
+    _autoGrowQuery();
+  }
+
+  // _appendQueryToken adds a ready-made token (e.g. "ioc:true") if it isn't
+  // already present, leaving any other tokens untouched.
+  function _appendQueryToken(token) {
+    const box = document.getElementById('filter-query');
+    if (!box) return;
+    const present = new RegExp('(^|\\s)' + token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\s|$)', 'i');
+    if (present.test(box.value)) return;
+    box.value = (box.value.trim() + ' ' + token).trim();
+    _autoGrowQuery();
+  }
+
+  // _insertQueryTemplate appends a "field:" (or "field:>=") template and
+  // parks the cursor at the end so the analyst types the value. No fetch
+  // fires — the template is incomplete until they finish it and hit Run.
+  function _insertQueryTemplate(field) {
+    const box = document.getElementById('filter-query');
+    if (!box) return;
+    box.value = (box.value.trim() + ' ' + field).replace(/^\s+/, '');
+    _autoGrowQuery();
+    box.focus();
+    box.setSelectionRange(box.value.length, box.value.length);
   }
 
   // Build the query string representing the current filter state. Shared by
   // applyFilter (for /api/findings) and the export buttons so the exported
   // file matches the on-screen view exactly.
   function _currentFilterParams() {
-    const g = id => (document.getElementById(id) || {}).value || '';
     const params = {};
-    const search = g('filter-search').trim();
-    if (search) params.search = search;
-    const sev = g('filter-sev');   if (sev)  params.severity = sev;
-    const type = g('filter-type'); if (type) params.type = type;
-    const score = parseInt(g('filter-score')) || 0;
-    if (score > 0) params.min_score = score;
-    const src = g('filter-src').trim(); if (src) params.src_ip = src;
-    const dst = g('filter-dst').trim(); if (dst) params.dst_ip = dst;
-    const port = g('filter-port').trim(); if (port) params.dst_port = port;
-    const ja3 = g('filter-ja3').trim();   if (ja3)  params.ja3 = ja3;
-    const ja4 = g('filter-ja4').trim();   if (ja4)  params.ja4 = ja4;
-    const sn  = g('filter-sensor');     if (sn)  params.sensor = sn;
-    // Spectral-rescued: server-side filter on Detail-string substring.
-    // Calibration-loop helper — see docs/DETECTION_METHODS.md §2.
-    const specOnly = document.getElementById('filter-spectral-only');
-    if (specOnly && specOnly.checked) params.spectral_only = 'true';
-    // Beacon sub-score ranges. Each blank input is omitted; the server
-    // treats any present bound as implicitly scoping to beacon findings.
-    ['ts', 'ds', 'hist', 'dur'].forEach(ax => {
-      const lo = g(`filter-ss-${ax}-min`).trim();
-      const hi = g(`filter-ss-${ax}-max`).trim();
-      if (lo !== '') params[`${ax}_min`] = lo;
-      if (hi !== '') params[`${ax}_max`] = hi;
-    });
-    // Date filter comes from the Time-range dropdown only. Custom
-    // From/To inputs were removed from the Advanced bar — the dropdown
-    // covers every common hunt window and the perf cost of a date
-    // walking heuristic on each fetch isn't worth a power-user knob.
-    const rangeKey = g('filter-range');
-    const computed = _rangeFromDate(rangeKey);
-    if (computed) params.from = computed;
+    // The whole filter expression now lives in the query box. The server
+    // ANDs `q` on top of the view scoping below; an empty box means "no
+    // user filter" and only the view scoping applies.
+    const q = ((document.getElementById('filter-query') || {}).value || '').trim();
+    if (q) params.q = q;
 
-    // Tab-aware status filter, mirrored server-side. Without this, the
-    // Findings tab fetches every status (including acknowledged and
+    // View-aware status filter, mirrored server-side. Without this, the
+    // Findings view fetches every status (including acknowledged and
     // escalated) and filters client-side via _applyTabFilter — fine for
-    // a thousand findings, painful for hundreds of thousands.
+    // a thousand findings, painful for hundreds of thousands. This is the
+    // view selector, not part of the query the analyst types.
     if (_tabMode === 'ack')            params.status = 'acknowledged';
     else if (_tabMode === 'esc')       params.status = 'escalated';
     else if (_tabMode === 'dismissed') params.status = 'dismissed';
@@ -1072,6 +1149,62 @@
         menu.classList.add('hidden');
       });
     });
+  }
+
+  // The Export dialog replaces the old current/all dropdown pair with one
+  // scope × format picker. XLSX is produced only for the All-findings scope
+  // (the server has no current-view XLSX path, and Campaigns/Hosts serialize
+  // client-side as CSV/JSON), so it's gated on the selected scope.
+  function _initExportDialog() {
+    const dlg = document.getElementById('export-dlg');
+    const btn = document.getElementById('export-btn');
+    if (!dlg || !btn) return;
+    const xlsxRow = document.getElementById('export-fmt-xlsx');
+    const xlsxInput = xlsxRow.querySelector('input');
+
+    const syncFormatAvailability = () => {
+      const allowXlsx = dlg.querySelector('input[name="export-scope"]:checked').value === 'all';
+      xlsxInput.disabled = !allowXlsx;
+      xlsxRow.classList.toggle('disabled', !allowXlsx);
+      if (!allowXlsx && xlsxInput.checked) {
+        dlg.querySelector('input[name="export-format"][value="csv"]').checked = true;
+      }
+    };
+
+    btn.addEventListener('click', () => {
+      syncFormatAvailability();
+      dlg.showModal();
+    });
+    dlg.querySelectorAll('input[name="export-scope"]').forEach(r =>
+      r.addEventListener('change', syncFormatAvailability));
+    document.getElementById('export-dlg-cancel').addEventListener('click', () => dlg.close());
+    document.getElementById('export-dlg-go').addEventListener('click', () => {
+      const scope = dlg.querySelector('input[name="export-scope"]:checked').value;
+      const format = dlg.querySelector('input[name="export-format"]:checked').value;
+      dlg.close();
+      _runExport(scope, format);
+    });
+  }
+
+  function _runExport(scope, format) {
+    if (scope === 'all') {
+      window.location.href = `/api/export/${format}`;
+      return;
+    }
+    // Current view: Campaigns/Hosts are client-side aggregations (CSV/JSON);
+    // findings-style views stream from the server with the active filter.
+    switch (_activeTab) {
+      case 'campaigns':
+        if (format === 'csv') _downloadCampaignsCSV(Campaigns.getCampaigns());
+        else                  _downloadCampaignsJSON(Campaigns.getCampaigns());
+        return;
+      case 'hosts':
+        if (format === 'csv') _downloadHostsCSV(Campaigns.getHosts());
+        else                  _downloadHostsJSON(Campaigns.getHosts());
+        return;
+      default:
+        window.location.href = `/api/export/${format}?${_exportQSForCurrentTab()}`;
+    }
   }
 
   function _downloadBlob(filename, mime, content) {
@@ -1418,82 +1551,57 @@
   // showContributingActivity pairs it with a src/dst write so the
   // form reads cleanly as "filtered on this pair only."
   //
-  // filter-range is deliberately NOT reset here. The time range is
-  // the analyst's working scope, not a filter predicate — once they
-  // pick a window it stays until they change it explicitly, so a
-  // Reset clears the query without yanking them back to a default
-  // window and re-fetching a different span than they were reading.
+  // _resetFilterUI clears the query box. Every filter predicate now lives
+  // in that one field, so clearing it clears the whole filter state. It
+  // does not touch the active view or trigger a re-fetch — the reset
+  // button pairs it with applyFilter(); pivots pair it with a token write.
   function _resetFilterUI() {
-    ['filter-search','filter-src','filter-dst','filter-port','filter-ja3','filter-ja4', ..._ssFilterIds].forEach(id => {
-      const el = document.getElementById(id); if (el) el.value = '';
-    });
-    const sev = document.getElementById('filter-sev');       if (sev) sev.value = '';
-    const typ = document.getElementById('filter-type');      if (typ) typ.value = '';
-    const sn  = document.getElementById('filter-sensor');    if (sn)  sn.value = '';
-    const sc  = document.getElementById('filter-score');     if (sc)  sc.value = '0';
-    const sOnly = document.getElementById('filter-spectral-only');
-    if (sOnly) sOnly.checked = false;
+    const box = document.getElementById('filter-query');
+    if (box) { box.value = ''; _autoGrowQuery(); }
   }
 
-  // showContributingActivity filters the Findings tab on the CA's
-  // (src, dst) pair via the existing search form. Reading the values
-  // straight into filter-src / filter-dst means the analyst sees the
-  // filter state in the UI and can edit it; the (src, dst) shape also
-  // surfaces newer activity on the same pair that wasn't part of the
-  // original CA emission. Wired from the ctx-show-contributing
-  // right-click item; visible only on Correlated Activity rows.
+  // _switchToFindingsView makes the Findings view active (highlight,
+  // header, panel, mode) without fetching — used by the pivots, which set
+  // the query box first and then call applyFilter().
+  function _switchToFindingsView() {
+    if (_tabMode === 'findings') return;
+    _setViewActive('findings');
+    _tabMode = 'findings';
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    const panel = document.getElementById('tab-findings');
+    if (panel) panel.classList.add('active');
+  }
+
+  // showContributingActivity filters the Findings view on the CA's
+  // (src, dst) pair by writing src:/dst: tokens into the query box. The
+  // analyst sees the filter state in the box and can edit it; the
+  // (src, dst) shape also surfaces newer activity on the same pair that
+  // wasn't part of the original CA emission. Wired from the
+  // ctx-show-contributing right-click item; visible only on CA rows.
   function showContributingActivity(f) {
     if (!f || f.type !== 'Correlated Activity') return;
     const src = f.src_ip || '';
     const dst = f.dst_ip || '';
     if (!src && !dst) return;
     _resetFilterUI();
-    const srcEl = document.getElementById('filter-src'); if (srcEl) srcEl.value = src;
-    const dstEl = document.getElementById('filter-dst'); if (dstEl) dstEl.value = dst;
-    if (_tabMode !== 'findings') {
-      document.querySelectorAll('.tab-btn').forEach(b => {
-        b.classList.toggle('active', b.dataset.tab === 'findings');
-      });
-      _activeTab = 'findings';
-      _tabMode = 'findings';
-      const subTabs = document.getElementById('dismissed-subtabs');
-      if (subTabs) subTabs.style.display = 'none';
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-      const panel = document.getElementById('tab-findings');
-      if (panel) panel.classList.add('active');
-    }
+    if (src) _setQueryToken('src', src);
+    if (dst) _setQueryToken('dst', dst);
+    _switchToFindingsView();
     applyFilter();
   }
 
-  // pivotByTLS filters the Findings tab to every finding carrying the
-  // selected beacon's TLS fingerprint, via the visible filter inputs —
-  // same shape as showContributingActivity: the analyst sees the filter
-  // state and can edit/clear it, no hidden predicate. Wired from the
+  // pivotByTLS filters the Findings view to every finding carrying the
+  // selected beacon's TLS fingerprint by writing a ja4:/ja3: token into
+  // the query box — same shape as showContributingActivity. Wired from the
   // TLS Pivot detail action button; enabled when f.ja4 or f.ja3 is set.
   // JA4 is preferred when present (JA4+ plugin on sensor); falls back to
   // JA3 for sensors on stock Zeek.
   function pivotByTLS(f) {
     if (!f || !(f.ja4 || f.ja3)) return;
     _resetFilterUI();
-    if (f.ja4) {
-      const el = document.getElementById('filter-ja4');
-      if (el) el.value = f.ja4;
-    } else {
-      const el = document.getElementById('filter-ja3');
-      if (el) el.value = f.ja3;
-    }
-    if (_tabMode !== 'findings') {
-      document.querySelectorAll('.tab-btn').forEach(b => {
-        b.classList.toggle('active', b.dataset.tab === 'findings');
-      });
-      _activeTab = 'findings';
-      _tabMode = 'findings';
-      const subTabs = document.getElementById('dismissed-subtabs');
-      if (subTabs) subTabs.style.display = 'none';
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-      const panel = document.getElementById('tab-findings');
-      if (panel) panel.classList.add('active');
-    }
+    if (f.ja4) _setQueryToken('ja4', f.ja4);
+    else       _setQueryToken('ja3', f.ja3);
+    _switchToFindingsView();
     applyFilter();
   }
 
@@ -1556,6 +1664,7 @@
       _logsAvailable = sensors.length > 0;
       const btn = document.getElementById('analyze-btn');
       if (btn && !_slotBusy) btn.disabled = !_logsAvailable;
+      _setLogsPill(sensors);
 
       container.innerHTML = '';
       if (sensors.length === 0) {
@@ -1598,6 +1707,19 @@
         if (btn) btn.disabled = true;
       }
     }
+  }
+
+  // _setLogsPill summarizes the staged logs onto the query-bar pill:
+  // sensor count and total size, or "none" when nothing is staged.
+  function _setLogsPill(sensors) {
+    const btn = document.getElementById('logs-preview-btn');
+    if (!btn) return;
+    if (!sensors || sensors.length === 0) {
+      btn.textContent = 'Logs: none ▾';
+      return;
+    }
+    const total = sensors.reduce((sum, s) => sum + (s.total_size_bytes || 0), 0);
+    btn.textContent = `Logs: ${sensors.length} · ${_humanBytes(total)} ▾`;
   }
 
   function _humanBytes(n) {
@@ -3621,6 +3743,33 @@
 
     _renderWatchTimeControl();
     _renderWatchSchedulePreview(cfg);
+    _renderWatchSidebarStatus(cfg);
+  }
+
+  // _renderWatchSidebarStatus fills the read-only sidebar lines visible to
+  // every role: cadence + run time, and the configured timezone. The
+  // enabled/disabled label is set by _updateWatchUI; the controls themselves
+  // live in the admin-only modal. Configured schedule shows even when watch
+  // is disabled so a non-admin can see what's set up.
+  function _renderWatchSidebarStatus(cfg) {
+    const whenEl = document.getElementById('watch-status-when');
+    const tzEl   = document.getElementById('watch-status-tz');
+    if (!cfg) return;
+    const interval = (cfg.interval_hours === 24) ? 0 : (cfg.interval_hours || 0);
+    if (whenEl) {
+      if (!cfg.time) {
+        whenEl.textContent = '';
+      } else if (interval === 1) {
+        whenEl.textContent = `Hourly at :${cfg.time.split(':')[1] || '00'}`;
+      } else {
+        const cad = _watchCadenceLabel(interval);
+        whenEl.textContent = `${cad.charAt(0).toUpperCase() + cad.slice(1)} at ${cfg.time}`;
+      }
+    }
+    if (tzEl) {
+      const tz = cfg.timezone || 'UTC';
+      tzEl.textContent = cfg.timezone_abbr ? `${tz} (${cfg.timezone_abbr})` : tz;
+    }
   }
 
   // _renderWatchTimeControl swaps the visible input and updates the label
@@ -3794,6 +3943,14 @@
           });
           setStatus(tzVal ? `Timezone saved: ${tzVal}` : 'Timezone saved (UTC)');
         } catch (e) { setStatus('Timezone error: ' + e); }
+      });
+    }
+
+    const wdlgClose = document.getElementById('watch-dlg-close');
+    if (wdlgClose) {
+      wdlgClose.addEventListener('click', () => {
+        const dlg = document.getElementById('watch-dlg');
+        if (dlg) dlg.close();
       });
     }
 
@@ -4051,21 +4208,21 @@
     // ── Column-aware items ──────────────────────────────────────────────
     document.getElementById('ctx-pivot').addEventListener('click', () => {
       if (!_ctxTarget) return;
-      document.getElementById('filter-search').value = _ctxTarget;
+      // A bare term in the query box matches the value across src/dst (and
+      // the other searched fields) — the "show me every finding for this
+      // IP" intent. Clear first so this is the only predicate.
+      _resetFilterUI();
+      const box = document.getElementById('filter-query');
+      if (box) { box.value = _ctxTarget; _autoGrowQuery(); }
       // On an aggregate panel (Campaigns / Hosts / Dismissed-Campaigns)
       // a row is a synthesised roll-up, not a finding, so applying a
       // filter in place is a no-op the analyst can't see. The intent of
-      // Pivot there is "show me every finding for this IP" — switch to
-      // the Findings tab AND carry the search filter across. Invalidate
-      // first so the Findings tab's cache doesn't paint stale
-      // pre-filter rows before the new fetch lands.
+      // Pivot there is to switch to the Findings view AND carry the query
+      // across. Invalidate first so the Findings view's cache doesn't
+      // paint stale pre-filter rows before the new fetch lands.
       if (_isAggregateTab(_tabMode)) {
         _invalidateAllTabs();
-        const btn = document.querySelector('.tab-btn[data-tab="findings"]');
-        if (btn) btn.click();
-        // The tab-btn click handler invokes _showCurrentTab which
-        // calls loadFindings(_currentFilterParams()) — filter-search
-        // is already populated above, so the fetch picks it up.
+        _activateView('findings');
         return;
       }
       applyFilter();
@@ -4567,20 +4724,9 @@
       f => {
         if (!f || (!f.src_ip && !f.dst_ip)) return;
         _resetFilterUI();
-        const srcEl = document.getElementById('filter-src'); if (srcEl) srcEl.value = f.src_ip || '';
-        const dstEl = document.getElementById('filter-dst'); if (dstEl) dstEl.value = f.dst_ip || '';
-        if (_tabMode !== 'findings') {
-          document.querySelectorAll('.tab-btn').forEach(b => {
-            b.classList.toggle('active', b.dataset.tab === 'findings');
-          });
-          _activeTab = 'findings';
-          _tabMode = 'findings';
-          const subTabs = document.getElementById('dismissed-subtabs');
-          if (subTabs) subTabs.style.display = 'none';
-          document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-          const panel = document.getElementById('tab-findings');
-          if (panel) panel.classList.add('active');
-        }
+        if (f.src_ip) _setQueryToken('src', f.src_ip);
+        if (f.dst_ip) _setQueryToken('dst', f.dst_ip);
+        _switchToFindingsView();
         applyFilter();
       }
     );
@@ -4685,26 +4831,14 @@
         return;
       }
 
-      // Reset every filter that could exclude the target. Operator
-      // intent: "regardless of other filtering or pagination, jump to
-      // that finding." That means clearing search, type/sensor/severity
-      // dropdowns, score floor, the spectral-only checkbox, time-range
-      // (to All time), and delta mode. Every predicate _currentFilterParams
-      // can emit is neutralised here; missing one means the position
-      // query 404s and the jump silently falls back to the "hidden from
-      // table view" path instead of scrolling+highlighting. The active
-      // tab is then chosen by the finding's status.
-      ['filter-search','filter-src','filter-dst','filter-port','filter-ja3','filter-ja4', ..._ssFilterIds].forEach(id => {
-        const el = document.getElementById(id); if (el) el.value = '';
-      });
-      const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
-      setVal('filter-sev', '');
-      setVal('filter-type', '');
-      setVal('filter-sensor', '');
-      setVal('filter-score', '0');
-      setVal('filter-range', 'all');
-      const specOnly = document.getElementById('filter-spectral-only');
-      if (specOnly) specOnly.checked = false;
+      // Clear the query and delta mode. Operator intent: "regardless of
+      // other filtering or pagination, jump to that finding." The query
+      // box held every predicate _currentFilterParams can emit, so
+      // clearing it neutralises all of them — missing one would make the
+      // position query 404 and the jump silently fall back to the "hidden
+      // from table view" path instead of scrolling+highlighting. The
+      // active view is then chosen by the finding's status.
+      _resetFilterUI();
       _deltaMode = false;
       const showAllBtn = document.getElementById('show-all-btn');
       const deltaBtn   = document.getElementById('delta-btn');
@@ -4728,19 +4862,14 @@
           _applyShowDismissed(true);
         }
       }
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      const tabBtn = document.querySelector(`.tab-btn[data-tab="${targetTab}"]`);
-      if (tabBtn) tabBtn.classList.add('active');
+      _setViewActive(targetTab);
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       const findingsPanel = document.getElementById('tab-findings');
       if (findingsPanel) findingsPanel.classList.add('active');
-      _activeTab = targetTab;
-      _tabMode   = targetTab;
+      _tabMode = targetTab;
       // The jump always lands on a single finding, so route Dismissed
       // to the Findings sub-tab regardless of last-used preference —
       // Campaigns sub-view doesn't have a row to jump to.
-      const subTabs = document.getElementById('dismissed-subtabs');
-      if (subTabs) subTabs.style.display = targetTab === 'dismissed' ? 'flex' : 'none';
       if (targetTab === 'dismissed') _setDismissedSubTab('findings');
       _invalidateAllTabs();
       _loadCounts();
@@ -4797,8 +4926,19 @@
       if (u.role === 'admin') {
         document.getElementById('users-btn').style.display = '';
         document.getElementById('audit-btn').style.display = '';
-        const wac = document.getElementById('watch-admin-controls');
-        if (wac) wac.style.display = '';
+        // Admins get the Watch Mode settings modal: reveal the chip button
+        // (and hide the plain title). Non-admins see the read-only status
+        // only — the plain label stays and the modal is never reachable
+        // (POST is also admin-gated server-side).
+        const wt   = document.getElementById('watch-mode-title');
+        const wl   = document.getElementById('watch-mode-label');
+        const wrow = document.getElementById('watch-mode-btn-row');
+        const wdlg = document.getElementById('watch-dlg');
+        if (wt && wdlg) {
+          if (wl) wl.style.display = 'none';
+          if (wrow) wrow.style.display = '';
+          wt.addEventListener('click', () => wdlg.showModal());
+        }
         _refreshPendingBadge();
         if (typeof AuditLog !== 'undefined') AuditLog.init();
       }
@@ -4841,7 +4981,7 @@
 
     BeaconChart.init();
     _initExportDropdown('chart-export-btn', 'chart-export-menu', BeaconChart.exportImage);
-    initTabs();
+    initViews();
     _initShowDismissedToggle();
     _initDismissedSubTabs();
     _initDockTabs();

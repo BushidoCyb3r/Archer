@@ -35,10 +35,6 @@
   </div>
 
     <div class="sidebar-section-title">Logs</div>
-    <div id="logs-dir-hint" style="font-size:9px;color:var(--fg-dim);padding:0 12px 4px;line-height:1.5">
-      Scanning <em id="logs-dir-path">/logs</em>
-    </div>
-    <div id="logs-tree" class="logs-tree"></div>
     <div class="sidebar-btn-row">
       <button class="sb-btn" id="analyze-btn">Analyze logs</button>
     </div>
@@ -53,34 +49,31 @@
     </div>
 
     <div class="sidebar-divider"></div>
+    <div class="sidebar-section-title">Views</div>
+    <nav id="views-nav">
+      <button class="view-btn active" data-tab="findings"><span class="view-label">Findings</span><span class="view-count" id="view-count-findings">—</span></button>
+      <button class="view-btn" data-tab="ack"><span class="view-label">Acknowledged</span><span class="view-count" id="view-count-ack">—</span></button>
+      <button class="view-btn" data-tab="esc"><span class="view-label">Escalated</span><span class="view-count" id="view-count-esc">—</span></button>
+      <button class="view-btn" data-tab="ioc"><span class="view-label">IOC Hits</span><span class="view-count" id="view-count-ioc">—</span></button>
+      <button class="view-btn" data-tab="campaigns"><span class="view-label">Campaigns</span><span class="view-count" id="view-count-campaigns">—</span></button>
+      <button class="view-btn" data-tab="hosts"><span class="view-label">Hosts</span><span class="view-count" id="view-count-hosts">—</span></button>
+      <!-- Dismissed view is hidden until the Show Dismissed toggle in the
+           query bar flips it on. State persists in localStorage. -->
+      <button class="view-btn" data-tab="dismissed" id="dismissed-view-btn" style="display:none"><span class="view-label">Dismissed</span><span class="view-count" id="view-count-dismissed">—</span></button>
+    </nav>
+
+    <div class="sidebar-divider"></div>
     <div class="sidebar-section-title">Threat Intel</div>
     <span class="ti-label" id="ti-status">Not fetched</span>
 
     <div class="sidebar-divider"></div>
-    <div class="sidebar-section-title">Watch Mode</div>
-    <div class="sidebar-label" id="watch-status-label">Disabled</div>
-    <div id="watch-admin-controls" style="display:none">
-      <div class="sidebar-label">Cadence</div>
-      <select class="sidebar-input" id="watch-interval" style="width:100%">
-        <option value="0">Daily</option>
-        <option value="12">Every 12 hours</option>
-        <option value="6">Every 6 hours</option>
-        <option value="4">Every 4 hours</option>
-        <option value="1">Hourly</option>
-      </select>
-      <div class="sidebar-label" style="margin-top:6px" id="watch-time-label">Run at</div>
-      <div class="sidebar-row">
-        <input class="sidebar-input" id="watch-time" type="time" value="02:00" style="flex:1">
-        <input class="sidebar-input" id="watch-minute" type="number" min="0" max="59" value="0"
-               style="flex:1; display:none" placeholder="0–59">
-        <button class="sidebar-small-btn" id="watch-btn">Enable</button>
-      </div>
-      <div class="sidebar-label" id="watch-schedule-preview" style="margin-top:4px; font-size:11px; color:var(--fg-dim)"></div>
-      <div class="sidebar-label" style="margin-top:6px">Timezone</div>
-      <input class="sidebar-input" id="watch-tz" type="text" list="watch-tz-list"
-             placeholder="UTC" autocomplete="off" style="width:100%">
-      <datalist id="watch-tz-list"></datalist>
+    <div class="sidebar-section-title" id="watch-mode-label">Watch Mode</div>
+    <div class="sidebar-btn-row" id="watch-mode-btn-row" style="display:none">
+      <button type="button" class="sb-btn dim" id="watch-mode-title" title="Open Watch Mode settings">Watch Mode</button>
     </div>
+    <div class="sidebar-label" id="watch-status-label">Disabled</div>
+    <div class="sidebar-label watch-status-detail" id="watch-status-when"></div>
+    <div class="sidebar-label watch-status-detail" id="watch-status-tz"></div>
 
     <div class="sidebar-bottom">
       <div class="sidebar-divider"></div>
@@ -153,76 +146,107 @@
   <!-- ── Main panel ────────────────────────────────────────────── -->
   <div id="main">
 
-    <!-- Filter bar: basic row always visible, advanced row collapsible -->
-    <div id="filter-bar">
-      <label>Search <input class="filter-input wide" id="filter-search" type="text" placeholder="IP / domain / type…"></label>
-      <label>Severity
-        <select class="filter-select narrow" id="filter-sev">
-          <option value="">All</option>
-          <option value="CRITICAL">Critical</option>
-          <option value="HIGH">High</option>
-          <option value="MEDIUM">Medium</option>
-          <option value="LOW">Low</option>
-          <option value="INFO">Info</option>
-        </select>
-      </label>
-      <label>Type
-        <select class="filter-select" id="filter-type">
-          <option value="">All Types</option>
-        </select>
-      </label>
-      <label>Score ≥ <input class="filter-input filter-score" id="filter-score" type="number" min="0" max="100" value="0"></label>
-      <button class="filter-btn dim" id="filter-advanced-toggle" type="button" title="Show advanced filters">Advanced ▾</button>
-      <button class="filter-btn" id="apply-filter-btn">Apply</button>
-      <button class="filter-btn dim" id="reset-filter-btn">Reset</button>
-      <button class="filter-btn dim" id="fingerprints-btn" title="List high-signal TLS client fingerprints (JA3/JA4) by severity; click one to pivot to its findings">TLS Fingerprints</button>
-      <span class="filter-spacer"></span>
-      <label class="filter-range-label">Time range
-        <select class="filter-select" id="filter-range" title="Quick date-window preset. Updates the From field; clear or edit From/To in the Advanced bar for a custom window.">
-          <option value="all">All time</option>
-          <option value="1d">Last 1 day</option>
-          <option value="7d">Last 7 days</option>
-          <option value="1mo" selected>Last 1 month</option>
-          <option value="3mo">Last 3 months</option>
-          <option value="6mo">Last 6 months</option>
-        </select>
-      </label>
-      <div class="export-dropdown">
-        <button class="filter-btn dim" id="export-current-btn" title="Export this tab's findings (with current filters) as CSV or JSON">Export current tab ▾</button>
-        <ul class="export-menu hidden" id="export-current-menu">
-          <li data-format="csv">CSV</li>
-          <li data-format="json">JSON</li>
-        </ul>
+    <!-- View header: the active view's title + one-line subtitle. The
+         Dismissed sub-tabs render here, visible only on the Dismissed view. -->
+    <div id="view-header">
+      <div class="view-header-titles">
+        <h2 id="view-title">Findings</h2>
+        <span id="view-subtitle">Open findings awaiting triage</span>
       </div>
-      <div class="export-dropdown">
-        <button class="filter-btn dim" id="export-all-btn" title="Export every finding in the database, ignoring the active tab and all filters">Export all ▾</button>
-        <ul class="export-menu hidden" id="export-all-menu">
-          <li data-format="csv">CSV</li>
-          <li data-format="json">JSON</li>
-          <li data-format="xlsx">XLSX (multi-sheet)</li>
-        </ul>
+      <!-- Dismissed sub-tabs — visible only when the Dismissed view is
+           active. Findings (flat list of all dismissed findings) and
+           Campaigns (campaigns roll-up over only dismissed findings).
+           Hosts is intentionally absent — bulk operations over a host's
+           findings would erase the host's risk story. -->
+      <div id="dismissed-subtabs" style="display:none">
+        <button class="sub-tab-btn active" data-dismissed-sub="findings">Findings</button>
+        <button class="sub-tab-btn"        data-dismissed-sub="campaigns">Campaigns</button>
       </div>
     </div>
-    <div id="filter-bar-advanced" style="display:none">
-      <label>Src IP/CIDR <input class="filter-input" id="filter-src" type="text" placeholder="10.0.0.0/24"></label>
-      <label>Dst IP/CIDR <input class="filter-input" id="filter-dst" type="text" placeholder="1.2.3.4"></label>
-      <label>Dst Port <input class="filter-input" id="filter-port" type="text" placeholder="443 or 80,443"></label>
-      <label title="Exact JA3 TLS client fingerprint (case-insensitive). Sensors without the Zeek JA4+ plugin produce JA3 only.">JA3 <input class="filter-input wide" id="filter-ja3" type="text" placeholder="JA3 fingerprint"></label>
-      <label title="Exact JA4 TLS client fingerprint (case-insensitive). Requires sensor running the Zeek JA4+ plugin. The TLS Pivot button fills this field for JA4-capable sensors.">JA4 <input class="filter-input wide" id="filter-ja4" type="text" placeholder="JA4 fingerprint"></label>
-      <label>Sensor
-        <select class="filter-select" id="filter-sensor">
-          <option value="">All</option>
-        </select>
-      </label>
-      <label title="Restrict to Beaconing findings whose timing score was rescued by the spectral path. Use this during spectral calibration to triage which rescues are true positives vs false positives."><input id="filter-spectral-only" type="checkbox"> Spectral rescued only</label>
-      <label title="Show the Dismissed tab in the tab strip. Dismissed findings are hidden from every other view by default; the Dismissed tab is the only place they surface."><input id="filter-show-dismissed" type="checkbox"> Show Dismissed tab</label>
-    </div>
-    <div id="filter-bar-subscore" style="display:none">
-      <span class="filter-subscore-title" title="Inclusive [min,max] bounds on the four beacon sub-scores (each axis 0–1). Setting any bound scopes results to beacon findings. Leave blank to ignore an axis. Example: ts ≥ 0.7 + dur ≤ 0.3 = tight-rhythm short-lived spikes.">Beacon sub-scores</span>
-      <label title="Timing-rhythm sub-score (interval regularity / spectral).">Timing <input class="filter-input ss-in" id="filter-ss-ts-min" type="number" min="0" max="1" step="0.05" placeholder="≥"><input class="filter-input ss-in" id="filter-ss-ts-max" type="number" min="0" max="1" step="0.05" placeholder="≤"></label>
-      <label title="Data-size regularity sub-score (payload-byte consistency). Structurally 0 for DNS Beaconing.">Data size <input class="filter-input ss-in" id="filter-ss-ds-min" type="number" min="0" max="1" step="0.05" placeholder="≥"><input class="filter-input ss-in" id="filter-ss-ds-max" type="number" min="0" max="1" step="0.05" placeholder="≤"></label>
-      <label title="Hour-coverage sub-score (how much of the capture window the beacon spans).">Histogram <input class="filter-input ss-in" id="filter-ss-hist-min" type="number" min="0" max="1" step="0.05" placeholder="≥"><input class="filter-input ss-in" id="filter-ss-hist-max" type="number" min="0" max="1" step="0.05" placeholder="≤"></label>
-      <label title="Duration sub-score (span of the beacon relative to the capture window).">Persistence <input class="filter-input ss-in" id="filter-ss-dur-min" type="number" min="0" max="1" step="0.05" placeholder="≥"><input class="filter-input ss-in" id="filter-ss-dur-max" type="number" min="0" max="1" step="0.05" placeholder="≤"></label>
+
+    <!-- Query bar: the single filter surface. The text box holds a
+         Lucene-style expression; the shortcut chips write canonical field
+         tokens into that text, so the query string is the one source of
+         truth — clearing it clears every filter. -->
+    <div id="query-bar">
+      <div class="query-input-row">
+        <textarea class="query-input" id="filter-query" rows="1" autocomplete="off" spellcheck="false"
+               placeholder="type:Beaconing AND score:&gt;=90 AND NOT dst:10.0.0.0/8"></textarea>
+        <button class="filter-btn" id="run-query-btn" title="Run the query (Enter runs it, Shift+Enter for a new line)">Run</button>
+        <button class="filter-btn dim" id="reset-filter-btn" title="Clear the query">Clear</button>
+        <button class="filter-btn dim" id="fingerprints-btn" title="List high-signal TLS client fingerprints (JA3/JA4) by severity; click one to pivot to its findings">TLS Fingerprints</button>
+        <span class="filter-spacer"></span>
+        <div class="logs-dropdown">
+          <button class="filter-btn dim" id="logs-preview-btn" title="Preview the logs currently staged for analysis">Logs: — ▾</button>
+          <div class="logs-menu hidden" id="logs-menu">
+            <div id="logs-dir-hint">Scanning <em id="logs-dir-path">/logs</em></div>
+            <div id="logs-tree" class="logs-tree"></div>
+          </div>
+        </div>
+        <button class="filter-btn dim" id="export-btn" title="Export findings — choose scope and format">Export</button>
+      </div>
+      <!-- Shortcut chips. Each opens a small menu; selecting an item
+           upserts the matching field token into the query text. -->
+      <div class="query-chips">
+        <div class="chip-wrap">
+          <button class="chip" id="chip-severity" type="button">Severity ▾</button>
+          <ul class="chip-menu hidden" id="chip-menu-severity">
+            <li data-sev="CRITICAL">Critical</li>
+            <li data-sev="HIGH">High</li>
+            <li data-sev="MEDIUM">Medium</li>
+            <li data-sev="LOW">Low</li>
+            <li data-sev="INFO">Info</li>
+            <li class="chip-clear" data-sev="">Clear severity</li>
+          </ul>
+        </div>
+        <div class="chip-wrap">
+          <button class="chip" id="chip-type" type="button">Type ▾</button>
+          <ul class="chip-menu hidden" id="chip-menu-type"></ul>
+        </div>
+        <div class="chip-wrap">
+          <button class="chip" id="chip-score" type="button">Score ▾</button>
+          <ul class="chip-menu hidden" id="chip-menu-score">
+            <li data-score="95">Score ≥ 95</li>
+            <li data-score="90">Score ≥ 90</li>
+            <li data-score="80">Score ≥ 80</li>
+            <li data-score="50">Score ≥ 50</li>
+            <li class="chip-clear" data-score="">Clear score</li>
+          </ul>
+        </div>
+        <div class="chip-wrap">
+          <button class="chip" id="chip-time" type="button">Time ▾</button>
+          <ul class="chip-menu hidden" id="chip-menu-time">
+            <li data-range="1d">Last 1 day</li>
+            <li data-range="7d">Last 7 days</li>
+            <li data-range="1mo">Last 1 month</li>
+            <li data-range="3mo">Last 3 months</li>
+            <li data-range="6mo">Last 6 months</li>
+            <li class="chip-clear" data-range="all">All time</li>
+          </ul>
+        </div>
+        <div class="chip-wrap">
+          <button class="chip" id="chip-more" type="button">+ more ▾</button>
+          <ul class="chip-menu hidden" id="chip-menu-more">
+            <li data-field="src:">Source IP / CIDR</li>
+            <li data-field="dst:">Destination IP / CIDR</li>
+            <li data-field="port:">Destination port</li>
+            <li data-field="ja3:">JA3 fingerprint</li>
+            <li data-field="ja4:">JA4 fingerprint</li>
+            <li data-field="sensor:">Sensor</li>
+            <li data-field="hostname:">Hostname</li>
+            <li data-field="detail:">Detail text</li>
+            <li data-field="file:">Source log file</li>
+            <li data-token="spectral:true">Spectral rescued</li>
+            <li data-token="ioc:true">IOC match</li>
+            <li data-token="new:true">New to me</li>
+            <li data-field="tscore:&gt;=">Beacon timing score</li>
+            <li data-field="dscore:&gt;=">Beacon data-size score</li>
+            <li data-field="hist:&gt;=">Beacon histogram score</li>
+            <li data-field="dur:&gt;=">Beacon persistence score</li>
+          </ul>
+        </div>
+        <button class="chip" id="show-dismissed-btn" type="button" aria-pressed="false" title="Show the Dismissed view. Dismissed findings are hidden from every other view by default; this view is the only place they surface.">Show Dismissed</button>
+      </div>
     </div>
 
     <!-- Delta bar -->
@@ -233,53 +257,28 @@
 
     <div id="info-line"></div>
 
-    <!-- Tabs + inline pagination controls (Findings tab only) -->
-    <div id="tabs">
-      <button class="tab-btn active" data-tab="findings">Findings</button>
-      <button class="tab-btn" data-tab="ack">Acknowledged</button>
-      <button class="tab-btn" data-tab="esc">Escalated</button>
-      <button class="tab-btn" data-tab="ioc">IOC Hits</button>
-      <!-- Dismissed tab is hidden by default; the Show Dismissed toggle
-           below flips it on. State persists in localStorage so the
-           analyst's preference survives reload. -->
-      <button class="tab-btn" data-tab="dismissed" id="dismissed-tab-btn" style="display:none">Dismissed</button>
-      <button class="tab-btn" data-tab="campaigns">Campaigns</button>
-      <button class="tab-btn" data-tab="hosts">Hosts</button>
-      <div id="findings-pagination">
-        <span class="page-info">
-          Showing <span id="page-shown">0</span> of <span id="page-total">0</span>
-        </span>
-        <label class="page-size-label">
-          Per page:
-          <select id="page-size-select">
-            <option value="100">100</option>
-            <option value="200">200</option>
-            <option value="500">500</option>
-            <option value="1000">1000</option>
-          </select>
-        </label>
-        <span class="page-nav">
-          <button id="page-first" class="page-btn" title="First page" aria-label="First page">«</button>
-          <button id="page-prev"  class="page-btn" title="Previous page" aria-label="Previous page">‹</button>
-          <span class="page-indicator">Page <span id="page-current">1</span> of <span id="page-last-num">1</span></span>
-          <button id="page-next"  class="page-btn" title="Next page" aria-label="Next page">›</button>
-          <button id="page-last"  class="page-btn" title="Last page" aria-label="Last page">»</button>
-        </span>
-      </div>
-    </div>
-
-    <!-- Dismissed sub-tabs — visible only when the Dismissed top-level
-         tab is active. Sits directly under the main tab strip so the
-         hierarchy reads top-down: the analyst picks "Dismissed" up top,
-         the sub-tabs reveal below to pick Findings or Campaigns within
-         that bucket. Two sub-views: Findings (flat list of all
-         dismissed findings) and Campaigns (campaigns roll-up over only
-         dismissed findings). Hosts is intentionally absent — bulk
-         operations over a host's findings would erase the host's risk
-         story. -->
-    <div id="dismissed-subtabs" style="display:none">
-      <button class="sub-tab-btn active" data-dismissed-sub="findings">Findings</button>
-      <button class="sub-tab-btn"        data-dismissed-sub="campaigns">Campaigns</button>
+    <!-- Pagination controls — sit directly above the findings table.
+         Hidden by JS for aggregate views (Campaigns / Hosts). -->
+    <div id="findings-pagination">
+      <span class="page-info">
+        Showing <span id="page-shown">0</span> of <span id="page-total">0</span>
+      </span>
+      <label class="page-size-label">
+        Per page:
+        <select id="page-size-select">
+          <option value="100">100</option>
+          <option value="200">200</option>
+          <option value="500">500</option>
+          <option value="1000">1000</option>
+        </select>
+      </label>
+      <span class="page-nav">
+        <button id="page-first" class="page-btn" title="First page" aria-label="First page">«</button>
+        <button id="page-prev"  class="page-btn" title="Previous page" aria-label="Previous page">‹</button>
+        <span class="page-indicator">Page <span id="page-current">1</span> of <span id="page-last-num">1</span></span>
+        <button id="page-next"  class="page-btn" title="Next page" aria-label="Next page">›</button>
+        <button id="page-last"  class="page-btn" title="Last page" aria-label="Last page">»</button>
+      </span>
     </div>
 
     <!-- ── Findings / Acknowledged / Escalated share this panel ── -->
@@ -1015,6 +1014,25 @@
   </div>
 </dialog>
 
+<dialog id="export-dlg">
+  <div class="dlg-header">Export findings</div>
+  <div class="dlg-body" style="min-width:320px">
+    <div class="export-dlg-section">Scope</div>
+    <label class="export-dlg-opt"><input type="radio" name="export-scope" value="current" checked> <span id="export-scope-current-label">Current view</span></label>
+    <label class="export-dlg-opt"><input type="radio" name="export-scope" value="all"> All findings</label>
+
+    <div class="export-dlg-section">Format</div>
+    <label class="export-dlg-opt"><input type="radio" name="export-format" value="csv" checked> CSV</label>
+    <label class="export-dlg-opt"><input type="radio" name="export-format" value="json"> JSON</label>
+    <label class="export-dlg-opt" id="export-fmt-xlsx"><input type="radio" name="export-format" value="xlsx"> XLSX (multi-sheet) <span class="export-dlg-hint" id="export-xlsx-hint">— All findings only</span></label>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+      <button class="dlg-btn secondary" id="export-dlg-cancel">Cancel</button>
+      <button class="dlg-btn primary"   id="export-dlg-go">Export</button>
+    </div>
+  </div>
+</dialog>
+
 <dialog id="graph-export-scope-dlg">
   <div class="dlg-header">Export scope</div>
   <div class="dlg-body" style="padding:18px 22px;min-width:340px">
@@ -1141,6 +1159,36 @@
   <div class="dlg-footer">
     <button class="dlg-btn secondary" id="pa-cancel">Cancel</button>
     <button class="dlg-btn primary" id="pa-ok">Allow</button>
+  </div>
+</dialog>
+
+<dialog id="watch-dlg">
+  <div class="dlg-header">Watch Mode settings</div>
+  <div class="dlg-body" style="min-width:340px">
+    <div class="sidebar-label">Cadence</div>
+    <select class="sidebar-input" id="watch-interval" style="width:100%">
+      <option value="0">Daily</option>
+      <option value="12">Every 12 hours</option>
+      <option value="6">Every 6 hours</option>
+      <option value="4">Every 4 hours</option>
+      <option value="1">Hourly</option>
+    </select>
+    <div class="sidebar-label" style="margin-top:10px" id="watch-time-label">Run at</div>
+    <div class="sidebar-row">
+      <input class="sidebar-input" id="watch-time" type="time" value="02:00" style="flex:1">
+      <input class="sidebar-input" id="watch-minute" type="number" min="0" max="59" value="0"
+             style="flex:1; display:none" placeholder="0–59">
+    </div>
+    <div class="sidebar-label" style="margin-top:10px">Timezone</div>
+    <input class="sidebar-input" id="watch-tz" type="text" list="watch-tz-list"
+           placeholder="UTC" autocomplete="off" style="width:100%">
+    <datalist id="watch-tz-list"></datalist>
+    <div class="sidebar-label" id="watch-schedule-preview" style="margin-top:10px; font-size:11px; color:var(--fg-dim)"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:18px">
+      <button class="sidebar-small-btn" id="watch-btn">Enable</button>
+      <span style="flex:1"></span>
+      <button class="dlg-btn primary" id="watch-dlg-close">Done</button>
+    </div>
   </div>
 </dialog>
 

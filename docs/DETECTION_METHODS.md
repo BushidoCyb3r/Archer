@@ -479,15 +479,16 @@ further beacon-triage surfaces, all of them analyst-facing only —
 again **no score formula, threshold, finding type, or `Fingerprint()`
 changed**, and the golden corpus is unchanged:
 
-- **Sub-score filtering.** The findings filter accepts inclusive
-  `[min,max]` bounds on each of the four sub-axes (`ts_min`…`dur_max`;
-  the Advanced bar and triage header label these **Timing** / **Data
-  size** / **Histogram** / **Persistence** — the same `ts`/`ds`/`hist`/
-  `dur` axes §2.2 describes, spelled out for the analyst).
+- **Sub-score filtering.** The findings filter accepts comparisons and
+  inclusive `[lo TO hi]` ranges on each of the four sub-axes via the
+  query bar's `tscore` / `dscore` / `hist` / `dur` fields; the triage
+  header labels these **Timing** / **Data size** / **Histogram** /
+  **Persistence** — the same `ts`/`ds`/`hist`/`dur` axes §2.2 describes,
+  spelled out for the analyst.
   The composite score averages the axes, so a real implant profile —
   tight timing, short duration (a staging beacon) — sits below a score
   threshold despite textbook rhythm. The sub-score filter turns the
-  score into a queryable signature space: `ts_min=0.8 & dur_max=0.3`
+  score into a queryable signature space: `tscore:>=0.8 AND dur:<=0.3`
   pulls exactly the short-lived tight-cadence spikes the average
   buries. Any sub-score bound implicitly scopes results to beacon
   types (a structural-zero axis on a non-beacon can't satisfy a bare

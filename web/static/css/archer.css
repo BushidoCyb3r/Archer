@@ -477,6 +477,8 @@ button, input, select, textarea {
   padding: 16px 14px 4px;
   text-transform: uppercase;
 }
+/* Read-only watch status lines under the title (cadence/time + timezone). */
+.watch-status-detail { font-size: 11px; color: var(--fg-dim); }
 .sidebar-divider {
   height: 1px;
   background: var(--border-subtle);
@@ -622,67 +624,6 @@ button, input, select, textarea {
 /* ============================================================================
    Filter bar
 ============================================================================ */
-#filter-bar,
-#filter-bar-advanced,
-#filter-bar-subscore {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 18px;
-}
-#filter-bar { padding-bottom: 4px; }
-#filter-bar-advanced,
-#filter-bar-subscore {
-  padding-top: 2px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.012);
-}
-#filter-bar-subscore { padding-top: 6px; }
-.filter-subscore-title {
-  color: var(--fg-secondary);
-  font-size: 15px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.filter-input.ss-in { width: 68px; padding-left: 6px; padding-right: 4px; }
-#filter-bar label,
-#filter-bar-advanced label,
-#filter-bar-subscore label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--fg-secondary);
-  font-size: 15px;
-  white-space: nowrap;
-  font-weight: 500;
-}
-.filter-input, .filter-select {
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  color: var(--fg-primary);
-  padding: 9px 10px;
-  border-radius: var(--radius-sm);
-  font-size: 16px;
-  min-width: 0;
-  transition: border-color .12s, background .12s, box-shadow .12s;
-}
-.filter-input:focus, .filter-select:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
-}
-.filter-input:hover, .filter-select:hover { border-color: var(--border-strong); }
-
-.filter-input           { width: 130px; }
-.filter-input.wide      { width: 220px; }
-.filter-input.datetime  { width: 170px; }
-.filter-select          { width: 140px; }
-.filter-select.narrow   { width: 110px; }
-.filter-score           { width: 56px; }
-#filter-range           { width: 150px; font-weight: 500; }
-
 .filter-btn {
   background: var(--accent);
   border: 1px solid transparent;
@@ -709,12 +650,9 @@ button, input, select, textarea {
   border-color: var(--accent);
 }
 .filter-btn.right { margin-left: auto; }
+/* The Export button must never shrink in the flex row, or its label clips. */
+#export-btn { flex: none; padding-left: 22px; padding-right: 22px; }
 .filter-spacer { flex-grow: 1; }
-
-/* Time-range preset dropdown sits in the right-justified area of the
-   filter bar (after .filter-spacer). Slight right margin separates it
-   from the export buttons that follow. */
-.filter-range-label { margin-right: 10px; }
 
 /* ============================================================================
    Delta bar
@@ -768,85 +706,189 @@ button, input, select, textarea {
 }
 
 /* ============================================================================
-   Tabs (underline style — enterprise console aesthetic)
+   Sidebar Views navigation — vertical view buttons with count badges
 ============================================================================ */
-#tabs {
+#views-nav {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 8px 0;
+}
+.view-btn {
   display: flex;
   align-items: center;
-  padding: 0 18px;
-  gap: 2px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-base);
-}
-/* Findings-tab pagination controls live in the tabs row, pushed
-   right-of-center so they sit visually with the table they control.
-   Hidden by JS for non-Findings tabs. */
-#tabs #findings-pagination {
-  margin-left: auto;
-  border-bottom: none;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
   background: transparent;
-  padding: 6px 0;
-}
-.tab-btn {
-  background: transparent;
-  border: 1px solid transparent;
-  border-bottom: none;
-  color: var(--fg-muted);
-  padding: 10px 16px 9px;
+  border: none;
+  border-left: 2px solid transparent;
+  color: var(--fg-secondary);
+  padding: 7px 10px;
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  position: relative;
-  transition: color .12s;
+  letter-spacing: 0.01em;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  transition: background .12s, color .12s, border-color .12s;
 }
-.tab-btn::after {
-  content: '';
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: -1px;
-  height: 2px;
-  background: transparent;
-  transition: background .15s;
-  border-radius: 1px;
-}
-.tab-btn:hover { color: var(--fg-secondary); }
-.tab-btn.active {
-  color: var(--fg-primary);
+.view-btn:hover { background: var(--bg-elev-2); color: var(--fg-primary); }
+.view-btn.active {
+  background: var(--accent);
+  color: #fff;
   font-weight: 600;
+  border-left-color: var(--accent);
 }
-.tab-btn.active::after { background: var(--accent); }
+.view-btn.active:hover { background: var(--accent-hover); color: #fff; }
+.view-count {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-dim);
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  padding: 1px 7px;
+  min-width: 20px;
+  text-align: center;
+}
+.view-btn.active .view-count { color: #fff; background: var(--bg-base); border-color: var(--bg-base); }
+/* ============================================================================
+   View header — active view title + subtitle, with Dismissed sub-tabs
+============================================================================ */
+#view-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px 8px;
+}
+.view-header-titles { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+#view-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--fg-primary);
+  letter-spacing: 0.01em;
+}
+#view-subtitle {
+  font-size: 13px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
-/* Dismissed sub-tabs — secondary tab strip that appears only when
-   the Dismissed top-level tab is active. Visually subordinate to
-   the main tabs (smaller, tighter, no underline indicator) so the
-   analyst reads the hierarchy at a glance. */
+/* Dismissed sub-tabs — inline segmented control in the view header,
+   visible only when the Dismissed view is active. */
 #dismissed-subtabs {
   display: flex;
   gap: 4px;
-  padding: 6px 22px 0;
-  background: var(--bg-elev-1);
-  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
 }
 .sub-tab-btn {
   background: transparent;
-  border: none;
+  border: 1px solid var(--border-subtle);
   color: var(--fg-dim);
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.04em;
-  padding: 5px 12px;
+  padding: 4px 12px;
   cursor: pointer;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  transition: color .12s, background .12s;
+  border-radius: var(--radius-sm);
+  transition: color .12s, background .12s, border-color .12s;
 }
 .sub-tab-btn:hover { color: var(--fg-secondary); background: var(--bg-elev-2); }
 .sub-tab-btn.active {
   color: var(--accent);
   font-weight: 600;
   background: var(--bg-elev-2);
+  border-color: var(--border);
+}
+
+/* ============================================================================
+   Query bar — single Lucene-style filter input plus shortcut chips
+============================================================================ */
+#query-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 18px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-base);
+}
+.query-input-row { display: flex; align-items: flex-start; gap: 8px; }
+.query-input {
+  /* Capped width: the field sits in a left-aligned group with Run/Clear/TLS;
+     the spacer after TLS pushes Logs + Export to the right edge. Shrinks on
+     narrow viewports (min-width:0) but never grows past the basis. */
+  flex: 0 1 746px;
+  min-width: 0;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--fg-primary);
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-family: var(--mono, monospace);
+  /* Elastic: the input grows downward as the query wraps so the whole
+     expression stays visible. JS sets the height from scrollHeight on
+     every change; line-height keeps the single-row resting state tidy. */
+  resize: none;
+  overflow: hidden;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.query-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
+.query-input::placeholder { color: var(--fg-dim); }
+.query-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.chip-wrap { position: relative; }
+.chip {
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-subtle);
+  color: var(--fg-secondary);
+  padding: 4px 10px;
+  border-radius: 14px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.chip:hover { background: var(--bg-elev-3); color: var(--fg-primary); border-color: var(--border-strong); }
+/* Toggle-chip "on" state: the same accent blue as the Run button. */
+.chip.chip-on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.chip.chip-on:hover { background: var(--accent-hover); color: #fff; border-color: var(--accent-hover); }
+.chip-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  min-width: 160px;
+  max-height: 320px;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow, 0 8px 24px rgba(0,0,0,0.4));
+}
+.chip-menu.hidden { display: none; }
+.chip-menu li {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--fg-secondary);
+  white-space: nowrap;
+}
+.chip-menu li:hover { background: var(--bg-elev-3); color: var(--fg-primary); }
+.chip-menu li.chip-clear {
+  margin-top: 4px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--fg-dim);
 }
 
 
@@ -1476,6 +1518,34 @@ body.dock-resizing {
 }
 .export-menu li:hover { background: var(--accent-soft); color: var(--accent-hover); }
 
+/* Logs preview: a summary pill in the query bar that drops the staged-log
+   tree as a popover. The pill carries the count/size summary; the popover
+   reuses the .logs-tree rendering that formerly lived in the sidebar. */
+.logs-dropdown { position: relative; display: inline-block; }
+.logs-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 6px;
+  width: 300px;
+  z-index: 9999;
+}
+.logs-menu.hidden { display: none; }
+.logs-menu #logs-dir-hint {
+  font-size: 9px;
+  color: var(--fg-dim);
+  padding: 2px 6px 4px;
+  line-height: 1.5;
+}
+.logs-menu .logs-tree {
+  margin: 0;
+  max-height: 240px;
+}
+
 /* ============================================================================
    Context menu
 ============================================================================ */
@@ -1742,6 +1812,35 @@ dialog::backdrop {
   margin-top: 12px;
 }
 .dlg-body label:first-child { margin-top: 0; }
+
+/* Export dialog: section headers + inline radio rows. The .export-dlg-opt
+   rule overrides the block .dlg-body label styling so each radio sits on
+   one line with its text. XLSX is scope-gated — .disabled greys the row
+   and surfaces the hint when the chosen scope can't produce it. */
+.export-dlg-section {
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin: 16px 0 6px;
+}
+.export-dlg-section:first-child { margin-top: 0; }
+.export-dlg-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--fg-primary);
+  cursor: pointer;
+}
+.export-dlg-opt input { margin: 0; }
+.export-dlg-opt.disabled { color: var(--fg-dim); cursor: not-allowed; }
+.export-dlg-hint { color: var(--fg-dim); font-size: 12px; }
+.export-dlg-opt:not(.disabled) .export-dlg-hint { display: none; }
 .dlg-input, .dlg-textarea, .dlg-select {
   width: 100%;
   background: var(--bg-input);

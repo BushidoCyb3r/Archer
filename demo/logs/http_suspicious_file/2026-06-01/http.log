@@ -1,0 +1,1 @@
+{"ts":1705320000.0,"uid":"SF000001","id.orig_h":"192.168.3.50","id.orig_p":50000,"id.resp_h":"203.0.113.104","id.resp_p":80,"method":"GET","host":"drop.example.com","uri":"/payload.exe","user_agent":"Mozilla/5.0","status_code":200,"resp_mime_types":"text/plain","orig_ip_bytes":250,"resp_ip_bytes":65536}

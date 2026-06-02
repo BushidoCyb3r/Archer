@@ -603,6 +603,17 @@ an HSTS pin would turn a post-regen cert mismatch into a
 non-bypassable browser error and lock analysts out — rationale is
 recorded at the header block in `server.go`.
 
+**Findings query language (`q=`).** `/api/findings` and the export /
+position endpoints accept a Lucene-style `q=` param parsed by
+`internal/query` (`query.go` is the lexer/parser/AST; `term.go` holds
+the `knownFields` table, aliases, and per-field eval; `match.go` is the
+field primitives — IP/CIDR, wildcard glob, numeric, timestamp).
+`findings_filter.go` calls `query.Parse(q)` and applies the resulting
+matcher last, ANDed on top of view scoping and the legacy per-field
+params — a malformed query returns 400 (`invalid query: …`) rather than
+silently matching everything. Adding a queryable field means a
+`knownFields` entry **and** an `eval` case in `term.go`.
+
 ---
 
 ## Auth and roles

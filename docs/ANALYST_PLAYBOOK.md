@@ -29,21 +29,22 @@ in this file as they're written.
 2. [What a modern C2 beacon actually looks like](#what-a-modern-c2-beacon-actually-looks-like)
 3. [The fast-path filter — 90% of findings resolve here](#the-fast-path-filter--90-of-findings-resolve-here)
 4. [Sitting down with the findings table](#sitting-down-with-the-findings-table)
-5. [Anatomy of a beacon finding](#anatomy-of-a-beacon-finding)
-6. [Indicators that lean malicious](#indicators-that-lean-malicious)
-7. [Indicators that lean benign](#indicators-that-lean-benign)
-8. [The eight-question triage checklist](#the-eight-question-triage-checklist)
-9. [Worked examples](#worked-examples)
-10. [Pivoting from a beacon](#pivoting-from-a-beacon)
-11. [Beacon-depth tools — signature hunting, JA3 pivot, URI footprint, export](#beacon-depth-tools--signature-hunting-ja3-pivot-uri-footprint-export)
-12. [Benign-pattern catalog and the suppress-vs-allowlist rule](#benign-pattern-catalog-and-the-suppress-vs-allowlist-rule)
-13. [Note discipline](#note-discipline)
-14. [Anti-patterns — things that look like good triage but aren't](#anti-patterns--things-that-look-like-good-triage-but-arent)
-15. [Detection blind spots — what Archer cannot see](#detection-blind-spots--what-archer-cannot-see)
-16. [When you're stuck](#when-youre-stuck)
-17. [Daily / weekly / monthly rhythm](#daily--weekly--monthly-rhythm)
-18. [Escalation criteria](#escalation-criteria)
-19. [Glossary — Archer-specific terms](#glossary--archer-specific-terms)
+5. [Querying the findings table](#querying-the-findings-table)
+6. [Anatomy of a beacon finding](#anatomy-of-a-beacon-finding)
+7. [Indicators that lean malicious](#indicators-that-lean-malicious)
+8. [Indicators that lean benign](#indicators-that-lean-benign)
+9. [The eight-question triage checklist](#the-eight-question-triage-checklist)
+10. [Worked examples](#worked-examples)
+11. [Pivoting from a beacon](#pivoting-from-a-beacon)
+12. [Beacon-depth tools — signature hunting, JA3 pivot, URI footprint, export](#beacon-depth-tools--signature-hunting-ja3-pivot-uri-footprint-export)
+13. [Benign-pattern catalog and the suppress-vs-allowlist rule](#benign-pattern-catalog-and-the-suppress-vs-allowlist-rule)
+14. [Note discipline](#note-discipline)
+15. [Anti-patterns — things that look like good triage but aren't](#anti-patterns--things-that-look-like-good-triage-but-arent)
+16. [Detection blind spots — what Archer cannot see](#detection-blind-spots--what-archer-cannot-see)
+17. [When you're stuck](#when-youre-stuck)
+18. [Daily / weekly / monthly rhythm](#daily--weekly--monthly-rhythm)
+19. [Escalation criteria](#escalation-criteria)
+20. [Glossary — Archer-specific terms](#glossary--archer-specific-terms)
 
 ---
 
@@ -267,6 +268,94 @@ don't want to see this in my default view right now." Reach for
 Dismiss when triaging volume; reach for Acknowledge + suppress
 when triaging a benign pattern; reach for Escalate when the
 beacon doesn't fit either bucket.
+
+---
+
+## Querying the findings table
+
+The query bar above the table is your primary filter. It's a
+Lucene-style query language — type a query, press **Run** (or
+Enter), and the table narrows to matching findings. The query is
+evaluated server-side and ANDed on top of whatever view you're in
+(Findings, Acknowledged, Campaigns, …), so it composes with the
+tab rather than fighting it. Clear the bar to see everything in
+the view again.
+
+A bad query doesn't silently match everything or nothing — it
+shows you a parse error. If the table didn't change the way you
+expected, read the error before trusting the result.
+
+### The shape of a query
+
+- **Field term:** `field:value` — `type:Beaconing`, `dst:185.220.101.7`,
+  `severity:critical`.
+- **Bare term:** a word with no field is a case-insensitive
+  substring match across type, src, dst, port, detail, timestamp,
+  and severity — the same reach the old Search box had. A bare IP
+  literal (`185.220.101.7`) matches the src **or** dst exactly.
+- **Boolean logic:** `AND`, `OR`, `NOT`, and `()` grouping.
+  Adjacent terms with no operator are an implicit `AND`, so
+  `type:Beaconing severity:critical` means both.
+- **Wildcards:** `*` (any run) and `?` (one character) on string
+  fields — `dst:185.220.*`, `hostname:cdn?.example.com`,
+  `detail:*jitter*`.
+- **Comparisons:** `>=`, `<=`, `>`, `<`, `=` on numeric and date
+  fields — `score:>=90`, `ts:>=2026-03-15`.
+- **Ranges:** `field:[lo TO hi]`, inclusive — `score:[80 TO 100]`,
+  `ts:[2026-03-01 TO 2026-03-15]`.
+- **Quoted phrases:** wrap values with spaces in quotes —
+  `detail:"every 47s"`, `ts:>="2026-03-15 08:00:00"`.
+
+### Fields you can query
+
+| Field | Matches | Notes |
+|---|---|---|
+| `type` | Finding type, e.g. `type:Beaconing` | Exact (case-insensitive). `type:beacons` matches the **whole** beacon family (Beaconing / HTTP Beaconing / DNS Beaconing). |
+| `severity` | `critical` / `high` / `medium` / `low` | Exact. |
+| `score` | Composite score | Numeric — comparisons and ranges. |
+| `src` / `dst` | Source / destination IP | Bare IP = exact; CIDR (`dst:185.220.101.0/24`) = containment; wildcard (`dst:185.220.*`) = prefix/substring. |
+| `port` | Destination port | Comma-separated list allowed (`port:443,8443`); equality only. |
+| `hostname` | Resolved hostname / SNI | Substring or wildcard. |
+| `detail` | The Detail string | Substring or wildcard — useful for `detail:"every 47s"` or `detail:*domain fronting*`. |
+| `sensor` | Sensor name | Exact. |
+| `file` | Source log file | Substring or wildcard. |
+| `status` | `open` / `acknowledged` / `escalated` / `dismissed` | `status:open` = no status set yet. |
+| `ts` | Finding timestamp | Date (`ts:>=2026-03-15`) or datetime; interpreted in **your** timezone. A bare date is the whole day. |
+| `ja3` / `ja4` | TLS client fingerprint | Exact — the query-bar equivalent of the TLS Pivot button. |
+| `ioc` | IOC-list match | `ioc:true` / `ioc:false`. |
+| `spectral` | Spectral-rescued beacon | `spectral:true` surfaces beacons rescued by the periodogram. |
+| `new` | New since your last login | `new:true` is the query-bar form of the **New only** filter. |
+| `tscore` / `dscore` / `hist` / `dur` | Beacon sub-scores (Timing / Data size / Histogram / Persistence) | Numeric — comparisons and ranges. **Any** sub-score predicate implicitly scopes to the beacon family, so a bare `dur:<=0.3` won't drag in non-beacons whose sub-scores are a structural 0. |
+
+The same fields are listed in the query bar's **+ more ▾** chip
+menu — click a chip to drop the field into the bar.
+
+### Queries that earn their keep
+
+- **The critical-beacon triage queue:**
+  `type:beacons AND severity:critical AND new:true` — every new
+  beacon-family finding at the top severity, the first thing to
+  work each shift.
+- **Signature hunt — the staging-beacon shape** (tight timing,
+  short duration, below a score floor):
+  `tscore:>=90 AND dur:<=0.3` — see
+  [Beacon-depth tools](#beacon-depth-tools--signature-hunting-ja3-pivot-uri-footprint-export)
+  for why this finds implants the composite score buries.
+- **One subnet, one window:**
+  `dst:185.220.101.0/24 AND ts:>=2026-03-15` — scope to a known-bad
+  range since an incident start time.
+- **Find the implant family by fingerprint:**
+  `ja4:t13d1516h2_8daaf6152771_b186095e22b6` — every finding on
+  that JA4 (or use the TLS Pivot button, which builds this for you).
+- **TI-confirmed, excluding a noisy benign cluster:**
+  `ioc:true AND NOT dst:10.0.0.0/8` — external IOC hits only.
+- **Free-text fallback:** when you don't remember the field,
+  just type the value — `cobalt` or `185.220.101.7` — and the bare
+  term does the substring/IP match.
+
+Everything you filter to is what the per-tab **Export** honors, so
+a query is also how you scope a hand-off export (see
+[Beacon-depth tools → Export the beacons](#beacon-depth-tools--signature-hunting-ja3-pivot-uri-footprint-export)).
 
 ---
 
@@ -776,42 +865,43 @@ detected *huntable*. Use them in that order.
 The score column is the **average** of four axes (see §5 / Anatomy).
 The UI labels them **Timing**, **Data size**, **Histogram**, and
 **Persistence**; the same four are the `ts` / `ds` / `hist` / `dur`
-identifiers in the detection math (§2.2) and the `ts_min`…`dur_max`
-query parameters. Averaging hides shapes. A staging beacon — dead-on
+identifiers in the detection math (§2.2), exposed in the query bar as
+the `tscore` / `dscore` / `hist` / `dur` fields. Averaging hides shapes. A staging beacon — dead-on
 cadence, but it only checked in for ten minutes before the operator
 moved on — has a high **Timing** and a low **Persistence**/**Histogram**,
 so its *composite* lands at 55 and never crosses your score floor. It
 is a textbook implant and the score buried it.
 
-The advanced filter bar has a **Beacon sub-scores** row: a labelled
-min/max box pair for each axis (**Timing**, **Data size**,
-**Histogram**, **Persistence**). Setting any one of them scopes the
-whole result to beacons automatically (you can't accidentally pull
-non-beacons — their axes are a structural zero). Stop sorting by score
-and hoping the shape floats up; *state the shape* and pull it directly:
+Query the sub-scores directly — `tscore` (Timing), `dscore` (Data
+size), `hist` (Histogram), `dur` (Persistence) take comparisons and
+inclusive `[lo TO hi]` ranges. Any one of them scopes the whole result
+to beacons automatically (you can't accidentally pull non-beacons —
+their axes are a structural zero). Stop sorting by score and hoping the
+shape floats up; *state the shape* and pull it directly:
 
-| You're hunting | Filter (Advanced-bar boxes) |
+| You're hunting | Query |
 |---|---|
-| Short-lived tight-cadence check-ins (staging, hands-on-keyboard) | Timing ≥ `0.80`, Persistence ≤ `0.30` |
-| Long-haul low-and-slow tunnel (keepalive) | Timing ≥ `0.70`, Persistence ≥ `0.80`, Histogram ≥ `0.80` |
-| Constant-size heartbeat regardless of timing jitter | Data size ≥ `0.85` (then read jitter in the triage header) |
-| "Show me everything beacon-shaped, any score" | any single bound, e.g. Timing ≥ `0.50` |
+| Short-lived tight-cadence check-ins (staging, hands-on-keyboard) | `tscore:>=0.80 AND dur:<=0.30` |
+| Long-haul low-and-slow tunnel (keepalive) | `tscore:>=0.70 AND dur:>=0.80 AND hist:>=0.80` |
+| Constant-size heartbeat regardless of timing jitter | `dscore:>=0.85` (then read jitter in the triage header) |
+| "Show me everything beacon-shaped, any score" | any single bound, e.g. `tscore:>=0.50` |
 
 This is the entry point. Everything below pivots from a finding you
 found here.
 
 ### 2. JA3 pivot — find every instance of the implant
 
-Open a beacon that went over TLS. The detail pane now shows a **JA3**
-line and `matched N other beacons in this dataset`, plus a **JA3
-Pivot** button in the action footer. JA3 fingerprints the TLS *client*
-— the malware's TLS stack, not the destination. An implant family
-produces the *same* JA3 from every host it runs on, regardless of
-which C2 IP or domain each victim talks to.
+Open a beacon that went over TLS. The detail pane now shows a **JA4**
+(or **JA3**) line and `matched N other beacons in this dataset`, plus a
+**TLS Pivot** button in the action footer. The fingerprint identifies
+the TLS *client* — the malware's TLS stack, not the destination. An
+implant family produces the *same* fingerprint from every host it runs
+on, regardless of which C2 IP or domain each victim talks to.
 
-So: one beacon you've assessed as malicious → **JA3 Pivot** → the
-findings table re-filters (via the `JA3` advanced field, which you can
-see and edit) to *every* finding carrying that fingerprint. Three
+So: one beacon you've assessed as malicious → **TLS Pivot** → the
+findings table re-filters (via the `ja4:` field — or `ja3:` when no
+JA4 is present — which you can see and edit in the query bar) to
+*every* finding carrying that fingerprint. Three
 internal hosts beaconing to three different destinations with the same
 JA3 is not three findings — it's one implant on three machines and you
 just scoped the whole intrusion. This is the lateral-spread signal
@@ -878,20 +968,20 @@ types)** and use **Export current tab**:
   flat cell.
 
 The export honours every filter you have set, so "export the beacons
-matching Timing ≥ `0.8` & Persistence ≤ `0.3` with this JA3" is one
+matching `tscore:>=0.8 AND dur:<=0.3` with this fingerprint" is one
 click — the hunt result, scoped, not the database.
 
 ### Worked loop
 
-NXDOMAIN-quiet morning. You set the Advanced-bar boxes Timing ≥ `0.85`,
-Persistence ≤ `0.35` — eight findings the score-sorted view had below
+NXDOMAIN-quiet morning. You query `tscore:>=0.85 AND dur:<=0.35` —
+eight findings the score-sorted view had below
 the fold. One is a finance
 workstation to a no-reputation IP on 443, jitter 4%, sample 280. You
-**JA3 Pivot**: the same fingerprint is on two more workstations to two
+**TLS Pivot**: the same fingerprint is on two more workstations to two
 *different* IPs. Not three alerts — one implant, three hosts. You open
 the HTTP beacon among them: footprint is `/news/feed` n=240, `/news/post`
 n=9 — poll/result, not a news reader. You set Type → Beacons, keep the
-JA3 filter, **Export current tab → JSON**, attach it to the escalation.
+fingerprint filter, **Export current tab → JSON**, attach it to the escalation.
 Twenty minutes, campaign scoped and handed off — work the existing
 detections, don't re-hunt them.
 

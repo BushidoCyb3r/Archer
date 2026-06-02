@@ -20,6 +20,7 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 - [Requirements](#requirements)
 - [Installing Prerequisites](#installing-prerequisites)
 - [Quick Start](#quick-start)
+- [Try It Locally (Demo)](#try-it-locally-demo)
 - [Air-Gapped Installation](#air-gapped-installation)
 - [Log File Layout](#log-file-layout)
 - [Configuration](#configuration)
@@ -42,14 +43,14 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 - **DGA hostname augmentation** — Beaconing / HTTP Beaconing scores get a +15 / one-step severity bump when the destination's registrable domain looks algorithmically generated (high Shannon entropy + low English-bigram log-likelihood). Built-in CDN allowlist + operator allowlist suppress legitimate algorithmic hostnames.
 - **Cross-detector correlation** — same `(src, dst)` pair carrying findings from ≥N distinct detector types becomes a Correlated Activity roll-up; contributing findings carry a `+N corr` chip whose click filters the Findings tab to that `(src, dst)` pair (clearing any active filter/page first) so every contributor plus the roll-up row land in one view. Catches kill-chain progression (Beaconing + DNS Tunneling, Suspicious File + TI Hit, etc.).
 - **30-day beacon score evolution chart** — **Score Chart** button in the action footer opens a modal showing the composite score + four sub-axes (Timing, Data size, Histogram, Persistence) over the last 30 UTC days, written by `SetFindings` on the first full pass of each day for `Beaconing`, `HTTP Beaconing`, and `DNS Beaconing` finding types. Surfaces whether a beacon is escalating, stable, or decaying. Button is grayed out until at least one daily row exists.
-- **Beacon-depth hunting tools** — the composite score averages four axes, so a real implant shape (tight timing, short duration — a staging beacon) can sit below a score floor. The findings filter takes inclusive `[min,max]` bounds on each sub-axis — labelled **Timing** / **Data size** / **Histogram** / **Persistence** in the Advanced bar (the `ts`/`ds`/`hist`/`dur` math axes; query params `ts_min`…`dur_max`) — turning the score into a queryable signature space; any sub-score bound implicitly scopes to beacons. A conn-level beacon carries the **JA3/JA4** of its seed connection (lifted from the same `ssl.log` index that resolves the SNI) with a one-click **TLS Pivot** to every beacon sharing the fingerprint (JA4 preferred when the sensor runs the Zeek JA4+ plugin; falls back to JA3) — per-pair detection becomes implant-family attribution. Each conn-level beacon also carries a colour-coded **TLS-fingerprint rarity + cross-host-cluster** row in the detail pane, computed over *all* TLS in the capture (not just emitted beacons) — e.g. `rare — shared by 3 internal hosts · 43 conns, 1 dst(s)`, coloured by concern (red = rare JA4 shared across hosts, through to white = common browser/SDK shape) — so a rare fingerprint shared across several internal hosts to one destination stands out even on a low-scored finding, and the signal survives cloud-hosting because the fingerprint is the malware's, not the host's (enrichment only — never changes score or severity). HTTP beacons carry a **URI footprint** (the request-path set the `(src,dst,host)` group beaconed on, aggregated pre-dedup) — one stable path reads benign, a small fixed set reads C2. **Type → Beacons** scopes the findings view (and the existing export flow) to the whole beacon family. Analyst-facing only — no detection-semantics change. Walkthrough: [docs/ANALYST_PLAYBOOK.md](docs/ANALYST_PLAYBOOK.md).
+- **Beacon-depth hunting tools** — the composite score averages four axes, so a real implant shape (tight timing, short duration — a staging beacon) can sit below a score floor. The query bar exposes each sub-axis as a numeric field — `tscore` (Timing) / `dscore` (Data size) / `hist` (Histogram) / `dur` (Persistence) — taking comparisons and inclusive `[lo TO hi]` ranges (e.g. `dur:<=0.3 AND tscore:>=90`), turning the score into a queryable signature space; any sub-score predicate implicitly scopes to beacons. A conn-level beacon carries the **JA3/JA4** of its seed connection (lifted from the same `ssl.log` index that resolves the SNI) with a one-click **TLS Pivot** to every beacon sharing the fingerprint (JA4 preferred when the sensor runs the Zeek JA4+ plugin; falls back to JA3) — per-pair detection becomes implant-family attribution. Each conn-level beacon also carries a colour-coded **TLS-fingerprint rarity + cross-host-cluster** row in the detail pane, computed over *all* TLS in the capture (not just emitted beacons) — e.g. `rare — shared by 3 internal hosts · 43 conns, 1 dst(s)`, coloured by concern (red = rare JA4 shared across hosts, through to white = common browser/SDK shape) — so a rare fingerprint shared across several internal hosts to one destination stands out even on a low-scored finding, and the signal survives cloud-hosting because the fingerprint is the malware's, not the host's (enrichment only — never changes score or severity). HTTP beacons carry a **URI footprint** (the request-path set the `(src,dst,host)` group beaconed on, aggregated pre-dedup) — one stable path reads benign, a small fixed set reads C2. **Type → Beacons** scopes the findings view (and the existing export flow) to the whole beacon family. Analyst-facing only — no detection-semantics change. Walkthrough: [docs/ANALYST_PLAYBOOK.md](docs/ANALYST_PLAYBOOK.md).
 - **TLS Fingerprints inventory** — the top-down counterpart to per-finding TLS Pivot. A **TLS Fingerprints** button (filter bar, next to Reset) opens a modal listing every high-signal JA3/JA4 client fingerprint in the capture, ranked by concern: known-bad C2 matches (always critical) plus rare / cross-host shapes (concern ≥ medium), with common browser/SDK shapes filtered out so it stays a hunt list, not a TLS census. Each row shows the fingerprint, a count-free **Concern** judgment, the prevalence (Hosts / Dest / Conns) and how many findings carry it; clicking a row pivots the Findings tab to all of them. Because it's computed over the same all-`ssl.log` prevalence snapshot as the detail-pane FP-rarity badge — not the emitted-findings set — it surfaces a rare fingerprint that tripped no detector at all (`finding_count: 0`). Backed by `/api/fingerprints`.
 - **Bounded memory detection** — beacon analyzers use streaming aggregates and reservoir sampling so peak memory is a function of unique pair count, not total record count; Docker entrypoint auto-derives `GOMEMLIMIT` from the container's cgroup so the Go runtime applies back-pressure before OOM
 - **Persistent findings** — findings survive restarts, rebuilds, and re-analyses; analyst annotations (status, notes, assignee) are carried over by fingerprint match; findings are preserved even when the logs that produced them are later archived, and are only removed when an admin explicitly prunes them
 - **Delta detection** — the "New only" filter shows findings first detected since you last logged in, so analysts can focus on what's new to them — not just the most recent run
 - **Raw-log pivot** — clicking a finding opens a Source Records dialog that scans the original Zeek logs (plus the archive) for matching records and renders the full standard schema with resizable, horizontally-scrollable columns; one-click **Export CSV** flattens every loaded record (with a leading `_log_type` column) for offline analysis
 - **In-app campaign graph** — right-click any campaign and pick **View campaign in Graph** to render a force-directed network graph of the involved hosts and destination, severity-coloured and sized by finding volume; clicking a node jumps the findings table to that IP
-- **Advanced filtering** — in addition to search/severity/type/min-score, filters include Src IP/CIDR, Dst IP/CIDR, sensor, and a time range; all filters are server-side
+- **Query language** — the query bar is the primary findings filter: Lucene-style field terms (`type:`, `severity:`, `src:`/`dst:` IP or CIDR, `port:`, `sensor:`, `hostname:`, `detail:`, `status:`, `ja3:`/`ja4:`, `file:`), boolean `AND` / `OR` / `NOT` with `()` grouping, leading/trailing wildcards (`dst:185.220.*`), numeric comparisons and ranges (`score:>=90`, `score:[80 TO 100]`), date windows (`ts:>=2026-03-15`), the booleans `ioc:` / `spectral:` / `new:`, and the beacon sub-scores `tscore:` / `dscore:` / `hist:` / `dur:`. A bare word is a case-insensitive substring match (a bare IP matches src or dst). Evaluated server-side and ANDed on top of the active view; a malformed query surfaces a parse error rather than silently matching everything. Full reference in [docs/ANALYST_PLAYBOOK.md](docs/ANALYST_PLAYBOOK.md#querying-the-findings-table).
 - **Virtualized findings table** — the table renders only what's on screen, so result sets of any size stay smooth without truncation
 - **Per-tab exports** — every tab has its own CSV and JSON export. Findings/Acknowledged/Escalated/IOC Hits export only the visible subset (server-side, honoring all active filters). Campaigns and Hosts export their aggregations directly. A separate "All" export grabs every finding in the database. Right-click any single campaign row to export just that one campaign — useful for loading into a graphical viewer for stakeholder presentations.
 - **Log archive & retention** — admin-configurable: files older than N days automatically move from `/logs` to `/data/archive` after each watch analysis; findings are preserved by default (or optionally pruned past the same cutoff)
@@ -173,6 +174,8 @@ archer/
 ├── reset.sh                    # Operator-confirmed wipe of archer-data / archer-sshd / archer-quiver volumes
 ├── backup.sh                   # Auth'd VACUUM INTO snapshot via the admin endpoint; optional retention + rsync off-box
 ├── restore.sh                  # Confirmed swap of a snapshot into archer-data (container down; TLS + other volumes untouched)
+├── demo.sh                     # One-command local demo — builds, seeds sample logs, analyzes, serves until Ctrl-C (see Try It Locally)
+├── demo/logs/                  # Sample Zeek captures (40 scenarios in a date tree) the demo analyzes
 ├── cmd/archer/main.go          # Entry point — flags, signal handler, TLS bootstrap, HTTP listener
 ├── internal/
 │   ├── analysis/               # Detection engines
@@ -205,6 +208,10 @@ archer/
 │   ├── match/match.go          # Compiled exact + CIDR matcher reused by allowlist, IOC list, feed union
 │   ├── model/                  # Finding, Severity, Status, Notification, Note, User, Role types
 │   ├── parser/zeeklog.go       # Zeek log reader — TSV + JSON/NDJSON, gzipped or not
+│   ├── query/                  # Findings query language — Lucene-style parser + matcher (the q= filter)
+│   │   ├── query.go            # Lexer, parser, AST, Parse() / Match()
+│   │   ├── term.go             # Leaf predicates — field aliases, known fields, per-field evaluation
+│   │   └── match.go            # Field match primitives — IP/CIDR, wildcard glob, numeric, timestamp
 │   ├── version/version.go      # Build identifier — Version / Commit / BuildTime via -ldflags -X
 │   ├── server/
 │   │   ├── server.go           # Route registration + role middleware (any / write / admin)
@@ -220,7 +227,7 @@ archer/
 │   │   ├── handlers_audit_log.go # /api/audit endpoints
 │   │   ├── handlers_backup.go  # /api/admin/backup — VACUUM INTO snapshot stream
 │   │   ├── handlers_beacon_history.go # /api/findings/{id}/history → SVG evolution chart data
-│   │   ├── findings_filter.go  # Shared query-param filter for list + exports
+│   │   ├── findings_filter.go  # Shared query-param filter for list + exports; runs the Lucene q= query (internal/query)
 │   │   ├── findings_raw.go     # Raw-log pivot — finds source records for a finding
 │   │   ├── exports_xlsx.go     # XLSX export path
 │   │   ├── archive.go          # Aged-log archive worker + finding prune
@@ -655,6 +662,41 @@ port 2222). Same `Analyze logs` button picks them up.
 
 ---
 
+## Try It Locally (Demo)
+
+To see a populated workbench without Docker, a sensor, or a real
+capture, run the demo. It needs only Go (see [Running Without
+Docker](#running-without-docker) for the toolchain) and a checkout
+of this repo:
+
+```sh
+./demo.sh
+```
+
+From the repo root this builds the binary, seeds a throwaway data
+directory from the sample Zeek logs in `demo/logs/`, registers a
+demo admin, runs one analysis pass, and serves the workbench at
+`https://localhost:18443` — a non-privileged port, so the demo
+never collides with a real deployment on 8443. It stays up until
+you press Ctrl-C, then wipes the temporary directory on exit.
+Nothing it does touches a production instance.
+
+```
+URL:       https://localhost:18443
+Email:     demo@archer.local
+Password:  archerdemo
+```
+
+The sample corpus is 40 curated single-scenario captures covering
+every from-logs detector family (beaconing variants, DNS tunneling,
+HTTP C2, JA3/JA4, x509 anomalies, exfil, lateral movement, and
+more) — a full pass surfaces ~67 findings, enough to exercise the
+query bar, the Views, and the beacon-depth tools. Override the port
+or credentials with `ARCHER_DEMO_PORT`, `ARCHER_DEMO_EMAIL`, and
+`ARCHER_DEMO_PASSWORD`. See `demo/README.md` for the scenario list.
+
+---
+
 ## Air-Gapped Installation
 
 Archer's runtime has no hard internet dependencies — once installed, the analyzer reads logs from disk, the analyst UI is local, sensors push over LAN, and findings are stored in SQLite on the host. The only outbound traffic at runtime is **threat-intel feed prefetching** (FeodoTracker, URLhaus) and **manual escalation lookups** (OTX / AbuseIPDB / VirusTotal / CrowdSec / GreyNoise / Censys); both fail gracefully when offline, and every other detector — Beaconing, Cobalt Strike URI, JA3/JA4, Lateral Movement, Suspicious URL via local IOC list, etc. — works fine without network.
@@ -923,7 +965,7 @@ Sessions are stored in SQLite with a 24-hour expiry, httpOnly cookies, and `Same
 | **Logs** | Shows the configured log directory and a read-only preview tree of `<sensor>/<date>/` directories under `/logs`. Click a sensor to expand its dates with file counts and total size. The tree refreshes automatically when an analyze pass finishes, so newly-arrived (rsync'd or hand-dropped) logs appear without a page reload. |
 | **Analysis** | **Analyze logs** starts the detection pipeline against everything currently under `/logs`. Disabled when the tree is empty. A progress bar and step indicator update in real time via SSE. **Pause** and **Stop** are available during a run. The analyzer checks for cancellation at phase boundaries (not in tight loops), so there can be a noticeable delay between clicking **Stop** and the run actually winding down — the button visibly switches to "Stopping…" and the status line shows *"Cancellation requested — waiting for analyzer to wind down…"* until the run exits. Manual analyze runs the full pipeline and preserves analyst state (notes / acks / escalations) via fingerprint merge — useful during active hunts when you want a fresh detection pass without losing your annotations. |
 | **Threat Intel** | Displays a count of TI hits found in the last analysis. |
-| **Watch Mode** | All users see whether watch mode is enabled and a compact three-line schedule preview: cadence + anchor + timezone abbreviation on the head (e.g. *"Every 6h, anchor 12:00 EDT"*), then *"Next: today 06:00 — incremental TI/IOC"* for sub-daily cadences (or *"— full pipeline"* when the next tick is the daily slot), then a third line *"Full pipeline: tomorrow 00:00"* when the next tick is incremental — so an analyst knows whether beacon detection will refresh at the next tick or wait until the daily slot. Times use relative dates (today/tomorrow/weekday) and the timezone abbreviation is shown once, not repeated. Admins pick a **Cadence** first (Daily / Every 12h / Every 6h / Every 4h / Hourly); the time control beneath it adapts: full HH:MM picker labeled `Run at` for Daily, `First run at` for the multi-hour cadences, and a minute-of-hour numeric input under Hourly (the server only uses the minute portion there). Cadence, time, and timezone auto-save on change and persist independently of the enable/disable toggle. |
+| **Watch Mode** | The sidebar is read-only for every role: it shows whether watch mode is enabled or disabled and a compact status — the configured cadence and run time (e.g. *"Daily at 02:00"*, *"Hourly at :15"*) and the timezone with its abbreviation (e.g. *"America/New_York (EDT)"*). The configured schedule shows even while watch is disabled, so an analyst or viewer can see what's set up. **Admins** additionally see a **Watch Mode** button (styled like the other sidebar action buttons) that opens the settings modal; analysts and viewers don't get the button — matching the server, which enforces admin on the watch write. Inside the modal an admin picks a **Cadence** first (Daily / Every 12h / Every 6h / Every 4h / Hourly); the time control beneath it adapts: a full HH:MM picker labeled `Run at` for Daily, `First run at` for the multi-hour cadences, and a minute-of-hour numeric input under Hourly (the server only uses the minute portion there). A live schedule preview in the modal shows when the next tick lands and whether it is a full pipeline or an incremental TI/IOC pass. Cadence, time, and timezone auto-save on change and persist independently of the **Enable** / **Disable** toggle. |
 | **Allowlist** | Edit the list of IPs and domains to exclude from all findings. One entry per line. Findings matching an allowlisted IP are hidden across all tabs immediately after saving. |
 | **IOC List** | Edit the list of known-bad IPs and domains. Findings with a src/dst IP matching this list are tagged and appear in the IOC Hits tab. |
 | **Suppressions** | View all active suppressions with their target, context, and expiry time. Individual suppressions can be removed here; expired suppressions are pruned automatically. |
@@ -947,9 +989,7 @@ The first four tabs (Findings / Acknowledged / Escalated / IOC Hits) all view th
 
 Columns: **Score**, **Severity**, **Type**, **Source** (IP + port), **Destination**, **Port**, **Time (UTC)**, **Status**, **Sensor**, **Detail**. All columns are sortable. Findings timestamps are always rendered in UTC for consistency across analysts in different time zones.
 
-**Basic filters** (always visible): free-text search across IP addresses, domain names, types, and detail strings; severity level; detection type; minimum score.
-
-**Advanced filters** (collapsible panel, state remembered): **Src IP/CIDR**, **Dst IP/CIDR**, **Dst Port**, **Sensor**, **From**, and **To** (time-range pickers). All filters are server-side and compose freely.
+**Query bar** (always visible): a single query-language input is the primary filter — Lucene-style field terms (`type:`, `severity:`, `src:`/`dst:` IP or CIDR, `port:`, `sensor:`, `hostname:`, `detail:`, `status:`, `ja3:`/`ja4:`, `file:`, `score:`, `ts:`, the booleans `ioc:`/`spectral:`/`new:`, and the beacon sub-scores `tscore:`/`dscore:`/`hist:`/`dur:`), `AND`/`OR`/`NOT` with `()` grouping, wildcards, numeric comparisons and `[lo TO hi]` ranges, and date windows. Shortcut chips (Severity, Type, Score, Time, **+ more**) upsert the matching token into the query text. A bare word is a case-insensitive substring match. Evaluated server-side and ANDed on top of the active view; full grammar in [docs/ANALYST_PLAYBOOK.md](docs/ANALYST_PLAYBOOK.md#querying-the-findings-table).
 
 **Exports**: every tab has its own CSV and JSON download.
 
@@ -1076,7 +1116,7 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/api/findings` | Any | List findings (projected — `ts_data` / `intervals` / `notes` stripped). Query params: `search`, `type` (exact, or the pseudo-value `beacons` for the whole beacon family), `severity`, `min_score`, `delta`, `src_ip` (IP or CIDR), `dst_ip` (IP or CIDR), `dst_port`, `sensor`, `from`, `to` (both accept `YYYY-MM-DD HH:MM:SS` UTC or RFC3339), `status` (`open` / `acknowledged` / `escalated`), `ioc_only` (`true`), `spectral_only` (`true`), `ts_min`/`ts_max` · `ds_min`/`ds_max` · `hist_min`/`hist_max` · `dur_min`/`dur_max` (inclusive beacon sub-axis bounds — any one implicitly scopes to beacons), `ja3` (exact JA3 fingerprint match — powers TLS Pivot for JA3-only sensors), `ja4` (exact JA4 fingerprint match — powers TLS Pivot for JA4+ sensors), `sort`, `dir`, `limit` (default 1000, max 50000), `offset` (default 0). Sets `X-Total-Count` and `X-Has-More` response headers (and `Access-Control-Expose-Headers` so JS can read them in CORS contexts). The per-tab page-nav buttons drive this. |
+| `GET` | `/api/findings` | Any | List findings (projected — `ts_data` / `intervals` / `notes` stripped). Query params: `q` (the Lucene-style query language — the primary filter surface, ANDed on top of the others; a parse error returns `400` rather than matching all/none — see [docs/ANALYST_PLAYBOOK.md](docs/ANALYST_PLAYBOOK.md#querying-the-findings-table) for the grammar), `search`, `type` (exact, or the pseudo-value `beacons` for the whole beacon family), `severity`, `min_score`, `delta`, `src_ip` (IP or CIDR), `dst_ip` (IP or CIDR), `dst_port`, `sensor`, `from`, `to` (both accept `YYYY-MM-DD HH:MM:SS` UTC or RFC3339), `status` (`open` / `acknowledged` / `escalated`), `ioc_only` (`true`), `spectral_only` (`true`), `ts_min`/`ts_max` · `ds_min`/`ds_max` · `hist_min`/`hist_max` · `dur_min`/`dur_max` (inclusive beacon sub-axis bounds — any one implicitly scopes to beacons), `ja3` (exact JA3 fingerprint match — powers TLS Pivot for JA3-only sensors), `ja4` (exact JA4 fingerprint match — powers TLS Pivot for JA4+ sensors), `sort`, `dir`, `limit` (default 1000, max 50000), `offset` (default 0). Sets `X-Total-Count` and `X-Has-More` response headers (and `Access-Control-Expose-Headers` so JS can read them in CORS contexts). The per-tab page-nav buttons drive this. |
 | `GET` | `/api/findings/counts` | Any | `{open, ack, esc, ioc, total}` aggregate counts honoring the active filter set (`status` / `ioc_only` are stripped — the counts span all status buckets). Drives the dashboard's info-line counters without forcing a full-set scan from the client. |
 | `GET` | `/api/findings/facets` | Any | `{types, sensors}` — distinct values across the filter set. `status`, `ioc_only`, `delta`, `type`, `sensor`, `limit`, `offset` are stripped so the dropdowns reflect every available value regardless of what's currently selected. Powers the Type and Sensor filter dropdowns. |
 | `GET` | `/api/findings/unseen` | Any | Per-session new-findings count `{count, total, since, seen_count}` — findings detected since the analyst's login boundary (roll-ups excluded), plus the session's modal high-water. Same cutoff as the `delta` "New only" filter. Drives the new-findings alert (pops only when `count > seen_count`). |

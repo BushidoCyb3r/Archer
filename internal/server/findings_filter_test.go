@@ -74,7 +74,7 @@ func TestFilterFindings_DismissedHiddenByDefault(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := s.filterFindings(append([]model.Finding{}, findings...), c.query, 0)
+			got, _ := s.filterFindings(append([]model.Finding{}, findings...), c.query, 0)
 			gotIDs := []int{}
 			for _, f := range got {
 				gotIDs = append(gotIDs, f.ID)
@@ -107,12 +107,12 @@ func TestFilterFindings_DeltaUsesDetectedAtBoundary(t *testing.T) {
 	}
 
 	// delta off: every finding passes regardless of detected_at.
-	if got := s.filterFindings(append([]model.Finding{}, findings...), url.Values{}, boundary); len(got) != 4 {
+	if got, _ := s.filterFindings(append([]model.Finding{}, findings...), url.Values{}, boundary); len(got) != 4 {
 		t.Fatalf("delta off: got %d findings, want 4", len(got))
 	}
 
 	// delta on: only findings detected strictly after the boundary.
-	got := s.filterFindings(append([]model.Finding{}, findings...), url.Values{"delta": []string{"true"}}, boundary)
+	got, _ := s.filterFindings(append([]model.Finding{}, findings...), url.Values{"delta": []string{"true"}}, boundary)
 	gotIDs := []int{}
 	for _, f := range got {
 		gotIDs = append(gotIDs, f.ID)
@@ -176,7 +176,7 @@ func TestFilterFindings_PairAllowlist(t *testing.T) {
 		{ID: 6, Type: "TI Hit (IP)", SrcIP: "10.0.0.9", DstIP: "8.8.8.8", DstPort: "53", Score: 96, Status: model.StatusOpen, Timestamp: "2026-05-16 09:05:00"},
 	}
 	filterIDs := func() []int {
-		got := s.filterFindings(append([]model.Finding{}, findings...), url.Values{}, 0)
+		got, _ := s.filterFindings(append([]model.Finding{}, findings...), url.Values{}, 0)
 		ids := []int{}
 		for _, f := range got {
 			ids = append(ids, f.ID)
@@ -302,7 +302,7 @@ func TestFilterFindings_SubScoreRanges(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := s.filterFindings(append([]model.Finding{}, findings...), c.query, 0)
+			got, _ := s.filterFindings(append([]model.Finding{}, findings...), c.query, 0)
 			gotIDs := []int{}
 			for _, f := range got {
 				gotIDs = append(gotIDs, f.ID)
@@ -344,7 +344,7 @@ func TestFilterFindings_JA3(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := s.filterFindings(append([]model.Finding{}, findings...), c.query, 0)
+			got, _ := s.filterFindings(append([]model.Finding{}, findings...), c.query, 0)
 			gotIDs := []int{}
 			for _, f := range got {
 				gotIDs = append(gotIDs, f.ID)
@@ -382,7 +382,7 @@ func TestFilterFindings_JA4(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := s.filterFindings(append([]model.Finding{}, findings...), c.query, 0)
+			got, _ := s.filterFindings(append([]model.Finding{}, findings...), c.query, 0)
 			gotIDs := []int{}
 			for _, f := range got {
 				gotIDs = append(gotIDs, f.ID)
@@ -423,7 +423,7 @@ func TestFilterFindings_BeaconsPseudoType(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := s.filterFindings(append([]model.Finding{}, findings...), c.query, 0)
+			got, _ := s.filterFindings(append([]model.Finding{}, findings...), c.query, 0)
 			gotIDs := []int{}
 			for _, f := range got {
 				gotIDs = append(gotIDs, f.ID)

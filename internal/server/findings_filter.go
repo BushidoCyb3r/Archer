@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/model"
+	"github.com/BushidoCyb3r/Archer/internal/query"
 )
 
 // Matcher invalidation: SetAllowlist / SetIOCList rebuild the
@@ -66,7 +67,19 @@ import (
 // is the same boundary the new-findings modal counts against, so the button
 // and the modal agree. Callers pass newBoundaryFromCtx(r); a zero deltaSince
 // keeps every finding with a detected_at set (the no-session fallback).
-func (s *Server) filterFindings(findings []model.Finding, q url.Values, deltaSince int64) []model.Finding {
+func (s *Server) filterFindings(findings []model.Finding, q url.Values, deltaSince int64) ([]model.Finding, error) {
+	// `q` is the Lucene-style query language — the primary filter surface. When
+	// present it is ANDed on top of the view scoping and always-on exclusions
+	// below. A parse error is returned to the caller so the handler can surface
+	// it; it must never read as match-all or match-nothing.
+	var lucene *query.Query
+	if raw := strings.TrimSpace(q.Get("q")); raw != "" {
+		parsed, err := query.Parse(raw)
+		if err != nil {
+			return nil, err
+		}
+		lucene = parsed
+	}
 	search := strings.ToLower(strings.TrimSpace(q.Get("search")))
 	// When the search box holds a complete IP, fall back to exact-match against
 	// the Src/Dst fields. Otherwise typing "10.18.61.3" would substring-match
@@ -285,9 +298,14 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values, deltaSin
 		}
 		f.IOCMatch = ioMatch
 		f.IOCSource = ioSource
+		// Lucene query last: it sees the fully-populated finding (incl. the
+		// IOCMatch just computed, which the ioc: field reads).
+		if lucene != nil && !lucene.Match(*f, opLoc) {
+			continue
+		}
 		result = append(result, *f)
 	}
-	return result
+	return result, nil
 }
 
 // parseScoreRange builds an inclusive [min,max] predicate over a beacon

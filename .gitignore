@@ -36,3 +36,9 @@ TODO.md
 # Comprehensive AI-assistant briefing — denormalized snapshot of the project
 # state for a cold handoff; longer companion to CLAUDE.md
 HANDOFF.md
+
+# Visual brainstorming companion scratch (gitignored)
+.superpowers/
+
+# AI-assistant brainstorming specs — design scratch, not product docs
+docs/superpowers/

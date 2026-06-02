@@ -58,7 +58,7 @@ func TestFilterFindings_TLSPivotIncludesMaliciousFindings(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := s.filterFindings(append([]model.Finding{}, findings...), c.query, 0)
+			got, _ := s.filterFindings(append([]model.Finding{}, findings...), c.query, 0)
 			if len(got) != len(c.wantIDs) {
 				t.Fatalf("got %d findings, want %d: %+v", len(got), len(c.wantIDs), got)
 			}

@@ -282,7 +282,11 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 
 	limit, offset := parseListPagination(q)
 
-	result := s.filterFindings(s.store.GetFindings(), q, newBoundaryFromCtx(r))
+	result, err := s.filterFindings(s.store.GetFindings(), q, newBoundaryFromCtx(r))
+	if err != nil {
+		http.Error(w, "invalid query: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	sortFindings(result, sortCol, sortDir)
 
 	total := len(result)
@@ -449,7 +453,11 @@ func (s *Server) handleFindingsCounts(w http.ResponseWriter, r *http.Request) {
 	q.Del("offset")
 	q.Set("include_dismissed", "true")
 
-	all := s.filterFindings(s.store.GetFindings(), q, newBoundaryFromCtx(r))
+	all, err := s.filterFindings(s.store.GetFindings(), q, newBoundaryFromCtx(r))
+	if err != nil {
+		http.Error(w, "invalid query: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	var open, ack, esc, dis, ioc int
 	for _, f := range all {
 		switch f.Status {
@@ -503,7 +511,11 @@ func (s *Server) handleFindingsFacets(w http.ResponseWriter, r *http.Request) {
 	q.Del("limit")
 	q.Del("offset")
 
-	all := s.filterFindings(s.store.GetFindings(), q, newBoundaryFromCtx(r))
+	all, err := s.filterFindings(s.store.GetFindings(), q, newBoundaryFromCtx(r))
+	if err != nil {
+		http.Error(w, "invalid query: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	typeSet := make(map[string]struct{})
 	sensorSet := make(map[string]struct{})
 	for _, f := range all {
@@ -675,7 +687,11 @@ func (s *Server) handleFindingPosition(w http.ResponseWriter, r *http.Request, i
 	}
 	sortDir := q.Get("dir")
 
-	result := s.filterFindings(s.store.GetFindings(), q, newBoundaryFromCtx(r))
+	result, err := s.filterFindings(s.store.GetFindings(), q, newBoundaryFromCtx(r))
+	if err != nil {
+		http.Error(w, "invalid query: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	sortFindings(result, sortCol, sortDir)
 
 	pos := -1
@@ -2007,7 +2023,11 @@ func (s *Server) launchTIOnly(files []string) bool {
 // parameters exports everything (original behavior); passing filters produces
 // a file that matches exactly what the analyst sees on screen.
 func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
-	findings := s.filterFindings(s.store.GetFindings(), r.URL.Query(), newBoundaryFromCtx(r))
+	findings, err := s.filterFindings(s.store.GetFindings(), r.URL.Query(), newBoundaryFromCtx(r))
+	if err != nil {
+		http.Error(w, "invalid query: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Strip the per-finding chart data — it's only useful for the in-UI
 	// beacon chart, and including it bloats exports by 10-20×. Findings
@@ -2055,7 +2075,11 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
-	findings := s.filterFindings(s.store.GetFindings(), r.URL.Query(), newBoundaryFromCtx(r))
+	findings, err := s.filterFindings(s.store.GetFindings(), r.URL.Query(), newBoundaryFromCtx(r))
+	if err != nil {
+		http.Error(w, "invalid query: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="archer_%s.csv"`, time.Now().Format("20060102_150405")))
 	cw := csv.NewWriter(w)
