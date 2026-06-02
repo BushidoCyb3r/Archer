@@ -53,9 +53,11 @@ func (s *Server) handleSensorsInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"tls_fingerprint":    s.TLSFingerprint(),
-		"sensor_facing_host": s.store.GetSensorFacingHost(),
-		"effective_host":     s.SensorFacingHost(r),
+		"tls_fingerprint":             s.TLSFingerprint(),
+		"sensor_facing_host":          s.store.GetSensorFacingHost(),
+		"effective_host":              s.SensorFacingHost(r),
+		"server_protocol_version":     QuiverProtocolVersion,
+		"supported_protocol_versions": supportedQuiverProtocolList(),
 	})
 }
 

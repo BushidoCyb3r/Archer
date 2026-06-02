@@ -11,7 +11,7 @@
 
 const Sensors = (() => {
   let _isAdmin = false;
-  let _info = null; // {tls_fingerprint, sensor_facing_host, effective_host}
+  let _info = null; // {tls_fingerprint, sensor_facing_host, effective_host, server_protocol_version, supported_protocol_versions}
   let _diskBySensor = {}; // populated from /api/disk-usage; {<name>: bytes}
 
   // ── helpers ───────────────────────────────────────────────────────────
@@ -141,11 +141,57 @@ const Sensors = (() => {
 
   // ── render ────────────────────────────────────────────────────────────
 
+  // _serverProto is the protocol version this server speaks (and prefers),
+  // from /api/sensors/info. 0 when info hasn't loaded (non-admin or fetch
+  // failure) — in that case the Protocol column still shows each sensor's
+  // own version but can't flag "behind server."
+  function _serverProto() {
+    return (_info && _info.server_protocol_version) || 0;
+  }
+
+  // _protoCell renders a sensor's reported Quiver protocol version, amber
+  // with a ⚠ when it's behind the version the server prefers (still
+  // supported, so it works — but a re-enroll would bring it current).
+  // Non-enrolled rows and pre-checkin rows (version 0) render muted.
+  function _protoCell(sn) {
+    if (sn.status !== 'enrolled') return '<td style="color:var(--fg-dim)">—</td>';
+    const v = sn.protocol_version || 0;
+    if (!v) return '<td style="font-size:11px;color:var(--fg-dim)" title="No checkin since upgrade — version unknown">unknown</td>';
+    const server = _serverProto();
+    if (server && v !== server) {
+      return `<td><span style="color:var(--sev-medium);font-weight:600" title="Server speaks v${server}; re-enroll this sensor to upgrade">v${v} ⚠</span></td>`;
+    }
+    return `<td style="font-family:monospace">v${v}</td>`;
+  }
+
+  // _renderCompat fills the compatibility-matrix banner: a one-line tally
+  // of which protocol versions the enrolled fleet is on vs. the server's.
+  // Green when uniform-and-current, amber when any sensor is behind.
+  function _renderCompat(sensors) {
+    const el = document.getElementById('sensors-compat-banner');
+    if (!el) return;
+    const server = _serverProto();
+    const enrolled = (sensors || []).filter(s => s.status === 'enrolled');
+    if (!server || enrolled.length === 0) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    const counts = {};
+    enrolled.forEach(s => { const v = s.protocol_version || 0; counts[v] = (counts[v] || 0) + 1; });
+    const versions = Object.keys(counts).map(Number).sort((a, b) => a - b);
+    const behind = enrolled.filter(s => (s.protocol_version || 0) !== server).length;
+    const tally = versions.map(v => `${counts[v]} on ${v ? 'v' + v : 'unknown'}`).join(', ');
+    el.style.display = '';
+    if (behind === 0) {
+      el.innerHTML = `<span style="color:var(--fg-dim)">Server speaks <b style="color:var(--fg)">v${server}</b> · ${enrolled.length} enrolled, all current (${tally}).</span>`;
+    } else {
+      el.innerHTML = `<span style="color:var(--sev-medium)">⚠ Server speaks <b>v${server}</b> · ${tally} — ${behind} behind. Re-enroll outdated sensors from the install one-liner to upgrade.</span>`;
+    }
+  }
+
   function _renderSensors(sensors) {
     const tbody = document.getElementById('sensors-tbody');
     if (!tbody) return;
+    _renderCompat(sensors);
     if (!sensors || sensors.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="font-style:italic;color:var(--fg-dim);text-align:center;padding:12px">No sensors enrolled yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" style="font-style:italic;color:var(--fg-dim);text-align:center;padding:12px">No sensors enrolled yet.</td></tr>';
       return;
     }
     const now = Math.floor(Date.now() / 1000);
@@ -161,6 +207,7 @@ const Sensors = (() => {
         <td style="font-family:monospace" title="${_esc(sn.name)}">${_esc(sn.name)}</td>
         <td style="font-size:11px;color:var(--fg-dim)" title="${_esc(sn.host || '')}">${_esc(sn.host || '—')}</td>
         <td>${_statusBadge(sn.status)}</td>
+        ${_protoCell(sn)}
         <td style="font-family:monospace">${_fmtSlotLocal(sn.schedule_hour, sn.schedule_minute)}</td>
         <td style="font-size:11px" title="${_fmtTSFull(sn.last_seen_at)}">${_fmtTS(sn.last_seen_at)}</td>
         <td>${_slotHealth(sn, now)}</td>

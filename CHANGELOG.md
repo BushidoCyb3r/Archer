@@ -28,6 +28,44 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.47.0] — 2026-06-02
+
+A mixed-fleet version surface for Quiver sensors. Archer has validated the
+Quiver wire-protocol version at enroll and checkin since v0.12.0, but never
+persisted it — so an operator running sensors built from different commits
+had no in-app way to see who was on what. This release records each sensor's
+reported protocol version and surfaces the fleet's compatibility state
+directly in the Sensors modal, so a version skew is visible before it
+becomes a silent enrollment failure.
+
+### Added
+
+- **Sensor protocol-version persistence.** Each sensor row now stores the
+  Quiver wire-protocol version it last reported. The version is captured
+  from the already-validated enroll payload and refreshed on *every*
+  checkin, so the stored value tracks the binary actually running on the
+  sensor, not just the one it first enrolled with.
+- **Sensor compatibility matrix (Sensors modal).** A new **Protocol**
+  column shows each enrolled sensor's reported version, flagging any sensor
+  behind the server (`v2 ⚠`, amber). A one-line banner above the table
+  tallies the fleet: green when every enrolled sensor matches the server's
+  protocol version, amber ("*N behind*") when one or more lag. The matrix
+  is computed client-side from `/api/sensors` plus the server version, so
+  no new endpoint was added.
+- **`/api/sensors/info`** now returns `server_protocol_version` (the
+  version this server speaks) and `supported_protocol_versions` (the set it
+  will still accept at enroll/checkin). Both fields are additive.
+
+### Breaking
+
+- **DB schema:** migration `0030_sensors_protocol_version.sql` adds a
+  `protocol_version INTEGER NOT NULL DEFAULT 0` column to the `sensors`
+  table and backfills every existing row to `2`. The backfill is safe
+  because v1 enrollment has been rejected since v0.12.0, so every surviving
+  sensor row is necessarily protocol v2. Forward-only, like all Archer
+  migrations — rollback requires restoring `/data` from backup. No operator
+  action required on upgrade; the migration applies at startup.
+
 ## [v0.46.0] — 2026-06-01
 
 A fingerprint-first beacon-hunt entry point. Archer already pivoted *up*
@@ -7382,6 +7420,7 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
+[v0.47.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.46.0...v0.47.0
 [v0.41.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.40.0...v0.41.0
 [v0.40.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.39.0...v0.40.0
 [v0.35.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.35.0...v0.35.1

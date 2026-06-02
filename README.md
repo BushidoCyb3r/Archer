@@ -1208,7 +1208,7 @@ Endpoints powering the Sensors modal. Read endpoints are open to admin + analyst
 |---|---|---|---|
 | `GET` | `/api/sensors` | Analyst+ | List every sensor row (any status), most recent enrollment first |
 | `GET` | `/api/sensors/health` | Any / `X-Archer-Token` | Per-sensor staleness state for scrape tooling and analyst-facing scripts: `{"sensors":[{"name":"...","last_seen_at":N,"stale":bool,"stale_for_seconds":N,"stale_threshold_sec":N}]}`. `stale_threshold_sec` reflects the configurable `sensor_stale_threshold_hours` (default 2h). Skips disenrolled sensors; never-reported sensors render with `stale=false` (the clock hasn't started). Accepts a session cookie or an `X-Archer-Token` service-account token — suitable for Prometheus/Nagios scraping. |
-| `GET` | `/api/sensors/info` | Admin | `{"tls_fingerprint":"...","sensor_facing_host":"...","effective_host":"..."}` for rendering install one-liners |
+| `GET` | `/api/sensors/info` | Admin | `{"tls_fingerprint":"...","sensor_facing_host":"...","effective_host":"...","server_protocol_version":2,"supported_protocol_versions":[2]}` for rendering install one-liners and the Sensors-modal protocol compatibility matrix |
 | `PUT` | `/api/sensors/host` | Admin | `{"host":"192.0.2.10"}` (or `"host:port"`); set the sensor-facing override that install one-liners target |
 | `GET` | `/api/sensors/tokens` | Admin | List enrollment tokens (used + unused) |
 | `POST` | `/api/sensors/tokens` | Admin | `{"override_name":"..."}` mints a new single-use 24h token; returns `{token, override_name, created_at, expires_at, ...}` |

@@ -2066,3 +2066,70 @@ func TestCheckIntegrity_FreshDB(t *testing.T) {
 		t.Fatalf("CheckIntegrity on fresh DB: %v", err)
 	}
 }
+
+// TestSensorProtocolVersion_PersistsAndRefreshes asserts the invariant
+// behind the Sensors compatibility matrix: the protocol version a sensor
+// reports is durably recorded and tracks the live binary. CreateSensor
+// stores the enroll-time version; a subsequent TouchSensor (one checkin)
+// overwrites it with whatever the sensor reported on that checkin. Both
+// the by-name and by-id read paths must surface the current value, since
+// the checkin handler and the modal read through different methods.
+func TestSensorProtocolVersion_PersistsAndRefreshes(t *testing.T) {
+	s := newTestStore(t)
+
+	id, err := s.CreateSensor(Sensor{
+		Name:            "sensor01",
+		EnrolledAt:      time.Now().Unix(),
+		CheckinSecret:   "secret",
+		ProtocolVersion: 2,
+	})
+	if err != nil {
+		t.Fatalf("CreateSensor: %v", err)
+	}
+
+	// Enroll-time value round-trips through both read paths.
+	if sn, ok := s.GetActiveSensorByName("sensor01"); !ok || sn.ProtocolVersion != 2 {
+		t.Fatalf("GetActiveSensorByName protocol_version: got %d ok=%v, want 2", sn.ProtocolVersion, ok)
+	}
+	if sn, ok := s.GetSensorByID(id); !ok || sn.ProtocolVersion != 2 {
+		t.Fatalf("GetSensorByID protocol_version: got %d ok=%v, want 2", sn.ProtocolVersion, ok)
+	}
+
+	// A checkin reporting a newer version refreshes the stored value —
+	// the row reflects the running binary, not the enroll-time version.
+	if err := s.TouchSensor(id, time.Now().Unix(), 0, 0, "10.0.0.9", 3); err != nil {
+		t.Fatalf("TouchSensor: %v", err)
+	}
+	if sn, ok := s.GetActiveSensorByName("sensor01"); !ok || sn.ProtocolVersion != 3 {
+		t.Fatalf("after checkin, GetActiveSensorByName protocol_version: got %d, want 3", sn.ProtocolVersion)
+	}
+	for _, sn := range s.GetSensors() {
+		if sn.ID == id && sn.ProtocolVersion != 3 {
+			t.Fatalf("after checkin, GetSensors protocol_version: got %d, want 3", sn.ProtocolVersion)
+		}
+	}
+}
+
+// TestSensorProtocolVersion_BackfilledForExistingRows asserts migration
+// 0030's backfill: a sensor row inserted without an explicit version
+// (the pre-migration shape) reads back as v2, not 0. This guards the
+// "every surviving row was enrolled under v2" invariant the matrix
+// relies on so historic sensors don't all render "unknown."
+func TestSensorProtocolVersion_BackfilledForExistingRows(t *testing.T) {
+	s := newTestStore(t)
+	// Insert bypassing CreateSensor's protocol_version column to mimic a
+	// row that predates the column, then run the backfill statement the
+	// migration applies to existing data.
+	if _, err := s.db.Exec(
+		`INSERT INTO sensors(name, enrolled_at, status, protocol_version) VALUES ('legacy', ?, 'enrolled', 0)`,
+		time.Now().Unix(),
+	); err != nil {
+		t.Fatalf("seed legacy row: %v", err)
+	}
+	if _, err := s.db.Exec(`UPDATE sensors SET protocol_version = 2 WHERE protocol_version = 0`); err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if sn, ok := s.GetActiveSensorByName("legacy"); !ok || sn.ProtocolVersion != 2 {
+		t.Fatalf("legacy row protocol_version: got %d ok=%v, want 2", sn.ProtocolVersion, ok)
+	}
+}

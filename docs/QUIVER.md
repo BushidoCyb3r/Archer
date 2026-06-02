@@ -270,6 +270,10 @@ Quiver speaks a versioned wire protocol between the sensor and the Archer server
 
 `QuiverProtocolVersion` is currently **`2`** (constant in `internal/server/quiver_protocol.go`). v1 was dropped at v0.12.0 NEW-16 when the per-sensor HMAC checkin-secret was introduced — there's no in-band path to retroactively issue a checkin secret to a v1 sensor, so the operator's upgrade is to re-enroll every sensor against the v0.12.0+ server. A missing `protocol_version` field resolves to v1 (and therefore unsupported), so install scripts must explicitly send `2`.
 
+### Compatibility matrix
+
+The server records the version each sensor reports — written to `sensors.protocol_version` on enrollment and refreshed on **every** checkin (migration 0030), so a row tracks the version of the binary that last checked in, not just its enroll-time value. The Sensors modal reads `protocol_version` from `/api/sensors` and the server's own version from `/api/sensors/info` (`server_protocol_version` + `supported_protocol_versions`) and renders a one-line tally above the enrolled-sensors table: green when the fleet is uniform and current, amber (`N behind`) when any enrolled sensor reports a version older than the one the server prefers. Each sensor row also carries a **Protocol** column flagging a behind sensor with `v<N> ⚠`. Because today's `supportedQuiverProtocols` set is a single version, the matrix is uniform (`all current`) until a future bump makes a mixed fleet reachable — at which point it answers "which fielded sensors still need a re-enroll?" at a glance. A `0`/`unknown` value means a row that no checkin has refreshed since the upgrade that added the column.
+
 ### What the current version (`v2`) covers
 
 The protocol contract pinned at v2 is everything the sensor and server agree on out-of-band today. Anything in this list changing in a way old clients can't muddle through is what triggers a v3 bump.

@@ -266,13 +266,14 @@ CREATE TABLE suppressions (
 );
 
 CREATE TABLE sensors (
-    id              INTEGER PRIMARY KEY,
-    name            TEXT,
-    pubkey          TEXT,
-    enrolled_at     INTEGER,
-    last_seen_at    INTEGER,
-    schedule_minute INTEGER,
-    status          TEXT          -- 'enrolled' / 'disenrolling' / 'disenrolled'
+    id               INTEGER PRIMARY KEY,
+    name             TEXT,
+    pubkey           TEXT,
+    enrolled_at      INTEGER,
+    last_seen_at     INTEGER,
+    schedule_minute  INTEGER,
+    protocol_version INTEGER,      -- Quiver wire version last reported (migration 0030); 0 = unknown
+    status           TEXT          -- 'enrolled' / 'disenrolling' / 'disenrolled'
 );
 
 CREATE TABLE enrollment_tokens (...);

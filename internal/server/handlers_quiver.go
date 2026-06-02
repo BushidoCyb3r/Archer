@@ -140,7 +140,8 @@ func (s *Server) handleQuiverEnroll(w http.ResponseWriter, r *http.Request) {
 	if req.ProtocolVersion != nil {
 		sentProto = *req.ProtocolVersion
 	}
-	if _, ok := resolveQuiverProtocol(req.ProtocolVersion); !ok {
+	resolvedProto, ok := resolveQuiverProtocol(req.ProtocolVersion)
+	if !ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(quiverProtocolErrorJSON(sentProto))
@@ -237,16 +238,17 @@ func (s *Server) handleQuiverEnroll(w http.ResponseWriter, r *http.Request) {
 	defer s.store.SetAnalyzing(false)
 
 	sensor := store.Sensor{
-		Name:           finalName,
-		Host:           strings.TrimSpace(req.Host),
-		SourceIP:       sourceIP(r),
-		EnrolledAt:     now,
-		EnrolledBy:     tok.CreatedBy,
-		PubkeyFP:       store.FingerprintSSHPubkey(req.Pubkey),
-		AuthKeyLine:    authLine,
-		CheckinSecret:  checkinSecret,
-		ScheduleHour:   hour,
-		ScheduleMinute: minute,
+		Name:            finalName,
+		Host:            strings.TrimSpace(req.Host),
+		SourceIP:        sourceIP(r),
+		EnrolledAt:      now,
+		EnrolledBy:      tok.CreatedBy,
+		PubkeyFP:        store.FingerprintSSHPubkey(req.Pubkey),
+		AuthKeyLine:     authLine,
+		CheckinSecret:   checkinSecret,
+		ScheduleHour:    hour,
+		ScheduleMinute:  minute,
+		ProtocolVersion: resolvedProto,
 	}
 	id, err := s.store.CreateSensor(sensor)
 	if err != nil {
@@ -376,7 +378,8 @@ func (s *Server) handleQuiverCheckin(w http.ResponseWriter, r *http.Request) {
 	if req.ProtocolVersion != nil {
 		sentProto = *req.ProtocolVersion
 	}
-	if _, ok := resolveQuiverProtocol(req.ProtocolVersion); !ok {
+	resolvedProto, ok := resolveQuiverProtocol(req.ProtocolVersion)
+	if !ok {
 		quiverProtocolUnsupportedCheckin(w, sentProto)
 		return
 	}
@@ -420,7 +423,7 @@ func (s *Server) handleQuiverCheckin(w http.ResponseWriter, r *http.Request) {
 			s.recordUnauthorizedCheckin(r, w, req.Name, sourceIP(r), "bad_hmac")
 			return
 		}
-		_ = s.store.TouchSensor(sn.ID, time.Now().Unix(), 0, 0, sourceIP(r))
+		_ = s.store.TouchSensor(sn.ID, time.Now().Unix(), 0, 0, sourceIP(r), resolvedProto)
 		json.NewEncoder(w).Encode(map[string]any{
 			"status": "enrolled",
 			"schedule": map[string]int{

@@ -7,7 +7,7 @@ import (
 
 // QuiverProtocolVersion is what this server speaks and prefers. Bumped
 // when the wire contract between sensor and server changes in a way old
-// clients can't muddle through — see doc/QUIVER.md "Protocol versioning"
+// clients can't muddle through — see docs/QUIVER.md "Protocol versioning"
 // for the bumping rules.
 //
 // Sensors send their own version in enrollment + checkin; servers

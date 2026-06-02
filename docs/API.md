@@ -692,9 +692,9 @@ mutations) is admin-only (enforced inside each handler).
 
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
-| `GET` | `/api/sensors` | any | List sensor rows (any status), most recent enrollment first. |
+| `GET` | `/api/sensors` | any | List sensor rows (any status), most recent enrollment first. Each row carries `protocol_version` — the Quiver wire-protocol version the sensor last reported (enroll or most recent checkin; `0` = unknown, i.e. no checkin since the server was upgraded to record it). |
 | `GET` | `/api/sensors/health` | any / `X-Archer-Token` | Per-sensor staleness state: `{sensors:[{name, status, last_seen_at, stale, stale_for_seconds, stale_threshold_sec}]}`. `stale=true` when `last_seen_at` is older than `sensor_stale_threshold_hours` (default 2 h, configurable); `stale_for_seconds` is how far past the threshold. Only enrolled sensors are included. Accepts a session cookie **or** an `X-Archer-Token` header (see *Machine-to-machine* under **Authentication**). |
-| `GET` | `/api/sensors/info` | admin | Server identity for the install one-liner — `{tls_fingerprint, sensor_facing_host, effective_host}`. |
+| `GET` | `/api/sensors/info` | admin | Server identity for the install one-liner — `{tls_fingerprint, sensor_facing_host, effective_host, server_protocol_version, supported_protocol_versions}`. `server_protocol_version` is the Quiver version this server speaks/prefers; `supported_protocol_versions` is the set it still accepts. The Sensors modal compares each enrolled sensor's `protocol_version` against these to render the compatibility matrix. |
 | `PUT` | `/api/sensors/host` | admin | Set the sensor-facing host override. Body: `{"host":"<host>"}` (with optional `:port`). |
 | `GET` | `/api/sensors/tokens` | admin | List outstanding enrollment tokens. |
 | `POST` | `/api/sensors/tokens` | admin | Mint a one-time 24h token. Body: `{"override_name":"<optional>"}`. Returns the full token row including the bearer string. |

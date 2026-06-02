@@ -47,6 +47,12 @@ type Sensor struct {
 	LastSeenAt     int64  `json:"last_seen_at"`
 	LastFiles      int64  `json:"last_files"`
 	LastBytes      int64  `json:"last_bytes"`
+	// ProtocolVersion is the Quiver wire-protocol version this sensor last
+	// reported (enroll or most recent checkin). 0 = unknown — only on a row
+	// no post-upgrade checkin has refreshed. The enroll/checkin handlers
+	// reject unsupported versions before writing, so any non-zero value here
+	// is a version this server supports.
+	ProtocolVersion int `json:"protocol_version"`
 }
 
 // EnrollmentToken is a single-use, time-bounded token that authorizes a
@@ -88,10 +94,10 @@ func (s *Store) CreateSensor(sn Sensor) (int64, error) {
 		return 0, nil
 	}
 	res, err := s.db.Exec(
-		`INSERT INTO sensors(name, host, source_ip, enrolled_at, enrolled_by, status, pubkey_fp, authkey_line, schedule_hour, schedule_minute, checkin_secret)
-		 VALUES (?,?,?,?,?,'enrolled',?,?,?,?,?)`,
+		`INSERT INTO sensors(name, host, source_ip, enrolled_at, enrolled_by, status, pubkey_fp, authkey_line, schedule_hour, schedule_minute, checkin_secret, protocol_version)
+		 VALUES (?,?,?,?,?,'enrolled',?,?,?,?,?,?)`,
 		sn.Name, sn.Host, sn.SourceIP, sn.EnrolledAt, sn.EnrolledBy,
-		sn.PubkeyFP, sn.AuthKeyLine, sn.ScheduleHour, sn.ScheduleMinute, sn.CheckinSecret,
+		sn.PubkeyFP, sn.AuthKeyLine, sn.ScheduleHour, sn.ScheduleMinute, sn.CheckinSecret, sn.ProtocolVersion,
 	)
 	if err != nil {
 		return 0, err
@@ -117,7 +123,7 @@ func (s *Store) GetSensors() []Sensor {
 	                                COALESCE(pubkey_fp,'')     AS pubkey_fp,
 	                                COALESCE(authkey_line,'')  AS authkey_line,
 	                                COALESCE(checkin_secret,'') AS checkin_secret,
-	                                schedule_hour, schedule_minute, last_seen_at, last_files, last_bytes
+	                                schedule_hour, schedule_minute, last_seen_at, last_files, last_bytes, protocol_version
 	                         FROM sensors ORDER BY enrolled_at DESC, id DESC`)
 	if err != nil {
 		slog.Error("store: GetSensors", "err", err)
@@ -127,7 +133,7 @@ func (s *Store) GetSensors() []Sensor {
 	var out []Sensor
 	for rows.Next() {
 		var sn Sensor
-		if err := rows.Scan(&sn.ID, &sn.Name, &sn.Host, &sn.SourceIP, &sn.EnrolledAt, &sn.EnrolledBy, &sn.Status, &sn.PubkeyFP, &sn.AuthKeyLine, &sn.CheckinSecret, &sn.ScheduleHour, &sn.ScheduleMinute, &sn.LastSeenAt, &sn.LastFiles, &sn.LastBytes); err == nil {
+		if err := rows.Scan(&sn.ID, &sn.Name, &sn.Host, &sn.SourceIP, &sn.EnrolledAt, &sn.EnrolledBy, &sn.Status, &sn.PubkeyFP, &sn.AuthKeyLine, &sn.CheckinSecret, &sn.ScheduleHour, &sn.ScheduleMinute, &sn.LastSeenAt, &sn.LastFiles, &sn.LastBytes, &sn.ProtocolVersion); err == nil {
 			out = append(out, sn)
 		}
 	}
@@ -151,12 +157,12 @@ func (s *Store) GetSensorByID(id int64) (Sensor, bool) {
 	                             COALESCE(pubkey_fp,'')      AS pubkey_fp,
 	                             COALESCE(authkey_line,'')   AS authkey_line,
 	                             COALESCE(checkin_secret,'') AS checkin_secret,
-	                             schedule_hour, schedule_minute, last_seen_at, last_files, last_bytes
+	                             schedule_hour, schedule_minute, last_seen_at, last_files, last_bytes, protocol_version
 	                      FROM sensors WHERE id=?`, id)
 	var sn Sensor
 	if err := row.Scan(&sn.ID, &sn.Name, &sn.Host, &sn.SourceIP, &sn.EnrolledAt, &sn.EnrolledBy,
 		&sn.Status, &sn.PubkeyFP, &sn.AuthKeyLine, &sn.CheckinSecret,
-		&sn.ScheduleHour, &sn.ScheduleMinute, &sn.LastSeenAt, &sn.LastFiles, &sn.LastBytes); err != nil {
+		&sn.ScheduleHour, &sn.ScheduleMinute, &sn.LastSeenAt, &sn.LastFiles, &sn.LastBytes, &sn.ProtocolVersion); err != nil {
 		return Sensor{}, false
 	}
 	return sn, true
@@ -180,10 +186,10 @@ func (s *Store) GetActiveSensorByName(name string) (Sensor, bool) {
 	                             COALESCE(pubkey_fp,'')     AS pubkey_fp,
 	                             COALESCE(authkey_line,'')  AS authkey_line,
 	                             COALESCE(checkin_secret,'') AS checkin_secret,
-	                             schedule_hour, schedule_minute, last_seen_at, last_files, last_bytes
+	                             schedule_hour, schedule_minute, last_seen_at, last_files, last_bytes, protocol_version
 	                      FROM sensors WHERE name=? AND status IN ('enrolled','disenrolling') ORDER BY id DESC LIMIT 1`, name)
 	var sn Sensor
-	if err := row.Scan(&sn.ID, &sn.Name, &sn.Host, &sn.SourceIP, &sn.EnrolledAt, &sn.EnrolledBy, &sn.Status, &sn.PubkeyFP, &sn.AuthKeyLine, &sn.CheckinSecret, &sn.ScheduleHour, &sn.ScheduleMinute, &sn.LastSeenAt, &sn.LastFiles, &sn.LastBytes); err != nil {
+	if err := row.Scan(&sn.ID, &sn.Name, &sn.Host, &sn.SourceIP, &sn.EnrolledAt, &sn.EnrolledBy, &sn.Status, &sn.PubkeyFP, &sn.AuthKeyLine, &sn.CheckinSecret, &sn.ScheduleHour, &sn.ScheduleMinute, &sn.LastSeenAt, &sn.LastFiles, &sn.LastBytes, &sn.ProtocolVersion); err != nil {
 		return Sensor{}, false
 	}
 	return sn, true
@@ -232,14 +238,17 @@ func (s *Store) UpdateSensorSchedule(id int64, hour, minute int) error {
 
 // TouchSensor records the most recent successful interaction with a sensor.
 // Files/bytes are optional — pass 0 when only the timestamp is known.
-func (s *Store) TouchSensor(id int64, ts int64, files, bytes int64, srcIP string) error {
+// proto is the resolved (already-validated) Quiver protocol version the
+// sensor reported on this interaction, so the row tracks the version of the
+// binary that last checked in rather than just the enroll-time value.
+func (s *Store) TouchSensor(id int64, ts int64, files, bytes int64, srcIP string, proto int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.db == nil {
 		return nil
 	}
-	_, err := s.db.Exec(`UPDATE sensors SET last_seen_at=?, last_files=?, last_bytes=?, source_ip=? WHERE id=?`,
-		ts, files, bytes, srcIP, id)
+	_, err := s.db.Exec(`UPDATE sensors SET last_seen_at=?, last_files=?, last_bytes=?, source_ip=?, protocol_version=? WHERE id=?`,
+		ts, files, bytes, srcIP, proto, id)
 	return err
 }
 

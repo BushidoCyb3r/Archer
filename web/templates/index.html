@@ -633,6 +633,12 @@
   <div class="dlg-body">
 
     <div class="dlg-section-title">Enrolled Sensors</div>
+    <!-- Quiver protocol compatibility matrix: which wire-protocol
+         version each enrolled sensor reported vs. the version this
+         server speaks. Uniform until a future protocol bump; surfaces
+         "N sensors behind, re-enroll to upgrade" once the fleet is
+         mixed. Populated by Sensors._renderSensors. -->
+    <div id="sensors-compat-banner" style="display:none;margin-bottom:8px;font-size:12px"></div>
     <div id="sensors-admin-bar" style="margin-bottom:8px;display:none">
       <button id="sensors-new-token-btn" class="dlg-btn primary">+ Enroll new sensor</button>
     </div>
@@ -641,7 +647,7 @@
         <thead>
           <tr>
             <!-- Hard widths under table-layout:fixed (see
-                 #sensors-table CSS). Data columns sum to 1040px;
+                 #sensors-table CSS). Data columns sum to 1130px;
                  the trailing unwidth'd kebab column absorbs the
                  leftover up to the table's 1250px max-width and
                  right-aligns the kebab against the table's right
@@ -649,6 +655,7 @@
             <th style="width:180px">Name</th>
             <th style="width:200px">Host</th>
             <th style="width:110px">Status</th>
+            <th style="width:90px">Protocol</th>
             <th style="width:130px">Slot</th>
             <th style="width:220px">Last seen</th>
             <th style="width:110px">Health</th>

@@ -59,7 +59,7 @@ func TestSensorHeartbeat_OnlyTriggersOnTransition(t *testing.T) {
 	}
 
 	// Sensor checks in → not stale. Active flag clears.
-	if err := s.store.TouchSensor(stale, time.Now().Unix(), 1, 1024, "127.0.0.1"); err != nil {
+	if err := s.store.TouchSensor(stale, time.Now().Unix(), 1, 1024, "127.0.0.1", 2); err != nil {
 		t.Fatalf("TouchSensor: %v", err)
 	}
 	s.scanSensorHeartbeat(active, rsyncActive, &mu)
@@ -70,7 +70,7 @@ func TestSensorHeartbeat_OnlyTriggersOnTransition(t *testing.T) {
 	mu.Unlock()
 
 	// Sensor goes stale again — fresh alarm emitted (episode count = 2).
-	if err := s.store.TouchSensor(stale, now-int64(3*time.Hour.Seconds()), 1, 1024, "127.0.0.1"); err != nil {
+	if err := s.store.TouchSensor(stale, now-int64(3*time.Hour.Seconds()), 1, 1024, "127.0.0.1", 2); err != nil {
 		t.Fatalf("TouchSensor (re-stale): %v", err)
 	}
 	s.scanSensorHeartbeat(active, rsyncActive, &mu)
@@ -270,7 +270,7 @@ func mustCreateSensor(t *testing.T, st *store.Store, name, status string, lastSe
 		}
 	}
 	if lastSeenAt > 0 {
-		if err := st.TouchSensor(id, lastSeenAt, 0, 0, ""); err != nil {
+		if err := st.TouchSensor(id, lastSeenAt, 0, 0, "", 2); err != nil {
 			t.Fatalf("TouchSensor(%s): %v", name, err)
 		}
 	}
