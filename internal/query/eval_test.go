@@ -177,6 +177,72 @@ func TestSubScoreBeaconScope(t *testing.T) {
 	}
 }
 
+func TestBeaconMetricFields(t *testing.T) {
+	b := beacon()
+	b.SampleSize = 8640
+	b.MeanInterval = 9.5
+	b.MedianInterval = 10
+	b.Jitter = 0.42
+	tests := []struct {
+		q    string
+		want bool
+	}{
+		{"conns:<=10000", true},
+		{"conns:>10000", false},
+		{"conns:[8000 TO 9000]", true},
+		{"conns:8640", true},
+		{"meanint:<=10", true},
+		{"meanint:<9", false},
+		{"medint:>=10", true},
+		{"jitter:<0.5", true},
+		{"jitter:>=0.5", false},
+		{"connections:<=10000", true},  // alias
+		{"mean_interval:<=10", true},   // alias
+		{"median_interval:>=10", true}, // alias
+	}
+	for _, tc := range tests {
+		if got := matches(t, tc.q, b); got != tc.want {
+			t.Errorf("%q = %v, want %v", tc.q, got, tc.want)
+		}
+	}
+	// Beacon-scope: a non-beacon whose metrics are a structural zero must
+	// not surface under a bare upper bound (same rule as the sub-scores).
+	nonBeacon := model.Finding{Type: "DNS Tunneling", Severity: model.SevHigh, Score: 70}
+	if matches(t, "conns:<=10000", nonBeacon) {
+		t.Error("non-beacon must not match conns:<=10000 (beacon-scope rule)")
+	}
+	if matches(t, "meanint:<=10", nonBeacon) {
+		t.Error("non-beacon must not match meanint:<=10 (beacon-scope rule)")
+	}
+}
+
+func TestIDField(t *testing.T) {
+	f := beacon()
+	f.ID = 1542
+	tests := []struct {
+		q    string
+		want bool
+	}{
+		{"id:1542", true},
+		{"id:=1542", true},
+		{"id:1543", false},
+		{"id:>=1000", true},
+		{"id:<1000", false},
+		{"id:[1500 TO 1600]", true},
+		{"id:[1600 TO 1700]", false},
+	}
+	for _, tc := range tests {
+		if got := matches(t, tc.q, f); got != tc.want {
+			t.Errorf("%q = %v, want %v", tc.q, got, tc.want)
+		}
+	}
+	// id is not beacon-scoped: every finding carries one.
+	nonBeacon := model.Finding{Type: "DNS Tunneling", ID: 77, Severity: model.SevHigh, Score: 70}
+	if !matches(t, "id:77", nonBeacon) {
+		t.Error("id must match on a non-beacon finding")
+	}
+}
+
 func TestUnknownFieldIsParseError(t *testing.T) {
 	if _, err := Parse("bogus:value"); err == nil {
 		t.Error("unknown field should be a parse error")

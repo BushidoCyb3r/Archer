@@ -227,6 +227,7 @@
         <div class="chip-wrap">
           <button class="chip" id="chip-more" type="button">+ more ▾</button>
           <ul class="chip-menu hidden" id="chip-menu-more">
+            <li data-field="id:">Finding ID</li>
             <li data-field="src:">Source IP / CIDR</li>
             <li data-field="dst:">Destination IP / CIDR</li>
             <li data-field="port:">Destination port</li>
@@ -243,6 +244,10 @@
             <li data-field="dscore:&gt;=">Beacon data-size score</li>
             <li data-field="hist:&gt;=">Beacon histogram score</li>
             <li data-field="dur:&gt;=">Beacon persistence score</li>
+            <li data-field="conns:&lt;=">Beacon observation count</li>
+            <li data-field="meanint:&lt;=">Beacon mean interval (s)</li>
+            <li data-field="medint:&lt;=">Beacon median interval (s)</li>
+            <li data-field="jitter:&lt;">Beacon jitter (CV)</li>
           </ul>
         </div>
         <button class="chip" id="show-dismissed-btn" type="button" aria-pressed="false" title="Show the Dismissed view. Dismissed findings are hidden from every other view by default; this view is the only place they surface.">Show Dismissed</button>

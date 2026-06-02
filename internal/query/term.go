@@ -21,18 +21,23 @@ type term struct {
 // canonicalField maps user-facing aliases to canonical field names and
 // reports whether the field is known.
 var fieldAlias = map[string]string{
-	"src_ip":    "src",
-	"dst_ip":    "dst",
-	"dst_port":  "port",
-	"timestamp": "ts",
+	"src_ip":          "src",
+	"dst_ip":          "dst",
+	"dst_port":        "port",
+	"timestamp":       "ts",
+	"connections":     "conns",
+	"mean_interval":   "meanint",
+	"median_interval": "medint",
 }
 
 var knownFields = map[string]bool{
+	"id":   true,
 	"type": true, "severity": true, "score": true, "src": true, "dst": true,
 	"port": true, "detail": true, "hostname": true, "sensor": true,
 	"status": true, "ts": true, "ioc": true, "spectral": true, "new": true,
 	"ja3": true, "ja4": true, "file": true,
 	"tscore": true, "dscore": true, "hist": true, "dur": true,
+	"conns": true, "meanint": true, "medint": true, "jitter": true,
 }
 
 // parseTerm turns a raw term token into a leaf node.
@@ -163,6 +168,8 @@ func (t term) eval(f model.Finding, opLoc *time.Location) bool {
 		return ipFieldMatch(f.DstIP, t)
 	case "port":
 		return t.op == "" && portMatch(f.DstPort, t.value)
+	case "id":
+		return numericMatch(float64(f.ID), t)
 	case "score":
 		return numericMatch(float64(f.Score), t)
 	case "tscore", "dscore", "hist", "dur":
@@ -173,6 +180,14 @@ func (t term) eval(f model.Finding, opLoc *time.Location) bool {
 			return false
 		}
 		return numericMatch(subScore(f, t.field), t)
+	case "conns", "meanint", "medint", "jitter":
+		// Beacon timing/volume metrics. Same beacon-scope rule as the
+		// sub-scores: these are a structural 0 on every non-beacon, so a
+		// bare upper bound (meanint:<10) must not surface them.
+		if !model.IsBeaconType(f.Type) {
+			return false
+		}
+		return numericMatch(beaconMetric(f, t.field), t)
 	case "ioc":
 		return boolMatch(f.IOCMatch, t.value)
 	case "new":
@@ -195,6 +210,23 @@ func subScore(f model.Finding, field string) float64 {
 		return f.HistScore
 	case "dur":
 		return f.DurScore
+	}
+	return 0
+}
+
+// beaconMetric reads the raw beacon timing/volume metric for a metric field.
+// jitter is the coefficient of variation (stddev/mean) — the raw ratio the
+// scorer stored, not the percentage the triage header renders.
+func beaconMetric(f model.Finding, field string) float64 {
+	switch field {
+	case "conns":
+		return float64(f.SampleSize)
+	case "meanint":
+		return f.MeanInterval
+	case "medint":
+		return f.MedianInterval
+	case "jitter":
+		return f.Jitter
 	}
 	return 0
 }

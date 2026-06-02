@@ -101,6 +101,7 @@ const Detail = (() => {
 
     // --- Identity ---
     let id = '';
+    if (f.id != null) id += _row('ID', _esc(String(f.id)), true);
     id += _row('Type',      _esc(f.type));
     id += _row('Severity',  `${_esc(f.severity)}<span style="color:var(--fg-dim)">  score </span>${_esc(String(f.score))}`, false);
     id += _row('Status',    _esc(_statusLabel(f.status)));

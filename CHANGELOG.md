@@ -28,6 +28,41 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.49.0] — 2026-06-02
+
+Five new queryable fields on the findings table, all reading structured
+finding data the query language couldn't reach before. Beacon hunts can
+now filter on the raw timing/volume metrics the scorer recorded — not just
+the composite score and its sub-axes — and any finding can be addressed by
+its stable ID without depending on the ID appearing in the Detail text.
+
+### Added
+
+- **`id:` query field.** Address a finding by its stable ID — `id:1542`
+  exact, plus comparisons (`id:>=1000`) and `[lo TO hi]` ranges. Reads the
+  finding's ID column directly, independent of the Detail string, so it
+  works regardless of what the detail text says. Added to the **+ more ▾**
+  chip menu.
+- **Finding ID in the detail pane.** The identity block now shows the
+  finding's ID, so the value a `id:` query needs is visible where you're
+  already looking.
+- **Beacon timing/volume query fields: `conns`, `meanint`, `medint`,
+  `jitter`.** Filter beacons on the raw metrics the timing scorer recorded
+  — observation count (`conns`, aka connections/requests), mean and median
+  inter-arrival interval in seconds, and jitter (coefficient of variation).
+  Numeric comparisons and ranges (`conns:<=10000`, `meanint:>=3600`,
+  `jitter:<0.2`). Like the sub-scores, any one implicitly scopes to the
+  beacon family — a structural 0 on every non-beacon never surfaces under a
+  bare upper bound. Aliases: `connections`, `mean_interval`,
+  `median_interval`. Added to the **+ more ▾** chip menu.
+
+These read fields already persisted on the findings table (the ID column
+and the migration-0018 beacon metrics) — no schema change, no detection
+change. The `q` param stays additive; the legacy single-field params are
+untouched.
+
+---
+
 ## [v0.48.0] — 2026-06-02
 
 A query language for the findings table, a one-command local demo, and the

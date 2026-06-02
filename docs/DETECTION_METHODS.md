@@ -493,6 +493,13 @@ changed**, and the golden corpus is unchanged:
   buries. Any sub-score bound implicitly scopes results to beacon
   types (a structural-zero axis on a non-beacon can't satisfy a bare
   upper bound). See §2.2 for what each axis measures.
+  As of v0.49.0 the raw triage metrics behind the header are queryable
+  too — `conns` (sample size / observation count), `meanint` / `medint`
+  (mean / median inter-arrival interval, seconds), and `jitter` (the
+  interval CV, raw — `0.42`, not `42%`) — with the same comparisons,
+  ranges, and beacon-scoping as the sub-scores: `conns:<=10000`,
+  `meanint:>=3600`, `jitter:<0.2`. These read the migration-0018 columns
+  directly, so they're filterable wherever the sub-scores are.
 - **JA3 / JA4 cross-reference.** A conn-level Beaconing finding carries
   the TLS client fingerprint of its seed connection (lifted from the
   same `ssl.log` index that resolves the SNI). When the sensor runs the

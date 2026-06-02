@@ -300,7 +300,16 @@ expected, read the error before trusting the result.
   fields — `dst:185.220.*`, `hostname:cdn?.example.com`,
   `detail:*jitter*`.
 - **Comparisons:** `>=`, `<=`, `>`, `<`, `=` on numeric and date
-  fields — `score:>=90`, `ts:>=2026-03-15`.
+  fields — `score:>=90`, `ts:>=2026-03-15`. `=` is an exact match
+  (`conns:=1542`); a bare value with no operator means the same
+  (`conns:1542` ≡ `conns:=1542`).
+- **Number format:** numeric values are read as decimals, not just
+  whole numbers — `meanint:<=9.5`, `jitter:<0.42` all parse. The
+  catch is on exact `=`: a count field like `conns` only ever holds a
+  whole number, so `conns:=1542.5` parses but can never match (there's
+  no fractional connection count); use a whole number for `=` on
+  `conns`. Decimals are exact-matchable on the true-float fields
+  (`meanint` / `medint` / `jitter`).
 - **Ranges:** `field:[lo TO hi]`, inclusive — `score:[80 TO 100]`,
   `ts:[2026-03-01 TO 2026-03-15]`.
 - **Quoted phrases:** wrap values with spaces in quotes —
@@ -310,6 +319,7 @@ expected, read the error before trusting the result.
 
 | Field | Matches | Notes |
 |---|---|---|
+| `id` | Finding ID | Numeric — `id:1542` exact, plus comparisons and `[lo TO hi]` ranges. Reads the finding's stable ID directly (not the Detail text), so it works regardless of what the Detail string says. The ID is shown in the detail pane's identity block. |
 | `type` | Finding type, e.g. `type:Beaconing` | Exact (case-insensitive). `type:beacons` matches the **whole** beacon family (Beaconing / HTTP Beaconing / DNS Beaconing). |
 | `severity` | `critical` / `high` / `medium` / `low` | Exact. |
 | `score` | Composite score | Numeric — comparisons and ranges. |
@@ -326,6 +336,7 @@ expected, read the error before trusting the result.
 | `spectral` | Spectral-rescued beacon | `spectral:true` surfaces beacons rescued by the periodogram. |
 | `new` | New since your last login | `new:true` is the query-bar form of the **New only** filter. |
 | `tscore` / `dscore` / `hist` / `dur` | Beacon sub-scores (Timing / Data size / Histogram / Persistence) | Numeric — comparisons and ranges. **Any** sub-score predicate implicitly scopes to the beacon family, so a bare `dur:<=0.3` won't drag in non-beacons whose sub-scores are a structural 0. |
+| `conns` / `meanint` / `medint` / `jitter` | Beacon timing/volume metrics — observation count (`conns`, aka connections/requests), mean and median inter-arrival interval in **seconds**, and `jitter` (coefficient of variation = stddev/mean, the raw ratio — `0.42`, not `42%`) | Numeric — comparisons and ranges (`conns:<=10000`, `meanint:<=10`, `jitter:<0.5`, `conns:=1542`). `conns` is a whole-number count (use whole numbers for exact `=`); the interval/jitter fields are true floats so decimals match (`jitter:=0.42`). Beacon-scoped like the sub-scores: a structural 0 on every non-beacon, so a bare upper bound won't drag them in. Aliases: `connections`, `mean_interval`, `median_interval`. |
 
 The same fields are listed in the query bar's **+ more ▾** chip
 menu — click a chip to drop the field into the bar.
@@ -883,8 +894,16 @@ shape floats up; *state the shape* and pull it directly:
 |---|---|
 | Short-lived tight-cadence check-ins (staging, hands-on-keyboard) | `tscore:>=0.80 AND dur:<=0.30` |
 | Long-haul low-and-slow tunnel (keepalive) | `tscore:>=0.70 AND dur:>=0.80 AND hist:>=0.80` |
-| Constant-size heartbeat regardless of timing jitter | `dscore:>=0.85` (then read jitter in the triage header) |
+| Constant-size heartbeat regardless of timing jitter | `dscore:>=0.85 AND jitter:<0.3` |
 | "Show me everything beacon-shaped, any score" | any single bound, e.g. `tscore:>=0.50` |
+
+The same beacon scoping applies to the raw timing/volume metrics the
+scorer recorded: `conns` (observation count), `meanint` / `medint`
+(mean / median inter-arrival interval, seconds), and `jitter` (the
+coefficient of variation, raw — `0.42`, not `42%`). Reach for them
+when the *value*, not the score, is the hunt: `conns:<=10000` to drop
+chatty high-volume noise, `meanint:>=3600` for hour-plus low-and-slow
+check-ins, `jitter:<0.2` for metronome-tight cadence.
 
 This is the entry point. Everything below pivots from a finding you
 found here.
