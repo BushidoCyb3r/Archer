@@ -284,7 +284,7 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 
 	result, err := s.filterFindings(s.store.GetFindings(), q, newBoundaryFromCtx(r))
 	if err != nil {
-		http.Error(w, "invalid query: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "invalid query: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	sortFindings(result, sortCol, sortDir)

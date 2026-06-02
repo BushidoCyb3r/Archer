@@ -28,6 +28,54 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.51.0] — 2026-06-02
+
+A typo in the query bar no longer fails silently. A bad query now drops a
+red toast in from the top of the page with the reason, and the parser
+learned to reject a misspelled finding type instead of treating it as a
+valid query that happens to match nothing.
+
+### Added
+
+- **Red query-error toast.** When the findings query is rejected, a red
+  toast slides down from the top edge carrying the server's message and
+  retracts the moment a valid query lands. The previous behavior swallowed
+  the error: an unknown field already returned `400`, but the front-end
+  parsed it as JSON (the body was plain text), lost the message, and left
+  the analyst with no feedback and stale results. The toast covers all
+  three rejection classes — malformed syntax (`score:[80 TO]`), unknown
+  field (`dest:1.2.3.4` — it's `dst`), and unknown finding type
+  (`type:"Correlatd Activity"`). Last good results stay on screen.
+- **`type:` value validation.** An exact `type:` term must now name a real
+  finding type. `type:Beaon` / `type:"Correlatd Activity"` previously
+  parsed fine and matched zero rows — indistinguishable from a legitimately
+  empty result — and now return a parse error naming the unknown type. The
+  `type:beacons` family selector, case folding (`type:beacon`), and
+  multi-word quoted types (`type:"DNS Tunneling"`) stay valid. Backed by
+  `model.IsKnownFindingType` over the closed finding-type vocabulary.
+
+### Changed
+
+- **`GET /api/findings` query-error body is now JSON.** A rejected `q`
+  returns `400` with a JSON `{"error"}` body instead of `text/plain`, so
+  the UI (and any API consumer) can read the parse error. This is the path
+  the toast reads.
+
+### Breaking
+
+- **The `q` param now rejects unknown `type:` values (API contract +
+  detection-query semantics).** A query that names a finding type that
+  doesn't exist used to return an empty result set; it now returns `400`.
+  Any saved/scripted query carrying a misspelled — or since-renamed (e.g.
+  the v0.50.0 `type:Beaconing`) — type string will start erroring instead
+  of silently returning nothing. Re-type it against a current finding type.
+  No back-compat alias is shipped. The known-type vocabulary lives in
+  `model.IsKnownFindingType`; a new finding type must be registered there or
+  exact `type:` queries for it will be falsely rejected (guarded by
+  `TestIsKnownFindingType`).
+
+---
+
 ## [v0.50.0] — 2026-06-02
 
 The beacon finding types lose their `-ing`: `Beaconing` → `Beacon`,

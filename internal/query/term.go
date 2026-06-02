@@ -87,6 +87,9 @@ func parseTerm(raw string) (node, error) {
 	if len(rest) >= 2 && strings.HasPrefix(rest, `"`) && strings.HasSuffix(rest, `"`) {
 		t.phrase = true
 		t.value = rest[1 : len(rest)-1]
+		if err := validateTypeValue(field, t.value); err != nil {
+			return nil, err
+		}
 		return t, nil
 	}
 
@@ -95,7 +98,26 @@ func parseTerm(raw string) (node, error) {
 		return nil, fmt.Errorf("missing value for field %q", field)
 	}
 	t.value = rest
+	if err := validateTypeValue(field, t.value); err != nil {
+		return nil, err
+	}
 	return t, nil
+}
+
+// validateTypeValue rejects an exact `type:` term whose value isn't a known
+// finding type, so a misspelling (type:"Correlatd Activity", type:Beaon)
+// surfaces as a query error instead of silently matching nothing. The
+// `type:beacons` family selector is evaluated specially and is always valid;
+// the type field doesn't support wildcards, so every other value is an exact
+// match worth validating. A no-op for every non-type field.
+func validateTypeValue(field, value string) error {
+	if field != "type" || strings.EqualFold(value, "beacons") {
+		return nil
+	}
+	if !model.IsKnownFindingType(value) {
+		return fmt.Errorf("unknown finding type %q", value)
+	}
+	return nil
 }
 
 // splitField returns the field name and the remainder after the first colon,

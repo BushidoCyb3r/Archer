@@ -343,6 +343,26 @@
     t._timer = setTimeout(() => t.style.display = 'none', duration);
   }
 
+  // showQueryError drops a red toast in from the top of the page when the
+  // findings query is rejected (bad syntax, unknown field, unknown type).
+  // The ".show" class drives the slide-in; hideQueryError retracts it the
+  // moment a valid query lands so a stale error never lingers over results.
+  function showQueryError(msg, duration = 6000) {
+    const t = document.getElementById('query-toast');
+    if (!t) return;
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => t.classList.remove('show'), duration);
+  }
+
+  function hideQueryError() {
+    const t = document.getElementById('query-toast');
+    if (!t) return;
+    clearTimeout(t._timer);
+    t.classList.remove('show');
+  }
+
   // navigator.clipboard is only available in secure contexts (HTTPS or
   // localhost). When the UI is reached over plain HTTP on a remote host
   // (common for on-prem deployments), the API is undefined and any direct
@@ -429,8 +449,15 @@
     const r = await fetch('/api/findings' + (qs ? '?' + qs : ''));
     if (!r.ok) {
       const e = await r.json().catch(() => ({}));
-      throw (e.error || r.statusText);
+      const msg = e.error || r.statusText;
+      // A bad query (unknown field, malformed syntax, unknown finding type)
+      // is the only 400 this endpoint returns. Surface it as a red toast and
+      // keep the prior results on screen rather than throwing an unhandled
+      // rejection that leaves the analyst with no feedback.
+      if (r.status === 400) { showQueryError(msg); return; }
+      throw (msg);
     }
+    hideQueryError();
     const page = await r.json();
     ts.total   = parseInt(r.headers.get('X-Total-Count') || '0', 10) || 0;
     ts.findings = Array.isArray(page) ? page : [];

@@ -281,9 +281,13 @@ evaluated server-side and ANDed on top of whatever view you're in
 tab rather than fighting it. Clear the bar to see everything in
 the view again.
 
-A bad query doesn't silently match everything or nothing — it
-shows you a parse error. If the table didn't change the way you
-expected, read the error before trusting the result.
+A bad query doesn't silently match everything or nothing — a red
+toast drops in from the top of the page with the reason, and the
+table keeps your last good results. You'll see it for a malformed
+query (`score:[80 TO]`), an unknown field (`dest:1.2.3.4` — it's
+`dst`), or a finding type that doesn't exist (`type:"Correlatd
+Activity"` — a typo never silently matches zero rows). Read the
+toast before trusting the result.
 
 ### The shape of a query
 
@@ -320,7 +324,7 @@ expected, read the error before trusting the result.
 | Field | Matches | Notes |
 |---|---|---|
 | `id` | Finding ID | Numeric — `id:1542` exact, plus comparisons and `[lo TO hi]` ranges. Reads the finding's stable ID directly (not the Detail text), so it works regardless of what the Detail string says. The ID is shown in the detail pane's identity block. |
-| `type` | Finding type, e.g. `type:Beacon` | Exact (case-insensitive). `type:beacons` matches the **whole** beacon family (Beacon / HTTP Beacon / DNS Beacon). |
+| `type` | Finding type, e.g. `type:Beacon` | Exact (case-insensitive). Must name a real finding type — a misspelling (`type:Beaon`) is rejected with a toast, not silently empty. `type:beacons` matches the **whole** beacon family (Beacon / HTTP Beacon / DNS Beacon). |
 | `severity` | `critical` / `high` / `medium` / `low` | Exact. |
 | `score` | Composite score | Numeric — comparisons and ranges. |
 | `src` / `dst` | Source / destination IP | Bare IP = exact; CIDR (`dst:185.220.101.0/24`) = containment; wildcard (`dst:185.220.*`) = prefix/substring. |

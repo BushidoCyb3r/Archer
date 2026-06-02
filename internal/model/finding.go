@@ -316,6 +316,50 @@ func IsBeaconType(t string) bool {
 	return false
 }
 
+// knownFindingTypes is the closed vocabulary of Type strings the analyzer
+// can emit, plus the legacy "Threat Intel Hit" string old DBs still carry.
+// The query language validates an exact `type:` term against this set so a
+// misspelling (type:"Correlatd Activity") is rejected at the query bar
+// instead of silently matching nothing.
+//
+// This is a second home for type strings that otherwise live as literals at
+// the detector emit sites — a new finding type MUST be registered here or
+// exact `type:` queries for it get falsely rejected. TestIsKnownFindingType
+// guards the constant-backed entries against drift.
+var knownFindingTypes = map[string]bool{
+	"Beacon": true, "HTTP Beacon": true, "DNS Beacon": true,
+	"Strobe": true, "Long Connection": true, "Data Exfiltration": true,
+	"Off-Hours Transfer": true, "Lateral Movement": true,
+	"DNS Tunneling": true, "DNS NXDOMAIN Flood": true, "DNS Subdomain DGA": true,
+	"Protocol Anomaly": true, "C2 Port": true, "C2 URI Pattern": true,
+	"Cobalt Strike URI": true, "Domain Fronting": true, "DoH Bypass": true,
+	"Malicious JA3": true, "Malicious JA4": true, "Weak TLS": true,
+	"SSL No-SNI": true, "SSL No-SNI on C2 Port": true,
+	"Suspicious Certificate": true, "Suspicious File Download": true,
+	"Suspicious TLD": true, "Suspicious UA": true,
+	"Zeek Notice":     true,
+	TypeSuspiciousURL: true,
+	TypeTIHitIP:       true, TypeTIHitDomain: true, TypeTIHitHash: true,
+	TypeTIHitLegacy:   true,
+	TypeHostRiskScore: true, TypeCorrelatedActivity: true,
+}
+
+// IsKnownFindingType reports whether t is a finding type the analyzer can
+// emit, matched case-insensitively (type:beacon resolves to "Beacon"). The
+// query language uses it to reject a misspelled exact `type:` term; the
+// `type:beacons` family selector and the bare-term path don't reach here.
+func IsKnownFindingType(t string) bool {
+	if knownFindingTypes[t] {
+		return true
+	}
+	for k := range knownFindingTypes {
+		if strings.EqualFold(k, t) {
+			return true
+		}
+	}
+	return false
+}
+
 // FingerprintStat is the per-TLS-client-fingerprint prevalence over one
 // analysis pass — every ssl.log connection, not just emitted beacons:
 // total connections, distinct internal source hosts, distinct destinations.

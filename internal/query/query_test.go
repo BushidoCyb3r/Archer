@@ -141,17 +141,39 @@ func TestQuotedPhrase(t *testing.T) {
 
 func TestParseErrors(t *testing.T) {
 	bad := []string{
-		"type:",           // missing value
-		"(type:Beacon",    // unbalanced paren
-		"type:Beacon )",   // stray close paren
-		"AND type:Beacon", // leading binary operator
-		"type:Beacon AND", // trailing binary operator
-		"score:[80 TO]",   // malformed range
-		"score:[TO 100]",  // malformed range
+		"type:",                     // missing value
+		"(type:Beacon",              // unbalanced paren
+		"type:Beacon )",             // stray close paren
+		"AND type:Beacon",           // leading binary operator
+		"type:Beacon AND",           // trailing binary operator
+		"score:[80 TO]",             // malformed range
+		"score:[TO 100]",            // malformed range
+		"dest:1.2.3.4",              // unknown field (misspelled dst)
+		"type:Beaon",                // unknown finding type (misspelled, plain)
+		`type:"Correlatd Activity"`, // unknown finding type (misspelled, quoted)
+		"type:Beaconing",            // retired pre-v0.50 type
 	}
 	for _, q := range bad {
 		if _, err := Parse(q); err == nil {
 			t.Errorf("Parse(%q) expected error, got nil", q)
+		}
+	}
+}
+
+// TestTypeValueValidation pins the rule the red query-error toast depends on:
+// an exact type: term must name a real finding type, but the family selector,
+// case folding, and multi-word quoted types stay valid.
+func TestTypeValueValidation(t *testing.T) {
+	good := []string{
+		"type:Beacon", "type:beacon", // exact + case-insensitive
+		`type:"DNS Tunneling"`,       // multi-word quoted type
+		`type:"Correlated Activity"`, // multi-word, correctly spelled
+		"type:beacons",               // family selector — always valid
+		"type:Strobe AND score:>=90", // composed with other terms
+	}
+	for _, q := range good {
+		if _, err := Parse(q); err != nil {
+			t.Errorf("Parse(%q) unexpected error: %v", q, err)
 		}
 	}
 }

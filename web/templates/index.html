@@ -1379,6 +1379,8 @@
   box-shadow:0 4px 16px rgba(0,0,0,.6);z-index:9999;display:none">
 </div>
 
+<div id="query-toast" role="alert"></div>
+
 <!-- ── JS modules ─────────────────────────────────────────────── -->
 <script>
   window.SCORE_EXPLANATIONS = {{.ScoreExplanations}}; // nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag -- static hardcoded score-explanation text (json.Marshal of a constant map), no user input or secrets; config bootstrap removed in the v0.25.1 fix
