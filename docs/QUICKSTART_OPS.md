@@ -48,8 +48,8 @@ docker compose ps                               # confirm 'archer' is Up
 # Verify: Sensors modal should show the new sensor "fresh" within 60s
 ```
 
-After this you have a working Archer. Analyze logs lands in the
-top toolbar once Zeek logs start arriving in `/logs/<sensor>/`.
+After this you have a working Archer. The **Analyze** button lands in
+the top toolbar once Zeek logs start arriving in `/logs/<sensor>/`.
 
 ---
 

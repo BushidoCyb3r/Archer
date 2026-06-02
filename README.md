@@ -652,13 +652,13 @@ Navigate to `https://localhost:8443/`. Accept the self-signed cert warning the f
 1. Drop Zeek logs into `logs/<name>/<date>/` on the host (or let
    Quiver sensors rsync them in automatically). The sidebar **Logs**
    tree shows what's been picked up.
-2. Click **Analyze logs** to run the full detection pipeline.
+2. Click **Analyze** to run the full detection pipeline.
 3. Findings appear in real time as the pipeline progresses.
 
 For analyst-laptop bundles or third-party hand-offs without a live
 sensor: drop the bundle into `logs/<handoff-name>/<date>/` on the
 host (mount, `docker cp`, or SCP via the Quiver SSH dropbox at
-port 2222). Same `Analyze logs` button picks them up.
+port 2222). Same `Analyze` button picks them up.
 
 ---
 
@@ -963,7 +963,7 @@ Sessions are stored in SQLite with a 24-hour expiry, httpOnly cookies, and `Same
 | Section | Controls |
 |---|---|
 | **Logs** | Shows the configured log directory and a read-only preview tree of `<sensor>/<date>/` directories under `/logs`. Click a sensor to expand its dates with file counts and total size. The tree refreshes automatically when an analyze pass finishes, so newly-arrived (rsync'd or hand-dropped) logs appear without a page reload. |
-| **Analysis** | **Analyze logs** starts the detection pipeline against everything currently under `/logs`. Disabled when the tree is empty. A progress bar and step indicator update in real time via SSE. **Pause** and **Stop** are available during a run. The analyzer checks for cancellation at phase boundaries (not in tight loops), so there can be a noticeable delay between clicking **Stop** and the run actually winding down — the button visibly switches to "Stopping…" and the status line shows *"Cancellation requested — waiting for analyzer to wind down…"* until the run exits. Manual analyze runs the full pipeline and preserves analyst state (notes / acks / escalations) via fingerprint merge — useful during active hunts when you want a fresh detection pass without losing your annotations. |
+| **Analysis** | **Analyze** starts the detection pipeline against everything currently under `/logs`. Disabled when the tree is empty. A progress bar and step indicator update in real time via SSE. **Pause** and **Stop** are available during a run. The analyzer checks for cancellation at phase boundaries (not in tight loops), so there can be a noticeable delay between clicking **Stop** and the run actually winding down — the button visibly switches to "Stopping…" and the status line shows *"Cancellation requested — waiting for analyzer to wind down…"* until the run exits. Manual analyze runs the full pipeline and preserves analyst state (notes / acks / escalations) via fingerprint merge — useful during active hunts when you want a fresh detection pass without losing your annotations. |
 | **Threat Intel** | Displays a count of TI hits found in the last analysis. |
 | **Watch Mode** | The sidebar is read-only for every role: it shows whether watch mode is enabled or disabled and a compact status — the configured cadence and run time (e.g. *"Daily at 02:00"*, *"Hourly at :15"*) and the timezone with its abbreviation (e.g. *"America/New_York (EDT)"*). The configured schedule shows even while watch is disabled, so an analyst or viewer can see what's set up. **Admins** additionally see a **Watch Mode** button (styled like the other sidebar action buttons) that opens the settings modal; analysts and viewers don't get the button — matching the server, which enforces admin on the watch write. Inside the modal an admin picks a **Cadence** first (Daily / Every 12h / Every 6h / Every 4h / Hourly); the time control beneath it adapts: a full HH:MM picker labeled `Run at` for Daily, `First run at` for the multi-hour cadences, and a minute-of-hour numeric input under Hourly (the server only uses the minute portion there). A live schedule preview in the modal shows when the next tick lands and whether it is a full pipeline or an incremental TI/IOC pass. Cadence, time, and timezone auto-save on change and persist independently of the **Enable** / **Disable** toggle. |
 | **Allowlist** | Edit the list of IPs and domains to exclude from all findings. One entry per line. Findings matching an allowlisted IP are hidden across all tabs immediately after saving. |
