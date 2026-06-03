@@ -152,8 +152,8 @@ runs in the background overlapping phase 1; phases 2–4 are sequential.
 
 | Phase | Work | Files |
 |-------|------|-------|
-| 0 | Threat-intel feed prefetch. Built-in feeds (Feodo, URLhaus) fetch over the network; configured MISP/OpenCTI feeds load their cached indicators from SQLite via `FeedProvider`. Overlaps with phase 1. | `ti.go: prefetchFeeds` |
-| 1 | All log-type analyzers in parallel — they're independent. Conn (beacon/strobe/exfil/long-conn), DNS, SSL, X.509, Files, Weird, Notice. | `conn.go`, `dns.go`, `ssl.go`, `x509.go`, `files.go`, `weird.go`, `notice.go` |
+| 0 | Threat-intel feed prefetch. Built-in feeds (Feodo, URLhaus) fetch over the network; configured MISP/OpenCTI feeds load their cached indicators from SQLite via `FeedProvider`. The built-in-feed scanners check `sc.Err()` after the read and raise the `bufio` line cap to 1 MB (v0.55.0), so an oversized CSV row can't silently truncate a feed. Overlaps with phase 1. | `ti.go: prefetchFeeds` |
+| 1 | All log-type analyzers in parallel — they're independent. Conn (beacon/strobe/exfil/long-conn), DNS, SSL, X.509, Files, Weird, Notice. The conn analyzer's strobe/exfil/off-hours auxiliary host-pair tracking is capped at 500k pairs to bound memory on very large corpora (v0.55.0); the beacon pair map is **not** capped, so beacon detection is unaffected (see DETECTION_METHODS.md §4). | `conn.go`, `dns.go`, `ssl.go`, `x509.go`, `files.go`, `weird.go`, `notice.go` |
 | 2 | HTTP analysis (sequential — needs `sslUIDIndex` populated by `analyzeSSL` in phase 1). | `http_analysis.go` |
 | 2.5 | SNI/JA3/JA4 enrichment for conn Beacon — deferred here so `sslUIDIndex` is fully populated before the lookup. `analyzeSSL` also builds a per-fingerprint prevalence map over all `ssl.log` (conns, distinct src hosts, distinct dsts); the server pushes it to the store after the pass (`SetFingerprintPrevalence`) and the **TLS-fingerprint rarity + cross-host-cluster** concern (`fp_concern`/`fp_detail`, enrichment only, no score change) is derived from it at read time, not stamped here. The same snapshot also backs the **TLS Fingerprints** inventory (`store.FingerprintInventory` → `GET /api/fingerprints`): the ranked high-signal JA3/JA4 list the modal renders, top-down counterpart to the per-finding TLS Pivot. Fingerprints an analyst has marked benign (`fingerprint_allowlist`, migration 0032) are filtered out of that list — except known-bad C2 matches, which are forced critical and never hidden. Then DGA hostname augmentation: sweep over Beacon / HTTP Beacon findings; bumps score (+15) and severity when the destination Hostname's SLD looks algorithmically generated (high entropy + low English bigram log-likelihood). | `analyzer.go: enrichBeaconSNI`, `store.go: FingerprintConcern`, `dga.go: applyDGAScoring` |
 | 3 | URL + TI checks in parallel (need cached feeds from phase 0, plus the per-file dst sets). Two-phase TI scan: cheap dst-only sweep, then targeted per-source for "winners" only. | `ti.go`, `http_analysis.go: analyzeURLs` |
@@ -505,7 +505,12 @@ suppression set via `isHiddenLocked(srcIP, dstIP)` and
 `isPairAllowedLocked(src, dst, port, type, sensor)` before adding to
 `s.notifications`. The same exclusion check `filterFindings` applies
 at read time runs here too, so the bell never rings for a finding
-whose row would be invisible in the table. NEW-111 (v0.18.1) — the
+whose row would be invisible in the table. (As of v0.55.0 the read-time
+`filterFindings` path captures one immutable `FilterSnapshot`
+(`store.go`) of the suppression + pair-allow state per request and tests
+every row against it, rather than re-taking the store lock three times
+per finding — behavior is identical, this is a locking/throughput change
+only.) NEW-111 (v0.18.1) — the
 matching cleanup pass `dismissHiddenFindingNotificationsLocked` runs
 from `SetAllowlist`, `AddSuppression`, and `AddPairAllow` to mark
 already-emitted finding notifications dismissed when their src/dst is
@@ -636,9 +641,16 @@ silently matching everything. Adding a queryable field means a
 ## Auth and roles
 
 Sessions are server-side, stored in the `sessions` table with a
-random-token cookie (`SameSite=Lax`, `HttpOnly`, `Secure` when on
-HTTPS). Login validates against `users`; failed login attempts are
-rate-limited per email.
+random-token cookie (`SameSite=Strict`, `HttpOnly`, `Secure` always).
+Login validates against `users`; failed login attempts are rate-limited
+per email. As a CSRF defense-in-depth layer behind the `SameSite=Strict`
+cookie (v0.55.0), `requireAuth` also rejects an authenticated
+state-changing request (`POST`/`PUT`/`PATCH`/`DELETE`) whose `Origin`
+(or `Referer`) host doesn't match the request host, with `403`; a
+request carrying neither header passes, so non-browser session clients
+are unaffected. The `X-Archer-Token` path on `/api/sensors/health`
+charges the per-IP rate-limit bucket on a failed token, so a bogus-token
+flood there returns `429` without a valid token ever being limited.
 
 Three roles:
 
@@ -784,6 +796,6 @@ CI is also pending (Phase 5) — currently `go vet`, `go test`, and
 
 ---
 
-*Last updated: 2026-05 alongside the v0.19.0 release. Update
+*Last updated: 2026-06 alongside the v0.55.0 release. Update
 this doc whenever the dataflow, schema, SSE catalog, or process model
 materially changes.*

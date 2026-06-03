@@ -19,7 +19,7 @@ import (
 // newAuditTestServer is a thin wrapper around the same plumbing the
 // feeds tests use — a real on-disk SQLite store with migrations
 // applied. Audit-driven regression tests live in this file.
-func newAuditTestServer(t *testing.T) *Server {
+func newAuditTestServer(t testing.TB) *Server {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	db, err := sql.Open("sqlite", dbPath)

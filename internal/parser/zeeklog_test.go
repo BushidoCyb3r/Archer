@@ -140,6 +140,61 @@ func TestParseLog_GzipUnderLimitParsesAll(t *testing.T) {
 	}
 }
 
+// TestParseLog_TSVRoundTrip pins the positional field-mapping contract of
+// the Zeek TSV path: every column named in the #fields header maps to the
+// data cell at its index, a row with fewer cells than headers backfills
+// the trailing fields with Zeek's "-" sentinel (read back as empty), and a
+// row with more cells than headers neither panics nor shifts columns. A
+// regression here silently mislabels parsed fields — a beacon's resp_h
+// would read as its orig_p and every downstream detector keys on garbage.
+func TestParseLog_TSVRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "conn.log")
+
+	content := strings.Join([]string{
+		"#separator \\x09",
+		"#fields\tts\tid.orig_h\tid.resp_h\tid.resp_p\tproto",
+		// exact-width row
+		"1000.0\t10.0.0.1\t10.0.0.2\t443\ttcp",
+		// short row: proto column absent → backfilled with "-"
+		"1001.0\t10.0.0.3\t10.0.0.4\t53",
+		// wide row: extra trailing cell must be dropped, not shift fields
+		"1002.0\t10.0.0.5\t10.0.0.6\t80\ttcp\tEXTRA",
+	}, "\n") + "\n"
+
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	type row struct{ orig, resp, port, proto string }
+	var got []row
+	err := ParseLog(path, func(rec map[string]any) bool {
+		got = append(got, row{
+			orig:  GetStr(rec, "id.orig_h"),
+			resp:  GetStr(rec, "id.resp_h"),
+			port:  GetStr(rec, "id.resp_p"),
+			proto: GetStr(rec, "proto"),
+		})
+		return true
+	})
+	if err != nil {
+		t.Fatalf("ParseLog: %v", err)
+	}
+	want := []row{
+		{"10.0.0.1", "10.0.0.2", "443", "tcp"},
+		{"10.0.0.3", "10.0.0.4", "53", ""},    // short row: proto empty, not shifted
+		{"10.0.0.5", "10.0.0.6", "80", "tcp"}, // wide row: EXTRA dropped
+	}
+	if len(got) != len(want) {
+		t.Fatalf("parsed %d rows, want %d: %+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("row %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
 func summarizeURIs(s []string) []string {
 	out := make([]string, len(s))
 	for i, v := range s {

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"net/url"
 
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
@@ -51,11 +52,46 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 			s.redirectOrUnauthorized(w, r)
 			return
 		}
+		if isUnsafeMethod(r.Method) && crossOriginRequest(r) {
+			http.Error(w, `{"error":"cross-origin request blocked"}`, http.StatusForbidden)
+			return
+		}
 		ctx := context.WithValue(r.Context(), ctxUser, user)
 		ctx = context.WithValue(ctx, ctxBoundary, s.users.SessionNewBoundary(c.Value))
 		ctx = context.WithValue(ctx, ctxToken, c.Value)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// isUnsafeMethod reports whether the method can change state, and so must
+// carry a same-origin Origin/Referer when authenticated by session cookie.
+func isUnsafeMethod(m string) bool {
+	switch m {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	}
+	return false
+}
+
+// crossOriginRequest reports whether the request presents an Origin (or,
+// failing that, Referer) whose host does not match the host the request
+// arrived on. This is a defense-in-depth CSRF layer behind the
+// SameSite=Strict session cookie: SameSite already blocks cross-site cookie
+// attachment in current browsers, and this rejects a forged request a second
+// way if that attribute is ever absent or unhonored. A request with neither
+// header is allowed — a same-origin fetch always sends Origin, so rejecting
+// on absence would break legitimate non-browser session clients without
+// covering anything SameSite does not already block.
+func crossOriginRequest(r *http.Request) bool {
+	if origin := r.Header.Get("Origin"); origin != "" {
+		u, err := url.Parse(origin)
+		return err != nil || u.Host != r.Host
+	}
+	if ref := r.Header.Get("Referer"); ref != "" {
+		u, err := url.Parse(ref)
+		return err != nil || u.Host != r.Host
+	}
+	return false
 }
 
 func (s *Server) redirectOrUnauthorized(w http.ResponseWriter, r *http.Request) {

@@ -25,6 +25,14 @@ DOCKER_CPUS=$(sudo docker info --format '{{.NCPU}}' 2>/dev/null || echo 0)
 DOCKER_MEM_BYTES=$(sudo docker info --format '{{.MemTotal}}' 2>/dev/null || echo 0)
 DOCKER_MEM_MB=$(awk -v b="$DOCKER_MEM_BYTES" 'BEGIN { printf "%.0f", b / 1048576 }')
 
+# A failed `docker info` (daemon down, no permission, returns 0) means the
+# resource math below silences down to host totals. That can size the
+# container's memory ceiling above the daemon's real limit and OOM-kill it
+# mid-analysis, so warn rather than fall back without a word.
+if ! [[ "$DOCKER_CPUS" =~ ^[1-9][0-9]*$ ]] || ! [[ "$DOCKER_MEM_MB" =~ ^[1-9][0-9]*$ ]]; then
+  echo "WARNING: 'docker info' returned no capacity (daemon down or insufficient permission) — sizing from host totals, which may exceed the container's real limit and risk an OOM kill." >&2
+fi
+
 # Use the lower of (host, docker) for each resource — that's what the daemon
 # will actually accept. If docker info failed (returns 0), fall back to host.
 TOTAL_CPUS="$HOST_CPUS"

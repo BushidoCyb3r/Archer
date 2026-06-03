@@ -967,6 +967,17 @@ score = clamp( 45 + 12·log10(MB + 1), 1, 78 )
 severity = Medium
 ```
 
+**Shared host-pair budget (v0.55.0).** Strobe (§4), Data Exfiltration
+(§6), and Off-Hours Transfer (§7) all accumulate per-`(src, dst)` state
+during the conn pass. To bound memory on very large corpora that pass
+is capped at 500,000 tracked host-pairs; pairs first seen *after* the
+cap is reached are not tracked, so these three detectors may undercount
+on such a corpus. A status-banner warning fires when the cap engages, so
+the undercount is never silent. **The Beacon detector is unaffected** —
+its pair map is not capped, and the cap can only over-include a beacon
+(by skipping a Strobe exclusion), never drop one. No score formula,
+threshold, or finding type changed.
+
 ---
 
 ## 8. Lateral Movement and C2 Port

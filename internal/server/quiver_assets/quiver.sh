@@ -56,6 +56,16 @@ if ! flock -n 9; then
     exit 0
 fi
 
+# Fail closed if the pinned fingerprint is empty. curl treats
+# --pinnedpubkey "sha256//" (empty digest) as "no pin," which would push
+# checkins over an unverified TLS connection — defeating the only thing
+# authenticating the server to the sensor. A blank ARCHER_TLS_FP means a
+# corrupted /etc/quiver/config; refuse rather than transmit unpinned.
+if [ -z "${ARCHER_TLS_FP:-}" ]; then
+    echo "quiver: ARCHER_TLS_FP is empty in /etc/quiver/config — refusing to check in without TLS pinning. Re-run the install one-liner from the Archer admin UI." >&2
+    exit 1
+fi
+
 CHECKIN_URL="https://${ARCHER_HOST}:${ARCHER_HTTPS_PORT}/api/quiver/checkin"
 
 # PROTOCOL_VERSION is sourced from /etc/quiver/config. v0.12.0+ servers

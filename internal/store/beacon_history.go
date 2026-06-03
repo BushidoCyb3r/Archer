@@ -255,6 +255,9 @@ func (s *Store) BeaconHistory(key string) []BeaconHistoryRow {
 		r.SpectralRescued = spectralRescued != 0
 		out = append(out, r)
 	}
+	if err := rows.Err(); err != nil {
+		slog.Error("store: incomplete beacon_history read", "err", err)
+	}
 	return out
 }
 
@@ -347,6 +350,9 @@ func (s *Store) SuggestedPairAllowlist() []model.SuggestedAllowEntry {
 			continue
 		}
 		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("store: incomplete suggested-allowlist read", "err", err)
 	}
 	return out
 }

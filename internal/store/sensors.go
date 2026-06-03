@@ -137,6 +137,9 @@ func (s *Store) GetSensors() []Sensor {
 			out = append(out, sn)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		slog.Error("store: incomplete sensors read", "err", err)
+	}
 	return out
 }
 
@@ -317,6 +320,9 @@ func (s *Store) ListEnrollmentTokens() []EnrollmentToken {
 			out = append(out, t)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		slog.Error("store: incomplete enrollment-tokens read", "err", err)
+	}
 	return out
 }
 
@@ -451,6 +457,9 @@ func (s *Store) ListUnauthorizedAttempts() []UnauthorizedAttempt {
 			a.Pinned = pinned == 1
 			out = append(out, a)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		slog.Warn("store: incomplete unauthorized-attempts read", "err", err)
 	}
 	return out
 }

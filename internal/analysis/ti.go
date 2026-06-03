@@ -791,6 +791,12 @@ func pickN(m map[string]bool, limit int) []string {
 // Analyzer.recordTIError so they surface in the SSE status banner
 // and accumulate in TIErrors() for end-of-run reporting.
 
+// maxFeedLineBytes raises the bufio.Scanner token cap above the 64 KB
+// default so a single oversized line (a long URLhaus CSV row) can't
+// silently abort the scan with bufio.ErrTooLong. Mirrors the parser's
+// own raised line cap (zeeklog.go) for the same trust-bug reason.
+const maxFeedLineBytes = 1 << 20
+
 func (a *Analyzer) fetchFeodo(client *http.Client) map[string]bool {
 	const source = "Feodo Tracker"
 	resp, err := client.Get("https://feodotracker.abuse.ch/downloads/ipblocklist.txt")
@@ -805,12 +811,16 @@ func (a *Analyzer) fetchFeodo(client *http.Client) map[string]bool {
 	}
 	ips := make(map[string]bool)
 	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 0, 64*1024), maxFeedLineBytes)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		ips[line] = true
+	}
+	if err := sc.Err(); err != nil {
+		a.recordTIError(source, fmt.Errorf("incomplete download: %w", err))
 	}
 	return ips
 }
@@ -831,6 +841,7 @@ func (a *Analyzer) fetchURLhaus(client *http.Client) (ips, hosts map[string]bool
 		return
 	}
 	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 0, 64*1024), maxFeedLineBytes)
 	for sc.Scan() {
 		line := sc.Text()
 		if strings.HasPrefix(line, "#") {
@@ -853,6 +864,9 @@ func (a *Analyzer) fetchURLhaus(client *http.Client) (ips, hosts map[string]bool
 		} else {
 			hosts[h] = true
 		}
+	}
+	if err := sc.Err(); err != nil {
+		a.recordTIError(source, fmt.Errorf("incomplete download: %w", err))
 	}
 	return
 }

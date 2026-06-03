@@ -198,6 +198,9 @@ func (us *UserStore) ListUsers() []model.User {
 			out = append(out, u)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		slog.Error("userstore: incomplete users read", "err", err)
+	}
 	return out
 }
 

@@ -41,6 +41,17 @@ const (
 	maxConnPreBeaconKeys = 500_000
 )
 
+// maxConnAuxKeys bounds the strobe/exfil/off-hours auxiliary maps, which
+// key on the same (sensor,src,dst) tuple as the beacon path but were
+// previously unbounded — a corpus (or crafted log) with millions of
+// distinct pairs grew eight maps in lockstep with no ceiling. The beacon
+// path (pairCounts/preBeaconRecs/beacon) is deliberately NOT gated by this
+// cap: dropping a beacon to save memory is the one outcome the mission
+// can't accept, so the aux detectors yield first. A package var (not a
+// const) only so the regression test can lower it; it is not a tunable
+// and has no settings surface.
+var maxConnAuxKeys = 500_000
+
 type pairKey struct{ sensor, src, dst string }
 
 // All four conn-level detector keys carry sensor for the same reason
@@ -298,6 +309,11 @@ func (a *Analyzer) analyzeConn(files []string) {
 	exfilFirst := make(map[exfilKey]float64)
 	offBytes := make(map[offKey]float64)
 	offFirst := make(map[offKey]float64)
+	// Set once the first time a new pair is refused entry to the aux
+	// maps, so the operator gets exactly one status-banner warning
+	// rather than a flood. Beacon detection is unaffected; only the
+	// strobe/exfil/off-hours detectors undercount past this point.
+	auxCapWarned := false
 
 	lateralSeen := make(map[string]struct{})
 	c2Seen := make(map[string]struct{})
@@ -377,38 +393,53 @@ func (a *Analyzer) analyzeConn(files []string) {
 				localWindows[sensor] = w
 			}
 
+			// Strobe, exfil, and off-hours all key on the same
+			// (sensor,src,dst) tuple, so one membership test bounds all
+			// three: an already-tracked pair always accumulates; a new
+			// pair is admitted only while we're under the key cap. Past
+			// the cap, new pairs are dropped from these aux maps (with a
+			// one-shot operator warning) but still flow through the
+			// beacon path below, which is never capped.
 			sk := strobeKey{sensor, src, dst}
-			strobeCounts[sk]++
-			if ts > 0 {
-				if strobeFirst[sk] == 0 || ts < strobeFirst[sk] {
-					strobeFirst[sk] = ts
-				}
-				if ts > strobeLast[sk] {
-					strobeLast[sk] = ts
-				}
-			}
-			ek := exfilKey{sensor, src, dst}
-			exfilOrig[ek] += origB
-			exfilResp[ek] += respB
-			if ts > 0 && (exfilFirst[ek] == 0 || ts < exfilFirst[ek]) {
-				exfilFirst[ek] = ts
-			}
-
-			if offHoursEnabled && ts > 0 && !isPrivateIP(dst) {
-				hour := time.Unix(int64(ts), 0).In(offHoursLoc).Hour()
-				var offHours bool
-				if a.cfg.OffHoursStart > a.cfg.OffHoursEnd {
-					offHours = hour >= a.cfg.OffHoursStart || hour < a.cfg.OffHoursEnd
-				} else {
-					offHours = hour >= a.cfg.OffHoursStart && hour < a.cfg.OffHoursEnd
-				}
-				if offHours && origB > 0 {
-					ok2 := offKey{sensor, src, dst}
-					offBytes[ok2] += origB
-					if offFirst[ok2] == 0 || ts < offFirst[ok2] {
-						offFirst[ok2] = ts
+			_, auxKnown := strobeCounts[sk]
+			if auxKnown || len(strobeCounts) < maxConnAuxKeys {
+				strobeCounts[sk]++
+				if ts > 0 {
+					if strobeFirst[sk] == 0 || ts < strobeFirst[sk] {
+						strobeFirst[sk] = ts
+					}
+					if ts > strobeLast[sk] {
+						strobeLast[sk] = ts
 					}
 				}
+				ek := exfilKey{sensor, src, dst}
+				exfilOrig[ek] += origB
+				exfilResp[ek] += respB
+				if ts > 0 && (exfilFirst[ek] == 0 || ts < exfilFirst[ek]) {
+					exfilFirst[ek] = ts
+				}
+
+				if offHoursEnabled && ts > 0 && !isPrivateIP(dst) {
+					hour := time.Unix(int64(ts), 0).In(offHoursLoc).Hour()
+					var offHours bool
+					if a.cfg.OffHoursStart > a.cfg.OffHoursEnd {
+						offHours = hour >= a.cfg.OffHoursStart || hour < a.cfg.OffHoursEnd
+					} else {
+						offHours = hour >= a.cfg.OffHoursStart && hour < a.cfg.OffHoursEnd
+					}
+					if offHours && origB > 0 {
+						ok2 := offKey{sensor, src, dst}
+						offBytes[ok2] += origB
+						if offFirst[ok2] == 0 || ts < offFirst[ok2] {
+							offFirst[ok2] = ts
+						}
+					}
+				}
+			} else if !auxCapWarned {
+				auxCapWarned = true
+				a.sendStatus(fmt.Sprintf(
+					"Strobe/exfil/off-hours tracking capped at %d host-pairs — beacon detection is unaffected, but these auxiliary detectors may undercount on pairs seen after the cap.",
+					maxConnAuxKeys))
 			}
 
 			hours := dur / 3600.0

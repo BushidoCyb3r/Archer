@@ -289,7 +289,7 @@ The protocol contract pinned at v2 is everything the sensor and server agree on 
 
 - **Sensor name regex**: `^[a-z0-9][a-z0-9_-]{0,51}$`. Enforced both client-side (`is_safe()` in `install.sh`) and server-side (`validSensorName` in `handlers_quiver.go`). Filesystem-safe so the name can serve directly as a `/logs/<name>/` directory; capped at 52 chars to leave headroom for path tooling.
 - **Pubkey algorithm**: ed25519, generated via `ssh-keygen -t ed25519`. Switching to RSA, ECDSA, ssh certificates, or any other auth model is a v2 concern.
-- **TLS pinning**: SHA-256 fingerprint of the server's certificate, baked into the install one-liner and `/etc/quiver/config` as `ARCHER_TLS_FP`. Curl's `--pinnedpubkey "sha256//<fp>"` enforces it on every request.
+- **TLS pinning**: SHA-256 fingerprint of the server's certificate, baked into the install one-liner and `/etc/quiver/config` as `ARCHER_TLS_FP`. Curl's `--pinnedpubkey "sha256//<fp>"` enforces it on every request. **Fail-closed on an empty pin (v0.55.0)**: if the fingerprint is empty — the server rendered a blank `ARCHER_TLS_FP`, or the config was hand-edited — `install.sh` refuses to enroll and `quiver.sh` refuses to check in, printing an error and exiting non-zero, rather than silently proceeding over an unpinned transport. An empty `--pinnedpubkey "sha256//"` is no pin at all, so the guard closes that gap explicitly.
 
 **Transport**
 

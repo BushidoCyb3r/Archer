@@ -28,6 +28,82 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.55.0] — 2026-06-03
+
+A security and integrity-hardening slice from a full-repo audit. No new
+analyst-facing features; the focus is closing trust bugs in result-set
+reads, adding a CSRF layer behind the existing SameSite cookie, failing
+closed on an empty TLS pin, and bounding worst-case memory on the conn
+analyzer without touching beacon detection.
+
+### Security
+
+- **CSRF defense-in-depth on state-changing requests.** `requireAuth` now
+  rejects an authenticated `POST`/`PUT`/`PATCH`/`DELETE` whose `Origin`
+  (or, failing that, `Referer`) host doesn't match the request host, with
+  `403`. This sits behind the `SameSite=Strict` session cookie that
+  already blocks cross-site cookie attachment — it's a second gate if that
+  attribute is ever absent or unhonored. A request with neither header is
+  allowed, so non-browser session clients are unaffected.
+- **Quiver fails closed on an empty TLS pin.** `install.sh` refuses to
+  enroll and `quiver.sh` refuses to check in when the rendered/configured
+  TLS fingerprint is empty, instead of silently proceeding over an
+  unpinned transport. (Bash guards verified by inspection.)
+- **Service-token endpoint throttles bogus-token floods.** The
+  unauthenticated `X-Archer-Token` path (`/api/sensors/health` scrape
+  surface) now charges the same per-IP rate-limit bucket as
+  login/enroll/checkin on a *failed* token. A valid monitoring token is
+  never limited.
+- **Escape the filename-derived log type in the raw-log pivot.** The
+  `logType` string (derived from a sensor-supplied filename) was
+  interpolated into the raw-log view unescaped. Now escaped at render.
+
+### Fixed
+
+- **Result-set reads no longer trust iteration completion.** Scan loops
+  across the store (`CheckIntegrity`, audit log, beacon history, feeds,
+  sensors, service tokens, user store) and the TI feed downloads (Feodo,
+  URLhaus) now check `rows.Err()` / `sc.Err()` after the loop. A read that
+  aborts mid-iteration was previously indistinguishable from a clean,
+  complete result — most dangerously in `CheckIntegrity`, where a
+  truncated read could report a corrupt volume as healthy at startup.
+- **TI feed parsers raise the line cap to 1 MB.** A single oversized CSV
+  row (a long URLhaus entry) could trip `bufio.Scanner`'s 64 KB default
+  and silently abort the feed scan. Mirrors the parser's own raised line
+  cap.
+- **`start.sh` warns when `docker info` reports no capacity.** A failed
+  `docker info` (daemon down, no permission) silently fell back to host
+  totals, which can size the container's memory ceiling above the daemon's
+  real limit and OOM-kill it mid-analysis. It now prints a warning rather
+  than falling back without a word.
+
+### Changed
+
+- **`/api/findings` filtering snapshots hidden-state once per request.**
+  The filter took the store lock three times *per finding* (suppression on
+  src, suppression on dst, pair-allow) — on a large result set the lock
+  traffic dominated the request. It now captures one immutable
+  suppression/pair-allow snapshot under a single read-lock and evaluates
+  every row against it. Same eventual consistency as before (an edit
+  landing mid-filter shows up on the next fetch).
+
+### Detection changes
+
+- **Strobe/exfil/off-hours auxiliary tracking is capped at 500k
+  host-pairs.** On an extremely large corpus these three auxiliary maps
+  grew unbounded. They're now capped, and a status-banner warning fires
+  when the cap engages. **Beacon detection is unaffected** — the beacon
+  pair map is *not* capped, and the cap can only over-include a beacon
+  (skip a strobe-exclusion), never drop one. The only observable effect is
+  that strobe/exfil/off-hours detectors may undercount on host-pairs first
+  seen *after* the cap is hit. No score formula, threshold, or finding
+  type changed.
+
+### Dependencies
+
+- `golang.org/x/net` 0.54.0 → 0.55.0, `golang.org/x/crypto` 0.51.0 →
+  0.52.0, `golang.org/x/sys` 0.44.0 → 0.45.0. `govulncheck` clean.
+
 ## [v0.54.0] — 2026-06-03
 
 ### Added

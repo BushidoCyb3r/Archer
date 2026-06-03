@@ -2353,7 +2353,7 @@
         const cols = RAW_COLUMNS[logType] || RAW_DEFAULT_COLS;
         const sec = document.createElement('div');
         sec.style.marginBottom = '14px';
-        sec.innerHTML = `<div style="font-weight:bold;margin:6px 0;color:var(--accent)">${logType} — ${recs.length} record(s)</div>`;
+        sec.innerHTML = `<div style="font-weight:bold;margin:6px 0;color:var(--accent)">${_esc(logType)} — ${recs.length} record(s)</div>`;
         const tbl = _buildRawTable(cols, recs);
         sec.appendChild(tbl);
         body.appendChild(sec);

@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"strings"
 	"time"
@@ -85,6 +86,9 @@ func (s *Store) ListFeeds() []feeds.Feed {
 			continue
 		}
 		out = append(out, f)
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("store: incomplete feeds read", "err", err)
 	}
 	return out
 }
@@ -374,6 +378,9 @@ func (s *Store) CountIndicatorsByFeed() map[int64]int {
 		}
 		out[id] = c
 	}
+	if err := rows.Err(); err != nil {
+		slog.Error("store: incomplete indicator-count read", "err", err)
+	}
 	return out
 }
 
@@ -404,6 +411,12 @@ func (s *Store) ListFeedIndicators(feedID int64) []feeds.Indicator {
 			_ = json.Unmarshal([]byte(tagsJSON), &ind.Tags)
 		}
 		out = append(out, ind)
+	}
+	if err := rows.Err(); err != nil {
+		// A truncated indicator read silently under-populates the TI
+		// matcher, so a beacon to a known-C2 dst would miss its feed
+		// match. Surface it rather than report partial coverage as clean.
+		slog.Error("store: incomplete feed-indicator read", "feed_id", feedID, "err", err)
 	}
 	return out
 }

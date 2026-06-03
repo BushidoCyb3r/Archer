@@ -313,6 +313,12 @@ func (s *Store) CheckIntegrity() error {
 			problems = append(problems, msg)
 		}
 	}
+	// A read that aborts mid-iteration must not be mistaken for a clean
+	// "ok" result — that would let the startup gate report a corrupt
+	// volume as healthy, defeating the whole purpose of the check.
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("integrity_check incomplete read: %w", err)
+	}
 	if len(problems) > 0 {
 		return fmt.Errorf("database corruption detected:\n%s", strings.Join(problems, "\n"))
 	}
@@ -1583,6 +1589,65 @@ func (s *Store) IsPairAllowed(src, dst, port, ftype, sensor string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.isPairAllowedLocked(src, dst, port, ftype, sensor)
+}
+
+// FilterSnapshot is an immutable view of the suppression + pair-allow
+// state captured once under the store read-lock. The findings filter
+// evaluates every row against it without re-locking. Pre-snapshot the
+// hot /api/findings path took s.mu three times per finding (IsSuppressed
+// on src, IsSuppressed on dst, IsPairAllowed) — on a large result set the
+// lock traffic, not the predicate work, dominated the request. A snapshot
+// reflects state at capture time: a suppression or pair-allow edit landing
+// mid-filter is simply not reflected until the next fetch, which is the
+// same eventual consistency the per-row locking already had (a row could
+// be tested against a suppression removed microseconds later).
+type FilterSnapshot struct {
+	suppressions map[string]time.Time
+	pairAllowIdx map[string][]pairAllowRule
+	now          time.Time
+}
+
+// NewFilterSnapshot freezes the current suppression/pair-allow state. The
+// suppressions map is copied because writers mutate it in place; the
+// pair-allow index is held by reference because it is copy-on-write
+// (rebuildPairAllowIdxLocked replaces the whole map, never edits in
+// place), so a captured reference can never observe a torn write.
+func (s *Store) NewFilterSnapshot() FilterSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sup := make(map[string]time.Time, len(s.suppressions))
+	for k, v := range s.suppressions {
+		sup[k] = v.Expiry
+	}
+	return FilterSnapshot{
+		suppressions: sup,
+		pairAllowIdx: s.pairAllowIdx,
+		now:          time.Now(),
+	}
+}
+
+// IsSuppressed reports whether ip has an unexpired suppression as of the
+// snapshot's capture time.
+func (fs FilterSnapshot) IsSuppressed(ip string) bool {
+	exp, ok := fs.suppressions[ip]
+	if !ok {
+		return false
+	}
+	return !fs.now.After(exp)
+}
+
+// IsPairAllowed mirrors Store.isPairAllowedLocked against the frozen index.
+func (fs FilterSnapshot) IsPairAllowed(src, dst, port, ftype, sensor string) bool {
+	rules, ok := fs.pairAllowIdx[pairAllowKey(src, dst, port)]
+	if !ok {
+		return false
+	}
+	for _, r := range rules {
+		if (r.sensor == "" || r.sensor == sensor) && (r.ftype == "" || r.ftype == ftype) {
+			return true
+		}
+	}
+	return false
 }
 
 // ListPairAllowlist returns every rule, id-ordered, for the manager UI.

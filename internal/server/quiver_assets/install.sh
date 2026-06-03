@@ -52,6 +52,16 @@ TLS_FP="{{TLS_FP}}"
 QUIVER_SH_B64="{{QUIVER_SH_B64}}"
 UNINSTALL_SH_B64="{{UNINSTALL_SH_B64}}"
 
+# Fail closed if the server rendered an empty TLS fingerprint. Every curl
+# below pins with --pinnedpubkey "sha256//${TLS_FP}", and curl treats an
+# empty digest as "no pin" — enrollment would then run over an unverified
+# TLS connection and persist an empty pin into /etc/quiver/config for every
+# future checkin. Refuse before any local state is written.
+if [ -z "$TLS_FP" ]; then
+    echo "quiver: server rendered an empty TLS fingerprint — refusing to enroll without TLS pinning. Check the Archer server's TLS bootstrap and re-copy the install one-liner." >&2
+    exit 1
+fi
+
 # Quiver wire-protocol version this script speaks. The server validates
 # this on enrollment + checkin and rejects mismatches with a structured
 # error so the operator sees "your sensor is on vN, server requires v..."

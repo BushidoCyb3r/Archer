@@ -1,6 +1,9 @@
 package analysis
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -122,6 +125,78 @@ func TestBeaconEmitsStructuredTriageFields(t *testing.T) {
 	}
 	if b.Jitter < 0 || b.Jitter != b.Jitter { // NaN-safe
 		t.Errorf("Jitter = %v; want finite and >= 0", b.Jitter)
+	}
+}
+
+// TestAuxKeyCapSparesBeaconPath is the mission-critical regression for the
+// PERF-1 cap: bounding the strobe/exfil/off-hours auxiliary maps must never
+// cost a beacon. The fixture floods the analyzer with enough distinct
+// single-connection host-pairs to blow past a lowered maxConnAuxKeys, THEN
+// presents one clean 60-second beacon whose pair is therefore refused entry
+// to the aux maps. Invariants: (1) the beacon is still detected, and (2) the
+// operator gets the one-shot "capped" status warning so the undercount is
+// never silent. If a future refactor accidentally gates the beacon path on
+// the same cap, the beacon vanishes here and the test fails.
+func TestAuxKeyCapSparesBeaconPath(t *testing.T) {
+	orig := maxConnAuxKeys
+	maxConnAuxKeys = 8
+	defer func() { maxConnAuxKeys = orig }()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "conn.log")
+
+	var b strings.Builder
+	uid := 0
+	line := func(ts float64, src, dst string, port int) {
+		fmt.Fprintf(&b, `{"ts": %.1f, "uid": "C%07d", "id.orig_h": "%s", "id.orig_p": 40000, "id.resp_h": "%s", "id.resp_p": %d, "proto": "tcp", "duration": 0.3, "orig_bytes": 400, "resp_bytes": 800, "orig_ip_bytes": 440, "resp_ip_bytes": 840, "conn_state": "SF"}`+"\n",
+			ts, uid, src, dst, port)
+		uid++
+	}
+
+	// 30 distinct single-connection pairs — far past the cap of 8 — so the
+	// aux maps are full before the beacon's pair is ever seen.
+	base := 1705320000.0
+	for i := 0; i < 30; i++ {
+		line(base+float64(i), "192.168.1.10", fmt.Sprintf("198.51.100.%d", i+1), 443)
+	}
+	// The beacon, presented last: 100 connections at a clean 60s cadence to
+	// one external host — enough for the confidence ramp to clear the emit
+	// floor. Its (src,dst) pair is first seen well after the aux cap filled,
+	// so it never entered the strobe/exfil/off-hours maps.
+	for i := 0; i < 100; i++ {
+		line(base+1000+float64(i)*60.0, "192.168.1.10", "203.0.113.77", 8443)
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	status := make(chan string, 64)
+	a := New(config.Default(), "", nil, status)
+	a.feodoIPs = map[string]bool{}
+	a.urlhausIPs = map[string]bool{}
+	a.urlhausHosts = map[string]bool{}
+	findings := a.Analyze([]string{path})
+
+	var beacon *model.Finding
+	for i := range findings {
+		if findings[i].Type == "Beacon" && findings[i].DstIP == "203.0.113.77" {
+			beacon = &findings[i]
+			break
+		}
+	}
+	if beacon == nil {
+		t.Fatalf("beacon to 203.0.113.77 was lost when the aux cap was hit — the cap leaked into the beacon path. Got types: %v", findingTypes(findings))
+	}
+
+	close(status)
+	var warned bool
+	for msg := range status {
+		if strings.Contains(msg, "capped") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Error("aux cap was exceeded but no operator warning was emitted — a silent undercount")
 	}
 }
 

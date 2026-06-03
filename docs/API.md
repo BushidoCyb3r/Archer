@@ -40,6 +40,14 @@ cookie set by `POST /login`. The cookie is `HttpOnly`,
 `SameSite=Strict`, and `Secure` (always — v0.14.5). Sessions are
 persisted in `/data/users.db`'s `sessions` table.
 
+As a CSRF defense-in-depth layer behind that `SameSite=Strict` cookie
+(v0.55.0): an authenticated state-changing request
+(`POST`/`PUT`/`PATCH`/`DELETE`) whose `Origin` — or, absent that,
+`Referer` — host doesn't match the request host is rejected with
+`403 {"error":"cross-origin request blocked"}`. A request carrying
+neither header is allowed, so non-browser session clients are
+unaffected.
+
 **Public (no session)**:
 - `GET /api/version`
 - `POST /login`, `POST /register`, `POST /logout`
@@ -51,9 +59,12 @@ persisted in `/data/users.db`'s `sessions` table.
 `GET /api/sensors/health` additionally accepts a service-account token
 via an `X-Archer-Token: archer_<value>` request header. If the header
 is present and the token is invalid, the request is rejected with `401`
-immediately (the session path is not attempted). Tokens are
-admin-generated on `/api/service-tokens` and stored only as their
-SHA-256 hash. This is the intended path for Prometheus textfile
+immediately (the session path is not attempted). A failed token also
+charges the per-IP rate-limit bucket (the same one login/enroll/checkin
+use), so a bogus-token flood on this unauthenticated path returns `429`
+once the bucket is exhausted; a valid token is never limited (v0.55.0).
+Tokens are admin-generated on `/api/service-tokens` and stored only as
+their SHA-256 hash. This is the intended path for Prometheus textfile
 collector, Nagios checks, and similar scrape tooling.
 
 All other routes return `401 Unauthorized` for unauthenticated
@@ -95,11 +106,14 @@ status. Common codes:
 - `400 Bad Request` — malformed JSON, missing required field, invalid
   query parameter.
 - `401 Unauthorized` — no session or expired session.
-- `403 Forbidden` — authenticated but role insufficient.
+- `403 Forbidden` — authenticated but role insufficient, or a
+  cross-origin state-changing request (see Authentication).
 - `404 Not Found` — finding ID doesn't exist, sensor name unknown,
   user ID unknown.
 - `405 Method Not Allowed` — HTTP method not supported on this route.
 - `409 Conflict` — duplicate (e.g., sensor name already enrolled).
+- `429 Too Many Requests` — per-IP rate limit exceeded (login,
+  register, Quiver enroll/checkin, and failed `X-Archer-Token`).
 - `500 Internal Server Error` — unexpected; the body is best-effort
   and may be the empty string.
 
@@ -211,9 +225,9 @@ and rate-limit details.
 **Response** (`200 OK`):
 ```json
 {
-  "version":    "v0.19.0",
+  "version":    "v0.55.0",
   "commit":     "2b61c7a",
-  "build_time": "2026-05-12T18:30:00Z"
+  "build_time": "2026-06-03T18:30:00Z"
 }
 ```
 

@@ -146,6 +146,9 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values, deltaSin
 	// source. A typical install has 0-3 feeds + 1 operator list, so
 	// the inner loop is bounded.
 	iocSources := s.store.IOCSources()
+	// Suppression + pair-allow state frozen once here rather than three
+	// lock acquisitions per finding inside the loop below.
+	hidden := s.store.NewFilterSnapshot()
 
 	result := make([]model.Finding, 0, len(findings))
 	for i := range findings {
@@ -193,10 +196,10 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values, deltaSin
 		if alM.Matches(f.SrcIP) || alM.Matches(f.DstIP) {
 			continue
 		}
-		if s.store.IsSuppressed(f.SrcIP) || s.store.IsSuppressed(f.DstIP) {
+		if hidden.IsSuppressed(f.SrcIP) || hidden.IsSuppressed(f.DstIP) {
 			continue
 		}
-		if s.store.IsPairAllowed(f.SrcIP, f.DstIP, f.DstPort, f.Type, f.Sensor) {
+		if hidden.IsPairAllowed(f.SrcIP, f.DstIP, f.DstPort, f.Type, f.Sensor) {
 			continue
 		}
 		if delta && f.DetectedAt <= deltaSince {

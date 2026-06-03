@@ -226,7 +226,7 @@ archer/
 │   │   ├── handlers_sensors.go # Sensors-modal endpoints (enroll, disenroll, purge, tokens, schedule)
 │   │   ├── handlers_service_tokens.go # /api/service-tokens CRUD; tokenOrSession() accepts X-Archer-Token or session
 │   │   ├── handlers_feeds.go   # Feeds CRUD + /api/feeds/{id}/refresh (10-min cap, detached context)
-│   │   ├── handlers_audit_log.go # /api/audit endpoints
+│   │   ├── handlers_audit_log.go # GET /api/audit-log (cursor-paginated)
 │   │   ├── handlers_backup.go  # /api/admin/backup — VACUUM INTO snapshot stream
 │   │   ├── handlers_beacon_history.go # /api/findings/{id}/history → SVG evolution chart data
 │   │   ├── findings_filter.go  # Shared query-param filter for list + exports; runs the Lucene q= query (internal/query)
@@ -1077,7 +1077,7 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/api/version` | None | `{"version":"v0.19.0","commit":"<short-sha>","build_time":"<iso-8601>"}`. Unauthenticated — same diagnostic tier as a future `/api/health`. The values come from `internal/version` and are populated at build time via `-ldflags` from the git checkout (see `start.sh`). The web UI reads this on init to populate the statusbar version pill and the About dialog. |
+| `GET` | `/api/version` | None | `{"version":"v0.55.0","commit":"<short-sha>","build_time":"<iso-8601>"}`. Unauthenticated — same diagnostic tier as a future `/api/health`. The values come from `internal/version` and are populated at build time via `-ldflags` from the git checkout (see `start.sh`). The web UI reads this on init to populate the statusbar version pill and the About dialog. |
 
 ### Authentication
 
@@ -1097,6 +1097,7 @@ All API endpoints require authentication. Role requirements are noted where appl
 | `POST` | `/api/users` | Admin | Create user |
 | `PATCH` | `/api/users/{id}` | Admin | Update user role/status, or reset the user's password |
 | `DELETE` | `/api/users/{id}` | Admin | Delete user |
+| `GET` | `/api/audit-log` | Admin | `{"entries":[...],"total":N,"next":<cursor>}` — cursor-paginated audit trail (id-DESC). Query params: `cursor` (exclusive, `0` = most-recent page), `count` (default 100, capped at 500). `next` is the cursor for the following page; `0` means no more. Each entry carries the structured before/after JSON written by the audit emitters. |
 
 ### Log Files
 

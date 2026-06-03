@@ -87,6 +87,9 @@ func (s *Store) ListServiceTokens() []ServiceToken {
 		}
 		out = append(out, t)
 	}
+	if err := rows.Err(); err != nil {
+		slog.Error("store: incomplete service-tokens read", "err", err)
+	}
 	return out
 }
 

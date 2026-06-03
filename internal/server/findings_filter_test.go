@@ -1,11 +1,98 @@
 package server
 
 import (
+	"fmt"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
+
+// TestFilterFindings_SnapshotHidesSuppressedAndPairAllowed pins the
+// always-on exclusion contract after the PERF-2 change moved suppression
+// and pair-allow evaluation onto a once-per-call FilterSnapshot. The
+// invariant is unchanged from the per-row version: a finding is hidden if
+// either endpoint is under an unexpired suppression, or if a pair-allow
+// rule covers its (src,dst,port,type,sensor) tuple — and an expired
+// suppression hides nothing. A regression in the snapshot's predicate
+// math (wrong expiry comparison, wrong wildcard handling) drops one of
+// these rows from the want-set and fails here.
+func TestFilterFindings_SnapshotHidesSuppressedAndPairAllowed(t *testing.T) {
+	s := newAuditTestServer(t)
+
+	s.store.AddSuppression("9.9.9.9", time.Now().Add(time.Hour), "active suppression")
+	s.store.AddSuppression("8.8.8.8", time.Now().Add(-time.Hour), "expired suppression")
+	if _, err := s.store.AddPairAllow(model.PairAllowEntry{
+		Src: "10.0.0.7", Dst: "7.7.7.7", Port: "443", FindingType: "Beacon",
+	}); err != nil {
+		t.Fatalf("AddPairAllow: %v", err)
+	}
+
+	findings := []model.Finding{
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443", Score: 80, Timestamp: "2026-05-12 09:00:00"},
+		{ID: 2, Type: "Beacon", SrcIP: "10.0.0.2", DstIP: "9.9.9.9", DstPort: "443", Score: 80, Timestamp: "2026-05-12 09:01:00"},        // dst actively suppressed
+		{ID: 3, Type: "Beacon", SrcIP: "9.9.9.9", DstIP: "3.3.3.3", DstPort: "443", Score: 80, Timestamp: "2026-05-12 09:02:00"},         // src actively suppressed
+		{ID: 4, Type: "Beacon", SrcIP: "10.0.0.4", DstIP: "8.8.8.8", DstPort: "443", Score: 80, Timestamp: "2026-05-12 09:03:00"},        // dst expired-suppressed → visible
+		{ID: 5, Type: "Beacon", SrcIP: "10.0.0.7", DstIP: "7.7.7.7", DstPort: "443", Score: 80, Timestamp: "2026-05-12 09:04:00"},        // pair-allowed → hidden
+		{ID: 6, Type: "DNS Tunneling", SrcIP: "10.0.0.7", DstIP: "7.7.7.7", DstPort: "443", Score: 80, Timestamp: "2026-05-12 09:05:00"}, // same tuple, different type → rule's Beacon type doesn't cover it → visible
+	}
+
+	got, err := s.filterFindings(findings, url.Values{}, 0)
+	if err != nil {
+		t.Fatalf("filterFindings: %v", err)
+	}
+	gotIDs := map[int]bool{}
+	for _, f := range got {
+		gotIDs[f.ID] = true
+	}
+	want := []int{1, 4, 6}
+	if len(got) != len(want) {
+		t.Fatalf("got %d findings %v, want %v", len(got), idsOf(got), want)
+	}
+	for _, id := range want {
+		if !gotIDs[id] {
+			t.Errorf("finding %d should be visible but was hidden", id)
+		}
+	}
+}
+
+func idsOf(fs []model.Finding) []int {
+	out := make([]int, len(fs))
+	for i, f := range fs {
+		out[i] = f.ID
+	}
+	return out
+}
+
+// BenchmarkFilterFindings exercises the hot /api/findings path at a
+// realistic result size with suppression and pair-allow state present, so
+// the once-per-call FilterSnapshot is doing real work. Pre-PERF-2 this
+// loop took the store read-lock three times per finding.
+func BenchmarkFilterFindings(b *testing.B) {
+	s := newAuditTestServer(b)
+	for i := 0; i < 50; i++ {
+		s.store.AddSuppression(fmt.Sprintf("203.0.113.%d", i), time.Now().Add(time.Hour), "bench")
+	}
+	const n = 5000
+	findings := make([]model.Finding, n)
+	for i := range findings {
+		findings[i] = model.Finding{
+			ID: i + 1, Type: "Beacon",
+			SrcIP:   fmt.Sprintf("10.0.%d.%d", i/256, i%256),
+			DstIP:   fmt.Sprintf("198.51.100.%d", i%256),
+			DstPort: "443", Score: 80,
+			Timestamp: "2026-05-12 09:00:00",
+		}
+	}
+	q := url.Values{}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := s.filterFindings(findings, q, 0); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
 
 // TestFilterFindings_DismissedHiddenByDefault codifies the v0.18.0
 // Dismissed semantic. The invariant: a Dismissed finding is invisible

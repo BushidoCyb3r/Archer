@@ -16,6 +16,15 @@ func (s *Server) tokenOrSession(h http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if tok := r.Header.Get("X-Archer-Token"); tok != "" {
 			if !s.store.ValidateServiceToken(tok) {
+				// Throttle bogus-token floods on this unauthenticated
+				// path the same way login/enroll/checkin are throttled —
+				// the per-IP bucket is charged only on a failed token so
+				// legitimate monitoring scrapers with a valid token are
+				// never limited.
+				if allowed, _ := s.rateLimit.allow(sourceIP(r)); !allowed {
+					http.Error(w, "rate limit exceeded — try again shortly", http.StatusTooManyRequests)
+					return
+				}
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 				return
 			}

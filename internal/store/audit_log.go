@@ -122,6 +122,9 @@ func (s *Store) ListAuditLog(cursor int64, count int) []AuditEntry {
 			out = append(out, e)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		slog.Error("audit_log: incomplete list read", "err", err)
+	}
 	return out
 }
 
