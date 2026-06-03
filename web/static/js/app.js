@@ -2032,6 +2032,11 @@
   // ── SSE ────────────────────────────────────────────────────────────────────
   function initSSE() {
     SSE.on('progress', evt => {
+      // A run can start without this client having clicked Analyze — a watch
+      // tick triggers analysis server-side and streams the same progress
+      // events. Swap the button for the bar on the first event of any run, so
+      // the in-flight UI reflects every analysis, not just operator-kicked ones.
+      if (!_slotBusy) _setAnalyzing(true);
       document.getElementById('progress-bar').value = evt.pct || 0;
       document.getElementById('analysis-status').textContent = evt.step || '';
       setStatus(evt.step || '');
