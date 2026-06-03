@@ -28,6 +28,9 @@ var fieldAlias = map[string]string{
 	"connections":     "conns",
 	"mean_interval":   "meanint",
 	"median_interval": "medint",
+	"direction":       "dir",
+	"analyst_note":    "note",
+	"detected_at":     "detected",
 }
 
 var knownFields = map[string]bool{
@@ -38,6 +41,7 @@ var knownFields = map[string]bool{
 	"ja3": true, "ja4": true, "file": true,
 	"tscore": true, "dscore": true, "hist": true, "dur": true,
 	"conns": true, "meanint": true, "medint": true, "jitter": true,
+	"uri": true, "note": true, "analyst": true, "dir": true, "detected": true,
 }
 
 // parseTerm turns a raw term token into a leaf node.
@@ -87,7 +91,7 @@ func parseTerm(raw string) (node, error) {
 	if len(rest) >= 2 && strings.HasPrefix(rest, `"`) && strings.HasSuffix(rest, `"`) {
 		t.phrase = true
 		t.value = rest[1 : len(rest)-1]
-		if err := validateTypeValue(field, t.value); err != nil {
+		if err := validateFieldValue(field, t.value); err != nil {
 			return nil, err
 		}
 		return t, nil
@@ -98,24 +102,35 @@ func parseTerm(raw string) (node, error) {
 		return nil, fmt.Errorf("missing value for field %q", field)
 	}
 	t.value = rest
-	if err := validateTypeValue(field, t.value); err != nil {
+	if err := validateFieldValue(field, t.value); err != nil {
 		return nil, err
 	}
 	return t, nil
 }
 
-// validateTypeValue rejects an exact `type:` term whose value isn't a known
-// finding type, so a misspelling (type:"Correlatd Activity", type:Beaon)
-// surfaces as a query error instead of silently matching nothing. The
-// `type:beacons` family selector is evaluated specially and is always valid;
-// the type field doesn't support wildcards, so every other value is an exact
-// match worth validating. A no-op for every non-type field.
-func validateTypeValue(field, value string) error {
-	if field != "type" || strings.EqualFold(value, "beacons") {
-		return nil
-	}
-	if !model.IsKnownFindingType(value) {
-		return fmt.Errorf("unknown finding type %q", value)
+// validateFieldValue rejects an out-of-vocabulary value for the closed-set
+// fields so a misspelling surfaces as a query error instead of silently
+// matching nothing:
+//   - type: must be a known finding type (or the `beacons` family selector).
+//     type:"Correlatd Activity" / type:Beaon are rejected.
+//   - dir: must be one of the four directions (or the `lateral` alias).
+//
+// A no-op for every free-text / numeric / wildcard field.
+func validateFieldValue(field, value string) error {
+	switch field {
+	case "type":
+		if strings.EqualFold(value, "beacons") {
+			return nil
+		}
+		if !model.IsKnownFindingType(value) {
+			return fmt.Errorf("unknown finding type %q", value)
+		}
+	case "dir":
+		switch strings.ToLower(value) {
+		case "outbound", "inbound", "internal", "lateral", "external":
+		default:
+			return fmt.Errorf("unknown direction %q (want outbound, inbound, internal, or external)", value)
+		}
 	}
 	return nil
 }
@@ -180,6 +195,14 @@ func (t term) eval(f model.Finding, opLoc *time.Location) bool {
 		return stringPatternMatch(f.Hostname, t.value)
 	case "file":
 		return stringPatternMatch(f.SourceFile, t.value)
+	case "uri":
+		return stringPatternMatch(f.URI, t.value)
+	case "note":
+		return stringPatternMatch(f.AnalystNote, t.value)
+	case "analyst":
+		return stringPatternMatch(f.Analyst, t.value)
+	case "dir":
+		return dirMatch(f.SrcIP, f.DstIP, t.value)
 	case "ja3":
 		return strings.EqualFold(f.JA3, t.value)
 	case "ja4":
@@ -218,6 +241,14 @@ func (t term) eval(f model.Finding, opLoc *time.Location) bool {
 		return boolMatch(strings.Contains(f.Detail, "Spectral rescued:"), t.value)
 	case "ts":
 		return tsMatch(f.Timestamp, t, opLoc)
+	case "detected":
+		// DetectedAt is epoch seconds; 0 means "never assigned" — a finding
+		// that can't be placed in time matches no detected predicate, the same
+		// shape as an unparseable Timestamp under ts:.
+		if f.DetectedAt == 0 {
+			return false
+		}
+		return tsMatchTime(time.Unix(f.DetectedAt, 0).UTC(), t, opLoc)
 	}
 	return false
 }

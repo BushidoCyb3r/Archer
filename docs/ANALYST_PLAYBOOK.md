@@ -334,12 +334,17 @@ before trusting the result.
 | `score` | Composite score | Numeric — comparisons and ranges. |
 | `src` / `dst` | Source / destination IP | Bare IP = exact; CIDR (`dst:185.220.101.0/24`) = containment; wildcard (`dst:185.220.*`) = prefix/substring. |
 | `port` | Destination port | Comma-separated list allowed (`port:443,8443`); equality only. |
+| `dir` | Traffic direction across the internal/external boundary | `dir:outbound` (internal→external — the usual beacon scope), `dir:inbound`, `dir:internal` (both RFC1918 — lateral; alias `dir:lateral`), `dir:external` (both public). Collapses hand-rolled `(src:10.0.0.0/8 OR src:172.16.0.0/12 OR src:192.168.0.0/16)` juggling into one term. An unknown direction is rejected with a toast. Alias: `direction`. |
 | `hostname` | Resolved hostname / SNI | Substring or wildcard. |
+| `uri` | HTTP Beacon request path | Substring or wildcard (`uri:/submit.php`, `uri:*pixel*`). Populated only for HTTP Beacon, so it's naturally scoped — hunt arbitrary paths the C2-URI detectors don't hardcode. |
 | `detail` | The Detail string | Substring or wildcard — useful for `detail:"every 47s"` or `detail:*domain fronting*`. |
 | `sensor` | Sensor name | Exact. |
 | `file` | Source log file | Substring or wildcard. |
 | `status` | `open` / `acknowledged` / `escalated` / `dismissed` | `status:open` = no status set yet. |
-| `ts` | Finding timestamp | Date (`ts:>=2026-03-15`) or datetime; interpreted in **your** timezone. A bare date is the whole day. |
+| `note` | Analyst note text | Substring or wildcard (`note:*pcap*`; `note:?*` = "has any note"). Alias: `analyst_note`. |
+| `analyst` | Who set the finding's status | Substring, case-insensitive (`analyst:alice`). Pair with `status:escalated` to audit one analyst's escalations. |
+| `ts` | Finding timestamp (event time) | Date (`ts:>=2026-03-15`) or datetime; interpreted in **your** timezone. A bare date is the whole day. |
+| `detected` | When Archer **first detected** the finding | Same date/datetime grammar as `ts`, but keyed on first-seen time rather than the network event — the durable "new since my last shift" anchor (`detected:>=2026-06-01`). Decoupled from event time: an old beacon detected fresh still surfaces. Alias: `detected_at`. |
 | `ja3` / `ja4` | TLS client fingerprint | Exact — the query-bar equivalent of the TLS Pivot button. |
 | `ioc` | IOC-list match | `ioc:true` / `ioc:false`. |
 | `spectral` | Spectral-rescued beacon | `spectral:true` surfaces beacons rescued by the periodogram. |
@@ -350,15 +355,68 @@ before trusting the result.
 The same fields are listed in the query bar's **+ more ▾** chip
 menu — click a chip to drop the field into the bar.
 
+### Prebuilt hunts (the Hunts ▾ chip)
+
+Leftmost in the chip row, **Hunts ▾** is a menu of complete,
+ready-to-run queries for the shapes worth looking at first. Unlike
+the other chips (which upsert one token onto whatever you've already
+typed), a hunt is an alternative *lens* — picking one **replaces** the
+whole query box and runs immediately. Every query is a normal
+expression, so once it's in the box you can tune it (raise a
+threshold, AND on a subnet, drop a clause).
+
+**Beacon varieties** — each isolates one variety by the axis that
+distinguishes it (sub-scores are in `[0, 1]`):
+
+| Hunt | Query | What it catches |
+|------|-------|-----------------|
+| Textbook check-in | `type:beacons AND tscore:>=0.8 AND dscore:>=0.8` | Regular clock **and** fixed payload — the classic heartbeat. |
+| Tasking channel | `(type:"Beacon" OR type:"HTTP Beacon") AND tscore:>=0.8 AND dscore:<=0.3` | Steady cadence, *variable* payload — command/response or staged exfil. Scoped off DNS Beacon (its `dscore` is a structural 0). |
+| Jitter-evading (spectral) | `type:beacons AND spectral:true AND dir:outbound` | Fixed schedule + bounded random jitter — the periodogram recovered a period the interval stats missed. Outbound-scoped to drop internal mDNS. |
+| Clockwork (no jitter) | `type:beacons AND jitter:<0.05` | Interval CV under 5% — metronomic, default-config implant. |
+| Scheduled / fixed-hour | `type:beacons AND tscore:>=0.7 AND hist:<=0.3` | Regular cadence concentrated in a narrow daily window (e.g. 02:00 nightly) — low circadian uniformity = scheduled stealth. |
+| Low-and-slow | `type:beacons AND medint:>=1800` | Median sleep ≥ 30 min — evades rate/volume detection. |
+| Persistent long-haul | `type:beacons AND dur:>=0.8` | Active end-to-end across the trailing persistence window. |
+| DGA-backed | `type:beacons AND detail:"DGA-suspect"` | Destination domain scored algorithmically-generated. |
+| Port-hopping | `type:beacons AND detail:"co-traffic to dst"` | Same `src→dst` seen across more than one destination port. |
+
+**Threat signatures:**
+
+| Hunt | Query |
+|------|-------|
+| Threat-intel matches | `ioc:true` |
+| Known C2 signatures | `type:"Cobalt Strike URI" OR type:"C2 URI Pattern" OR type:"C2 Port" OR type:"Malicious JA3" OR type:"Malicious JA4"` |
+| DNS covert channels | `type:"DNS Tunneling" OR type:"DNS Subdomain DGA" OR type:"DNS NXDOMAIN Flood" OR type:"DNS Beacon"` |
+| Data exfiltration | `type:"Data Exfiltration" OR type:"Off-Hours Transfer"` |
+| TLS evasion | `type:"DoH Bypass" OR type:"Domain Fronting" OR type:"SSL No-SNI on C2 Port" OR type:"SSL No-SNI"` |
+| Lateral movement | `type:"Lateral Movement" OR (type:beacons AND dir:internal)` |
+
+The thresholds are starting points, not gospel — `tscore:>=0.8`,
+`jitter:<0.05`, `medint:>=1800` and the rest are there to be tightened
+or loosened against your own traffic once the hunt is in the box.
+
 ### Queries that earn their keep
 
 - **The critical-beacon triage queue:**
   `type:beacons AND severity:critical AND new:true` — every new
   beacon-family finding at the top severity, the first thing to
   work each shift.
+- **Outbound beacons only** (drop lateral and inbound noise):
+  `type:beacons AND dir:outbound` — `dir` replaces the old
+  `(src:10.0.0.0/8 OR src:172.16.0.0/12 OR src:192.168.0.0/16)`
+  CIDR juggling with one term. Swap to `dir:internal` to hunt
+  lateral movement.
+- **Detected since your last shift** (independent of event time):
+  `detected:>=2026-06-01 AND score:>=90` — `detected` keys on
+  first-seen time, so an old beacon Archer only just surfaced still
+  shows up (where `ts` would bury it in March).
+- **HTTP-beacon path hunt:**
+  `type:"HTTP Beacon" AND uri:*pixel*` — pivot on request paths the
+  hardcoded C2-URI detectors don't cover.
 - **Signature hunt — the staging-beacon shape** (tight timing,
   short duration, below a score floor):
-  `tscore:>=90 AND dur:<=0.3` — see
+  `tscore:>=0.9 AND dur:<=0.3` — sub-scores are in `[0, 1]`, so a
+  high-timing floor is `0.9`, not `90` — see
   [Beacon-depth tools](#beacon-depth-tools--signature-hunting-ja3-pivot-uri-footprint-export)
   for why this finds implants the composite score buries.
 - **One subnet, one window:**

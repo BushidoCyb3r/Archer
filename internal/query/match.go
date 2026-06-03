@@ -135,14 +135,21 @@ func boolMatch(actual bool, value string) bool {
 	return false
 }
 
-// tsMatch matches a finding timestamp against a date or [from TO to] range.
-// The finding timestamp is read as UTC; query date literals are interpreted in
-// the operator timezone (opLoc).
+// tsMatch matches a finding timestamp string against a date or [from TO to]
+// range. The finding timestamp is read as UTC; query date literals are
+// interpreted in the operator timezone (opLoc).
 func tsMatch(tsStr string, t term, opLoc *time.Location) bool {
 	ft, _, ok := parseTimeFlexible(tsStr, time.UTC)
 	if !ok {
 		return false
 	}
+	return tsMatchTime(ft, t, opLoc)
+}
+
+// tsMatchTime is the time-domain core shared by tsMatch (string Timestamp) and
+// the detected: field (epoch DetectedAt). ft is the finding instant in UTC;
+// query date literals are interpreted in opLoc.
+func tsMatchTime(ft time.Time, t term, opLoc *time.Location) bool {
 	if t.op == "range" {
 		from, _, okF := parseTimeFlexible(t.lo, opLoc)
 		hi, hiDateOnly, okT := parseTimeFlexible(t.hi, opLoc)
@@ -185,6 +192,43 @@ func tsMatch(tsStr string, t term, opLoc *time.Location) bool {
 		return !ft.Before(dayStart) && ft.Before(dayEnd)
 	}
 	return ft.Equal(v)
+}
+
+// isInternalIP reports whether s is an internal (private) address and whether
+// it parsed at all. "Internal" is RFC1918 / IPv6 ULA (net.IP.IsPrivate) plus
+// loopback and link-local — the address space that never appears as a routable
+// external peer. The second return distinguishes "parsed, external" from
+// "couldn't parse" so dirMatch can refuse to classify a pair it can't place.
+func isInternalIP(s string) (internal bool, ok bool) {
+	ip := net.ParseIP(s)
+	if ip == nil {
+		return false, false
+	}
+	return ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast(), true
+}
+
+// dirMatch classifies a finding's (src, dst) pair by direction relative to the
+// internal/external boundary and tests it against an enumerated value:
+// outbound (internal→external), inbound (external→internal), internal/lateral
+// (both internal), external (both external). A pair with an unparseable
+// endpoint can't be placed and matches nothing.
+func dirMatch(src, dst, value string) bool {
+	si, okS := isInternalIP(src)
+	di, okD := isInternalIP(dst)
+	if !okS || !okD {
+		return false
+	}
+	switch strings.ToLower(value) {
+	case "outbound":
+		return si && !di
+	case "inbound":
+		return !si && di
+	case "internal", "lateral":
+		return si && di
+	case "external":
+		return !si && !di
+	}
+	return false
 }
 
 // parseTimeFlexible parses a date or datetime in loc, reporting whether the

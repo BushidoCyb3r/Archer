@@ -28,6 +28,53 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.53.0] — 2026-06-03
+
+The query language grows more reach and a fast-start menu. Five new
+fields let you filter on traffic direction, HTTP beacon URI, analyst
+attribution, and first-detected time without CIDR juggling or raw
+substring guessing; a new **Hunts ▾** chip ships ready-to-run
+expressions for the beacon varieties and threat signatures worth
+looking at first.
+
+### Added
+
+- **Five new query fields.** `dir` filters by traffic direction
+  (`outbound` / `inbound` / `internal` / `lateral` / `external`),
+  classified from the src/dst endpoints (RFC1918, IPv6 ULA, loopback,
+  and link-local count as internal) — `type:beacons AND dir:outbound`
+  replaces the old three-CIDR `src:` juggling. A misspelled direction
+  is a parse error with the red toast, like a misspelled finding type.
+  `uri` matches the HTTP beacon request path (substring/wildcard),
+  `note` the analyst note text, `analyst` who set the finding's status,
+  and `detected` the first-detected time (same date/datetime grammar as
+  `ts`, but keyed on first-seen rather than event time — the durable
+  "new since my last shift" anchor). Aliases: `direction`,
+  `analyst_note`, `detected_at`.
+- **Prebuilt-hunt chip (`Hunts ▾`).** Leftmost in the query-bar chip
+  row, a menu of complete, ready-to-run queries. Nine beacon-variety
+  lenses — textbook check-in, tasking channel, jitter-evading
+  (spectral), clockwork, scheduled/fixed-hour, low-and-slow, persistent,
+  DGA-backed, port-hopping — each isolating one variety by the scorer
+  axis that distinguishes it, plus six threat-signature sweeps (TI
+  matches, known C2, DNS covert channels, exfil, TLS evasion, lateral
+  movement). Unlike the other chips, which upsert one token, a hunt
+  replaces the whole query box with an editable expression and runs it.
+  A test reads every shipped hunt back out of the template and asserts
+  it parses, so a renamed finding type can't silently ship a hunt that
+  matches nothing.
+
+### Fixed
+
+- **Doc examples for beacon sub-score queries used the wrong scale.** The
+  README and analyst playbook showed `tscore:>=90`, but the four
+  sub-scores are stored in `[0, 1]` (the composite is `sum × 25`), so
+  that query matched nothing. Corrected to `tscore:>=0.9` with the scale
+  noted inline. No code change — the field always compared against
+  `[0, 1]`; only the documentation was wrong.
+
+---
+
 ## [v0.52.1] — 2026-06-03
 
 A Go toolchain bump to pick up two standard-library security fixes,

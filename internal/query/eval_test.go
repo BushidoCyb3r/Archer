@@ -243,6 +243,116 @@ func TestIDField(t *testing.T) {
 	}
 }
 
+func TestURIField(t *testing.T) {
+	f := beacon()
+	f.Type = "HTTP Beacon"
+	f.URI = "/submit.php"
+	tests := []struct {
+		q    string
+		want bool
+	}{
+		{"uri:/submit.php", true},
+		{"uri:submit", true}, // substring
+		{"uri:*.php", true},
+		{"uri:/sub*php", true},
+		{"uri:/login", false},
+	}
+	for _, tc := range tests {
+		if got := matches(t, tc.q, f); got != tc.want {
+			t.Errorf("%q = %v, want %v", tc.q, got, tc.want)
+		}
+	}
+	// A finding with no URI (every non-HTTP-Beacon type) must not match a
+	// non-empty pattern — the field is naturally scoped without a guard.
+	if matches(t, "uri:submit", beacon()) {
+		t.Error("empty URI must not match uri:submit")
+	}
+}
+
+func TestNoteAndAnalystFields(t *testing.T) {
+	f := beacon()
+	f.AnalystNote = "pending pcap pull — looks like cobalt"
+	f.Analyst = "alice"
+	tests := []struct {
+		q    string
+		want bool
+	}{
+		{"note:pcap", true},
+		{"note:*cobalt*", true},
+		{"note:lateral", false},
+		{"analyst_note:pcap", true}, // alias
+		{"analyst:alice", true},
+		{"analyst:ALICE", true}, // case-insensitive
+		{"analyst:bob", false},
+	}
+	for _, tc := range tests {
+		if got := matches(t, tc.q, f); got != tc.want {
+			t.Errorf("%q = %v, want %v", tc.q, got, tc.want)
+		}
+	}
+}
+
+func TestDirectionField(t *testing.T) {
+	outbound := beacon() // 10.2.4.9 (internal) -> 91.218.114.11 (external)
+	inbound := model.Finding{Type: "Beacon", Severity: model.SevHigh, SrcIP: "91.218.114.11", DstIP: "10.2.4.9"}
+	internal := model.Finding{Type: "Lateral Movement", Severity: model.SevHigh, SrcIP: "10.2.4.9", DstIP: "192.168.1.5"}
+	external := model.Finding{Type: "Beacon", Severity: model.SevHigh, SrcIP: "8.8.8.8", DstIP: "91.218.114.11"}
+	tests := []struct {
+		q    string
+		f    model.Finding
+		want bool
+	}{
+		{"dir:outbound", outbound, true},
+		{"dir:inbound", outbound, false},
+		{"dir:inbound", inbound, true},
+		{"dir:internal", internal, true},
+		{"dir:lateral", internal, true}, // value alias for internal
+		{"dir:external", external, true},
+		{"dir:outbound", internal, false},
+		{"direction:outbound", outbound, true},            // field alias
+		{"type:beacons AND dir:outbound", outbound, true}, // the earlier pain point
+		{"type:beacons AND dir:outbound", inbound, false},
+	}
+	for _, tc := range tests {
+		if got := matches(t, tc.q, tc.f); got != tc.want {
+			t.Errorf("%q on %s->%s = %v, want %v", tc.q, tc.f.SrcIP, tc.f.DstIP, got, tc.want)
+		}
+	}
+	// An unknown direction value is rejected loudly at the query bar, not a
+	// silent no-match (consistent with type: misspelling rejection).
+	if _, err := Parse("dir:sideways"); err == nil {
+		t.Error("unknown direction value should be a parse error")
+	}
+}
+
+func TestDetectedField(t *testing.T) {
+	f := beacon()
+	f.DetectedAt = time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC).Unix()
+	tests := []struct {
+		q    string
+		want bool
+	}{
+		{"detected:>=2026-06-01", true},
+		{"detected:>=2026-06-03", false},
+		{"detected:<2026-06-03", true},
+		{"detected:2026-06-02", true}, // bare date = whole-day window
+		{"detected:2026-06-01", false},
+		{"detected:[2026-06-01 TO 2026-06-30]", true},
+		{"detected:[2026-01-01 TO 2026-02-01]", false},
+		{"detected_at:>=2026-06-01", true}, // alias
+	}
+	for _, tc := range tests {
+		if got := matches(t, tc.q, f); got != tc.want {
+			t.Errorf("%q = %v, want %v", tc.q, got, tc.want)
+		}
+	}
+	// A finding with no detected_at (epoch 0) can't be placed in time and must
+	// not match any detected predicate — same shape as an unparseable ts.
+	if matches(t, "detected:>=2026-06-01", beacon()) {
+		t.Error("finding with no detected_at must not match a detected predicate")
+	}
+}
+
 func TestUnknownFieldIsParseError(t *testing.T) {
 	if _, err := Parse("bogus:value"); err == nil {
 		t.Error("unknown field should be a parse error")

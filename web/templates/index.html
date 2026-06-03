@@ -185,6 +185,34 @@
            upserts the matching field token into the query text. -->
       <div class="query-chips">
         <div class="chip-wrap">
+          <button class="chip" id="chip-hunts" type="button">Hunts ▾</button>
+          <!-- Prebuilt hunts. Each item replaces the whole query box with a
+               complete expression (these are alternative lenses, not single-
+               token refinements) and runs it. The data-query strings are the
+               source of truth; internal/query/hunts_test.go reads them back
+               out of this template and asserts every one parses, so a renamed
+               finding type can't silently ship a hunt that matches nothing. -->
+          <ul class="chip-menu chip-menu-wide hidden" id="chip-menu-hunts">
+            <li class="chip-section">Beacon varieties</li>
+            <li data-query='type:beacons AND tscore:&gt;=0.8 AND dscore:&gt;=0.8'>Textbook check-in</li>
+            <li data-query='(type:"Beacon" OR type:"HTTP Beacon") AND tscore:&gt;=0.8 AND dscore:&lt;=0.3'>Tasking channel</li>
+            <li data-query='type:beacons AND spectral:true AND dir:outbound'>Jitter-evading (spectral)</li>
+            <li data-query='type:beacons AND jitter:&lt;0.05'>Clockwork (no jitter)</li>
+            <li data-query='type:beacons AND tscore:&gt;=0.7 AND hist:&lt;=0.3'>Scheduled / fixed-hour</li>
+            <li data-query='type:beacons AND medint:&gt;=1800'>Low-and-slow</li>
+            <li data-query='type:beacons AND dur:&gt;=0.8'>Persistent long-haul</li>
+            <li data-query='type:beacons AND detail:"DGA-suspect"'>DGA-backed</li>
+            <li data-query='type:beacons AND detail:"co-traffic to dst"'>Port-hopping</li>
+            <li class="chip-section">Threat signatures</li>
+            <li data-query='ioc:true'>Threat-intel matches</li>
+            <li data-query='type:"Cobalt Strike URI" OR type:"C2 URI Pattern" OR type:"C2 Port" OR type:"Malicious JA3" OR type:"Malicious JA4"'>Known C2 signatures</li>
+            <li data-query='type:"DNS Tunneling" OR type:"DNS Subdomain DGA" OR type:"DNS NXDOMAIN Flood" OR type:"DNS Beacon"'>DNS covert channels</li>
+            <li data-query='type:"Data Exfiltration" OR type:"Off-Hours Transfer"'>Data exfiltration</li>
+            <li data-query='type:"DoH Bypass" OR type:"Domain Fronting" OR type:"SSL No-SNI on C2 Port" OR type:"SSL No-SNI"'>TLS evasion</li>
+            <li data-query='type:"Lateral Movement" OR (type:beacons AND dir:internal)'>Lateral movement</li>
+          </ul>
+        </div>
+        <div class="chip-wrap">
           <button class="chip" id="chip-severity" type="button">Severity ▾</button>
           <ul class="chip-menu hidden" id="chip-menu-severity">
             <li data-sev="CRITICAL">Critical</li>
@@ -227,12 +255,17 @@
             <li data-field="src:">Source IP / CIDR</li>
             <li data-field="dst:">Destination IP / CIDR</li>
             <li data-field="port:">Destination port</li>
+            <li data-field="dir:">Traffic direction</li>
             <li data-field="ja3:">JA3 fingerprint</li>
             <li data-field="ja4:">JA4 fingerprint</li>
             <li data-field="sensor:">Sensor</li>
             <li data-field="hostname:">Hostname</li>
+            <li data-field="uri:">HTTP beacon URI</li>
             <li data-field="detail:">Detail text</li>
+            <li data-field="note:">Analyst note</li>
+            <li data-field="analyst:">Analyst</li>
             <li data-field="file:">Source log file</li>
+            <li data-field="detected:&gt;=">First detected (date)</li>
             <li data-token="spectral:true">Spectral rescued</li>
             <li data-token="ioc:true">IOC match</li>
             <li data-token="new:true">New to me</li>

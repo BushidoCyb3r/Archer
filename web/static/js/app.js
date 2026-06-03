@@ -1029,6 +1029,24 @@
       else if (li.dataset.field) { _insertQueryTemplate(li.dataset.field); }
       close(moreMenu);
     }));
+
+    // Hunts: each item carries a complete query. Unlike the other chips
+    // (which upsert one token onto the current expression), a hunt is an
+    // alternative lens, so it replaces the whole box and runs immediately.
+    // The non-query section headers carry no data-query and are inert.
+    const huntsMenu = document.getElementById('chip-menu-hunts');
+    huntsMenu.querySelectorAll('li[data-query]').forEach(li => li.addEventListener('click', () => {
+      _setFullQuery(li.dataset.query); applyFilter(); close(huntsMenu);
+    }));
+  }
+
+  // _setFullQuery replaces the entire query box with q. Used by the Hunts
+  // chip, where each item is a complete expression rather than a token.
+  function _setFullQuery(q) {
+    const box = document.getElementById('filter-query');
+    if (!box) return;
+    box.value = q;
+    _autoGrowQuery();
   }
 
   // _tsTokenForRange turns a preset key into the value half of a ts token

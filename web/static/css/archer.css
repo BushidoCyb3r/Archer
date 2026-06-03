@@ -889,6 +889,20 @@ button, input, select, textarea {
   border-top: 1px solid var(--border-subtle);
   color: var(--fg-dim);
 }
+.chip-menu.chip-menu-wide { min-width: 220px; }
+/* Non-clickable group label inside a chip menu (the Hunts sections). */
+.chip-menu li.chip-section {
+  padding: 6px 10px 2px;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--fg-dim);
+  cursor: default;
+}
+.chip-menu li.chip-section:first-child { margin-top: 0; }
+.chip-menu li.chip-section:hover { background: none; color: var(--fg-dim); }
 
 
 /* ============================================================================
