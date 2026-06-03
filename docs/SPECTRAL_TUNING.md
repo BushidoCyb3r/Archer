@@ -90,7 +90,7 @@ when the spectral code or corpus changes.
 
 ## The four knobs
 
-All four live in **Settings → Beacon**. Each one shifts a
+All four live in **Settings → Detection → Beacon**. Each one shifts a
 different trade-off.
 
 > As of v0.25.0 these same four knobs also govern the timing axis of

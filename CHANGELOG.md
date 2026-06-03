@@ -28,6 +28,21 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **Settings dialog is now tabbed.** The single long scroll is split into
+  four tabs — **Detection** (Beacon, DNS, Organization Hosts), **Threat
+  Intel** (lookup-API keys), **Operations** (Watch Mode, Alerting
+  Thresholds, Log Archive + Disk Usage, Detector Health), and **Admin**
+  (Service Tokens, Backup, Danger Zone). No config fields, ids, or save
+  semantics changed — every input still round-trips through the one Save
+  button regardless of the active tab. Docs that cite a settings location
+  now name the tab (e.g. *Settings → Detection → Beacon*).
+
+---
+
 ## [v0.55.0] — 2026-06-03
 
 A security and integrity-hardening slice from a full-repo audit. No new

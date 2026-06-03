@@ -1988,6 +1988,12 @@ dialog::backdrop {
 }
 .preset-btn:hover { background: var(--bg-elev-3); color: var(--fg-primary); border-color: var(--border-strong); }
 
+/* Settings tabs — same scaffold as the Allowlist dialog's .al-tab-panel:
+   panels stay in the DOM when hidden so the global Save still reads every
+   input by id regardless of which tab is showing. */
+.settings-tab-panel { display: none; }
+.settings-tab-panel.active { display: block; }
+
 /* Settings groups */
 .settings-group { margin-bottom: 18px; }
 .settings-group-title {

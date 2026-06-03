@@ -1234,7 +1234,14 @@
 
 <dialog id="settings-dialog">
   <div class="dlg-header">Settings</div>
+  <div class="dlg-tabs" id="settings-tabs">
+    <button class="dlg-tab-btn active" data-settab="detection">Detection</button>
+    <button class="dlg-tab-btn" data-settab="ti">Threat Intel</button>
+    <button class="dlg-tab-btn" data-settab="ops">Operations</button>
+    <button class="dlg-tab-btn" data-settab="admin">Admin</button>
+  </div>
   <div class="dlg-body">
+    <div class="settings-tab-panel active" data-setpanel="detection">
     <div class="settings-group">
       <div class="settings-group-title">Beacon</div>
       <div class="settings-grid">
@@ -1278,6 +1285,15 @@
       </div>
     </div>
     <div class="settings-group">
+      <div class="settings-group-title">Organization Hosts</div>
+      <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
+        The Hosts tab automatically includes RFC 1918 (10/8, 172.16/12, 192.168/16), IPv4 link-local (169.254/16), IPv6 ULA (fc00::/7), and IPv6 link-local (fe80::/10). Add additional CIDRs or single IPs here to surface cloud-hosted servers, owned public blocks, or any non-private address you want monitored as &quot;your host.&quot; One per line.
+      </div>
+      <textarea class="dlg-input" id="cfg-org-cidrs" rows="4" placeholder="203.0.113.0/24&#10;198.51.100.42" style="width:100%;font-family:monospace;resize:vertical"></textarea>
+    </div>
+    </div>
+    <div class="settings-tab-panel" data-setpanel="ti">
+    <div class="settings-group">
       <div class="settings-group-title">Threat Intel Lookup APIs</div>
       <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
         Per-finding enrichment keys. Used by the Threat Intel Lookup panel on the finding detail view to query each provider on demand. For bulk indicator feeds (MISP, OpenCTI) that drive detection, see the Feeds dialog instead.
@@ -1297,13 +1313,8 @@
         </label>
       </div>
     </div>
-    <div class="settings-group">
-      <div class="settings-group-title">Organization Hosts</div>
-      <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
-        The Hosts tab automatically includes RFC 1918 (10/8, 172.16/12, 192.168/16), IPv4 link-local (169.254/16), IPv6 ULA (fc00::/7), and IPv6 link-local (fe80::/10). Add additional CIDRs or single IPs here to surface cloud-hosted servers, owned public blocks, or any non-private address you want monitored as &quot;your host.&quot; One per line.
-      </div>
-      <textarea class="dlg-input" id="cfg-org-cidrs" rows="4" placeholder="203.0.113.0/24&#10;198.51.100.42" style="width:100%;font-family:monospace;resize:vertical"></textarea>
     </div>
+    <div class="settings-tab-panel" data-setpanel="ops">
     <div class="settings-group">
       <div class="settings-group-title">Watch Mode</div>
       <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
@@ -1358,6 +1369,8 @@
       </div>
       <div id="detector-activity-content" style="font-size:11px;line-height:1.65;color:var(--fg-dim)">Loading…</div>
     </div>
+    </div>
+    <div class="settings-tab-panel" data-setpanel="admin">
     <div class="settings-group" id="service-tokens-section" style="display:none">
       <div class="settings-group-title">Service Tokens</div>
       <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
@@ -1389,6 +1402,7 @@
       </div>
       <button class="dlg-btn secondary" id="reset-analyze-btn" type="button" style="border-color:var(--sev-high, #c66);color:var(--sev-high, #c66)">Discard findings &amp; re-analyze</button>
       <span id="reset-analyze-status" style="margin-left:12px;color:var(--fg-dim)"></span>
+    </div>
     </div>
   </div>
   <div class="dlg-footer">

@@ -174,7 +174,7 @@ Run through this before exposing Archer to a multi-user team.
 ### Log retention
 
 - [ ] **Findings persist until explicitly pruned.** The
-      `archive_after_days` setting (Settings → Log Archive)
+      `archive_after_days` setting (Settings → Operations → Log Archive)
       moves `/logs/<sensor>/<date>/` trees into
       `/data/archive/<sensor>/<date>/` after N days. Pruning
       findings older than the archive cutoff is opt-in
@@ -295,7 +295,7 @@ never blocks analysis. The download is audit-logged server-side as
 leaves a row in `audit_log`.
 
 **UI path (v0.18.2+, good for ad-hoc).** Sign in as an admin, open
-Settings → Backup → **Download DB backup**. Same `VACUUM INTO`
+Settings → Admin → Backup → **Download DB backup**. Same `VACUUM INTO`
 snapshot, streamed to the browser with the same timestamped filename
 and the same audit row. Works while analysis is running.
 
@@ -658,7 +658,7 @@ started).
 
 **Auth scope.** The endpoint accepts either a session cookie (analyst /
 admin / viewer) or an `X-Archer-Token` service-account token. Service
-tokens are admin-generated in Settings → Service Tokens. Because the
+tokens are admin-generated in Settings → Admin → Service Tokens. Because the
 token path requires no browser session, the endpoint is a valid
 Prometheus/Nagios scrape target. Token format: `archer_<40-hex-chars>`;
 the raw value is shown once at creation. See `GET /api/service-tokens`

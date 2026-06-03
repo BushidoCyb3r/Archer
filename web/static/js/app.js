@@ -3205,8 +3205,20 @@
   }
 
   // ── Settings dialog ────────────────────────────────────────────────────────
+  // Tabs only toggle panel visibility; every config input stays in the DOM,
+  // so _collectSettings/_collectArchive (id-based) save the whole form
+  // regardless of which tab is active.
+  function _setSettingsTab(name) {
+    document.querySelectorAll('#settings-tabs .dlg-tab-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.settab === name));
+    document.querySelectorAll('#settings-dialog .settings-tab-panel').forEach(p =>
+      p.classList.toggle('active', p.dataset.setpanel === name));
+  }
+
   function initSettings() {
     const dlg = document.getElementById('settings-dialog');
+    document.querySelectorAll('#settings-tabs .dlg-tab-btn').forEach(b =>
+      b.addEventListener('click', () => _setSettingsTab(b.dataset.settab)));
     document.getElementById('settings-btn').addEventListener('click', async () => {
       const [cfg, archive] = await Promise.all([
         api('/api/config').catch(() => ({})),
@@ -3221,6 +3233,7 @@
         if (sec) sec.style.display = '';
         _loadServiceTokens();
       }
+      _setSettingsTab('detection');
       dlg.showModal();
     });
     document.getElementById('settings-cancel').addEventListener('click', () => dlg.close());

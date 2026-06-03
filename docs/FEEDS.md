@@ -108,7 +108,7 @@ Click the **Feeds** topbar button (admin role required) → **Add feed**.
 Save. The new feed's indicators load on the next watch full-pass tick.
 If you've just added a feed and want it to participate immediately,
 trigger a full pass — either flip on `WatchAlwaysFull` in
-Settings → Watch Mode, or run **Discard findings & re-analyze** which
+Settings → Operations → Watch Mode, or run **Discard findings & re-analyze** which
 runs as a full pass (with the pre-flight feed refresh) and resets the
 two-tier timestamps. Feed status flips through `idle → fetching → ok`
 (or `error` on failure, with the upstream error in the feed row's
@@ -149,7 +149,7 @@ There is intentionally no all-feeds dashboard button. If you want to
 force a refresh of every configured feed at once, the supported
 paths are:
 
-- Flip on **Settings → Watch Mode → Always run full scan on every
+- Flip on **Settings → Operations → Watch Mode → Always run full scan on every
   watch tick** for the duration of an active hunt — every subsequent
   tick (down to hourly) becomes a full pass and fetches feeds first.
 - Trigger **Discard findings & re-analyze** from the analyst dashboard

@@ -673,7 +673,7 @@ calibrate the thresholds against their own traffic.
 - No DNS-log correlation: TCP beacons to raw IPs that resolved
   via dns.log before the analysis window don't get scored.
 
-**Calibration.** The Settings → Beacon pane has both
+**Calibration.** The Settings → Detection → Beacon pane has both
 threshold inputs alongside an enable toggle. Bump the entropy
 threshold up (3.8) if English-shaped names are tripping; drop
 the bigram threshold (more negative, e.g. -5.0) if DGA names
@@ -1122,7 +1122,7 @@ the operator's curated allowlist is skipped — a constant-cadence
 resolver/telemetry/CDN apex would otherwise aggregate every query
 under one key and read as periodic.
 
-**Calibration.** `DNSBeaconMinQueries` (Settings → DNS → *DNS Beacon
+**Calibration.** `DNSBeaconMinQueries` (Settings → Detection → DNS → *DNS Beacon
 Min Queries*, default 20) is the sample-size floor — the minimum
 queries to a `(src, apex)` before scoring, analogous to
 `BeaconMinConnections`. The same `conf_mod` sample-size modifier (§2.2(f))
@@ -1567,7 +1567,7 @@ between daily runs is detected on the next day's first tick. Real-time
 beacon detection from a single hour of logs is mathematically
 impossible, so this is the floor any honest design hits.
 
-**Operator override — `WatchAlwaysFull`.** Settings → Watch Mode exposes
+**Operator override — `WatchAlwaysFull`.** Settings → Operations → Watch Mode exposes
 an **Always run full scan on every watch tick** checkbox that disables
 the two-tier behavior entirely. When on, `triggerWatchAnalysis`
 short-circuits the date-comparison check and routes every tick through
