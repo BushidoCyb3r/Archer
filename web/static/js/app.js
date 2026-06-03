@@ -1822,6 +1822,7 @@
     const btn = document.getElementById('analyze-btn');
     if (btn) btn.disabled = active ? true : !_logsAvailable;
     document.getElementById('analysis-controls').style.display = active ? 'flex' : 'none';
+    document.getElementById('progress-bar').style.display = active ? '' : 'none';
     // Reset Stop/Pause buttons to their default labels and enabled state
     // every time analysis starts or finishes, so a partial-state from a
     // prior cancel doesn't bleed into the next run.
@@ -1854,6 +1855,7 @@
     const btn = document.getElementById('analyze-btn');
     if (btn) btn.disabled = true;
     document.getElementById('analysis-controls').style.display = 'none';
+    document.getElementById('progress-bar').style.display = 'none';
     setStatus('Maintenance in progress…');
     const poll = setInterval(async () => {
       try {
@@ -2021,7 +2023,11 @@
         setStatus('No changes since last analysis — skipped');
         return;
       }
-      document.getElementById('progress-bar').value = evt.cancelled ? 0 : 100;
+      // _setAnalyzing(false) above hid the bar; re-show it so the
+      // fill-to-100% completion flash is visible before the 2 s reset.
+      const bar = document.getElementById('progress-bar');
+      bar.style.display = '';
+      bar.value = evt.cancelled ? 0 : 100;
       setStatus(evt.cancelled
         ? `Analysis stopped — ${evt.count || 0} partial findings`
         : `Analysis complete — ${evt.count || 0} findings (${evt.new_count || 0} new)`);
@@ -2043,7 +2049,7 @@
         .then(r => r.json())
         .then(data => { if (Array.isArray(data)) data.filter(n => !n.dismissed).forEach(n => Notifications.add(n)); })
         .catch(() => {});
-      setTimeout(() => { document.getElementById('progress-bar').value = 0; }, 2000);
+      setTimeout(() => { bar.value = 0; bar.style.display = 'none'; }, 2000);
       // Route the modal through the per-user "unseen" endpoint rather than
       // this run's evt.new_count. evt.new_count is the global per-run is_new
       // flag, which resets every watch tick — an analyst sitting on the page
