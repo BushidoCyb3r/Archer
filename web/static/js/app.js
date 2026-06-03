@@ -1820,7 +1820,11 @@
   function _setAnalyzing(active) {
     _slotBusy = active;
     const btn = document.getElementById('analyze-btn');
-    if (btn) btn.disabled = active ? true : !_logsAvailable;
+    if (btn) {
+      btn.disabled = active ? true : !_logsAvailable;
+      // The bar takes the button's slot while a run is in flight; swap them.
+      btn.style.display = active ? 'none' : '';
+    }
     document.getElementById('analysis-controls').style.display = active ? 'flex' : 'none';
     document.getElementById('progress-bar').style.display = active ? '' : 'none';
     // Reset Stop/Pause buttons to their default labels and enabled state
@@ -1853,7 +1857,9 @@
   function _startMaintenancePoll() {
     _slotBusy = true;
     const btn = document.getElementById('analyze-btn');
-    if (btn) btn.disabled = true;
+    // Maintenance isn't an analysis run — show the (disabled) button, not the
+    // bar, even if we got here from a click that had already swapped them.
+    if (btn) { btn.disabled = true; btn.style.display = ''; }
     document.getElementById('analysis-controls').style.display = 'none';
     document.getElementById('progress-bar').style.display = 'none';
     setStatus('Maintenance in progress…');
@@ -2023,9 +2029,11 @@
         setStatus('No changes since last analysis — skipped');
         return;
       }
-      // _setAnalyzing(false) above hid the bar; re-show it so the
-      // fill-to-100% completion flash is visible before the 2 s reset.
+      // _setAnalyzing(false) above swapped the bar back to the Analyze button;
+      // hold the swap for a 2 s fill-to-100% completion flash before restoring.
+      const btn = document.getElementById('analyze-btn');
       const bar = document.getElementById('progress-bar');
+      btn.style.display = 'none';
       bar.style.display = '';
       bar.value = evt.cancelled ? 0 : 100;
       setStatus(evt.cancelled
@@ -2049,7 +2057,7 @@
         .then(r => r.json())
         .then(data => { if (Array.isArray(data)) data.filter(n => !n.dismissed).forEach(n => Notifications.add(n)); })
         .catch(() => {});
-      setTimeout(() => { bar.value = 0; bar.style.display = 'none'; }, 2000);
+      setTimeout(() => { bar.value = 0; bar.style.display = 'none'; btn.style.display = ''; }, 2000);
       // Route the modal through the per-user "unseen" endpoint rather than
       // this run's evt.new_count. evt.new_count is the global per-run is_new
       // flag, which resets every watch tick — an analyst sitting on the page

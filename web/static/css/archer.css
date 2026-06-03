@@ -539,10 +539,9 @@ button, input, select, textarea {
 }
 
 #progress-bar {
-  width: calc(100% - 28px);
-  margin: 8px 14px 4px;
-  height: 4px;
-  border-radius: 2px;
+  flex: 1;
+  height: 30px;
+  border-radius: var(--radius);
   appearance: none;
   background: var(--bg-elev-3);
   overflow: hidden;
