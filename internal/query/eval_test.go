@@ -134,12 +134,20 @@ func TestBoolFields(t *testing.T) {
 	if !matches(t, "spectral:true", f) {
 		t.Error("spectral-rescued finding should match spectral:true")
 	}
-	if matches(t, "new:true", f) {
-		t.Error("not-new finding should not match new:true")
-	}
 	f.IOCMatch = true
 	if !matches(t, "ioc:true", f) {
 		t.Error("IOC finding should match ioc:true")
+	}
+}
+
+// TestNewFieldRemoved pins the v0.54.0 removal of the new: query field: it
+// duplicated the "New only" delta filter, so it's gone from the grammar and
+// must now be rejected as an unknown field rather than silently matching.
+func TestNewFieldRemoved(t *testing.T) {
+	for _, q := range []string{"new:true", "new:false"} {
+		if _, err := Parse(q); err == nil {
+			t.Errorf("Parse(%q) succeeded; new: should be an unknown field", q)
+		}
 	}
 }
 

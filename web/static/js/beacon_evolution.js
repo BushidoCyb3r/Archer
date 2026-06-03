@@ -37,7 +37,7 @@ const BeaconEvolution = (() => {
   function load(findingID, type) {
     _lastRows = null;
     _currentFindingID = null;
-    if (type !== 'Beacon' && type !== 'HTTP Beacon' && type !== 'DNS Beacon') return;
+    if (type !== 'Beacon' && type !== 'HTTP Beacon' && type !== 'DNS Beacon' && type !== 'Port-Hopping Beacon') return;
     _currentFindingID = findingID;
     fetch(`/api/findings/${findingID}/history`, { credentials: 'same-origin' })
       .then(r => {

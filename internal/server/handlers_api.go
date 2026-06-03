@@ -310,7 +310,7 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Has-More", "false")
 	}
 	w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count, X-Has-More")
-	json.NewEncoder(w).Encode(projectFindingList(page, newBoundaryFromCtx(r)))
+	json.NewEncoder(w).Encode(projectFindingList(page, newBoundaryFromCtx(r), s.store.IsFingerprintAllowed))
 }
 
 // sortFindings sorts the slice in place by the same column / direction
@@ -399,6 +399,10 @@ type listFinding struct {
 	IsNew       bool           `json:"is_new"`
 	IsNewToMe   bool           `json:"is_new_to_me,omitempty"`
 	Sensor      string         `json:"sensor,omitempty"`
+	// TLSAllowlisted marks that the finding's JA3/JA4 client fingerprint has
+	// been marked benign on the TLS Fingerprints wall — a hint for the table,
+	// not a filter (the finding still shows). Transient, set at projection.
+	TLSAllowlisted bool `json:"tls_allowlisted,omitempty"`
 }
 
 // projectFindingList trims findings to the list shape. newBoundary is the
@@ -406,10 +410,13 @@ type listFinding struct {
 // it was first detected after that boundary, so the table's "new" dot lights
 // for everything new since the analyst last logged in — the same set the
 // "New only" filter and the new-findings modal use — not just the most recent
-// run's IsNew.
-func projectFindingList(in []model.Finding, newBoundary int64) []listFinding {
+// run's IsNew. fpAllowed reports whether a (kind, fingerprint) has been marked
+// benign on the TLS Fingerprints wall; nil disables the marker.
+func projectFindingList(in []model.Finding, newBoundary int64, fpAllowed func(kind, fp string) bool) []listFinding {
 	out := make([]listFinding, len(in))
 	for i, f := range in {
+		allowlisted := fpAllowed != nil &&
+			((f.JA4 != "" && fpAllowed("ja4", f.JA4)) || (f.JA3 != "" && fpAllowed("ja3", f.JA3)))
 		out[i] = listFinding{
 			ID: f.ID, Type: f.Type, Severity: f.Severity, Score: f.Score,
 			SrcIP: f.SrcIP, DstIP: f.DstIP, DstPort: f.DstPort,
@@ -417,6 +424,7 @@ func projectFindingList(in []model.Finding, newBoundary int64) []listFinding {
 			Status: f.Status, Analyst: f.Analyst, AnalystNote: f.AnalystNote,
 			StatusTS: f.StatusTS, IOCMatch: f.IOCMatch, IOCSource: f.IOCSource,
 			IsNew: f.IsNew, IsNewToMe: f.DetectedAt > newBoundary, Sensor: f.Sensor,
+			TLSAllowlisted: allowlisted,
 		}
 	}
 	return out

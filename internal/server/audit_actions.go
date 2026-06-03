@@ -51,15 +51,17 @@ const (
 	ActionFindingNoteAdd      = "finding_note_add"
 
 	// Config + global lists
-	ActionConfigChange        = "config_change"
-	ActionAllowlistEdit       = "allowlist_edit"
-	ActionIOCEdit             = "ioc_edit"
-	ActionSuppressionAdd      = "suppression_add"
-	ActionSuppressionDelete   = "suppression_delete"
-	ActionPairAllowlistAdd    = "pair_allowlist_add"
-	ActionPairAllowlistRemove = "pair_allowlist_remove"
-	ActionWatchChange         = "watch_change"
-	ActionFindingImport       = "finding_import"
+	ActionConfigChange               = "config_change"
+	ActionAllowlistEdit              = "allowlist_edit"
+	ActionIOCEdit                    = "ioc_edit"
+	ActionSuppressionAdd             = "suppression_add"
+	ActionSuppressionDelete          = "suppression_delete"
+	ActionPairAllowlistAdd           = "pair_allowlist_add"
+	ActionPairAllowlistRemove        = "pair_allowlist_remove"
+	ActionFingerprintAllowlistAdd    = "fingerprint_allowlist_add"
+	ActionFingerprintAllowlistRemove = "fingerprint_allowlist_remove"
+	ActionWatchChange                = "watch_change"
+	ActionFindingImport              = "finding_import"
 
 	// Analyze pipeline lifecycle (v0.14.9 NEW-65). Watch-driven
 	// runs are unattributed and don't pass through these handlers;
@@ -92,46 +94,48 @@ const (
 // every emission uses a constant from this set; adding a new
 // emission without adding a constant fails the test.
 var knownAuditActions = map[string]struct{}{
-	ActionLoginSuccess:              {},
-	ActionLoginFailure:              {},
-	ActionLogout:                    {},
-	ActionUserRegister:              {},
-	ActionAdminBootstrap:            {},
-	ActionRequestRateLimited:        {},
-	ActionUserCreate:                {},
-	ActionUserRoleChange:            {},
-	ActionUserStatusChange:          {},
-	ActionUserDelete:                {},
-	ActionUserPasswordChange:        {},
-	ActionUserPasswordReset:         {},
-	ActionEnrollmentTokenCreate:     {},
-	ActionEnrollmentTokenRevoke:     {},
-	ActionSensorDisenroll:           {},
-	ActionSensorPurge:               {},
-	ActionSensorScheduleChange:      {},
-	ActionSensorUnauthorizedAttempt: {},
-	ActionFeedCreate:                {},
-	ActionFeedUpdate:                {},
-	ActionFeedDelete:                {},
-	ActionFeedRefresh:               {},
-	ActionFindingStatusChange:       {},
-	ActionFindingEscalate:           {},
-	ActionFindingNoteAdd:            {},
-	ActionConfigChange:              {},
-	ActionAllowlistEdit:             {},
-	ActionIOCEdit:                   {},
-	ActionSuppressionAdd:            {},
-	ActionSuppressionDelete:         {},
-	ActionPairAllowlistAdd:          {},
-	ActionPairAllowlistRemove:       {},
-	ActionWatchChange:               {},
-	ActionFindingImport:             {},
-	ActionAnalyzeStart:              {},
-	ActionAnalyzeCancel:             {},
-	ActionAnalyzePause:              {},
-	ActionAnalyzeResume:             {},
-	ActionAnalyzeReset:              {},
-	ActionDBBackup:                  {},
-	ActionServiceTokenCreate:        {},
-	ActionServiceTokenRevoke:        {},
+	ActionLoginSuccess:               {},
+	ActionLoginFailure:               {},
+	ActionLogout:                     {},
+	ActionUserRegister:               {},
+	ActionAdminBootstrap:             {},
+	ActionRequestRateLimited:         {},
+	ActionUserCreate:                 {},
+	ActionUserRoleChange:             {},
+	ActionUserStatusChange:           {},
+	ActionUserDelete:                 {},
+	ActionUserPasswordChange:         {},
+	ActionUserPasswordReset:          {},
+	ActionEnrollmentTokenCreate:      {},
+	ActionEnrollmentTokenRevoke:      {},
+	ActionSensorDisenroll:            {},
+	ActionSensorPurge:                {},
+	ActionSensorScheduleChange:       {},
+	ActionSensorUnauthorizedAttempt:  {},
+	ActionFeedCreate:                 {},
+	ActionFeedUpdate:                 {},
+	ActionFeedDelete:                 {},
+	ActionFeedRefresh:                {},
+	ActionFindingStatusChange:        {},
+	ActionFindingEscalate:            {},
+	ActionFindingNoteAdd:             {},
+	ActionConfigChange:               {},
+	ActionAllowlistEdit:              {},
+	ActionIOCEdit:                    {},
+	ActionSuppressionAdd:             {},
+	ActionSuppressionDelete:          {},
+	ActionPairAllowlistAdd:           {},
+	ActionPairAllowlistRemove:        {},
+	ActionFingerprintAllowlistAdd:    {},
+	ActionFingerprintAllowlistRemove: {},
+	ActionWatchChange:                {},
+	ActionFindingImport:              {},
+	ActionAnalyzeStart:               {},
+	ActionAnalyzeCancel:              {},
+	ActionAnalyzePause:               {},
+	ActionAnalyzeResume:              {},
+	ActionAnalyzeReset:               {},
+	ActionDBBackup:                   {},
+	ActionServiceTokenCreate:         {},
+	ActionServiceTokenRevoke:         {},
 }

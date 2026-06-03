@@ -26,6 +26,7 @@ import (
 // entry) — the value of leaving it operator-configurable is negative.
 var riskWeights = map[string]int{
 	"Beacon":                   30,
+	"Port-Hopping Beacon":      30, // relabel of Beacon — same weight keeps the host-risk roll-up neutral
 	"HTTP Beacon":              28,
 	"DNS Beacon":               30,
 	"Cobalt Strike URI":        40,

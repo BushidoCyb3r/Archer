@@ -310,7 +310,7 @@ func IsThreatIntelType(t string) bool {
 // justify.
 func IsBeaconType(t string) bool {
 	switch t {
-	case "Beacon", "HTTP Beacon", "DNS Beacon":
+	case "Beacon", "HTTP Beacon", "DNS Beacon", "Port-Hopping Beacon":
 		return true
 	}
 	return false
@@ -328,7 +328,8 @@ func IsBeaconType(t string) bool {
 // guards the constant-backed entries against drift.
 var knownFindingTypes = map[string]bool{
 	"Beacon": true, "HTTP Beacon": true, "DNS Beacon": true,
-	"Strobe": true, "Long Connection": true, "Data Exfiltration": true,
+	"Port-Hopping Beacon": true,
+	"Strobe":              true, "Long Connection": true, "Data Exfiltration": true,
 	"Off-Hours Transfer": true, "Lateral Movement": true,
 	"DNS Tunneling": true, "DNS NXDOMAIN Flood": true, "DNS Subdomain DGA": true,
 	"Protocol Anomaly": true, "C2 Port": true, "C2 URI Pattern": true,
@@ -463,6 +464,12 @@ var ScoreExplanations = map[string]string{
 		"Detail tags 'Spectral rescue: period≈Xs' when the frequency-domain path won.\n" +
 		"DGA augmentation: +15 score, one-step severity upgrade when the destination Hostname's SLD has Shannon entropy > dga_entropy_threshold (default 3.5) AND bigram log-likelihood < dga_bigram_threshold (default -4.5). Detail tags 'DGA-suspect destination: <host> (SLD=..., entropy=..., bigram=...)'.\n" +
 		"False positives: backup clients, update agents, NTP heartbeats.",
+
+	"Port-Hopping Beacon": "Same scoring as Beacon — this is a Beacon that spreads across many destination ports.\n" +
+		"Relabel (not a re-score): a (sensor, src, dst) pair already qualified as a beacon, then was found to span ≥5 dst ports with no single port carrying ≥50% of connections.\n" +
+		"The port deliberately isn't part of the beacon key, so a hopper is caught as one beacon today; this type just names the evasion shape.\n" +
+		"Detail tags 'Port-hopping: N dst ports [...], no dominant port (max X%)'.\n" +
+		"False positives: clients that legitimately fan out across an ephemeral-port service (some P2P, some RPC frameworks).",
 
 	"HTTP Beacon": "Same multi-dimensional analysis as conn-level but on (src, host, URI path) triples.\n" +
 		"ts+ds+hist+dur components — catches C2 over CDN where many IPs share one domain.\n" +

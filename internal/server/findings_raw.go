@@ -37,6 +37,7 @@ import (
 // entry breaks that test.
 var logTypesForFinding = map[string][]string{
 	"Beacon":                   {"conn"},
+	"Port-Hopping Beacon":      {"conn"},
 	"Long Connection":          {"conn"},
 	"Strobe":                   {"conn"},
 	"Data Exfiltration":        {"conn"},

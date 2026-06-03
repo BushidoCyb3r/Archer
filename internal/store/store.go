@@ -52,6 +52,8 @@ type Store struct {
 	suppressions   map[string]SuppressionEntry
 	pairAllow      []model.PairAllowEntry
 	pairAllowIdx   map[string][]pairAllowRule // src\x00dst\x00port -> rules; sensor="" and ftype="" are wildcards
+	fpAllow        []model.FingerprintAllowEntry
+	fpAllowIdx     map[string]bool // kind\x00fingerprint -> allowlisted (benign TLS fingerprint)
 	notifications  []model.Notification
 	notifCounter   int
 	config         config.Config
@@ -99,6 +101,7 @@ func New(cfg config.Config) *Store {
 	return &Store{
 		suppressions:   make(map[string]SuppressionEntry),
 		pairAllowIdx:   make(map[string][]pairAllowRule),
+		fpAllowIdx:     make(map[string]bool),
 		feedMatchers:   make(map[int64]*match.Matcher),
 		feedMatcherGen: make(map[int64]uint64),
 		findingsIdx:    make(map[int]int),
@@ -271,6 +274,20 @@ func (s *Store) InitDB(db *sql.DB) {
 		}
 	}
 	s.rebuildPairAllowIdxLocked()
+
+	if rows, err := db.Query(`SELECT id, kind, fingerprint, note, created_by, created_at FROM fingerprint_allowlist ORDER BY id`); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var e model.FingerprintAllowEntry
+			if rows.Scan(&e.ID, &e.Kind, &e.Fingerprint, &e.Note, &e.CreatedBy, &e.CreatedAt) == nil {
+				s.fpAllow = append(s.fpAllow, e)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			slog.Error("store: incomplete fingerprint_allowlist load — some benign fingerprints missing until next restart", "err", err)
+		}
+	}
+	s.rebuildFPAllowIdxLocked()
 
 	s.loadFindings()
 	s.loadNotifications()
@@ -1153,6 +1170,11 @@ func (s *Store) FingerprintInventory(badJA4, badJA3 map[string]string) []model.F
 			if isBad {
 				level = "critical"
 				reason = "Known C2 fingerprint"
+			} else if s.fpAllowIdx[fpAllowKey(kind, fp)] {
+				// Analyst marked this benign — drop from the wall. Known-bad
+				// is checked first above, so a C2 fingerprint can never be
+				// hidden this way.
+				continue
 			} else if fpLevelRank(level) == 0 {
 				continue
 			}
@@ -1628,6 +1650,88 @@ func (s *Store) RemovePairAllow(id int64) {
 		}
 	}
 	s.rebuildPairAllowIdxLocked()
+}
+
+func fpAllowKey(kind, fingerprint string) string { return kind + "\x00" + fingerprint }
+
+// rebuildFPAllowIdxLocked refreshes the (kind,fingerprint)->true lookup from
+// the in-memory slice. Caller holds s.mu.
+func (s *Store) rebuildFPAllowIdxLocked() {
+	idx := make(map[string]bool, len(s.fpAllow))
+	for _, e := range s.fpAllow {
+		idx[fpAllowKey(e.Kind, e.Fingerprint)] = true
+	}
+	s.fpAllowIdx = idx
+}
+
+// IsFingerprintAllowed reports whether (kind, fingerprint) has been marked
+// benign. Read under RLock.
+func (s *Store) IsFingerprintAllowed(kind, fingerprint string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.fpAllowIdx[fpAllowKey(kind, fingerprint)]
+}
+
+// ListFingerprintAllowlist returns every benign-fingerprint entry, id-ordered,
+// for the modal's "Benign" section.
+func (s *Store) ListFingerprintAllowlist() []model.FingerprintAllowEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]model.FingerprintAllowEntry, len(s.fpAllow))
+	copy(out, s.fpAllow)
+	return out
+}
+
+// AddFingerprintAllow marks a fingerprint benign and returns its id. Idempotent
+// on the (kind, fingerprint) unique index: re-adding an identical entry returns
+// the existing id without creating a duplicate.
+func (s *Store) AddFingerprintAllow(e model.FingerprintAllowEntry) (int64, error) {
+	if s.db == nil {
+		return 0, fmt.Errorf("store: db not initialized")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.Exec(
+		`INSERT OR IGNORE INTO fingerprint_allowlist (kind, fingerprint, note, created_by, created_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		e.Kind, e.Fingerprint, e.Note, e.CreatedBy, e.CreatedAt,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("store: add fingerprint allow: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		var id int64
+		_ = s.db.QueryRow(
+			`SELECT id FROM fingerprint_allowlist WHERE kind=? AND fingerprint=?`,
+			e.Kind, e.Fingerprint,
+		).Scan(&id)
+		return id, nil
+	}
+	id, _ := res.LastInsertId()
+	e.ID = id
+	s.fpAllow = append(s.fpAllow, e)
+	s.rebuildFPAllowIdxLocked()
+	return id, nil
+}
+
+// RemoveFingerprintAllow deletes a benign-fingerprint entry by id. The
+// fingerprint returns to the TLS Fingerprints inventory on the next fetch.
+func (s *Store) RemoveFingerprintAllow(id int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db != nil {
+		if _, err := s.db.Exec(`DELETE FROM fingerprint_allowlist WHERE id = ?`, id); err != nil {
+			slog.Error("store: remove fingerprint allow", "id", id, "err", err)
+			return
+		}
+	}
+	for i := range s.fpAllow {
+		if s.fpAllow[i].ID == id {
+			s.fpAllow = append(s.fpAllow[:i], s.fpAllow[i+1:]...)
+			break
+		}
+	}
+	s.rebuildFPAllowIdxLocked()
 }
 
 // isHiddenLocked reports whether either of the two IPs is currently

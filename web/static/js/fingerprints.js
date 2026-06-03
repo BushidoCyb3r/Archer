@@ -13,6 +13,8 @@ const Fingerprints = (() => {
   // app.js owns the pivot (pivotByTLS lives inside its IIFE), so it injects a
   // callback at init time rather than us reaching into its private scope.
   let _onPivot = null;
+  let _onToast = null;
+  let _canWrite = true;
 
   // Module-local fetch wrapper — app.js's api() is IIFE-private. Canonical
   // body shared with the other SPA modules (pinned by a Go consistency test).
@@ -52,6 +54,11 @@ const Fingerprints = (() => {
       const concern = r.known_bad
         ? ('Known C2' + (r.label ? ': ' + r.label : ''))
         : (r.detail || '');
+      // Known-C2 rows are non-markable — analysts must not be able to mute a
+      // confirmed C2 fingerprint off the wall (the server rejects it too).
+      const action = (r.known_bad || !_canWrite)
+        ? ''
+        : `<button class="dlg-btn secondary fp-benign-btn" type="button" title="Mark this fingerprint benign and hide it from the list">Mark benign</button>`;
       tr.innerHTML =
         `<td class="severity">${_esc(sev)}</td>` +
         `<td>${r.kind === 'ja4' ? 'JA4' : 'JA3'}</td>` +
@@ -60,12 +67,67 @@ const Fingerprints = (() => {
         `<td>${r.src_hosts}</td>` +
         `<td>${r.dsts}</td>` +
         `<td>${r.conns}</td>` +
-        `<td>${r.finding_count}</td>`;
+        `<td>${r.finding_count}</td>` +
+        `<td class="fp-action">${action}</td>`;
       tbody.appendChild(tr);
     });
   }
 
+  function _renderBenign(entries) {
+    const wrap = document.getElementById('fingerprints-benign');
+    const tbody = document.getElementById('fingerprints-benign-tbody');
+    const count = document.getElementById('fingerprints-benign-count');
+    if (!wrap || !tbody) return;
+    tbody.innerHTML = '';
+    if (count) count.textContent = entries.length;
+    if (!entries.length) {
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = '';
+    entries.forEach(e => {
+      const tr = document.createElement('tr');
+      tr.dataset.id = e.id;
+      tr.innerHTML =
+        `<td>${e.kind === 'ja4' ? 'JA4' : 'JA3'}</td>` +
+        `<td class="fp-hash" title="${_esc(e.fingerprint)}">${_esc(e.fingerprint)}</td>` +
+        `<td class="fp-concern" title="${_esc(e.note)}">${_esc(e.note || '')}</td>` +
+        `<td class="fp-action">${_canWrite ? '<button class="dlg-btn secondary fp-unbenign-btn" type="button" title="Restore this fingerprint to the list">Unmark</button>' : ''}</td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function _markBenign(kind, fp) {
+    try {
+      await _api('/api/fingerprint-allowlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, fingerprint: fp, note: '' }),
+      });
+    } catch (err) {
+      if (_onToast) _onToast('Could not mark benign: ' + err.message);
+      return;
+    }
+    await _reload();
+  }
+
+  async function _unmarkBenign(id) {
+    try {
+      await _api('/api/fingerprint-allowlist/' + encodeURIComponent(id), { method: 'DELETE' });
+    } catch (err) {
+      if (_onToast) _onToast('Could not unmark: ' + err.message);
+      return;
+    }
+    await _reload();
+  }
+
   function _onRowClick(e) {
+    const benignBtn = e.target.closest('.fp-benign-btn');
+    if (benignBtn) {
+      const tr = e.target.closest('tr.fp-row');
+      if (tr) _markBenign(tr.dataset.kind, tr.dataset.fp);
+      return;
+    }
     const tr = e.target.closest('tr.fp-row');
     if (!tr) return;
     const kind = tr.dataset.kind;
@@ -75,20 +137,40 @@ const Fingerprints = (() => {
     if (_onPivot) _onPivot(kind, fp);
   }
 
-  async function open() {
+  function _onBenignClick(e) {
+    const btn = e.target.closest('.fp-unbenign-btn');
+    if (!btn) return;
+    const tr = e.target.closest('tr[data-id]');
+    if (tr) _unmarkBenign(tr.dataset.id);
+  }
+
+  async function _reload() {
     let rows = [];
+    let benign = [];
     try {
       rows = await _api('/api/fingerprints');
     } catch (_) {
       rows = [];
     }
+    try {
+      benign = await _api('/api/fingerprint-allowlist');
+    } catch (_) {
+      benign = [];
+    }
     _render(rows);
+    _renderBenign(benign);
+  }
+
+  async function open() {
+    await _reload();
     const dlg = document.getElementById('fingerprints-dialog');
     if (dlg) dlg.showModal();
   }
 
   function init(opts) {
     _onPivot = (opts && opts.onPivot) || null;
+    _onToast = (opts && opts.onToast) || null;
+    _canWrite = !opts || opts.canWrite !== false;
     const btn = document.getElementById('fingerprints-btn');
     if (!btn) return;
     btn.addEventListener('click', open);
@@ -101,6 +183,8 @@ const Fingerprints = (() => {
     }
     const tbody = document.getElementById('fingerprints-tbody');
     if (tbody) tbody.addEventListener('click', _onRowClick);
+    const benignTbody = document.getElementById('fingerprints-benign-tbody');
+    if (benignTbody) benignTbody.addEventListener('click', _onBenignClick);
   }
 
   return { init, open };

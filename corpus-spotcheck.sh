@@ -189,3 +189,48 @@ else
         echo "PASS: no fully-blocked spectral rescues in the last $BLOCKED_RUNS run(s)."
     fi
 fi
+
+# ── Check 4: Port-Hopping Beacon census (advisory) ───────────────────────────
+# Port-Hopping Beacon is a downstream relabel of a Beacon that spans many
+# destination ports with no dominant one. Because it is a relabel and never
+# a gate, "no CRITICAL lost" holds by construction: every hopper would have
+# emitted as a Beacon at the identical score. What this census exists to
+# answer is the other half of the gate — does the relabel earn its FP budget?
+# A healthy corpus shows a small set whose top scorers are plausibly C2
+# (high ts/ds, persistent). A flood of low-score hoppers spread over wide
+# ephemeral-port ranges is benign fan-out (P2P/RPC) — candidate allowlist
+# entries, not a tuning emergency (the score is unchanged either way).
+
+HOPPERS=$(sqlite3 "$DB" "
+  SELECT COUNT(*) FROM findings WHERE type = 'Port-Hopping Beacon';
+")
+
+if [ "$HOPPERS" -gt 0 ]; then
+    echo ""
+    echo "ADVISORY: $HOPPERS Port-Hopping Beacon finding(s). Eyeball the top scorers —"
+    echo "confirm the port spread looks like deliberate rotation (C2), not benign"
+    echo "ephemeral-port fan-out (P2P/RPC, which is allowlist material):"
+    sqlite3 -column -header "$DB" "
+      SELECT id, src_ip, dst_ip, score, severity,
+             ROUND(median_interval, 1) AS median_interval,
+             SUBSTR(detail,
+               INSTR(detail, 'Port-hopping:'),
+               160
+             ) AS port_spread
+      FROM findings
+      WHERE type = 'Port-Hopping Beacon'
+      ORDER BY score DESC
+      LIMIT 30;"
+    echo ""
+    echo "Severity split (relabel preserves the Beacon score, so this also stands"
+    echo "as the by-construction proof that no CRITICAL was demoted by the relabel):"
+    sqlite3 -column -header "$DB" "
+      SELECT severity, COUNT(*) AS n, ROUND(AVG(score), 1) AS avg_score
+      FROM findings
+      WHERE type = 'Port-Hopping Beacon'
+      GROUP BY severity
+      ORDER BY avg_score DESC;"
+else
+    echo ""
+    echo "INFO: no Port-Hopping Beacon findings in this corpus."
+fi

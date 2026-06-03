@@ -1,0 +1,60 @@
+[
+  {
+    "type": "C2 Port",
+    "severity": "HIGH",
+    "score": 75,
+    "src_ip": "192.168.1.60",
+    "dst_ip": "203.0.113.88",
+    "dst_port": "4444",
+    "detail": "Port 4444 — Metasploit default",
+    "timestamp": "2024-01-15 12:15:00"
+  },
+  {
+    "type": "C2 Port",
+    "severity": "HIGH",
+    "score": 75,
+    "src_ip": "192.168.1.60",
+    "dst_ip": "203.0.113.88",
+    "dst_port": "6666",
+    "detail": "Port 6666 — IRC / C2",
+    "timestamp": "2024-01-15 12:25:00"
+  },
+  {
+    "type": "C2 Port",
+    "severity": "HIGH",
+    "score": 75,
+    "src_ip": "192.168.1.60",
+    "dst_ip": "203.0.113.88",
+    "dst_port": "9001",
+    "detail": "Port 9001 — Tor relay",
+    "timestamp": "2024-01-15 12:10:00"
+  },
+  {
+    "type": "Correlated Activity",
+    "severity": "HIGH",
+    "score": 75,
+    "src_ip": "192.168.1.60",
+    "dst_ip": "203.0.113.88",
+    "detail": "Multi-stage activity on (192.168.1.60 → 203.0.113.88) — C2 Port, Port-Hopping Beacon | Contributing finding IDs: 1, 2, 3, 4",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Host Risk Score",
+    "severity": "MEDIUM",
+    "score": 42,
+    "src_ip": "192.168.1.60",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 42 | Detections: [C2 Port Port-Hopping Beacon]",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Port-Hopping Beacon",
+    "severity": "MEDIUM",
+    "score": 50,
+    "src_ip": "192.168.1.60",
+    "dst_ip": "203.0.113.88",
+    "dst_port": "4444",
+    "detail": "Connections: 36 | Mean interval: 300.0s | CV: 0.00 | Score components: ts=1.00 ds=1.00 hist=1.00 dur=0.00 conf=0.67 | ts_layers: raw=1.00 mm=0.00 ent=0.50 | Port-hopping: 6 dst ports [4444×6, 5555×6, 6666×6, 8080×6, 8443×6, 9001×6], no dominant port (max 16.7%)",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

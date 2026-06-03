@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/BushidoCyb3r/Archer/internal/model"
 	"github.com/BushidoCyb3r/Archer/internal/store"
 )
 
@@ -27,7 +28,7 @@ func (s *Server) handleFindingHistory(w http.ResponseWriter, r *http.Request, id
 		http.NotFound(w, r)
 		return
 	}
-	if f.Type != "Beacon" && f.Type != "HTTP Beacon" && f.Type != "DNS Beacon" {
+	if !model.IsBeaconType(f.Type) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte("[]"))
 		return

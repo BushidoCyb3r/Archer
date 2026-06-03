@@ -3210,6 +3210,7 @@
       _populateSettings(cfg);
       _populateArchive(archive);
       _refreshDiskUsage(); // populates the Disk Usage row and the warning banner
+      _refreshDetectorActivity(); // populates the Detector Health block
       if (_currentUser && _currentUser.role === 'admin') {
         const sec = document.getElementById('service-tokens-section');
         if (sec) sec.style.display = '';
@@ -3546,6 +3547,64 @@
     } catch (_) { _diskUsage = null; }
     _renderDiskUsageBlock();
     _renderDiskWarning();
+  }
+
+  // _refreshDetectorActivity hits /api/detector-activity and repaints the
+  // Settings "Detector Health" block. Same cadence as disk usage. Silent on
+  // error — this is an advisory health panel, not a load-bearing surface.
+  async function _refreshDetectorActivity() {
+    let data = null;
+    try { data = await api('/api/detector-activity'); } catch (_) { data = null; }
+    _renderDetectorActivityBlock(data);
+  }
+
+  function _renderDetectorActivityBlock(data) {
+    const el = document.getElementById('detector-activity-content');
+    if (!el) return;
+    el.innerHTML = '';
+    if (!data || !Array.isArray(data.detectors) || data.detectors.length === 0) {
+      el.textContent = 'No detections recorded yet.';
+      return;
+    }
+    const dropped = data.detectors.filter(d => d.dropped);
+    if (dropped.length > 0) {
+      const warn = document.createElement('div');
+      warn.style.cssText = 'color:var(--sev-high,#f97316);font-weight:600;margin-bottom:6px';
+      warn.textContent = dropped.length + ' detector' + (dropped.length === 1 ? '' : 's') +
+        ' went silent this week — check the sensor feed and Zeek policy.';
+      el.appendChild(warn);
+    }
+    const table = document.createElement('div');
+    table.style.cssText = 'display:grid;grid-template-columns:1fr auto auto auto;gap:2px 14px;align-items:baseline';
+    const head = (txt, alignEnd) => {
+      const h = document.createElement('span');
+      h.textContent = txt;
+      h.style.cssText = 'font-size:10px;color:var(--fg-dim);text-transform:uppercase;letter-spacing:0.05em' +
+        (alignEnd ? ';text-align:end' : '');
+      return h;
+    };
+    table.appendChild(head('Detector'));
+    table.appendChild(head('7d', true));
+    table.appendChild(head('Prior 7d', true));
+    table.appendChild(head('Total', true));
+    data.detectors.forEach(d => {
+      const name = document.createElement('span');
+      name.textContent = d.dropped ? '⚠ ' + d.type : d.type;
+      name.style.cssText = 'font-family:ui-monospace,monospace;white-space:nowrap;' +
+        (d.dropped ? 'color:var(--sev-high,#f97316);font-weight:600' : 'color:var(--fg-primary)');
+      const cell = val => {
+        const c = document.createElement('span');
+        c.textContent = val;
+        c.style.cssText = 'font-family:ui-monospace,monospace;text-align:end;' +
+          (d.dropped ? 'color:var(--sev-high,#f97316)' : 'color:var(--fg-primary)');
+        return c;
+      };
+      table.appendChild(name);
+      table.appendChild(cell(d.count_7d));
+      table.appendChild(cell(d.count_prior_7d));
+      table.appendChild(cell(d.total));
+    });
+    el.appendChild(table);
   }
 
   function _renderDiskUsageBlock() {
@@ -4243,7 +4302,7 @@
       // (see handlers_api.go's listFinding), so we can't gate on its
       // presence here; type is a reliable proxy and always available.
       const chartItem = document.getElementById('ctx-chart');
-      const hasChart = !!(f && (f.type === 'Beacon' || f.type === 'HTTP Beacon' || f.type === 'DNS Beacon'));
+      const hasChart = !!(f && (f.type === 'Beacon' || f.type === 'HTTP Beacon' || f.type === 'DNS Beacon' || f.type === 'Port-Hopping Beacon'));
       if (chartItem) chartItem.style.display = hasChart ? '' : 'none';
 
       // Campaign-only items: revealed when campaigns.js attached _campaign.
@@ -5057,6 +5116,8 @@
       if (typeof Fingerprints !== 'undefined' && Fingerprints.init) {
         Fingerprints.init({
           onPivot: (kind, fp) => pivotByTLS(kind === 'ja4' ? { ja4: fp } : { ja3: fp }),
+          onToast: (msg) => showToast(msg, 4000),
+          canWrite: u.role !== 'viewer',
         });
       }
       // Hide write-only controls for viewers

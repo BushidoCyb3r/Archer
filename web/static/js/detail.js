@@ -42,7 +42,7 @@ const Detail = (() => {
   // no broken header. stddev is reconstructed mean × jitter (jitter is
   // the interval CV); that's the "± Ns" spread an analyst reads first.
   function _beaconTriage(f) {
-    const isBeacon = f.type === 'Beacon' || f.type === 'HTTP Beacon' || f.type === 'DNS Beacon';
+    const isBeacon = f.type === 'Beacon' || f.type === 'HTTP Beacon' || f.type === 'DNS Beacon' || f.type === 'Port-Hopping Beacon';
     if (!isBeacon || !(f.sample_size > 0)) return [];
     const mean = f.mean_interval || 0;
     const cv   = f.jitter || 0;
@@ -215,7 +215,7 @@ const Detail = (() => {
     // responses are projected (no ts_data) and the row-click upgrade
     // fetch arrives a tick later, leaving the button momentarily
     // disabled if we gated on the field directly.
-    chartBtn.disabled = !(f.type === 'Beacon' || f.type === 'HTTP Beacon' || f.type === 'DNS Beacon');
+    chartBtn.disabled = !(f.type === 'Beacon' || f.type === 'HTTP Beacon' || f.type === 'DNS Beacon' || f.type === 'Port-Hopping Beacon');
     // Score Evo always starts disabled; BeaconEvolution.load() enables it
     // after the history fetch only when rows exist.
     if (scoreEvoBtn) scoreEvoBtn.disabled = true;

@@ -2087,6 +2087,29 @@ dialog::backdrop {
 #fingerprints-table tr.CRITICAL td.severity { color: var(--sev-critical); }
 #fingerprints-table tr.HIGH td.severity     { color: var(--sev-high); }
 #fingerprints-table tr.MEDIUM td.severity   { color: var(--sev-medium); }
+/* The action cell sits outside the row's click-to-pivot affordance: the
+   button stops propagation visually via its own hover, and the handler
+   short-circuits the pivot when the click lands on it. */
+#fingerprints-table td.fp-action { text-align: right; cursor: default; }
+.fp-benign-btn, .fp-unbenign-btn { padding: 3px 10px; font-size: 12px; }
+/* Benign section: a collapsed list of fingerprints the analyst has muted,
+   so the wall above stays short but the decisions stay reversible. */
+.fp-benign { margin-top: 14px; }
+.fp-benign > summary {
+  cursor: pointer;
+  color: var(--fg-secondary);
+  font-size: 13px;
+  padding: 6px 0;
+}
+#fingerprints-benign-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+#fingerprints-benign-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  vertical-align: middle;
+}
+#fingerprints-benign-table td.fp-hash { font-family: monospace; }
+#fingerprints-benign-table td.fp-action { text-align: right; }
 #feeds-edit-dlg               { width: 480px; }
 
 /* Feeds table — same scaffold as the Sensors table. The inline column
@@ -2596,6 +2619,22 @@ dialog::backdrop {
   white-space: nowrap;
 }
 .corr-chip:hover { background: var(--accent-glow); color: #fff; }
+/* TLS-allowlist chip — muted/neutral, not an action: the fingerprint was
+   triaged benign, so this reads as a quiet note rather than an alert. */
+.fp-allow-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 99px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--fg-dim);
+  background: var(--bg-elev-3);
+  border: 1px solid var(--border);
+  vertical-align: middle;
+  white-space: nowrap;
+}
 
 /* ============================================================================
    PCAP / status toast (inline-styled in HTML — keep selector compatible)

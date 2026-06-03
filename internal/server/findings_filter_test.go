@@ -138,7 +138,7 @@ func TestProjectFindingList_IsNewToMe(t *testing.T) {
 		{ID: 4, DetectedAt: 800, IsNew: true},   // is_new true but old detection → NOT new to me
 	}
 	want := map[int]bool{1: false, 2: false, 3: true, 4: false}
-	for _, lf := range projectFindingList(in, boundary) {
+	for _, lf := range projectFindingList(in, boundary, nil) {
 		if lf.IsNewToMe != want[lf.ID] {
 			t.Errorf("finding %d: is_new_to_me=%v, want %v (detected_at=%d vs boundary=%d, is_new ignored)",
 				lf.ID, lf.IsNewToMe, want[lf.ID], in[lf.ID-1].DetectedAt, boundary)

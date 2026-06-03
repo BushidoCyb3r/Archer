@@ -2133,3 +2133,122 @@ func TestSensorProtocolVersion_BackfilledForExistingRows(t *testing.T) {
 		t.Fatalf("legacy row protocol_version: got %d ok=%v, want 2", sn.ProtocolVersion, ok)
 	}
 }
+
+// TestFingerprintAllowlist pins the analyst-facing "mark benign" contract for
+// the TLS Fingerprints wall: an allowlisted heuristic fingerprint drops out of
+// FingerprintInventory, but a known-bad C2 fingerprint stays on the wall even
+// if an entry was somehow added for it (known-bad is non-markable in the UI and
+// the store enforces the same invariant — analysts can't hide a C2 match). The
+// CRUD round-trip (add → list → IsFingerprintAllowed → remove) and INSERT OR
+// IGNORE idempotency on (kind, fingerprint) are exercised alongside.
+func TestFingerprintAllowlist(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(dir, "fpallow.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s := New(config.Default())
+	s.InitDB(db)
+
+	const benignJA4 = "t13d1516h2_8daaf6152771_b186095e22b6"
+	const c2JA4 = "t13d1517h2_8daaf6152771_e5627efa2ab1"
+	badJA4 := map[string]string{c2JA4: "Cobalt Strike"}
+	badJA3 := map[string]string{}
+
+	// Both fingerprints are rare/single-host → "high" → would surface on the
+	// wall absent any allowlist entry.
+	s.SetFingerprintPrevalence(map[string]model.FingerprintStat{
+		benignJA4: {Conns: 40, SrcHosts: 1, Dsts: 1},
+		c2JA4:     {Conns: 5, SrcHosts: 1, Dsts: 1},
+	}, nil)
+
+	if got := len(s.ListFingerprintAllowlist()); got != 0 {
+		t.Fatalf("fresh allowlist len = %d, want 0", got)
+	}
+
+	id, err := s.AddFingerprintAllow(model.FingerprintAllowEntry{
+		Kind: "ja4", Fingerprint: benignJA4, Note: "corporate EDR agent",
+		CreatedBy: "a@b.c", CreatedAt: time.Now().Unix(),
+	})
+	if err != nil {
+		t.Fatalf("AddFingerprintAllow: %v", err)
+	}
+	if id == 0 {
+		t.Fatal("AddFingerprintAllow returned id 0")
+	}
+
+	// Idempotent on (kind, fingerprint): re-adding returns the same id, no dup.
+	id2, err := s.AddFingerprintAllow(model.FingerprintAllowEntry{
+		Kind: "ja4", Fingerprint: benignJA4, CreatedBy: "a@b.c", CreatedAt: time.Now().Unix(),
+	})
+	if err != nil {
+		t.Fatalf("AddFingerprintAllow (dup): %v", err)
+	}
+	if id2 != id {
+		t.Errorf("duplicate add returned id %d, want existing %d", id2, id)
+	}
+	if got := len(s.ListFingerprintAllowlist()); got != 1 {
+		t.Errorf("allowlist len after dup add = %d, want 1", got)
+	}
+
+	if !s.IsFingerprintAllowed("ja4", benignJA4) {
+		t.Error("IsFingerprintAllowed(ja4, benignJA4) = false, want true")
+	}
+	if s.IsFingerprintAllowed("ja4", c2JA4) {
+		t.Error("IsFingerprintAllowed(ja4, c2JA4) = true, want false (never added)")
+	}
+	if s.IsFingerprintAllowed("ja3", benignJA4) {
+		t.Error("IsFingerprintAllowed is kind-scoped; ja3 lookup of a ja4 entry must be false")
+	}
+
+	// The wall: benign fingerprint hidden, C2 fingerprint still present.
+	rows := s.FingerprintInventory(badJA4, badJA3)
+	seen := map[string]bool{}
+	for _, r := range rows {
+		seen[r.Fingerprint] = true
+	}
+	if seen[benignJA4] {
+		t.Error("allowlisted benign fingerprint must be excluded from FingerprintInventory")
+	}
+	if !seen[c2JA4] {
+		t.Error("known-bad C2 fingerprint must remain in FingerprintInventory")
+	}
+
+	// Even if a C2 fingerprint were allowlisted, the known-bad match overrides:
+	// the store must never hide a C2 fingerprint.
+	if _, err := s.AddFingerprintAllow(model.FingerprintAllowEntry{
+		Kind: "ja4", Fingerprint: c2JA4, CreatedBy: "a@b.c", CreatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("AddFingerprintAllow(c2): %v", err)
+	}
+	rows = s.FingerprintInventory(badJA4, badJA3)
+	seenC2 := false
+	for _, r := range rows {
+		if r.Fingerprint == c2JA4 {
+			seenC2 = true
+		}
+	}
+	if !seenC2 {
+		t.Error("known-bad C2 fingerprint must stay on the wall even when allowlisted")
+	}
+
+	// Remove the benign entry → it returns to the wall.
+	s.RemoveFingerprintAllow(id)
+	if s.IsFingerprintAllowed("ja4", benignJA4) {
+		t.Error("after RemoveFingerprintAllow, IsFingerprintAllowed must be false")
+	}
+	rows = s.FingerprintInventory(badJA4, badJA3)
+	back := false
+	for _, r := range rows {
+		if r.Fingerprint == benignJA4 {
+			back = true
+		}
+	}
+	if !back {
+		t.Error("removing the allowlist entry must bring the fingerprint back to the wall")
+	}
+}

@@ -37,7 +37,7 @@ var knownFields = map[string]bool{
 	"id":   true,
 	"type": true, "severity": true, "score": true, "src": true, "dst": true,
 	"port": true, "detail": true, "hostname": true, "sensor": true,
-	"status": true, "ts": true, "ioc": true, "spectral": true, "new": true,
+	"status": true, "ts": true, "ioc": true, "spectral": true,
 	"ja3": true, "ja4": true, "file": true,
 	"tscore": true, "dscore": true, "hist": true, "dur": true,
 	"conns": true, "meanint": true, "medint": true, "jitter": true,
@@ -235,8 +235,6 @@ func (t term) eval(f model.Finding, opLoc *time.Location) bool {
 		return numericMatch(beaconMetric(f, t.field), t)
 	case "ioc":
 		return boolMatch(f.IOCMatch, t.value)
-	case "new":
-		return boolMatch(f.IsNewToMe, t.value)
 	case "spectral":
 		return boolMatch(strings.Contains(f.Detail, "Spectral rescued:"), t.value)
 	case "ts":

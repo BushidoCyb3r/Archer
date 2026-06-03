@@ -202,7 +202,7 @@
             <li data-query='type:beacons AND medint:&gt;=1800'>Low-and-slow</li>
             <li data-query='type:beacons AND dur:&gt;=0.8'>Persistent long-haul</li>
             <li data-query='type:beacons AND detail:"DGA-suspect"'>DGA-backed</li>
-            <li data-query='type:beacons AND detail:"co-traffic to dst"'>Port-hopping</li>
+            <li data-query='type:"Port-Hopping Beacon"'>Port-hopping</li>
             <li class="chip-section">Threat signatures</li>
             <li data-query='ioc:true'>Threat-intel matches</li>
             <li data-query='type:"Cobalt Strike URI" OR type:"C2 URI Pattern" OR type:"C2 Port" OR type:"Malicious JA3" OR type:"Malicious JA4"'>Known C2 signatures</li>
@@ -268,7 +268,6 @@
             <li data-field="detected:&gt;=">First detected (date)</li>
             <li data-token="spectral:true">Spectral rescued</li>
             <li data-token="ioc:true">IOC match</li>
-            <li data-token="new:true">New to me</li>
             <li data-field="tscore:&gt;=">Beacon timing score</li>
             <li data-field="dscore:&gt;=">Beacon data-size score</li>
             <li data-field="hist:&gt;=">Beacon histogram score</li>
@@ -649,12 +648,19 @@
             <th style="width:76px">Dest</th>
             <th style="width:76px">Conns</th>
             <th style="width:104px">Findings</th>
+            <th style="width:96px"></th>
           </tr>
         </thead>
         <tbody id="fingerprints-tbody"></tbody>
       </table>
     </div>
     <div id="fingerprints-empty" class="fp-empty" style="display:none">No high-signal TLS fingerprints — run an analysis.</div>
+    <details id="fingerprints-benign" class="fp-benign" style="display:none">
+      <summary>Benign (<span id="fingerprints-benign-count">0</span>) — marked non-concerning, hidden from the list above</summary>
+      <table id="fingerprints-benign-table">
+        <tbody id="fingerprints-benign-tbody"></tbody>
+      </table>
+    </details>
   </div>
   <div class="dlg-footer">
     <button class="dlg-btn secondary" id="fingerprints-close">Close</button>
@@ -1338,6 +1344,19 @@
         <div style="font-size:11px;color:var(--fg-dim);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Disk Usage</div>
         <div id="disk-usage-content" style="font-family:ui-monospace,monospace;font-size:11px;line-height:1.65;color:var(--fg-dim)">Loading…</div>
       </div>
+    </div>
+    <div class="settings-group">
+      <div class="settings-group-title">Detector Health</div>
+      <!-- New-finding counts per detector over the last 7 days vs the prior
+           7. A detector that fired last week and is silent this week is
+           flagged — the earliest sign a sensor stopped shipping a log type
+           or a Zeek policy fell out, before the quiet shows up as missing
+           findings an analyst would otherwise have to notice. Pulled from
+           /api/detector-activity (same 5-min poll as disk usage). -->
+      <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
+        New detections per type, last 7 days vs the prior 7. A detector that was firing and went silent is highlighted — a likely capture-side regression worth checking before the gap widens.
+      </div>
+      <div id="detector-activity-content" style="font-size:11px;line-height:1.65;color:var(--fg-dim)">Loading…</div>
     </div>
     <div class="settings-group" id="service-tokens-section" style="display:none">
       <div class="settings-group-title">Service Tokens</div>

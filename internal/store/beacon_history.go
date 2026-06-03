@@ -157,7 +157,7 @@ func (s *Store) saveBeaconHistory(findings []model.Finding, newFPSet map[model.F
 	defer stmt.Close()
 
 	for _, f := range findings {
-		if f.Type != "Beacon" && f.Type != "HTTP Beacon" && f.Type != "DNS Beacon" {
+		if !model.IsBeaconType(f.Type) {
 			continue
 		}
 		if !newFPSet[f.Fingerprint()] {

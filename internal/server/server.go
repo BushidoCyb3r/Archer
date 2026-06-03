@@ -315,12 +315,15 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/pair-allowlist", any(s.handlePairAllowlist))                // POST enforced inside handler
 	s.mux.Handle("/api/pair-allowlist/suggested", any(s.handleSuggestedAllowlist)) // exact path before prefix
 	s.mux.Handle("/api/pair-allowlist/", any(s.handleDeletePairAllow))             // DELETE enforced inside handler
+	s.mux.Handle("/api/fingerprint-allowlist", any(s.handleFingerprintAllowlist))  // POST enforced inside handler
+	s.mux.Handle("/api/fingerprint-allowlist/", any(s.handleDeleteFingerprintAllow))
 	s.mux.Handle("/api/notifications", any(s.handleNotifications))
 	s.mux.Handle("/api/watch", any(s.handleWatch))     // GET=any; POST enforced as admin inside handler
 	s.mux.Handle("/api/archive", any(s.handleArchive)) // GET=any; POST enforced as admin inside handler
 	s.mux.Handle("/api/archive/run", any(s.handleArchiveRun))
-	s.mux.Handle("/api/archive/scan", any(s.handleArchiveScan)) // admin enforced inside handler — IOC/TI scan over /data/archive
-	s.mux.Handle("/api/disk-usage", any(s.handleDiskUsage))     // any authenticated; /logs+archive sizes & free space
+	s.mux.Handle("/api/archive/scan", any(s.handleArchiveScan))           // admin enforced inside handler — IOC/TI scan over /data/archive
+	s.mux.Handle("/api/disk-usage", any(s.handleDiskUsage))               // any authenticated; /logs+archive sizes & free space
+	s.mux.Handle("/api/detector-activity", any(s.handleDetectorActivity)) // any authenticated; per-type new-detection counts, capture-regression signal
 
 	// User / auth API
 	s.mux.Handle("/api/me", any(s.handleMe))

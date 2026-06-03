@@ -89,11 +89,19 @@ const Table = (() => {
           _esc('Part of a correlation with ' + corrCount + ' other finding(s) on the same (src, dst). Click to filter the table to this pair.') +
           '">+' + corrCount + ' corr</span>'
       : '';
+    // TLS-allowlist chip — this finding's JA3/JA4 client fingerprint has been
+    // marked benign on the TLS Fingerprints wall. A hint, not a filter: the
+    // finding still shows, but the analyst is told its fingerprint was triaged.
+    const fpChip = f.tls_allowlisted
+      ? ' <span class="fp-allow-chip" title="' +
+          _esc("This finding's TLS client fingerprint was marked benign on the TLS Fingerprints wall.") +
+          '">fp benign</span>'
+      : '';
     return '<tr class="' + cls + '" data-id="' + f.id + '">' +
       '<td class="status-icon">' + _statusIcon(f) + '</td>' +
       '<td class="score">' + _esc(f.score) + '</td>' +
       '<td class="severity">' + _esc(sev) + '</td>' +
-      '<td title="' + _esc(f.type) + '">' + _esc(f.type) + corrChip + '</td>' +
+      '<td title="' + _esc(f.type) + '">' + _esc(f.type) + corrChip + fpChip + '</td>' +
       '<td class="src-ip" title="' + _esc(f.src_ip) + '" style="font-family:monospace">' + _esc(f.src_ip) + '</td>' +
       '<td class="dst-ip" title="' + _esc(f.dst_ip) + '" style="font-family:monospace">' + _esc(f.dst_ip) + '</td>' +
       '<td class="port">' + _esc(f.dst_port) + '</td>' +

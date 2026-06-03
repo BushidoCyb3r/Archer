@@ -28,6 +28,76 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.54.0] — 2026-06-03
+
+### Added
+
+- **Mark TLS fingerprints benign (`/api/fingerprint-allowlist`).** The TLS
+  Fingerprints wall recomputes from scratch every analysis pass, so a
+  rare/cross-host client shape an analyst already triaged as benign (a
+  corporate EDR agent, a niche SDK, an internal scanner) re-surfaced every
+  visit — the wall never shrank. A **Mark benign** action on each heuristic
+  row drops it out of the inventory into a collapsed, reversible **Benign**
+  section, and findings carrying that JA3/JA4 are tagged with an `fp benign`
+  chip (a hint, not a dismissal — the finding still shows). Known-bad C2
+  matches are non-markable: the button is withheld and the server rejects a
+  POST naming a known-bad fingerprint, so a confirmed C2 match can never be
+  muted off the wall. Pure view filter, mirroring the pair allowlist — add
+  hides on the next fetch, remove brings it back with no re-analysis.
+  Endpoints: `GET`/`POST /api/fingerprint-allowlist`,
+  `DELETE /api/fingerprint-allowlist/{id}`; new `tls_allowlisted` field on
+  `/api/findings` list rows.
+- **Detector-health panel (`GET /api/detector-activity`).** Per-type
+  counts of *new* findings (by `detected_at`) over the last 7 days vs the
+  prior 7, plus the all-time total. A detector that produced findings last
+  week and none this week is flagged `dropped` — the earliest sign a
+  sensor stopped shipping a log type or a Zeek policy fell out, before the
+  silence shows up as findings an analyst has to notice are missing.
+  Roll-up types (Host Risk Score, Correlated Activity) are excluded;
+  results sort dropped-first. Surfaces in **Settings → Detector Health**,
+  refreshed each time Settings opens.
+- **`Port-Hopping Beacon` finding type.** A beacon that spreads its
+  connections across many destination ports with no dominant one — the
+  classic "rotate the callback port to dodge a port-keyed rule" evasion.
+  Because the beacon key is `(sensor, src, dst)` and deliberately excludes
+  the port, Archer already aggregated these into a single beacon; the new
+  type is a downstream **relabel** of a beacon that spans ≥5 destination
+  ports with no single port carrying ≥50% of its connections. Same score,
+  same sub-scores, same history and host-risk contribution as the Beacon
+  it was — it just names the shape and gives analysts a first-class pivot
+  (the **Hunts ▾ → Port-hopping** chip now resolves to
+  `type:"Port-Hopping Beacon"` instead of the old co-traffic heuristic).
+  The Detail line tags `Port-hopping: N dst ports [...], no dominant port
+  (max X%)`.
+
+### Removed
+
+- **The `new:` query field.** It matched the per-session "new since you
+  last logged in" flag — exactly what the **New only** toggle already
+  does, and the toggle composes with any query on top of it. The
+  duplicate token is gone; the durable first-detected anchor (`detected:`)
+  and the **New only** button cover both the persistent and the
+  session-relative "what's new" cases.
+
+### Breaking
+
+- **`q=new:true` (and `new:false`) now return `400`** with an
+  "unknown field" parse error instead of filtering. Saved queries or
+  bookmarks that used `new:` need to drop the term and toggle **New
+  only**, or switch to a `detected:>=<date>` window. (HTTP API contract,
+  category 1.)
+
+### Detection changes
+
+- **New `Port-Hopping Beacon` finding type (category 4).** Beacons that
+  span ≥5 destination ports with no port holding ≥50% of connections are
+  now emitted under `Port-Hopping Beacon` instead of `Beacon`. No score,
+  threshold, or sub-score changes — it is purely a relabel of findings
+  the analyzer already produced, so no detection is gained or lost and
+  host-risk roll-ups are unchanged. Baselines keyed on the exact string
+  `type:"Beacon"` will no longer see these; the `type:beacons` family
+  selector (and exports, beacon history, score chart) still include them.
+
 ## [v0.53.0] — 2026-06-03
 
 The query language grows more reach and a fast-start menu. Five new

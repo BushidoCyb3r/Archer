@@ -16,7 +16,7 @@ func TestIsKnownFindingType(t *testing.T) {
 		TypeHostRiskScore, TypeCorrelatedActivity,
 		TypeTIHitIP, TypeTIHitDomain, TypeTIHitHash, TypeTIHitLegacy,
 		TypeSuspiciousURL,
-		"Beacon", "HTTP Beacon", "DNS Beacon", // the IsBeaconType set
+		"Beacon", "HTTP Beacon", "DNS Beacon", "Port-Hopping Beacon", // the IsBeaconType set
 		"Strobe", "Lateral Movement", "Data Exfiltration", "Zeek Notice",
 	}
 	for _, ty := range known {
@@ -28,7 +28,7 @@ func TestIsKnownFindingType(t *testing.T) {
 	// IsBeaconType members are a subset of the known vocabulary by
 	// construction — a beacon type the query layer can't validate would be a
 	// silent gap. Assert the coupling directly.
-	for _, ty := range []string{"Beacon", "HTTP Beacon", "DNS Beacon"} {
+	for _, ty := range []string{"Beacon", "HTTP Beacon", "DNS Beacon", "Port-Hopping Beacon"} {
 		if IsBeaconType(ty) && !IsKnownFindingType(ty) {
 			t.Errorf("%q is a beacon type but not a known finding type", ty)
 		}

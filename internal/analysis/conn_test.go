@@ -376,6 +376,47 @@ func TestBeaconModalPortLabel(t *testing.T) {
 	}
 }
 
+// TestPortHoppingBeacon pins the Port-Hopping Beacon detector: a single
+// (src,dst) pair that beacons on a regular cadence but spreads its
+// connections across many destination ports with no dominant port (here 36
+// conns round-robin over 6 ports, max share 16.7%) must be relabeled from
+// "Beacon" to "Port-Hopping Beacon". The pair still qualifies as a beacon —
+// the relabel is a promotion of an already-emitted finding, never a gate, so
+// no detection is lost. The Detail must surface the port spread, and the
+// triage sub-scores must still be populated (it stays in the beacon family).
+func TestPortHoppingBeacon(t *testing.T) {
+	a := New(config.Default(), "", nil, nil)
+	a.feodoIPs = map[string]bool{}
+	a.urlhausIPs = map[string]bool{}
+	a.urlhausHosts = map[string]bool{}
+	findings := a.Analyze([]string{"testdata/zeek/port_hopping_beacon/conn.log"})
+
+	var b *model.Finding
+	for i := range findings {
+		if findings[i].Type == "Port-Hopping Beacon" {
+			b = &findings[i]
+			break
+		}
+	}
+	if b == nil {
+		t.Fatalf("expected a Port-Hopping Beacon finding, got types: %v", findingTypes(findings))
+	}
+	// A plain Beacon must NOT also be emitted for the same pair — the
+	// port-hopper is the single finding for this (src,dst).
+	if hasFindingType(findings, "Beacon") {
+		t.Errorf("port-hopping pair must emit one Port-Hopping Beacon, not also a plain Beacon; types: %v", findingTypes(findings))
+	}
+	if !strings.Contains(b.Detail, "Port-hopping:") {
+		t.Errorf("Detail must summarize the port spread, got: %s", b.Detail)
+	}
+	if b.TSScore == 0 {
+		t.Errorf("Port-Hopping Beacon must carry beacon sub-scores (TSScore populated), got 0")
+	}
+	if !model.IsBeaconType(b.Type) {
+		t.Errorf("Port-Hopping Beacon must be in the beacon family (IsBeaconType)")
+	}
+}
+
 func hasFindingType(findings []model.Finding, t string) bool {
 	for _, f := range findings {
 		if f.Type == t {

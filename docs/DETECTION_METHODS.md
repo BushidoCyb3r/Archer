@@ -795,6 +795,63 @@ like in this analysis window."
 
 ---
 
+### 2.7 Port-Hopping Beacon — naming the port-rotation evasion
+
+**Where.** `internal/analysis/conn.go` (`portHopSignature`, applied at
+the conn-beacon emit site).
+
+**The signal.** Some C2 deliberately rotates the destination port
+between callbacks — same implant, same server, but the port walks
+4444 → 8080 → 9001 → 5555 → … to defeat any rule keyed on a single
+port. Archer is already immune to that evasion at the *detection*
+layer: the beacon key is `(sensor, src, dst)` and **excludes the
+port**, so every callback to the server collapses into one beacon
+regardless of which port it landed on. The timing, data-size, and
+persistence sub-scores are computed over the whole rotation, so a
+port-hopper scores exactly as a fixed-port beacon would.
+
+What was missing was a *name*. Before this, a 6-port hopper showed up
+as an ordinary `Beacon` whose Detail carried a "co-traffic to dst"
+footnote listing the other ports — easy to skim past. The
+**Port-Hopping Beacon** type makes the evasion a first-class,
+pivotable finding.
+
+**The classifier.** Purely downstream of detection — it reads the
+per-port breakdown the beacon already carries (`beaconState.portStats`)
+and never gates a finding, so no detection is gained or lost relative
+to the plain `Beacon` path. A qualifying beacon is relabeled when both:
+
+- it touched **≥ 5 distinct destination ports**
+  (`portHopMinDistinctPorts`), and
+- **no single port carried ≥ 50%** of its connections
+  (`portHopMaxModalShare`) — i.e. there is no primary channel with
+  incidental side-traffic; the spread *is* the pattern.
+
+Both thresholds are global constants in `conn.go`, not per-deployment
+settings: a port-hopping channel is defined by its shape, which doesn't
+vary by site. Tune them on corpus evidence, not in the UI.
+
+**Score and downstream.** Identical to the `Beacon` it was — same
+score, same four sub-scores, same `beacon_history` rows, same
+`+30` host-risk weight (`risk.go`), same beacon-family UI (Beacon
+Chart, Score Chart, triage header). `model.IsBeaconType` returns true
+for it, so the `type:beacons` family selector, exports, and the
+beacon-history endpoint all include it; an exact `type:"Beacon"`
+query does not.
+
+**Detail line.** Replaces the `Beacon` co-traffic footnote with
+`Port-hopping: N dst ports [P×c, …], no dominant port (max X%)` —
+the port list is count-descending, so the (sub-50%) modal port and its
+share read first.
+
+**False positives.** Legitimate clients that fan out across an
+ephemeral-port service — some P2P, some RPC frameworks — can trip the
+shape. The relabel doesn't change the score, so a benign port-hopper
+that scored low as a beacon still scores low; treat the type as a
+triage lens, not a verdict.
+
+---
+
 ## 3. HTTP Beacon
 
 **Where.** `internal/analysis/http_analysis.go`.
@@ -1680,6 +1737,7 @@ contributes a weight:
 | TI Hit (Hash)           | 35     |
 | Domain Fronting         | 32     |
 | Beacon               | 30     |
+| Port-Hopping Beacon  | 30     |
 | DNS Beacon           | 30     |
 | SSL No-SNI on C2 Port   | 30     |
 | Suspicious URL          | 30     |

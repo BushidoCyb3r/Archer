@@ -178,6 +178,54 @@ func modalAndCoTraffic(portStats map[int]*portStat) (int, string) {
 	return modal, " | co-traffic to dst: " + strings.Join(parts, ", ")
 }
 
+// Port-hopping classifier thresholds. Global, not per-deployment: a
+// port-hopping channel is defined by its shape (many destination ports, no
+// dominant one), which doesn't vary by site. Tune here on corpus evidence,
+// not in Settings.
+const (
+	portHopMinDistinctPorts = 5    // fewer ports than this is ordinary multi-service traffic
+	portHopMaxModalShare    = 0.50 // any port carrying half the conns means there IS a primary channel
+)
+
+// portHopSignature classifies an already-qualified beacon as a port-hopping
+// beacon: the same (src,dst) pair beaconing across many destination ports
+// with no single dominant port. It is a downstream classifier over the
+// per-port breakdown the beacon already carries — it never gates a finding,
+// only relabels one, so no detection is lost relative to the plain Beacon
+// path. Returns false (empty fragment) for the common single-/few-port
+// beacon. The fragment, when set, summarizes the spread for the Detail line.
+func portHopSignature(portStats map[int]*portStat) (bool, string) {
+	if len(portStats) < portHopMinDistinctPorts {
+		return false, ""
+	}
+	ports := make([]int, 0, len(portStats))
+	total := 0
+	for p, ps := range portStats {
+		ports = append(ports, p)
+		total += ps.conns
+	}
+	if total == 0 {
+		return false, ""
+	}
+	sort.Slice(ports, func(i, j int) bool {
+		a, b := portStats[ports[i]], portStats[ports[j]]
+		if a.conns != b.conns {
+			return a.conns > b.conns
+		}
+		return ports[i] < ports[j]
+	})
+	modalShare := float64(portStats[ports[0]].conns) / float64(total)
+	if modalShare >= portHopMaxModalShare {
+		return false, ""
+	}
+	parts := make([]string, 0, len(ports))
+	for _, p := range ports {
+		parts = append(parts, fmt.Sprintf("%d×%d", p, portStats[p].conns))
+	}
+	return true, fmt.Sprintf(" | Port-hopping: %d dst ports [%s], no dominant port (max %.1f%%)",
+		len(ports), strings.Join(parts, ", "), modalShare*100)
+}
+
 func humanBytes(b float64) string {
 	switch {
 	case b >= 1<<30:
@@ -716,7 +764,18 @@ func (a *Analyzer) analyzeConn(files []string) {
 		}
 		detail += prevDetail
 		modalPort, coTraffic := modalAndCoTraffic(st.portStats)
-		detail += coTraffic
+		// Downstream classifier: a beacon already aggregates every port it
+		// touched under the (sensor,src,dst) key, so port-hopping is read off
+		// the breakdown it already holds — a relabel, never a gate. When it
+		// fires, the spread summary replaces the co-traffic line (which frames
+		// a primary channel that a hopper, by definition, doesn't have).
+		findingType := "Beacon"
+		if isHopper, hopDetail := portHopSignature(st.portStats); isHopper {
+			findingType = "Port-Hopping Beacon"
+			detail += hopDetail
+		} else {
+			detail += coTraffic
+		}
 		// SNI/JA3/JA4 enrichment is deferred to enrichBeaconSNI(), which
 		// runs after wg1.Wait() when sslUIDIndex is fully populated and
 		// there is no race with analyzeSSL. unboostedScore is carried along
@@ -731,7 +790,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 			a.mu.Unlock()
 		}
 		a.add(model.Finding{
-			Type:            "Beacon",
+			Type:            findingType,
 			Severity:        sev,
 			Score:           score,
 			Sensor:          pk.sensor,

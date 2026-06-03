@@ -152,7 +152,7 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values, deltaSin
 		f := &findings[i]
 		if typeF == "beacons" {
 			// Pseudo-type: the beacon family (Beacon / HTTP Beacon /
-			// DNS Beacon) as one selector. Powers "export just the
+			// DNS Beacon / Port-Hopping Beacon) as one selector. Powers "export just the
 			// beacons" and an all-beacons Findings filter without three
 			// separate passes.
 			if !model.IsBeaconType(f.Type) {

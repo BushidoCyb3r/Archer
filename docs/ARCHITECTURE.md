@@ -155,7 +155,7 @@ runs in the background overlapping phase 1; phases 2–4 are sequential.
 | 0 | Threat-intel feed prefetch. Built-in feeds (Feodo, URLhaus) fetch over the network; configured MISP/OpenCTI feeds load their cached indicators from SQLite via `FeedProvider`. Overlaps with phase 1. | `ti.go: prefetchFeeds` |
 | 1 | All log-type analyzers in parallel — they're independent. Conn (beacon/strobe/exfil/long-conn), DNS, SSL, X.509, Files, Weird, Notice. | `conn.go`, `dns.go`, `ssl.go`, `x509.go`, `files.go`, `weird.go`, `notice.go` |
 | 2 | HTTP analysis (sequential — needs `sslUIDIndex` populated by `analyzeSSL` in phase 1). | `http_analysis.go` |
-| 2.5 | SNI/JA3/JA4 enrichment for conn Beacon — deferred here so `sslUIDIndex` is fully populated before the lookup. `analyzeSSL` also builds a per-fingerprint prevalence map over all `ssl.log` (conns, distinct src hosts, distinct dsts); the server pushes it to the store after the pass (`SetFingerprintPrevalence`) and the **TLS-fingerprint rarity + cross-host-cluster** concern (`fp_concern`/`fp_detail`, enrichment only, no score change) is derived from it at read time, not stamped here. The same snapshot also backs the **TLS Fingerprints** inventory (`store.FingerprintInventory` → `GET /api/fingerprints`): the ranked high-signal JA3/JA4 list the modal renders, top-down counterpart to the per-finding TLS Pivot. Then DGA hostname augmentation: sweep over Beacon / HTTP Beacon findings; bumps score (+15) and severity when the destination Hostname's SLD looks algorithmically generated (high entropy + low English bigram log-likelihood). | `analyzer.go: enrichBeaconSNI`, `store.go: FingerprintConcern`, `dga.go: applyDGAScoring` |
+| 2.5 | SNI/JA3/JA4 enrichment for conn Beacon — deferred here so `sslUIDIndex` is fully populated before the lookup. `analyzeSSL` also builds a per-fingerprint prevalence map over all `ssl.log` (conns, distinct src hosts, distinct dsts); the server pushes it to the store after the pass (`SetFingerprintPrevalence`) and the **TLS-fingerprint rarity + cross-host-cluster** concern (`fp_concern`/`fp_detail`, enrichment only, no score change) is derived from it at read time, not stamped here. The same snapshot also backs the **TLS Fingerprints** inventory (`store.FingerprintInventory` → `GET /api/fingerprints`): the ranked high-signal JA3/JA4 list the modal renders, top-down counterpart to the per-finding TLS Pivot. Fingerprints an analyst has marked benign (`fingerprint_allowlist`, migration 0032) are filtered out of that list — except known-bad C2 matches, which are forced critical and never hidden. Then DGA hostname augmentation: sweep over Beacon / HTTP Beacon findings; bumps score (+15) and severity when the destination Hostname's SLD looks algorithmically generated (high entropy + low English bigram log-likelihood). | `analyzer.go: enrichBeaconSNI`, `store.go: FingerprintConcern`, `dga.go: applyDGAScoring` |
 | 3 | URL + TI checks in parallel (need cached feeds from phase 0, plus the per-file dst sets). Two-phase TI scan: cheap dst-only sweep, then targeted per-source for "winners" only. | `ti.go`, `http_analysis.go: analyzeURLs` |
 | 3.5 | Cross-detector correlation. Walks emitted findings, groups by (sensor, src, dst), emits a Correlated Activity roll-up when ≥N distinct detector types fire on the same pair. Contributing findings get their sibling IDs in `Correlations`. Sees historical findings via `findingsProvider` (same NEW-67 union pattern aggregateRisk uses). | `correlate.go` |
 | 4 | Host risk scoring — composite per-host roll-up of all findings touching each host. Excludes roll-up types from the contributor set (HRS recursion + Correlated Activity double-counting). | `risk.go` |
@@ -348,6 +348,23 @@ CREATE TABLE pair_allowlist (
     created_by   TEXT NOT NULL DEFAULT '',
     created_at   INTEGER NOT NULL
 );  -- UNIQUE(src, dst, port, finding_type, sensor) — migration 0027
+
+-- v0.54.0 / migration 0032. The TLS Fingerprints "mark benign" surface.
+-- Scoped to a TLS client shape (not a destination or pair): an allowlisted
+-- (kind, fingerprint) drops out of FingerprintInventory and findings carrying
+-- it get the transient tls_allowlisted flag. Like pair_allowlist it is a pure
+-- view filter (read-time only, never deletes findings) — but it never
+-- overrides a known-bad C2 match: FingerprintInventory forces those critical
+-- regardless, so a confirmed C2 fingerprint can't be hidden, and the POST
+-- handler rejects an attempt to allowlist one.
+CREATE TABLE fingerprint_allowlist (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind        TEXT NOT NULL,        -- 'ja3' | 'ja4'
+    fingerprint TEXT NOT NULL,
+    note        TEXT NOT NULL DEFAULT '',
+    created_by  TEXT NOT NULL DEFAULT '',
+    created_at  INTEGER NOT NULL
+);  -- UNIQUE(kind, fingerprint) — migration 0032
 
 -- v0.38.0 / migration 0027. sensor column on pair_allowlist + unique-index
 -- rebuild to include sensor. sensor='' is a wildcard that matches all

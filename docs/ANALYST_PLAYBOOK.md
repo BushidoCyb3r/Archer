@@ -348,7 +348,6 @@ before trusting the result.
 | `ja3` / `ja4` | TLS client fingerprint | Exact — the query-bar equivalent of the TLS Pivot button. |
 | `ioc` | IOC-list match | `ioc:true` / `ioc:false`. |
 | `spectral` | Spectral-rescued beacon | `spectral:true` surfaces beacons rescued by the periodogram. |
-| `new` | New since your last login | `new:true` is the query-bar form of the **New only** filter. |
 | `tscore` / `dscore` / `hist` / `dur` | Beacon sub-scores (Timing / Data size / Histogram / Persistence) | Numeric — comparisons and ranges. **Any** sub-score predicate implicitly scopes to the beacon family, so a bare `dur:<=0.3` won't drag in non-beacons whose sub-scores are a structural 0. |
 | `conns` / `meanint` / `medint` / `jitter` | Beacon timing/volume metrics — observation count (`conns`, aka connections/requests), mean and median inter-arrival interval in **seconds**, and `jitter` (coefficient of variation = stddev/mean, the raw ratio — `0.42`, not `42%`) | Numeric — comparisons and ranges (`conns:<=10000`, `meanint:<=10`, `jitter:<0.5`, `conns:=1542`). `conns` is a whole-number count (use whole numbers for exact `=`); the interval/jitter fields are true floats so decimals match (`jitter:=0.42`). Beacon-scoped like the sub-scores: a structural 0 on every non-beacon, so a bare upper bound won't drag them in. Aliases: `connections`, `mean_interval`, `median_interval`. |
 
@@ -398,9 +397,10 @@ or loosened against your own traffic once the hunt is in the box.
 ### Queries that earn their keep
 
 - **The critical-beacon triage queue:**
-  `type:beacons AND severity:critical AND new:true` — every new
-  beacon-family finding at the top severity, the first thing to
-  work each shift.
+  `type:beacons AND severity:critical` — every beacon-family
+  finding at the top severity, the first thing to work each shift.
+  Toggle **New only** alongside it to scope to findings first seen
+  since your last login.
 - **Outbound beacons only** (drop lateral and inbound noise):
   `type:beacons AND dir:outbound` — `dir` replaces the old
   `(src:10.0.0.0/8 OR src:172.16.0.0/12 OR src:192.168.0.0/16)`
@@ -1224,6 +1224,33 @@ meets both gates).
 - The beacon started recently and the 14-day gate was met
   by a fast-moving investigation window. Review the
   evolution chart before applying.
+
+### Marking a TLS fingerprint benign
+
+The **TLS Fingerprints** modal (filter bar → TLS Fingerprints)
+is the third noise-reduction tool, scoped not to a destination
+or a pair but to a **TLS client shape**. When a rare or
+cross-host JA3/JA4 keeps re-surfacing on the wall and you've
+confirmed it — a corporate EDR agent, a niche SDK, an internal
+scanner — click **Mark benign** on its row. The fingerprint
+drops off the wall into a collapsed **Benign** section, and any
+finding carrying that JA3/JA4 is tagged with a muted `fp benign`
+chip in the table.
+
+This is a *hint, not a dismissal*: the findings still appear and
+still score the same. Marking a fingerprint benign tells the next
+analyst "this client shape was triaged" — it does not hide the
+beacons it belongs to. Use a pair allowlist (tuple-scoped) or a
+suppression (destination-scoped) when you actually want the rows
+gone; use the fingerprint mark when the *shape* is what you've
+cleared but you still want to see where it goes.
+
+**Known-bad C2 fingerprints can't be marked** — Cobalt Strike,
+Sliver, Brute Ratel and the rest stay on the wall with no button,
+and the server rejects any attempt to allowlist them. A confirmed
+C2 fingerprint is never something you mute. Unmark from the
+**Benign** section to put a fingerprint back on the wall; nothing
+re-analyzes, the row simply returns on the next open.
 
 ---
 
