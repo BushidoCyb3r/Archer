@@ -5,11 +5,10 @@ name: semgrep
 #
 # Findings appear in the repo's Security → Code scanning tab regardless
 # of exit code. The --error flag makes the job fail when any ERROR-severity
-# finding is present; continue-on-error: true is set for the initial run
-# so the first scan populates the Security tab without blocking PRs.
-# After triaging the initial results and adding .semgrepignore entries for
-# confirmed false-positives, remove the continue-on-error line to make
-# this a hard gate.
+# finding is present — this is a hard pre-merge gate. A new ERROR-severity
+# finding blocks the PR until it's fixed or, if it's a confirmed
+# false-positive, suppressed with a .semgrepignore entry or an inline
+# `// nosemgrep: <rule-id>` comment.
 #
 # Rulesets:
 #   p/golang  — SQL injection, command injection, path traversal, SSRF,
@@ -19,9 +18,11 @@ name: semgrep
 #               accidentally committed alongside config.
 #   p/docker  — Dockerfile hygiene: USER, ADD vs COPY, unpinned bases.
 #
-# Pin semgrep/semgrep to a specific tag once the first run is clean, the
-# same way govulncheck is pinned in ci.yml — an unpinned image can start
-# failing unrelated PRs when upstream ships new rules.
+# The semgrep/semgrep image is pinned to a content digest (below) and the
+# third-party actions to commit SHAs, the same way govulncheck is pinned
+# in ci.yml — a floating tag is a supply-chain entry point and an unpinned
+# rule set can start failing unrelated PRs when upstream ships new rules.
+# Bump the digest deliberately; the trailing comment records its tag.
 
 on:
   push:
@@ -40,9 +41,9 @@ jobs:
     name: semgrep
     runs-on: ubuntu-latest
     container:
-      image: semgrep/semgrep
+      image: semgrep/semgrep@sha256:207983631beecdbe7fa29196c7f4a7a5f29033933cdb76c687ce4a672e07618d # latest @ 2026-06-03
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Scan
         run: |
@@ -54,10 +55,9 @@ jobs:
             --output semgrep.sarif \
             --error \
             .
-        continue-on-error: true   # remove after initial triage
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@d77b13a0df3134d64a457ea9003f600b09fa1c8a # v3.36.1
         if: always()
         with:
           sarif_file: semgrep.sarif
