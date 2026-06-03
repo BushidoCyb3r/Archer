@@ -28,6 +28,32 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.52.1] — 2026-06-03
+
+A Go toolchain bump to pick up two standard-library security fixes,
+plus a one-word button relabel. The `govulncheck` CI gate went red when
+the advisories were published against `go1.25.10`, both reachable from
+the running server; the fix is a rebuild on the patched toolchain.
+
+### Changed
+
+- **Sidebar analyze button relabeled `Analyze logs` → `Analyze`.** The
+  button sits directly under the Logs tree; the noun was redundant.
+
+### Security
+
+- **Go toolchain `1.25.10` → `1.25.11`** (`go.mod` and the Dockerfile
+  builder image). Picks up the stdlib fixes for **GO-2026-5037**
+  (inefficient candidate-hostname parsing in `crypto/x509`, reached via
+  the TLS cert paths the SSE/HTTP server exercises) and **GO-2026-5039**
+  (unescaped inputs in `net/textproto` errors, reached via the OpenCTI
+  feed client's HTTP response parsing). Reachability-flagged by
+  `govulncheck`, so both were live call paths, not merely present in a
+  dependency. No source change — a rebuild on the patched toolchain is the
+  fix.
+
+---
+
 ## [v0.52.0] — 2026-06-02
 
 The query bar stops guessing. An operator between two terms is now
