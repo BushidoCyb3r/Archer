@@ -28,7 +28,11 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
-## [Unreleased]
+## [v0.59.0] — 2026-06-04
+
+An analyst-workflow / fingerprint-triage slice: filter findings by whether a
+fingerprint was marked benign, search the TLS wall, and mark a JA3/JA4 benign
+or malicious straight from a finding.
 
 ### Added
 
