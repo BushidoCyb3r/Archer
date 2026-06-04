@@ -28,6 +28,32 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [Unreleased]
+
+Groundwork for **beacon timing-axis validation** — the long-open item of
+mapping which of the four `tsScore` layers (raw Bowley/MAD, multimodal,
+entropy, spectral rescue) drives which beacons, and whether each layer's
+rescued population holds up under analyst triage.
+
+### Added
+
+- **Per-layer timing attribution persisted on findings** (migration 0034).
+  The individual layer scores (`ts_raw`, `ts_mm`, `ts_ent`) and the spectral
+  decision (`spectral_rescued`, `spectral_period`) were computed at emit time
+  but, like the sub-scores before migration 0018, were dropped on persist —
+  surviving only in `beacon_history` (daily, peakWin-gated) and the detail
+  string. They are now real columns on `findings`, so attribution survives a
+  restart and joins directly to each beacon's current analyst disposition.
+  Additive `DEFAULT 0` columns; pre-0034 rows and non-beacon findings read
+  back as zero. No score, threshold, or finding-type change.
+- **`beacon-attribution.sh`** — operator tool that attributes every beacon to
+  its deciding timing layer and cross-tabulates that against severity and
+  against analyst disposition (dismissed = flagged false positive), plus a
+  per-finding CSV. The live-corpus validation surface for the timing stack.
+- **`corpus-spotcheck.sh`** gains a timing-layer census (Check 5): how often
+  each layer is the deciding one, with per-layer critical/dismissed counts,
+  contextualising the spectral figures the script already reports.
+
 ## [v0.56.0] — 2026-06-04
 
 Operator-curated **JA3/JA4 fingerprint IOCs** — the headline — land alongside

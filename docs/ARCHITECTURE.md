@@ -228,8 +228,13 @@ CREATE TABLE findings (
     sample_size     INTEGER NOT NULL DEFAULT 0,
     ja3             TEXT NOT NULL DEFAULT '',  -- migration 0019: TLS client fingerprint of
     ja4             TEXT NOT NULL DEFAULT '',  -- the conn-level Beacon seed connection
-    top_uris        TEXT NOT NULL DEFAULT ''   -- migration 0020: JSON []{uri,count} HTTP-beacon
+    top_uris        TEXT NOT NULL DEFAULT '',  -- migration 0020: JSON []{uri,count} HTTP-beacon
                                                -- path footprint, aggregated pre-dedup
+    ts_raw           REAL    NOT NULL DEFAULT 0,  -- migration 0034: per-layer timing attribution.
+    ts_mm            REAL    NOT NULL DEFAULT 0,  -- composed ts_score = max(ts_raw, ts_mm, ts_ent,
+    ts_ent           REAL    NOT NULL DEFAULT 0,  -- spectral). Persists the deciding layer so it
+    spectral_rescued INTEGER NOT NULL DEFAULT 0,  -- survives restart and joins to the finding's
+    spectral_period  REAL    NOT NULL DEFAULT 0   -- analyst disposition (beacon-attribution.sh)
 );
 
 CREATE TABLE beacon_history (

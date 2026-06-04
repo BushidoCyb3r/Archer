@@ -487,6 +487,117 @@ func TestSetFindings_BeaconDetailFieldsPersistAcrossReload(t *testing.T) {
 	assertBeacon("after carry-forward reload", *reloaded)
 }
 
+// TestSetFindings_TimingLayersPersistAcrossReload codifies the
+// migration-0034 closure. The per-layer timing attribution (ts_raw /
+// ts_mm / ts_ent / spectral_rescued / spectral_period) is computed at
+// emit time and stamped on the in-memory Finding, but pre-0034 it had
+// no columns — so it suffered the same two blanking failures the 0018
+// sub-scores did: a server restart, or SetFindings's carry-forward for
+// a beacon that didn't re-fire, would zero the attribution and the
+// timing-validation tooling would read it as "no layer data" for an
+// otherwise-unchanged beacon.
+//
+// Invariant, not failure case: the test asserts the full lifecycle —
+// (1) all five fields survive save→reopen→reload (restart survival),
+// and (2) a later SetFindings that does NOT re-emit the beacon
+// preserves them on the carried-forward row and re-persists them. A
+// regression in the load scan, the save insert, or the bool round-trip
+// fails here.
+func TestSetFindings_TimingLayersPersistAcrossReload(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db1, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db1.SetMaxOpenConns(1)
+	if err := RunMigrations(db1); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	s1 := New(config.Default())
+	s1.InitDB(db1)
+	beacon := model.Finding{
+		ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		Score: 98, Severity: model.SevCritical, Timestamp: "2026-06-04 09:00:00",
+		TSRaw: 0.31, TSMultimodal: 0.0, TSEntropy: 0.44,
+		SpectralRescued: true, SpectralPeriod: 1250.5,
+	}
+	s1.SetFindings([]model.Finding{beacon})
+	_ = db1.Close()
+
+	assertLayers := func(tag string, f model.Finding) {
+		t.Helper()
+		const eps = 1e-9
+		if d := f.TSRaw - 0.31; d > eps || d < -eps {
+			t.Errorf("%s: TSRaw = %v; want 0.31", tag, f.TSRaw)
+		}
+		if d := f.TSMultimodal - 0.0; d > eps || d < -eps {
+			t.Errorf("%s: TSMultimodal = %v; want 0", tag, f.TSMultimodal)
+		}
+		if d := f.TSEntropy - 0.44; d > eps || d < -eps {
+			t.Errorf("%s: TSEntropy = %v; want 0.44", tag, f.TSEntropy)
+		}
+		if !f.SpectralRescued {
+			t.Errorf("%s: SpectralRescued = false; want true", tag)
+		}
+		if d := f.SpectralPeriod - 1250.5; d > eps || d < -eps {
+			t.Errorf("%s: SpectralPeriod = %v; want 1250.5", tag, f.SpectralPeriod)
+		}
+	}
+
+	// (1) Restart survival: reload from the same on-disk DB.
+	db2, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("reopen db: %v", err)
+	}
+	db2.SetMaxOpenConns(1)
+	s2 := New(config.Default())
+	s2.InitDB(db2)
+	if len(s2.findings) != 1 {
+		t.Fatalf("reload: %d findings, want 1", len(s2.findings))
+	}
+	assertLayers("after reload", s2.findings[0])
+
+	// (2) Carry-forward survival: a later SetFindings that does not
+	// re-emit the beacon must preserve it with its layer fields intact
+	// and re-persist them.
+	s2.SetFindings([]model.Finding{
+		{ID: 99, Type: "DNS Tunneling", SrcIP: "10.0.0.2", DstIP: "9.9.9.9", DstPort: "53",
+			Score: 60, Severity: model.SevMedium, Timestamp: "2026-06-04 10:00:00"},
+	})
+	var carried *model.Finding
+	for i := range s2.findings {
+		if s2.findings[i].Type == "Beacon" {
+			carried = &s2.findings[i]
+		}
+	}
+	if carried == nil {
+		t.Fatal("carry-forward: Beacon finding was not preserved")
+	}
+	assertLayers("after carry-forward", *carried)
+	_ = db2.Close()
+
+	// Reload once more to prove the carry-forward re-persisted.
+	db3, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("reopen db3: %v", err)
+	}
+	db3.SetMaxOpenConns(1)
+	defer db3.Close()
+	s3 := New(config.Default())
+	s3.InitDB(db3)
+	var reloaded *model.Finding
+	for i := range s3.findings {
+		if s3.findings[i].Type == "Beacon" {
+			reloaded = &s3.findings[i]
+		}
+	}
+	if reloaded == nil {
+		t.Fatal("after carry-forward reload: Beacon finding missing")
+	}
+	assertLayers("after carry-forward reload", *reloaded)
+}
+
 // TestSetFindings_JA3PersistAcrossReload codifies the migration-0019
 // closure. JA3/JA4 are lifted onto a conn-level Beacon finding at
 // emit time from sslUIDIndex. Pre-0019 they had no columns, so the
