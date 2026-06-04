@@ -1078,7 +1078,7 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/api/version` | None | `{"version":"v0.57.0","commit":"<short-sha>","build_time":"<iso-8601>"}`. Unauthenticated — same diagnostic tier as a future `/api/health`. The values come from `internal/version` and are populated at build time via `-ldflags` from the git checkout (see `start.sh`). The web UI reads this on init to populate the statusbar version pill and the About dialog. |
+| `GET` | `/api/version` | None | `{"version":"v0.58.0","commit":"<short-sha>","build_time":"<iso-8601>"}`. Unauthenticated — same diagnostic tier as a future `/api/health`. The values come from `internal/version` and are populated at build time via `-ldflags` from the git checkout (see `start.sh`). The web UI reads this on init to populate the statusbar version pill and the About dialog. |
 
 ### Authentication
 

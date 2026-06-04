@@ -28,7 +28,7 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
-## [Unreleased]
+## [v0.58.0] — 2026-06-04
 
 Follow-through on v0.57.0's per-channel beacon scoring, plus a maturation
 item: bounding the audit log on long-running instances.
