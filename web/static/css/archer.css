@@ -2386,7 +2386,11 @@ dialog::backdrop {
 .severity-pill.sev-critical { color: var(--sev-critical); }
 .severity-pill.sev-info     { color: var(--sev-info); }
 
-#settings-dialog              { width: 600px; }
+/* Fixed height so switching tabs doesn't reflow the dialog to each panel's
+   content height — the body (.dlg-body, overflow:auto) scrolls within it.
+   max-height:95vh (from the base dialog rule) still lets it shrink on short
+   viewports. */
+#settings-dialog              { width: 600px; height: 660px; }
 #users-dialog                 { width: 1080px; max-width: 95vw; }
 #chart-dialog                 { width: 880px; }
 
