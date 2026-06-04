@@ -50,9 +50,11 @@ rescued population holds up under analyst triage.
   its deciding timing layer and cross-tabulates that against severity and
   against analyst disposition (dismissed = flagged false positive), plus a
   per-finding CSV. The live-corpus validation surface for the timing stack.
-- **`corpus-spotcheck.sh`** gains a timing-layer census (Check 5): how often
-  each layer is the deciding one, with per-layer critical/dismissed counts,
-  contextualising the spectral figures the script already reports.
+- **`corpus-spotcheck.sh`** opens with a timing-layer census: how often each
+  layer is the deciding one, with per-layer critical/dismissed counts,
+  contextualising the spectral figures the script reports. Runs regardless of
+  whether any spectral rescue fired (the rest of the script early-exits when
+  there are none).
 
 ## [v0.56.0] — 2026-06-04
 

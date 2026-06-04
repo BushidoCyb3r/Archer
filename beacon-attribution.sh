@@ -96,10 +96,10 @@ echo
 echo "Winning layer × severity:"
 sqlite3 -column -header "$DB" "
   SELECT $WINNER AS layer,
-         SUM(severity = 'critical') AS critical,
-         SUM(severity = 'high')     AS high,
-         SUM(severity = 'medium')   AS medium,
-         SUM(severity = 'low')      AS low,
+         SUM(severity = 'CRITICAL') AS critical,
+         SUM(severity = 'HIGH')     AS high,
+         SUM(severity = 'MEDIUM')   AS medium,
+         SUM(severity = 'LOW')      AS low,
          COUNT(*)                   AS total
   FROM findings
   WHERE $BEACON_FILTER

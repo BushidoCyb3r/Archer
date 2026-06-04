@@ -41,6 +41,58 @@ fi
 # Pre-re-analysis (old-code detail format), there is no ratio in the
 # detail string — run analysis with the new code before using this script.
 
+# ── Timing-layer census (advisory) ───────────────────────────────────────────
+# Runs first, and regardless of whether any spectral rescue fired — the rest of
+# this script validates spectral specifically, but the census exists to place
+# spectral among the four timing layers (max(ts_raw, ts_mm, ts_ent, spectral)),
+# and is most informative precisely when spectral is NOT the driver. Counts how
+# often each layer is the deciding one; the winner expression mirrors conn.go's
+# strict-greater upgrade chain (spectral if it rescued, else the highest of
+# raw/mm/ent with raw winning ties). A spectral share that dwarfs the others, or
+# an entropy/multimodal share climbing across runs, is a cue to validate that
+# layer against analyst dispositions — which beacon-attribution.sh crosstabs in
+# full. Requires migration 0034 (per-layer columns on findings).
+
+LAYERS_OK=$(sqlite3 "$DB" "
+  SELECT COUNT(*) FROM pragma_table_info('findings') WHERE name = 'ts_raw';
+")
+
+if [ "$LAYERS_OK" -eq 0 ]; then
+    echo "INFO: findings.ts_raw not present (pre-0034 schema) — deploy current code,"
+    echo "  re-run a full analysis, and re-run to see the timing-layer census."
+else
+    LAYER_BEACONS=$(sqlite3 "$DB" "
+      SELECT COUNT(*) FROM findings
+      WHERE type IN ('Beacon','HTTP Beacon','DNS Beacon','Port-Hopping Beacon')
+        AND sample_size > 0;
+    ")
+    if [ "$LAYER_BEACONS" -eq 0 ]; then
+        echo "INFO: no re-analysed beacon findings to attribute (run a full pass after 0034)."
+    else
+        echo "Deciding timing layer across $LAYER_BEACONS beacon finding(s):"
+        sqlite3 -column -header "$DB" "
+          SELECT CASE
+                   WHEN spectral_rescued = 1            THEN 'spectral'
+                   WHEN ts_ent > ts_raw AND ts_ent > ts_mm THEN 'entropy'
+                   WHEN ts_mm  > ts_raw                 THEN 'multimodal'
+                   ELSE 'raw'
+                 END AS layer,
+                 COUNT(*)              AS n,
+                 ROUND(AVG(score), 1)  AS avg_score,
+                 SUM(severity = 'CRITICAL') AS critical,
+                 SUM(status = 'dismissed')  AS dismissed
+          FROM findings
+          WHERE type IN ('Beacon','HTTP Beacon','DNS Beacon','Port-Hopping Beacon')
+            AND sample_size > 0
+          GROUP BY layer
+          ORDER BY n DESC;"
+        echo ""
+        echo "For the full per-finding crosstab (layer × severity, layer × disposition):"
+        echo "  bash beacon-attribution.sh \"$DB\""
+    fi
+fi
+echo ""
+
 TOTAL=$(sqlite3 "$DB" "
   SELECT COUNT(*) FROM findings
   WHERE detail LIKE '%Spectral rescued%'
@@ -233,56 +285,4 @@ if [ "$HOPPERS" -gt 0 ]; then
 else
     echo ""
     echo "INFO: no Port-Hopping Beacon findings in this corpus."
-fi
-
-# ── Check 5: timing-layer attribution census (advisory) ──────────────────────
-# The composed beacon timing score is max(ts_raw, ts_mm, ts_ent, spectral).
-# Spectral is the layer this script scrutinises above; this census places it
-# in context by counting how often each layer is the deciding one. The winner
-# expression mirrors conn.go's strict-greater upgrade chain (spectral if it
-# rescued, else the highest of raw/mm/ent with raw winning ties). A spectral
-# share that dwarfs the others, or an entropy/multimodal share climbing across
-# runs, is a cue to validate that layer against analyst dispositions — which
-# is what beacon-attribution.sh cross-tabulates in full.
-
-LAYERS_OK=$(sqlite3 "$DB" "
-  SELECT COUNT(*) FROM pragma_table_info('findings') WHERE name = 'ts_raw';
-")
-
-if [ "$LAYERS_OK" -eq 0 ]; then
-    echo ""
-    echo "INFO: findings.ts_raw not present (pre-0034 schema) — deploy current code,"
-    echo "  re-run a full analysis, and re-run to see the timing-layer census."
-else
-    LAYER_BEACONS=$(sqlite3 "$DB" "
-      SELECT COUNT(*) FROM findings
-      WHERE type IN ('Beacon','HTTP Beacon','DNS Beacon','Port-Hopping Beacon')
-        AND sample_size > 0;
-    ")
-    if [ "$LAYER_BEACONS" -eq 0 ]; then
-        echo ""
-        echo "INFO: no re-analysed beacon findings to attribute (run a full pass after 0034)."
-    else
-        echo ""
-        echo "Deciding timing layer across $LAYER_BEACONS beacon finding(s):"
-        sqlite3 -column -header "$DB" "
-          SELECT CASE
-                   WHEN spectral_rescued = 1            THEN 'spectral'
-                   WHEN ts_ent > ts_raw AND ts_ent > ts_mm THEN 'entropy'
-                   WHEN ts_mm  > ts_raw                 THEN 'multimodal'
-                   ELSE 'raw'
-                 END AS layer,
-                 COUNT(*)              AS n,
-                 ROUND(AVG(score), 1)  AS avg_score,
-                 SUM(severity = 'critical') AS critical,
-                 SUM(status = 'dismissed')  AS dismissed
-          FROM findings
-          WHERE type IN ('Beacon','HTTP Beacon','DNS Beacon','Port-Hopping Beacon')
-            AND sample_size > 0
-          GROUP BY layer
-          ORDER BY n DESC;"
-        echo ""
-        echo "For the full per-finding crosstab (layer × severity, layer × disposition):"
-        echo "  bash beacon-attribution.sh \"$DB\""
-    fi
 fi

@@ -84,8 +84,9 @@ periodic pair is being systematically under-scored.
 
 After any analysis run: `bash corpus-spotcheck.sh`. Exit 0 means no rescued
 finding violates the lower-bound gate. Run it after every full re-analysis
-when the spectral code or corpus changes. Its Check 5 also reports how often
-spectral is the deciding timing layer relative to raw/multimodal/entropy.
+when the spectral code or corpus changes. It opens with a timing-layer census
+reporting how often spectral is the deciding layer relative to raw/multimodal/
+entropy — which runs even when no spectral rescue fired.
 
 To go deeper than the census — attribute every beacon to its deciding layer
 and cross-tabulate against analyst disposition (which layers' rescues get
