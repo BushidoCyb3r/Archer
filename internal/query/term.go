@@ -42,7 +42,7 @@ var knownFields = map[string]bool{
 	"tscore": true, "dscore": true, "hist": true, "dur": true,
 	"conns": true, "meanint": true, "medint": true, "jitter": true,
 	"uri": true, "note": true, "analyst": true, "dir": true, "detected": true,
-	"channel": true,
+	"channel": true, "benign": true,
 }
 
 // parseTerm turns a raw term token into a leaf node.
@@ -243,6 +243,11 @@ func (t term) eval(f model.Finding, opLoc *time.Location) bool {
 		// non-empty Channel discriminator); channel:false to blends and every
 		// other type. A specific channel is found via ja3:<hash>.
 		return boolMatch(f.Channel != "", t.value)
+	case "benign":
+		// benign:true matches findings whose JA3/JA4 client fingerprint has
+		// been marked benign on the TLS Fingerprints wall. The flag is stamped
+		// by findings_filter just before this runs (it's not a stored field).
+		return boolMatch(f.TLSAllowlisted, t.value)
 	case "ts":
 		return tsMatch(f.Timestamp, t, opLoc)
 	case "detected":

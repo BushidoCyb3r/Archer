@@ -169,6 +169,14 @@ type Finding struct {
 	// restart (same transient contract as the sibling counts).
 	FPConcern string `json:"fp_concern,omitempty"`
 	FPDetail  string `json:"fp_detail,omitempty"`
+	// TLSAllowlisted is a transient, query-eval-only flag: true when this
+	// finding's JA3/JA4 client fingerprint has been marked benign on the TLS
+	// Fingerprints wall (fingerprint_allowlist, migration 0032). It is stamped
+	// per request in findings_filter just before the query evaluator runs, so
+	// the `benign:` query field can match on it; never persisted (json:"-") and
+	// not part of Fingerprint(). The list projection computes its own
+	// tls_allowlisted for the row chip independently.
+	TLSAllowlisted bool `json:"-"`
 	// TopURIs is the HTTP Beacon destination's request-path
 	// footprint: the most-frequent paths the same (sensor,src,dst,host)
 	// group beaconed on, count-descending, capped. Stamped identically

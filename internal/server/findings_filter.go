@@ -140,6 +140,9 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values, deltaSin
 	}
 
 	alM := s.store.AllowlistMatcher()
+	// Benign-fingerprint snapshot, frozen once here (not re-locked per finding)
+	// so the `benign:` query field can be evaluated without lock churn.
+	fpBenign := s.store.FingerprintAllowSnapshot()
 	// IOC sources: operator-curated list first, then each enabled feed.
 	// Built once per /api/findings call; per-finding iteration short-
 	// circuits on the first hit and tags the finding with the matching
@@ -302,9 +305,14 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values, deltaSin
 		f.IOCMatch = ioMatch
 		f.IOCSource = ioSource
 		// Lucene query last: it sees the fully-populated finding (incl. the
-		// IOCMatch just computed, which the ioc: field reads).
-		if lucene != nil && !lucene.Match(*f, opLoc) {
-			continue
+		// IOCMatch just computed, which the ioc: field reads, and the benign
+		// stamp the channel/benign fields read). Stamped on the local copy in
+		// the (request-private) findings slice; never written back to the store.
+		if lucene != nil {
+			f.TLSAllowlisted = fpBenign("ja4", f.JA4) || fpBenign("ja3", f.JA3)
+			if !lucene.Match(*f, opLoc) {
+				continue
+			}
 		}
 		result = append(result, *f)
 	}

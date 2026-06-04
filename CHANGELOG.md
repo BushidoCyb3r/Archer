@@ -28,6 +28,19 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **`benign:` query field** — `benign:true` matches findings whose JA3/JA4
+  client fingerprint has been marked benign on the TLS Fingerprints wall
+  (`fingerprint_allowlist`); `benign:false` excludes them, e.g.
+  `type:Beacon AND benign:false` to skip beacons over already-triaged
+  fingerprints. The benign state lives in `fingerprint_allowlist` (not on the
+  finding), so the filter stamps it onto each finding from a per-request
+  snapshot just before the query evaluator runs — one lock per request, not
+  per finding. Non-breaking.
+
 ## [v0.58.0] — 2026-06-04
 
 Follow-through on v0.57.0's per-channel beacon scoring, plus a maturation

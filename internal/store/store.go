@@ -1822,6 +1822,27 @@ func (s *Store) IsFingerprintAllowed(kind, fingerprint string) bool {
 	return s.fpAllowIdx[fpAllowKey(kind, fingerprint)]
 }
 
+// FingerprintAllowSnapshot copies the benign-fingerprint index once under a
+// single read lock and returns a lock-free lookup closure over the copy. The
+// findings filter calls this once per request and stamps each finding's
+// TLSAllowlisted with it — avoiding the per-finding RLock churn that calling
+// IsFingerprintAllowed inside the filter loop would incur (the PERF-2 lesson).
+// The empty fingerprint (non-TLS findings) short-circuits to false.
+func (s *Store) FingerprintAllowSnapshot() func(kind, fingerprint string) bool {
+	s.mu.RLock()
+	idx := make(map[string]bool, len(s.fpAllowIdx))
+	for k, v := range s.fpAllowIdx {
+		idx[k] = v
+	}
+	s.mu.RUnlock()
+	return func(kind, fingerprint string) bool {
+		if fingerprint == "" {
+			return false
+		}
+		return idx[fpAllowKey(kind, fingerprint)]
+	}
+}
+
 // ListFingerprintAllowlist returns every benign-fingerprint entry, id-ordered,
 // for the modal's "Benign" section.
 func (s *Store) ListFingerprintAllowlist() []model.FingerprintAllowEntry {

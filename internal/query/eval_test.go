@@ -152,6 +152,21 @@ func TestBoolFields(t *testing.T) {
 	if matches(t, "channel:false", f) {
 		t.Error("per-channel sub-finding should not match channel:false")
 	}
+	// benign: matches a finding whose fingerprint was marked benign (the flag
+	// is stamped by findings_filter; here we set it directly).
+	if matches(t, "benign:true", f) {
+		t.Error("non-allowlisted finding should not match benign:true")
+	}
+	if !matches(t, "benign:false", f) {
+		t.Error("non-allowlisted finding should match benign:false")
+	}
+	f.TLSAllowlisted = true
+	if !matches(t, "benign:true", f) {
+		t.Error("allowlisted-fingerprint finding should match benign:true")
+	}
+	if matches(t, "benign:false", f) {
+		t.Error("allowlisted-fingerprint finding should not match benign:false")
+	}
 }
 
 // TestNewFieldRemoved pins the v0.54.0 removal of the new: query field: it

@@ -443,6 +443,53 @@ func TestFilterFindings_JA3(t *testing.T) {
 	}
 }
 
+// TestFilterFindings_BenignQuery covers the `benign:` query field end-to-end:
+// findings_filter must stamp each finding's TLSAllowlisted from the
+// fingerprint-allowlist snapshot before the query evaluator runs, so
+// `benign:true` selects exactly the findings whose JA3 or JA4 was marked benign
+// on the TLS Fingerprints wall, and `benign:false` selects the rest. The unit
+// test in internal/query covers the field logic; this proves the stamping wire.
+func TestFilterFindings_BenignQuery(t *testing.T) {
+	s := newAuditTestServer(t)
+	// Mark one JA3 and one JA4 benign.
+	if _, err := s.store.AddFingerprintAllow(model.FingerprintAllowEntry{Kind: "ja3", Fingerprint: "aabb", CreatedBy: "analyst", CreatedAt: 1700000000}); err != nil {
+		t.Fatalf("add ja3 allow: %v", err)
+	}
+	if _, err := s.store.AddFingerprintAllow(model.FingerprintAllowEntry{Kind: "ja4", Fingerprint: "t13d201100_2b729b4bf6f3_9e7b989ebec8", CreatedBy: "analyst", CreatedAt: 1700000000}); err != nil {
+		t.Fatalf("add ja4 allow: %v", err)
+	}
+	findings := []model.Finding{
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 80, Status: model.StatusOpen, Timestamp: "2026-06-05 09:00:00", JA3: "aabb"},
+		{ID: 2, Type: "Beacon", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 80, Status: model.StatusOpen, Timestamp: "2026-06-05 09:01:00", JA4: "t13d201100_2b729b4bf6f3_9e7b989ebec8"},
+		{ID: 3, Type: "Beacon", SrcIP: "10.0.0.3", DstIP: "3.3.3.3", Score: 80, Status: model.StatusOpen, Timestamp: "2026-06-05 09:02:00", JA3: "ccdd"},
+		{ID: 4, Type: "Beacon", SrcIP: "10.0.0.4", DstIP: "4.4.4.4", Score: 80, Status: model.StatusOpen, Timestamp: "2026-06-05 09:03:00"},
+	}
+	cases := []struct {
+		name    string
+		query   url.Values
+		wantIDs []int
+	}{
+		{"no query — unchanged", url.Values{}, []int{1, 2, 3, 4}},
+		{"benign:true selects allowlisted JA3+JA4", url.Values{"q": []string{"benign:true"}}, []int{1, 2}},
+		{"benign:false selects the rest", url.Values{"q": []string{"benign:false"}}, []int{3, 4}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := s.filterFindings(append([]model.Finding{}, findings...), c.query, 0)
+			if err != nil {
+				t.Fatalf("filterFindings: %v", err)
+			}
+			gotIDs := []int{}
+			for _, f := range got {
+				gotIDs = append(gotIDs, f.ID)
+			}
+			if !sameIntSlice(gotIDs, c.wantIDs) {
+				t.Errorf("query=%v: got %v, want %v", c.query, gotIDs, c.wantIDs)
+			}
+		})
+	}
+}
+
 // TestFilterFindings_JA4 mirrors TestFilterFindings_JA3 for the ja4=
 // filter parameter. The two filters are independent: setting ja4 does
 // not restrict by ja3 and vice-versa.
