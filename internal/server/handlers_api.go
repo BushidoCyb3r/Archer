@@ -1330,6 +1330,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "alerting threshold hours must be >= 0 (0 = use built-in default)", http.StatusBadRequest)
 			return
 		}
+		if cfg.AuditLogRetentionDays < 0 {
+			jsonError(w, "audit_log_retention_days must be >= 0 (0 = unlimited / no automatic prune)", http.StatusBadRequest)
+			return
+		}
 		// Beacon detectors need at least 3 intervals to score, which requires
 		// 4 events (state is created at event 3 with only 2 intervals; event 4
 		// provides the third). Values below 4 can never produce a finding and

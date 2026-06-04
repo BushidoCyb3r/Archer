@@ -1370,6 +1370,15 @@
       </div>
     </div>
     <div class="settings-group">
+      <div class="settings-group-title">Audit Log</div>
+      <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
+        The admin-action audit trail is append-only and never edited per entry. A daily sweep removes entries older than the retention window. <strong>0 = keep forever</strong> (no automatic deletion) — set a positive value only if a long-running instance needs to bound the table; compliance regimes usually want the full trail.
+      </div>
+      <div class="settings-grid">
+        <label>Retention (days)<input class="dlg-input" id="cfg-audit-retention" type="number" min="0" title="Delete audit-log entries older than this many days, swept once daily. 0 = unlimited (keep forever, the default). On the typical short-mission deployment the table stays small and this never triggers."></label>
+      </div>
+    </div>
+    <div class="settings-group">
       <div class="settings-group-title">Detector Health</div>
       <!-- New-finding counts per detector over the last 7 days vs the prior
            7. A detector that fired last week and is silent this week is

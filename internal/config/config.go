@@ -178,6 +178,16 @@ type Config struct {
 	SensorStaleThresholdHours int `json:"sensor_stale_threshold_hours,omitempty"`
 	FeedStaleThresholdHours   int `json:"feed_stale_threshold_hours,omitempty"`
 	RsyncStaleThresholdHours  int `json:"rsync_stale_threshold_hours,omitempty"`
+
+	// AuditLogRetentionDays bounds how long audit_log rows are kept. A daily
+	// prune loop deletes entries older than this many days. 0 = unlimited (no
+	// automatic prune) — the historical behaviour, and the safe default: a
+	// team under a compliance regime may need the full trail, so Archer never
+	// deletes audit history unless the operator opts in with a positive value.
+	// Sized for the rare long-running instance whose append-only audit_log
+	// would otherwise grow without bound; on the ≤4-month mission model the
+	// table stays small and any reasonable value never triggers.
+	AuditLogRetentionDays int `json:"audit_log_retention_days,omitempty"`
 }
 
 func Default() Config {

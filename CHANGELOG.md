@@ -28,6 +28,22 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [Unreleased]
+
+Bounding the audit log on long-running instances.
+
+### Added
+
+- **Audit-log retention** — a new `audit_log_retention_days` Settings field
+  (Audit Log group) plus a daily prune loop that deletes `audit_log` rows
+  older than the window. **0 = unlimited (keep forever), the default** — a
+  compliance regime may need the full trail, so Archer never auto-deletes
+  audit history unless the operator opts in. The prune is the single
+  sanctioned deletion against the otherwise append-only table: a bulk,
+  age-based sweep, never a per-entry edit, so the trail can't be selectively
+  rewritten. Replaces the manual `DELETE FROM audit_log` guidance that was
+  the only prior bound on the table's growth.
+
 ## [v0.57.0] — 2026-06-04
 
 **Per-channel beacon scoring** — the headline — lands on top of the

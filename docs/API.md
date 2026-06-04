@@ -568,6 +568,7 @@ struct tags. The four most operator-touched fields:
 | `sensor_stale_threshold_hours` | How long a sensor must be silent (no HMAC checkin) before the heartbeat alarm fires. Default `2`. |
 | `feed_stale_threshold_hours` | How long since a feed's last successful fetch before the feed-health alarm fires. Default `24`. |
 | `rsync_stale_threshold_hours` | How long the gap between `last_seen_at` and `last_log_mtime` must be before the rsync-dead alarm fires. Default `4`. |
+| `audit_log_retention_days` | Daily sweep deletes `audit_log` rows older than this many days. `0` = unlimited (keep forever — the default). Must be `>= 0` (negative is rejected `400`). |
 
 ### Lists
 

@@ -80,6 +80,7 @@ func New(st *store.Store, us *store.UserStore, broker *Broker, webDir, logsDir, 
 	s.startUnauthorizedPruneLoop()
 	s.startSuppressionsPruneLoop()
 	s.startBeaconHistoryPruneLoop()
+	s.startAuditLogPruneLoop()
 	// Session prune was previously a goroutine wired from NewUserStore
 	// (NEW-69 follow-up). Surfaced here so every TTL sweep is started
 	// from one place; PruneExpiredSessions is a method value matching
@@ -186,6 +187,23 @@ func (s *Server) startSuppressionsPruneLoop() {
 func (s *Server) startBeaconHistoryPruneLoop() {
 	startPruneLoop("beacon_history", 24*time.Hour, func() {
 		s.store.PurgeBeaconHistory()
+	})
+}
+
+// startAuditLogPruneLoop sweeps audit_log rows older than the operator's
+// AuditLogRetentionDays on a daily cadence (boot run then every 24h). The
+// retention is read fresh each tick, so a Settings change takes effect on the
+// next sweep without a restart. 0 = unlimited leaves the table untouched (the
+// store method no-ops on a non-positive cutoff), preserving the historical
+// keep-forever default unless an operator opts in.
+func (s *Server) startAuditLogPruneLoop() {
+	startPruneLoop("audit_log", 24*time.Hour, func() {
+		days := s.store.GetConfig().AuditLogRetentionDays
+		if days <= 0 {
+			return
+		}
+		cutoff := time.Now().Unix() - int64(days)*86400
+		s.store.PruneAuditLogOlderThan(cutoff)
 	})
 }
 

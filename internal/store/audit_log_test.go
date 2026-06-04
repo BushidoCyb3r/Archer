@@ -26,6 +26,48 @@ func newAuditTestStore(t *testing.T) *Store {
 	return s
 }
 
+// TestPruneAuditLogOlderThan codifies the audit-log retention contract:
+// the daily sweep removes rows strictly older than the cutoff, keeps the
+// rest, no-ops when retention is unlimited (cutoff <= 0), and is idempotent.
+// The invariant the prune enforces is "nothing at or after the cutoff is
+// ever removed" — that's what keeps a retention misconfiguration from eating
+// recent trail, so the test asserts it directly rather than just a count.
+func TestPruneAuditLogOlderThan(t *testing.T) {
+	s := newAuditTestStore(t)
+	// Deterministic timestamps (LogAuditEvent honours a non-zero TS).
+	s.LogAuditEvent(AuditEntry{TS: 1000, Action: "login_success", ActorEmail: "a"})
+	s.LogAuditEvent(AuditEntry{TS: 1500, Action: "login_success", ActorEmail: "a"})
+	s.LogAuditEvent(AuditEntry{TS: 2000, Action: "login_success", ActorEmail: "a"})
+	s.LogAuditEvent(AuditEntry{TS: 3000, Action: "login_success", ActorEmail: "a"})
+
+	// Unlimited (cutoff <= 0) must be a no-op — the keep-forever default.
+	if n := s.PruneAuditLogOlderThan(0); n != 0 {
+		t.Errorf("prune(0) removed %d; want 0 (unlimited = no-op)", n)
+	}
+	if got := len(s.ListAuditLog(0, 100)); got != 4 {
+		t.Fatalf("after unlimited no-op: %d entries, want 4", got)
+	}
+
+	// Cutoff at 2000: rows with ts < 2000 go (1000, 1500), ts >= 2000 stay.
+	if n := s.PruneAuditLogOlderThan(2000); n != 2 {
+		t.Errorf("prune(2000) removed %d; want 2", n)
+	}
+	remaining := s.ListAuditLog(0, 100)
+	if len(remaining) != 2 {
+		t.Fatalf("after prune(2000): %d entries, want 2", len(remaining))
+	}
+	for _, e := range remaining {
+		if e.TS < 2000 {
+			t.Errorf("entry ts=%d survived cutoff 2000 — prune must never keep older-than-cutoff... but the inverse failed", e.TS)
+		}
+	}
+
+	// Idempotent: re-running the same cutoff removes nothing.
+	if n := s.PruneAuditLogOlderThan(2000); n != 0 {
+		t.Errorf("second prune(2000) removed %d; want 0 (idempotent)", n)
+	}
+}
+
 // TestAuditLog_RoundTrip covers the v0.14.0 audit-log addition. A
 // happy-path write must be retrievable; a nil-user write must store
 // as NULL user_id (system-issued action shape); pagination must walk

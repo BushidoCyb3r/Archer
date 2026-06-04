@@ -34,9 +34,11 @@ type AuditEntry struct {
 // would be invisible until production.
 //
 // Append-only by convention: this is the ONLY place audit_log gets
-// written in this package, and there are no UPDATE or DELETE
-// statements anywhere against audit_log. Preserve that discipline
-// when adding new operations.
+// written, and the ONLY deletion is the bulk age-based retention prune
+// in PruneAuditLogOlderThan — there are no per-entry UPDATE or DELETE
+// statements anywhere against audit_log, so an individual record can
+// never be altered or selectively removed (tampering with the trail).
+// Preserve that discipline when adding new operations.
 //
 // Audit-log writes are observability, not enforcement — admin
 // actions are authorized by the role check at the handler; the
@@ -63,6 +65,31 @@ func (s *Store) LogAuditEvent(e AuditEntry) {
 	if err != nil {
 		slog.Error("audit_log: write failed", "action", e.Action, "actor", e.ActorEmail, "err", err)
 	}
+}
+
+// PruneAuditLogOlderThan deletes audit_log rows with ts < cutoffUnix and
+// returns the number removed. This is the single sanctioned deletion against
+// audit_log (see LogAuditEvent's discipline note): a bulk, age-based retention
+// sweep, never a per-entry edit — so it bounds unbounded growth on a
+// long-running instance without giving anyone a path to selectively rewrite
+// the trail. A cutoff <= 0 is a no-op (retention disabled / unlimited), so the
+// caller can pass the result of an "unlimited" config straight through.
+func (s *Store) PruneAuditLogOlderThan(cutoffUnix int64) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil || cutoffUnix <= 0 {
+		return 0
+	}
+	res, err := s.db.Exec(`DELETE FROM audit_log WHERE ts < ?`, cutoffUnix)
+	if err != nil {
+		slog.Error("audit_log: retention prune failed", "cutoff", cutoffUnix, "err", err)
+		return 0
+	}
+	n, _ := res.RowsAffected()
+	if n > 0 {
+		slog.Info("audit_log: retention prune", "removed", n, "cutoff", cutoffUnix)
+	}
+	return n
 }
 
 // nullableActorID returns sql.NullInt64 so a 0 actor_id (system-

@@ -3819,6 +3819,8 @@
     if (sensorStale) sensorStale.value = cfg.sensor_stale_threshold_hours || 2;
     if (feedStale)   feedStale.value   = cfg.feed_stale_threshold_hours   || 24;
     if (rsyncStale)  rsyncStale.value  = cfg.rsync_stale_threshold_hours  || 4;
+    const auditRet = document.getElementById('cfg-audit-retention');
+    if (auditRet) auditRet.value = cfg.audit_log_retention_days || 0;
     const specEn = document.getElementById('cfg-spectral-enabled');
     // spectral_enabled defaults true in config.Default(); upgraded
     // installs preserve that value because json.Unmarshal only
@@ -3912,6 +3914,7 @@
       sensor_stale_threshold_hours: parseInt(g('cfg-sensor-stale-hours')) || 2,
       feed_stale_threshold_hours:   parseInt(g('cfg-feed-stale-hours'))   || 24,
       rsync_stale_threshold_hours:  parseInt(g('cfg-rsync-stale-hours'))  || 4,
+      audit_log_retention_days:     parseInt(g('cfg-audit-retention'))    || 0,
     };
   }
 

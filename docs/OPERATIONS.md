@@ -179,11 +179,18 @@ Run through this before exposing Archer to a multi-user team.
       `/data/archive/<sensor>/<date>/` after N days. Pruning
       findings older than the archive cutoff is opt-in
       (destructive toggle).
-- [ ] **The audit log is unbounded.** v0.14.0 doesn't prune the
-      `audit_log` table. If your compliance regime requires a
-      retention cap, periodically `DELETE FROM audit_log WHERE
-      ts < strftime('%s', 'now', '-N days');`. (No UI for this
-      yet — file under [Scope decisions](#scope-decisions).)
+- [ ] **The audit log keeps everything by default.** Set
+      **Settings → Audit Log → Retention (days)**
+      (`audit_log_retention_days`) to bound it — a daily sweep then
+      deletes entries older than the window. **0 = unlimited (the
+      default)**: a compliance regime usually wants the full trail,
+      so Archer never auto-deletes audit history unless you opt in.
+      On the typical short-mission deployment the table stays small
+      and any reasonable value never triggers. (The prune is the one
+      sanctioned deletion against the otherwise append-only table —
+      bulk by age, never per-entry — so the trail can't be
+      selectively rewritten. The old manual `DELETE FROM audit_log
+      WHERE ts < …` still works but is no longer needed.)
 - [ ] **Sensor archived logs persist until manually purged.**
       Disenrolling a sensor moves its logs aside; purging
       deletes them. The two-step flow exists so an admin can
