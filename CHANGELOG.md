@@ -28,7 +28,12 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
-## [Unreleased]
+## [v0.56.0] — 2026-06-04
+
+Operator-curated **JA3/JA4 fingerprint IOCs** — the headline — land alongside
+a UI pass that tabs the Settings and IOC dialogs. Analysts can now drive the
+Malicious JA3/JA4 detectors from their own fingerprint list (or one click on
+the TLS Fingerprints wall), not just the built-in C2 tables.
 
 ### Added
 
@@ -54,6 +59,21 @@ relevant, `### Detection changes` in each release entry.
   semantics changed — every input still round-trips through the one Save
   button regardless of the active tab. Docs that cite a settings location
   now name the tab (e.g. *Settings → Detection → Beacon*).
+- **IOC List and Allowlist dialogs share a fixed size.** The IOC List modal is
+  tabbed (IPs & Domains / JA3 · JA4) and both dialogs are pinned to a fixed
+  width/height, so switching tabs no longer reflows the dialog and the longer
+  JA4 IOC lines don't wrap.
+
+### Fixed
+
+- **Mark-benign button no longer clipped** in the TLS Fingerprints modal; its
+  Benign and Malicious siblings now sit side by side without overrunning the
+  action column.
+
+### Security
+
+- **CI supply-chain hardening.** GitHub Actions pinned to commit SHAs, the
+  semgrep scanner image pinned by digest, and semgrep promoted to a hard gate.
 
 ### Detection changes
 
