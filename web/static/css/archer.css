@@ -2031,7 +2031,7 @@ dialog::backdrop {
    max-width: 95vw lets the dialog still shrink gracefully on
    narrower displays. */
 #sensors-dialog               { width: 1250px; max-width: 95vw; }
-#fingerprints-dialog          { width: 1218px; max-width: 95vw; }
+#fingerprints-dialog          { width: 1300px; max-width: 95vw; }
 #feeds-dialog                 { width: 1000px; max-width: 95vw; }
 
 /* TLS Fingerprints table — same scaffold as the Feeds/Sensors dialog
@@ -2101,11 +2101,13 @@ dialog::backdrop {
 /* The action cell sits outside the row's click-to-pivot affordance: the
    button stops propagation visually via its own hover, and the handler
    short-circuits the pivot when the click lands on it. */
-/* The action column is sized (in the <th>) to hold the full "Mark benign"
-   label; override the generic td overflow:hidden so the button is never
-   clipped if a font/locale renders it a few px wider. */
+/* The action column is sized (in the <th>) to hold both the Benign and
+   Malicious buttons side by side; override the generic td overflow:hidden so
+   neither is clipped if a font/locale renders them a few px wider. */
 #fingerprints-table td.fp-action { text-align: right; cursor: default; overflow: visible; white-space: nowrap; }
-.fp-benign-btn, .fp-unbenign-btn { padding: 3px 10px; font-size: 12px; }
+.fp-benign-btn, .fp-unbenign-btn, .fp-malicious-btn { padding: 3px 10px; font-size: 12px; }
+/* Benign + Malicious sit side by side in the action cell; space them apart. */
+#fingerprints-table td.fp-action .dlg-btn + .dlg-btn { margin-left: 6px; }
 /* Benign section: a collapsed list of fingerprints the analyst has muted,
    so the wall above stays short but the decisions stay reversible. */
 .fp-benign { margin-top: 14px; }

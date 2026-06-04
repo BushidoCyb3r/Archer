@@ -60,8 +60,8 @@ const Fingerprints = (() => {
       // both actions: promote to the IOC list, or hide as benign.
       const action = (r.known_bad || !_canWrite)
         ? ''
-        : `<button class="dlg-btn secondary fp-malicious-btn" type="button" title="Add this fingerprint to the IOC list — it flags as Malicious JA3/JA4 on the next analysis">Mark malicious</button>` +
-          `<button class="dlg-btn secondary fp-benign-btn" type="button" title="Mark this fingerprint benign and hide it from the list">Mark benign</button>`;
+        : `<button class="dlg-btn secondary fp-benign-btn" type="button" title="Mark this fingerprint benign and hide it from the list">Benign</button>` +
+          `<button class="dlg-btn secondary fp-malicious-btn" type="button" title="Add this fingerprint to the IOC list — it flags as Malicious JA3/JA4 on the next analysis">Malicious</button>`;
       tr.innerHTML =
         `<td class="severity">${_esc(sev)}</td>` +
         `<td>${r.kind === 'ja4' ? 'JA4' : 'JA3'}</td>` +
