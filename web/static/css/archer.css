@@ -2022,8 +2022,8 @@ dialog::backdrop {
 /* Fixed height so tab switches don't reflow the dialog to each panel's content
    height — the body scrolls within it. IOC and Allowlist share the same size so
    their JA3/JA4 and entries textareas line up. */
-#ioc-dialog                   { width: 640px; height: 700px; max-width: 95vw; }
-#allowlist-dialog             { width: 640px; height: 700px; max-width: 95vw; }
+#ioc-dialog                   { width: 820px; height: 700px; max-width: 95vw; }
+#allowlist-dialog             { width: 820px; height: 700px; max-width: 95vw; }
 #sensors-token-dlg            { width: min(95vw, 1250px); }
 /* Both modals default to the natural width of their widest table
    (Enrolled Sensors for #sensors-dialog at 1250px; Feeds table

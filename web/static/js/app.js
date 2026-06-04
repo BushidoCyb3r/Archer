@@ -3243,7 +3243,12 @@
       '# Built-in C2 fingerprints — always active, cannot be removed.',
       '# (editing the lines below has no effect; they return on save)',
     ];
-    builtin.forEach(b => lines.push(b.fingerprint + '  # ' + (b.label || 'built-in')));
+    // Trim the parenthetical variant suffix (e.g. " (no SNI)") off the inline
+    // label so the longer JA4 lines don't soft-wrap in the textarea.
+    builtin.forEach(b => {
+      const label = (b.label || 'built-in').replace(/\s*\([^)]*\)/g, '').trim();
+      lines.push(b.fingerprint + '  # ' + label);
+    });
     lines.push('', '# Your fingerprints (one JA3 or JA4 per line):');
     operator.forEach(o => lines.push(o));
     return lines.join('\n') + '\n';
