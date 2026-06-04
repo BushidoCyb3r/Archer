@@ -22,8 +22,15 @@
 #
 # It writes a per-finding CSV (one row per beacon) and prints two crosstabs:
 #   1. winning layer × severity   — where each layer's score mass lands
-#   2. winning layer × disposition — dismissed is the false-positive signal;
-#      escalated/acknowledged is analyst engagement
+#   2. winning layer × disposition — read this as an attention signal, NOT a
+#      verdict. A dismissal means the analyst chose not to see the beacon
+#      again, which conflates two populations: a true false positive AND a
+#      real-but-benign beacon (cloud sync, OS update, telemetry). A layer
+#      whose population skews dismissed is therefore a layer to INVESTIGATE,
+#      never one to suppress on this signal alone — a benign-real beacon
+#      shares its timing DNA with a malicious one, so muting the layer that
+#      catches it would also blind the malicious case. That is the one
+#      outcome the mission cannot accept.
 #
 # The "winning layer" expression mirrors conn.go's strict-greater upgrade
 # chain exactly: spectral if it rescued, else the highest of raw/mm/ent with
@@ -31,7 +38,8 @@
 # running max, so raw is the floor).
 #
 # Read-only. No detection-semantics judgement is baked in — this surfaces the
-# distribution; a human reads which layers earn their false-positive budget.
+# distribution; a human decides, and any tuning still has to clear the global
+# corpus gate.
 #
 # Usage:  bash beacon-attribution.sh [/path/to/archer.db] [out.csv]
 #         defaults: /data/archer.db  ./beacon-attribution.csv
@@ -109,10 +117,13 @@ sqlite3 -column -header "$DB" "
 echo
 
 # ── Crosstab 2: winning layer × analyst disposition ──────────────────────────
-# dismissed is the strongest false-positive signal: an analyst saw the beacon
-# and chose not to see it again. A layer whose population is mostly dismissed
-# is a false-positive-heavy rescue and a tuning candidate.
-echo "Winning layer × disposition (dismissed = analyst-flagged false positive):"
+# An attention signal, not a verdict. A dismissal means the analyst chose not
+# to see the beacon again — which conflates a true false positive with a
+# real-but-benign beacon (cloud sync, OS update, telemetry). A layer skewing
+# dismissed is a layer to INVESTIGATE, not to suppress: a benign-real beacon
+# shares its timing signature with a malicious one, so muting the layer that
+# catches it blinds the malicious case too.
+echo "Winning layer × disposition (dismissed = chose not to see again — FP OR benign-real):"
 sqlite3 -column -header "$DB" "
   SELECT $WINNER AS layer,
          SUM(status = '')            AS open,
