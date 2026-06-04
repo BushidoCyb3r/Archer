@@ -5191,6 +5191,31 @@
           canWrite: u.role !== 'viewer',
         });
       }
+      // Per-fingerprint Benign / Malicious actions in the finding detail pane,
+      // so an analyst can triage a JA3/JA4 straight from a finding — including
+      // a low-concern fingerprint the TLS wall hides. Same endpoints the wall
+      // uses, so a benign mark yields the same `fp benign` chip on next refresh.
+      if (typeof Detail !== 'undefined' && Detail.init) {
+        Detail.init({
+          canWrite: u.role !== 'viewer',
+          onMarkBenign: (kind, fp) => {
+            api('/api/fingerprint-allowlist', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ kind, fingerprint: fp, note: '' }),
+            })
+              .then(() => showToast('Marked benign — findings carrying this fingerprint get the “fp benign” chip on next refresh', 4500))
+              .catch(err => showToast('Could not mark benign: ' + err, 4500));
+          },
+          onMarkMalicious: (kind, fp) => {
+            api('/api/ioc-fingerprint', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ fingerprint: fp }),
+            })
+              .then(() => showToast('Added to IOC list — flags as Malicious JA3/JA4 on the next analysis', 4500))
+              .catch(err => showToast('Could not mark malicious: ' + err, 4500));
+          },
+        });
+      }
       // Hide write-only controls for viewers
       if (u.role === 'viewer') {
         ['analyze-btn','allowlist-btn','ioc-btn','suppressions-btn',

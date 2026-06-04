@@ -2107,6 +2107,9 @@ dialog::backdrop {
    neither is clipped if a font/locale renders them a few px wider. */
 #fingerprints-table td.fp-action { text-align: right; cursor: default; overflow: visible; white-space: nowrap; }
 .fp-benign-btn, .fp-unbenign-btn, .fp-malicious-btn { padding: 3px 10px; font-size: 12px; }
+/* Detail-pane per-fingerprint mark buttons — compact, sit in a JA3/JA4 row. */
+.ds-fp-btn { padding: 2px 9px; font-size: 11px; }
+.ds-fp-btn + .ds-fp-btn { margin-left: 6px; }
 /* Benign + Malicious sit side by side in the action cell; space them apart. */
 #fingerprints-table td.fp-action .dlg-btn + .dlg-btn { margin-left: 6px; }
 /* Benign section: a collapsed list of fingerprints the analyst has muted,

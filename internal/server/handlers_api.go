@@ -605,6 +605,20 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 		if f.Type == "Beacon" && (f.JA4 != "" || f.JA3 != "") {
 			f.FPConcern, f.FPDetail = s.store.FingerprintConcern(f.JA4, f.JA3)
 		}
+		// Known-bad C2 flag for the detail-pane mark buttons: built-in tables OR
+		// the operator JA3/JA4 IOC list — the same union the TLS wall uses to
+		// withhold its mark buttons. detail.js suppresses Benign/Malicious for a
+		// known-bad fingerprint so the two surfaces behave identically.
+		if f.JA4 != "" || f.JA3 != "" {
+			opJA3, opJA4 := analysis.ClassifyFingerprints(s.store.GetIOCFingerprints())
+			_, badJA4Builtin := analysis.KnownBadJA4[f.JA4]
+			_, badJA4Op := opJA4[f.JA4]
+			_, badJA3Builtin := analysis.KnownBadJA3[f.JA3]
+			_, badJA3Op := opJA3[f.JA3]
+			if (f.JA4 != "" && (badJA4Builtin || badJA4Op)) || (f.JA3 != "" && (badJA3Builtin || badJA3Op)) {
+				f.FPKnownBad = true
+			}
+		}
 		// New-to-this-viewer flag for the detail pane's "new" badge — same
 		// session boundary the table dot and the "New only" filter use.
 		f.IsNewToMe = f.DetectedAt > newBoundaryFromCtx(r)

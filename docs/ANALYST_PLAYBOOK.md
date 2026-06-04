@@ -1239,6 +1239,16 @@ drops off the wall into a collapsed **Benign** section, and any
 finding carrying that JA3/JA4 is tagged with a muted `fp benign`
 chip in the table.
 
+You don't have to go to the wall to do this. The JA3/JA4 rows in
+a finding's **Detail** pane carry the same **Benign** / **Malicious**
+buttons, so you can triage a fingerprint straight from a beacon you're
+looking at — including a low-concern fingerprint the wall hides (a
+common shape, or a single-host JA3). Same effect either way: Benign
+allowlists it (the `fp benign` chip then lands on every finding
+carrying it, the CRITICAL beacon included), Malicious adds it to the
+JA3/JA4 IOC list so it flags as `Malicious JA3/JA4` on the next
+analysis.
+
 This is a *hint, not a dismissal*: the findings still appear and
 still score the same. Marking a fingerprint benign tells the next
 analyst "this client shape was triaged" — it does not hide the

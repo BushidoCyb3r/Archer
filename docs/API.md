@@ -297,6 +297,7 @@ The most-used surface. Findings are detector outputs, persisted in
   "ja3_sibling_count": 4,
   "fp_concern":        "critical",
   "fp_detail":         "rare — shared by 3 internal hosts · 43 conns, 1 dst(s)",
+  "fp_known_bad":      false,
   "top_uris": [{"uri": "/poll", "count": 312}, {"uri": "/cmd", "count": 18}]
 }
 ```
@@ -384,6 +385,13 @@ The most-used surface. Findings are detector outputs, persisted in
   severity.** Both `omitempty`; absent when no fingerprint resolves or no
   full pass has run this process. Never persisted, excluded from the list
   projection and exports.
+- `fp_known_bad` is a **transient, derived-at-read** bool (`omitempty`) on
+  the single-finding response: `true` when the finding's `ja3` or `ja4` is
+  known-bad C2 — built-in tables **or** the operator JA3/JA4 IOC list (the
+  same union `/api/fingerprints` uses). The detail pane reads it to suppress
+  its per-fingerprint **Benign**/**Malicious** mark buttons for a known-bad
+  fingerprint, mirroring the TLS wall (which withholds those buttons on
+  known-bad rows). Never persisted; not in the list projection.
 - `top_uris` is the HTTP Beacon destination's request-path
   footprint: `[]{uri, count}`, count-descending, capped at 8. The
   `(Type,src,dst,port)` fingerprint dedup keeps one finding per group,

@@ -45,6 +45,18 @@ relevant, `### Detection changes` in each release entry.
   or concern (or, for benign entries, the note) matches the term. Filters the
   already-fetched data in memory, so typing is instant; cleared each time the
   modal opens.
+- **Mark JA3/JA4 benign or malicious from a finding's detail pane.** The JA3
+  and JA4 rows in the detail pane now carry **Benign** / **Malicious** buttons,
+  so an analyst can triage a fingerprint straight from a finding — including a
+  low-concern one the TLS Fingerprints wall hides (common shapes, single-host
+  JA3). They hit the same endpoints the wall uses: Benign allowlists the
+  fingerprint (every finding carrying it gets the `fp benign` chip on the next
+  refresh, the CRITICAL beacon included), Malicious adds it to the JA3/JA4 IOC
+  list (flags as `Malicious JA3/JA4` on the next analysis). Analyst/admin only.
+  A known-bad C2 fingerprint is **non-markable** — the buttons are withheld and
+  a "Known C2 — non-markable" note shows instead, exactly as the wall behaves
+  (driven by a new transient `fp_known_bad` flag on the detail response, the
+  built-in + operator-IOC union); the server also rejects allowlisting one.
 
 ## [v0.58.0] — 2026-06-04
 

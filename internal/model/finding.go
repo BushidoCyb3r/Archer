@@ -177,6 +177,13 @@ type Finding struct {
 	// not part of Fingerprint(). The list projection computes its own
 	// tls_allowlisted for the row chip independently.
 	TLSAllowlisted bool `json:"-"`
+	// FPKnownBad is a transient, derived-at-read flag: true when this finding's
+	// JA3 or JA4 client fingerprint is known-bad C2 — built-in tables OR the
+	// operator JA3/JA4 IOC list (the same union the TLS Fingerprints wall uses).
+	// The single-finding detail handler stamps it; the detail pane suppresses
+	// its Benign/Malicious mark buttons for a known-bad fingerprint, mirroring
+	// the wall (which withholds the buttons on known-bad rows). Never persisted.
+	FPKnownBad bool `json:"fp_known_bad,omitempty"`
 	// TopURIs is the HTTP Beacon destination's request-path
 	// footprint: the most-frequent paths the same (sensor,src,dst,host)
 	// group beaconed on, count-descending, capped. Stamped identically

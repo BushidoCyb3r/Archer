@@ -5,6 +5,14 @@ const Detail = (() => {
   const EXPLANATIONS = window.SCORE_EXPLANATIONS || {};
   const _TI_TYPES = new Set(['TI Hit (IP)', 'TI Hit (Domain)', 'TI Hit (Hash)', 'Threat Intel Hit']);
 
+  // Per-fingerprint mark actions in the JA3/JA4 rows let an analyst triage a
+  // fingerprint straight from a finding — even a low-concern one the TLS wall
+  // hides — by marking it benign or malicious. app.js owns api()/toasts, so it
+  // injects the handlers at init; _canWrite gates the buttons off for viewers.
+  let _canWrite = false;
+  let _onMarkBenign = null;
+  let _onMarkMalicious = null;
+
   function _sevColor(sev) {
     return {CRITICAL:'var(--sev-critical)', HIGH:'var(--sev-high)', MEDIUM:'var(--sev-medium)',
             LOW:'var(--sev-low)', INFO:'var(--sev-info)', IOC_HIT:'var(--ioc-color)'}[sev] || 'var(--fg-text)';
@@ -60,6 +68,26 @@ const Detail = (() => {
   // _row returns a key/value row HTML string.
   function _row(key, val, mono) {
     return `<div class="ds-row"><span class="ds-key">${_esc(key)}</span><span class="ds-val${mono ? ' mono' : ''}">${val}</span></div>`;
+  }
+
+  // _fpActions renders the Benign / Malicious buttons for one fingerprint row.
+  // A known-bad C2 fingerprint is non-markable — same as the TLS wall, which
+  // withholds the buttons on known-bad rows — so it shows a muted note instead
+  // (to every role, since it's informational). Otherwise writers get the two
+  // buttons; viewers and absent fingerprints get nothing. The buttons carry the
+  // kind+fp on data-attrs; the delegated handler calls the injected callbacks.
+  // Works for any markable fingerprint the finding carries, on or off the wall.
+  function _fpActions(kind, fp, knownBad) {
+    if (!fp) return '';
+    if (knownBad) {
+      return `<div class="ds-row"><span class="ds-key"></span><span class="ds-val" style="color:var(--sev-critical)">Known C2 fingerprint — non-markable</span></div>`;
+    }
+    if (!_canWrite) return '';
+    const k = _esc(kind), v = _esc(fp);
+    return `<div class="ds-row"><span class="ds-key"></span><span class="ds-val">` +
+      `<button class="dlg-btn secondary ds-fp-btn ds-fp-benign" type="button" data-kind="${k}" data-fp="${v}" title="Mark this fingerprint benign — drops it off the TLS wall and tags findings carrying it with the 'fp benign' chip">Benign</button> ` +
+      `<button class="dlg-btn secondary ds-fp-btn ds-fp-malicious" type="button" data-kind="${k}" data-fp="${v}" title="Add this fingerprint to the IOC list — it flags as Malicious JA3/JA4 on the next analysis">Malicious</button>` +
+      `</span></div>`;
   }
 
   // _section wraps rows in a labelled section div.
@@ -119,11 +147,13 @@ const Detail = (() => {
       ep += _row('JA4', _esc(f.ja4), true);
       const n4 = f.ja4_sibling_count || 0;
       ep += _row('JA4 match', `${n4} other beacon${n4 === 1 ? '' : 's'} in dataset${n4 > 0 ? '  <span style="color:var(--fg-dim)">(TLS Pivot ▸)</span>' : ''}`);
+      ep += _fpActions('ja4', f.ja4, f.fp_known_bad);
     }
     if (f.ja3) {
       ep += _row('JA3', _esc(f.ja3), true);
       const n3 = f.ja3_sibling_count || 0;
       ep += _row('JA3 match', `${n3} other beacon${n3 === 1 ? '' : 's'} in dataset${!f.ja4 && n3 > 0 ? '  <span style="color:var(--fg-dim)">(TLS Pivot ▸)</span>' : ''}`);
+      ep += _fpActions('ja3', f.ja3, f.fp_known_bad);
     }
     // FP rarity is computed server-side at read time from the corpus-wide
     // TLS-fingerprint prevalence snapshot. The concern level (critical/high/
@@ -476,5 +506,32 @@ const Detail = (() => {
     _renderPivotTI(findings);
   }
 
-  return { render, clear, renderHostPivot, renderCampaignPivot };
+  // Delegated handler for the per-fingerprint Benign / Malicious buttons in
+  // the detail pane. The button is disabled on click to block a double-submit;
+  // it re-enables on the next render of the finding.
+  function _onFpAction(e) {
+    const benignBtn = e.target.closest('.ds-fp-benign');
+    const malBtn = benignBtn ? null : e.target.closest('.ds-fp-malicious');
+    const btn = benignBtn || malBtn;
+    if (!btn) return;
+    const kind = btn.dataset.kind;
+    const fp = btn.dataset.fp;
+    if (!fp) return;
+    btn.disabled = true;
+    if (benignBtn) {
+      if (_onMarkBenign) _onMarkBenign(kind, fp);
+    } else if (_onMarkMalicious) {
+      _onMarkMalicious(kind, fp);
+    }
+  }
+
+  function init(opts) {
+    _canWrite = !!(opts && opts.canWrite);
+    _onMarkBenign = (opts && opts.onMarkBenign) || null;
+    _onMarkMalicious = (opts && opts.onMarkMalicious) || null;
+    const text = document.getElementById('detail-text');
+    if (text) text.addEventListener('click', _onFpAction);
+  }
+
+  return { init, render, clear, renderHostPivot, renderCampaignPivot };
 })();
