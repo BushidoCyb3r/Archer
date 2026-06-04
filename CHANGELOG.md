@@ -30,10 +30,17 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
-Bounding the audit log on long-running instances.
+Follow-through on v0.57.0's per-channel beacon scoring, plus a maturation
+item: bounding the audit log on long-running instances.
 
 ### Added
 
+- **`channel:` query field** — `channel:true` scopes the findings view to
+  promoted per-channel beacon sub-findings (a non-empty `Channel`
+  discriminator), `channel:false` to blends and everything else. A specific
+  channel is still found via `ja3:<hash>`. The detail pane gains a
+  **PER-CHANNEL** chip so a split sub-finding is visually obvious, with the
+  blend↔channel relationship spelled out in its hover text and detail line.
 - **Audit-log retention** — a new `audit_log_retention_days` Settings field
   (Audit Log group) plus a daily prune loop that deletes `audit_log` rows
   older than the window. **0 = unlimited (keep forever), the default** — a

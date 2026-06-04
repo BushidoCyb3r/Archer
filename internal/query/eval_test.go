@@ -138,6 +138,20 @@ func TestBoolFields(t *testing.T) {
 	if !matches(t, "ioc:true", f) {
 		t.Error("IOC finding should match ioc:true")
 	}
+	// channel: scopes to promoted per-channel beacon sub-findings.
+	if matches(t, "channel:true", f) {
+		t.Error("blend (empty Channel) should not match channel:true")
+	}
+	if !matches(t, "channel:false", f) {
+		t.Error("blend (empty Channel) should match channel:false")
+	}
+	f.Channel = "ja3:deadbeefdeadbeefdeadbeefdeadbeef"
+	if !matches(t, "channel:true", f) {
+		t.Error("per-channel sub-finding should match channel:true")
+	}
+	if matches(t, "channel:false", f) {
+		t.Error("per-channel sub-finding should not match channel:false")
+	}
 }
 
 // TestNewFieldRemoved pins the v0.54.0 removal of the new: query field: it

@@ -42,6 +42,7 @@ var knownFields = map[string]bool{
 	"tscore": true, "dscore": true, "hist": true, "dur": true,
 	"conns": true, "meanint": true, "medint": true, "jitter": true,
 	"uri": true, "note": true, "analyst": true, "dir": true, "detected": true,
+	"channel": true,
 }
 
 // parseTerm turns a raw term token into a leaf node.
@@ -237,6 +238,11 @@ func (t term) eval(f model.Finding, opLoc *time.Location) bool {
 		return boolMatch(f.IOCMatch, t.value)
 	case "spectral":
 		return boolMatch(strings.Contains(f.Detail, "Spectral rescued:"), t.value)
+	case "channel":
+		// channel:true scopes to promoted per-channel beacon sub-findings (a
+		// non-empty Channel discriminator); channel:false to blends and every
+		// other type. A specific channel is found via ja3:<hash>.
+		return boolMatch(f.Channel != "", t.value)
 	case "ts":
 		return tsMatch(f.Timestamp, t, opLoc)
 	case "detected":

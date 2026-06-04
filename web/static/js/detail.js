@@ -168,6 +168,7 @@ const Detail = (() => {
     let flags = '';
     if (f.is_new_to_me) flags += `<span class="ds-flag new">NEW SINCE LAST LOGIN</span> `;
     if (f.ioc_match) flags += `<span class="ds-flag ioc">MATCHED IOC LIST</span> `;
+    if (f.channel) flags += `<span class="ds-flag chan" title="Per-channel beacon: a coherent TLS channel (one JA3) split out of a blended beacon to the same destination because it scored sharper than the blend. The blend is kept as its own finding.">PER-CHANNEL</span> `;
     if (f.status === 'escalated') {
       flags += `<span class="ds-flag esc">ESCALATED</span>`;
       let esc = `<div style="margin-top:6px">`;

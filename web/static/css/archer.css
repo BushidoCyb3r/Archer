@@ -1243,6 +1243,7 @@ body.dock-resizing {
 .ds-flag.new   { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
 .ds-flag.ioc   { background: color-mix(in srgb, var(--ioc-color) 18%, transparent); color: var(--ioc-color); }
 .ds-flag.esc   { background: color-mix(in srgb, var(--sev-critical) 18%, transparent); color: var(--sev-critical); }
+.ds-flag.chan  { background: color-mix(in srgb, var(--sev-high) 18%, transparent); color: var(--sev-high); }
 
 .hp-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 2px; }
 .hp-table tr { cursor: pointer; }
