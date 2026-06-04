@@ -2021,7 +2021,7 @@ dialog::backdrop {
 /* Fixed height so the entries/relationships/suggestions tabs don't reflow
    the dialog to each panel's content height — the body scrolls within it.
    IOC has no tabs, so it keeps width-only and sizes to its single textarea. */
-#allowlist-dialog             { width: 480px; height: 540px; }
+#allowlist-dialog             { width: 480px; height: 600px; }
 #sensors-token-dlg            { width: min(95vw, 1250px); }
 /* Both modals default to the natural width of their widest table
    (Enrolled Sensors for #sensors-dialog at 1250px; Feeds table
