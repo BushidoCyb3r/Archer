@@ -1081,18 +1081,23 @@ if **any** of the following are true:
    H(s) = − Σ p_c · log2(p_c)
    ```
 
-   for each character `c` in the lowercased label. `H ≥ DNSTunnelEntropy`
-   (default 3.5 bits) suggests the label is closer to random data than to
-   English text.
+   for each character `c` in the lowercased label. Fires only when
+   `H ≥ DNSTunnelEntropy` (default 3.5 bits) **and** the label is at least
+   `dnsEntropyMinLabelLen` (30) chars — the length floor excludes short
+   compound-English hostnames (e.g. `google-site-verification`) whose
+   per-character entropy is high but which aren't tunnels.
 3. **Deep nesting.** The query has `≥ DNSTunnelMinDepth` dots (default 5).
    Nested labels are how DNS tunneling tools fragment payloads.
-4. **Exotic record type.** `qtype == "TXT"` or `qtype == "NULL"`. These are
-   the canonical tunneling record types because they carry arbitrary text/bytes.
+
+(A fourth signal — `qtype == "TXT"`/`"NULL"` firing on its own — was removed:
+every SPF/DKIM/DMARC/ACME TXT query tripped it, flooding false positives.
+Real tunnelers couple TXT/NULL with long/high-entropy/deep labels, which the
+three signals above already catch.)
 
 If any condition fires, deduplicate per `(src, apex)` and emit:
 
 ```
-score = clamp( min(55 + 6·entropy, 88), 1, 88 )
+score = clamp( int(min(55 + 6·entropy, 88)), 1, 95 )   // inner min caps at 88
 severity = High
 ```
 
@@ -1102,7 +1107,7 @@ A second-pass aggregate. For each `(src, apex)` we collect the set of unique
 subdomains. If `|set| ≥ DNSUniqueSubdomainMin` (default 50):
 
 - Sample up to 200 subdomains, compute Shannon entropy of each, average.
-- `score = clamp( min(55 + 6·avg_entropy, 90), 1, 90 )`
+- `score = clamp( int(min(55 + 6·avg_entropy, 90)), 1, 95 )`  (inner min caps at 90)
 - Severity is High if `avg_entropy > 3.0`, else Medium.
 
 ### 9.4 Suspicious TLD
@@ -2047,10 +2052,11 @@ runtime. Defaults:
 | Setting                  | Default | Used in                              |
 |--------------------------|---------|--------------------------------------|
 | BeaconMinConnections     | 4       | TCP beacon eligibility (min 4)        |
-| HTTPBeaconMinRequests    | 8       | HTTP beacon eligibility (min 4)       |
-| DNSBeaconMinQueries      | 20      | DNS beacon eligibility (min 4)        |
+| HTTPBeaconMinRequests    | 8       | HTTP beacon eligibility (min 8)       |
+| DNSBeaconMinQueries      | 20      | DNS beacon eligibility (min 20)       |
 | LongConnMinHours         | 1.0     | Long Connection trigger               |
-| StrobeMinConnections     | 1000    | Strobe trigger                        |
+| StrobeMinConnections     | 100     | Strobe count floor (with rate gate)   |
+| StrobeMinRatePerSec      | 0.5     | Strobe rate gate (conns/sec)          |
 | ExfilMinBytesMB          | 5.0     | Exfiltration size floor               |
 | ExfilRatioThreshold      | 10.0    | Out/in ratio                          |
 | OffHoursStart / End      | 22 / 6  | Off-hours window (UTC)                |

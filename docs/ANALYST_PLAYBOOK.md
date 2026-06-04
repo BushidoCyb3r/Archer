@@ -216,7 +216,7 @@ Two diagnostic charts open from the action footer:
   right-click or **Reset zoom** returns to auto-fit. PNG /
   JPEG export per view.
 - **Score Chart** (action bar button next to Beacon Chart, gated on
-  Beacon / HTTP Beacon / DNS Beacon; grayed out until at
+  Beacon / HTTP Beacon / DNS Beacon / Port-Hopping Beacon; grayed out until at
   least one daily history row exists) — 30-day trajectory of the
   composite score plus the four sub-axes, updated once per UTC day
   on the first full pass. Opens the evolution modal directly.
@@ -229,7 +229,7 @@ is the most diagnostic thing in the UI. You're looking for:
   not bursty human activity.
 - **Continuation past business hours** = not a user.
 - **Dot count high enough to trust the math** = at least
-  `BeaconMinConnections` (default 10). The chart shows this.
+  `BeaconMinConnections` (default 4). The chart shows this.
 
 A score of 75 with a *visually clean* beacon pattern is more
 trustworthy than a score of 88 with a chart that looks
@@ -329,7 +329,7 @@ before trusting the result.
 | Field | Matches | Notes |
 |---|---|---|
 | `id` | Finding ID | Numeric — `id:1542` exact, plus comparisons and `[lo TO hi]` ranges. Reads the finding's stable ID directly (not the Detail text), so it works regardless of what the Detail string says. The ID is shown in the detail pane's identity block. |
-| `type` | Finding type, e.g. `type:Beacon` | Exact (case-insensitive). Must name a real finding type — a misspelling (`type:Beaon`) is rejected with a toast, not silently empty. `type:beacons` matches the **whole** beacon family (Beacon / HTTP Beacon / DNS Beacon). |
+| `type` | Finding type, e.g. `type:Beacon` | Exact (case-insensitive). Must name a real finding type — a misspelling (`type:Beaon`) is rejected with a toast, not silently empty. `type:beacons` matches the **whole** beacon family (Beacon / HTTP Beacon / DNS Beacon / Port-Hopping Beacon). |
 | `severity` | `critical` / `high` / `medium` / `low` | Exact. |
 | `score` | Composite score | Numeric — comparisons and ranges. |
 | `src` / `dst` | Source / destination IP | Bare IP = exact; CIDR (`dst:185.220.101.0/24`) = containment; wildcard (`dst:185.220.*`) = prefix/substring. |
@@ -475,7 +475,7 @@ irregular one is usually unrelated administrative traffic.
 
 **Connection count.** How many flows the detector saw to this
 pair in the analysis window. Below `BeaconMinConnections`
-(10 default) the finding doesn't fire; just above the
+(4 default) the finding doesn't fire; just above the
 threshold means borderline confidence, deep above means
 strong sample.
 
@@ -514,8 +514,8 @@ it survived across analysis runs via fingerprint merge). Read
 them. If someone's already acknowledged this exact pattern
 last quarter and the note explains why, your job is over.
 
-**Score evolution chart.** Beacon / HTTP Beacon / DNS Beacon
-findings get a **Score Chart** button in the action bar (next to
+**Score evolution chart.** Beacon / HTTP Beacon / DNS Beacon /
+Port-Hopping Beacon findings get a **Score Chart** button in the action bar (next to
 Beacon Chart) showing up to 30 daily snapshots of the composite
 score plus the four sub-axes (Timing, Data size, Histogram,
 Persistence). The button is grayed out until at least one daily

@@ -67,14 +67,14 @@ This tag means the rescue *succeeded* on a shorter period, and a longer
 peak with higher raw power was excluded by the span cap — not by the gate,
 not by DC-correction zeroing it. That longer peak crossed FAP=12 and
 outranked the winner on raw power; only the span cap kept it out. This is
-the class to watch in Section 2 of the spotcheck.
+the class to watch in Check 2 of the spotcheck.
 
 ### When a rescue is fully blocked
 
 If both mechanisms reject the only strong periodogram peak, the pair still
 emits a beacon finding via the statistical path — it just doesn't receive
 the spectral score boost. The blocked count is recorded per run in
-`analysis_stats` and appears in Section 3 of `corpus-spotcheck.sh`. Two
+`analysis_stats` and appears in Check 3 of `corpus-spotcheck.sh`. Two
 populations contribute: low-ratio hits (ratio < 0.2, lower-bound gate)
 and high-ratio hits (ratio >> 1, span cap with < 3 cycles). Non-zero
 counts are normal. A sudden spike warrants checking whether a legitimately

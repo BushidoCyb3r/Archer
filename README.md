@@ -114,7 +114,7 @@ Archer runs five parallel analysis phases across all supported log types.
 | **Cobalt Strike URI** | Checksum8 algorithm match: URI byte sum modulo 256 equals 92 (x86 stager) or 93 (x64 stager) | CRITICAL |
 | **C2 URI Pattern** | Regex match against default framework URI patterns: Cobalt Strike (`/submit.php`, `/ca`, `/dpixel`, `/pixel.gif`, `/ptj`, `/j.ad`, `/updates.rss`), Empire (`/news.php`, `/admin/get.php`, `/login/process.php`), Metasploit (8-character alphanumeric stager paths) | CRITICAL |
 | **Domain Fronting** | SSL SNI does not match HTTP Host header — CDN abuse used to hide C2 destination | CRITICAL |
-| **Suspicious User Agent** | Scripting and automation user agents: python-requests, curl, wget, go-http-client, PowerShell, libwww-perl | LOW |
+| **Suspicious UA** | Scripting and automation user agents: python-requests, curl, wget, go-http-client, PowerShell, libwww-perl | LOW |
 | **Suspicious File Download** | Executable MIME types (`application/x-dosexec`, `application/x-elf`, etc.) or executable extensions (`.exe`, `.dll`, `.ps1`, `.vbs`, `.bat`, `.hta`, `.scr`, `.sh`, `.elf`, `.msi`) | HIGH |
 
 ### TLS / SSL (`ssl.log`)
@@ -259,7 +259,7 @@ archer/
 │       ├── beacon_history.go   # beacon_history table (UPSERT) for the 30-day evolution chart
 │       ├── userstore.go        # User accounts, sessions
 │       ├── migrate.go          # Forward-only migration runner; tracks schema_migrations
-│       └── migrations/         # NNNN_*.sql migrations (0001 → 0023)
+│       └── migrations/         # NNNN_*.sql migrations (0001 → 0035)
 └── web/
     ├── templates/
     │   ├── index.html          # Single-page application shell

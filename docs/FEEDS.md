@@ -253,10 +253,6 @@ badge separately from the SourceFile.
 
 ### What does NOT match (yet)
 
-- **Hashes.** MISP/OpenCTI hash indicators are persisted to
-  `feed_indicators` correctly, but no analyzer field today carries a hash
-  candidate — `analyzeFiles` extracts MIME and filename from `files.log`,
-  not the hash. This is a logged Phase 7 follow-up.
 - **URL paths.** MISP/OpenCTI export hostnames; URL-path indicators
   aren't part of the standard export shape. The `Suspicious URL` finding
   matches on host, with the URI as Detail context.

@@ -462,8 +462,10 @@ semantics, the forward-only rule — see [RELEASING.md](../RELEASING.md)
 
 The single most important store method. Called at the end of every
 analysis. It does NOT replace findings wholesale — it merges by
-fingerprint (currently a hash of `type + src_ip + dst_ip + dst_port +
-source_file`).
+fingerprint, the `Finding.Fingerprint()` struct `{Type, SrcIP, DstIP,
+DstPort, Sensor}` (plus `Hostname`/`URI` for HTTP Beacon, plus `Channel`
+for a promoted per-channel beacon). It is a struct compared by value, not
+a hash; see the `Fingerprint` vs `BeaconHistoryKey` section below.
 
 There are two public entry points sharing one implementation
 (`setFindingsImpl`):
@@ -594,6 +596,7 @@ subscribers connected to `/events`. Every event has a `type` and a JSON
 | `sensor_enrolled` | quiver enroll handler | full `Sensor` row | Drives the in-flight enrollment dialog's confirmation tick. |
 | `unauthorized_attempt` | quiver checkin handler | full `UnauthorizedAttempt` row | Surfaces in the Sensors modal's "Unauthorized" tab. |
 | `watch.heartbeat` | server | `{}` | Unconditional 60s tick — proves the SSE pipeline is alive. UI flips a top-bar dot red after 180s without one. |
+| `resync_required` | sse broker | `{}` | Overflow canary: emitted when a subscriber's buffer overflows and events were dropped. Tells the client to reload everything rather than trust its now-incomplete live state. |
 
 Events are best-effort — a slow subscriber doesn't block the producer.
 The broker uses bounded buffered channels per subscriber and drops
@@ -806,6 +809,6 @@ CI is also pending (Phase 5) — currently `go vet`, `go test`, and
 
 ---
 
-*Last updated: 2026-06 alongside the v0.55.0 release. Update
+*Last updated: 2026-06 alongside the v0.59.0 release. Update
 this doc whenever the dataflow, schema, SSE catalog, or process model
 materially changes.*

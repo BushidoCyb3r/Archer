@@ -589,6 +589,7 @@ preserve insertion order, support `# comment` lines.
 | `PUT` | `/api/allowlist` | analyst+ | Bare JSON array body `["1.2.3.4", ...]`. Replaces the full list. |
 | `GET` | `/api/ioc` | any | Same shape as allowlist (bare string array). |
 | `PUT` | `/api/ioc` | analyst+ | Same shape (bare string array). |
+| `POST` | `/api/ioc-fingerprint` | analyst+ | Add a JA3/JA4 fingerprint to the operator IOC list (`ioc_fp_list`), so it flags as `Malicious JA3/JA4` on the next analysis. Body: `{"fingerprint":"<hash>"}` — JA3 vs JA4 is classified by shape server-side. A built-in known-bad fingerprint is a no-op success. This is the TLS-wall and detail-pane "Mark malicious" surface. |
 | `GET` | `/api/suppressions` | any | Returns an array of `{target, expiry, detail}` objects. |
 | `POST` | `/api/suppressions` | analyst+ | Add a suppression. Body: `{"target":"<ip/domain/regex>","days":N,"detail":"<reason>"}`. `days` must be in `(0, 365]`. |
 | `DELETE` | `/api/suppressions/{target}` | analyst+ | Lift a suppression. The `{target}` segment is the URL-encoded target string from the GET response (host / IP / regex / sensor) — not a numeric id. |
@@ -596,6 +597,7 @@ preserve insertion order, support `# comment` lines.
 | `POST` | `/api/pair-allowlist` | analyst+ | Add a tuple-scoped permanent finding filter. Body: `{"src","dst","port","finding_type","detail"}`. `src` and `dst` required; empty `finding_type` = every type on the tuple, set = only that type. Idempotent on the `(src,dst,port,finding_type)` tuple (re-adding returns the existing id). Pure view filter — matching findings are hidden from the table and bell, never dropped from the store. |
 | `DELETE` | `/api/pair-allowlist/{id}` | analyst+ | Remove a rule by numeric id. Its matching findings reappear on the next `/api/findings` fetch — no re-analysis. |
 | `GET` | `/api/pair-allowlist/suggested` | any | Returns beacon pairs that qualify for allowlist suggestion: 14+ distinct UTC days in `beacon_history` AND an acknowledged finding for that pair AND not already covered by a pair\_allowlist rule. Array of `{src_ip, dst_ip, dst_port, finding_type, day_count, first_seen, last_seen, peak_score, acked_by}`. Empty array when no candidates exist. Read-only; applying a suggestion uses `POST /api/pair-allowlist`. |
+| `GET` | `/api/fingerprints` | any | The TLS Fingerprints inventory: the high-signal JA3/JA4 client fingerprints from the latest analysis, ranked by concern. Array of `{fingerprint, kind, level, known_bad, label, conns, src_hosts, dsts, finding_count, detail}`. Known-bad C2 (built-in + operator IOC) are forced critical; common browser/SDK shapes and benign-marked fingerprints are excluded (it's a hunt list, not a TLS census). |
 | `GET` | `/api/fingerprint-allowlist` | any | Returns an array of `{id, kind, fingerprint, note, created_by, created_at}` — TLS client fingerprints (`kind` is `ja3` or `ja4`) marked benign on the TLS Fingerprints wall. |
 | `POST` | `/api/fingerprint-allowlist` | analyst+ | Mark a fingerprint benign. Body: `{"kind":"ja3"\|"ja4","fingerprint","note"}`. Idempotent on `(kind, fingerprint)`. Rejects (`400`) a known-bad C2 fingerprint — a confirmed C2 match can't be muted. Pure view filter: the fingerprint drops out of `/api/fingerprints` and matching findings carry `tls_allowlisted:true`, never dropped from the store. |
 | `DELETE` | `/api/fingerprint-allowlist/{id}` | analyst+ | Remove a benign mark by numeric id. The fingerprint returns to `/api/fingerprints` and the `tls_allowlisted` flag clears on the next fetch — no re-analysis. |
@@ -652,6 +654,7 @@ Manual control over the analyzer (separate from watch-mode auto-runs).
 | `POST` | `/api/analyze/pause` | analyst+ | Pause; resume with the next call. |
 | `POST` | `/api/analyze/resume` | analyst+ | Resume a paused pipeline. |
 | `POST` | `/api/analyze/reset` | admin | Discard findings and re-analyze (full pass). |
+| `GET` | `/api/detector-activity` | any | Per-detector new-detection counts from the latest pass — the capture-regression / detector-health panel (a detector that always fired going silent is a signal). |
 
 Progress events stream over SSE as `progress` events with
 `{step, pct}` payloads.

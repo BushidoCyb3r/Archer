@@ -65,7 +65,7 @@ hardening choices against deviations from this baseline.
   session cookie. Anyone with an admin session can do anything
   an admin can do.
 - Physical access to the host filesystem — anyone with read access
-  to `/data/server.key` can impersonate the server's TLS;
+  to `/data/tls/server.key` can impersonate the server's TLS;
   anyone with read access to `/data/archer.db` sees every
   finding and every feed API key. Encrypt the volume at rest if
   this matters.
@@ -84,7 +84,7 @@ hardening choices against deviations from this baseline.
 **Trust boundaries Archer assumes hold:**
 
 - The container's filesystem permissions (mode 0600 on
-  `/data/server.key`, `/etc/quiver/secret`).
+  `/data/tls/server.key`, `/etc/quiver/secret`).
 - The container's network isolation — Archer's listening ports are
   exposed by docker-compose, and access to them is the operator's
   network problem to solve.
@@ -834,11 +834,12 @@ attempt volume. v0.14.5 NEW-54.
   records the indicator counts; finding_import records the bundle
   sizes).
 
-**Append-only:** the `store` package contains NO UPDATE or DELETE
-statements against `audit_log`. This is a code-side invariant, not
-a SQLite trigger — a trigger would block the retention-prune query
-documented below. Preserve the discipline when adding new
-operations.
+**Append-only:** the `store` package contains no per-entry UPDATE or DELETE
+against `audit_log` — the only deletion is the bulk, age-based retention prune
+(`PruneAuditLogOlderThan`), so an individual record can never be altered or
+selectively removed. This is a code-side invariant, not a SQLite trigger — a
+trigger would also block that sanctioned retention sweep. Preserve the
+discipline when adding new operations.
 
 **What doesn't get logged:**
 
@@ -887,9 +888,13 @@ docker compose exec archer sqlite3 /data/archer.db '
 
 **Retention:**
 
-The table is unbounded as of v0.14.0. See
-[Deployment hardening](#deployment-hardening-checklist) for the
-manual prune query.
+Set **Settings → Audit Log → Retention (days)** (`audit_log_retention_days`,
+v0.58.0) to bound the table — a daily sweep then deletes entries older than the
+window. **0 = unlimited (the default):** a compliance regime usually wants the
+full trail, so Archer never auto-deletes audit history unless you opt in. The
+prune is the one sanctioned deletion against the otherwise append-only table
+(bulk by age, never per-entry). The old manual `DELETE FROM audit_log WHERE
+ts < …` still works but is no longer needed.
 
 ---
 
@@ -990,8 +995,6 @@ absence.
 - **Trust-CA-bundle sensor mode** — alternative to pubkey
   pinning so CA rotation doesn't force fleet-wide re-enrollment.
   See MATURATION_PLAN section 11.
-- **Audit-log retention UI** — currently manual SQL. See the
-  retention note in [Deployment hardening](#deployment-hardening-checklist).
 - **Password complexity / lockout policies** — enforce at the
   onboarding-flow layer for now.
 

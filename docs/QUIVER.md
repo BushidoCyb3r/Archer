@@ -155,7 +155,7 @@ The first push (run during install) is special: `FIRST_SYNC=1` is set in the env
 
 Why this knob matters: a freshly enrolled sensor with 6 months of local Zeek history would otherwise ship every byte of it on first push — over a slow link or against a busy Archer that's churning through analysis, that's a multi-hour rsync. The backfill cap lets the operator say "I only need the last 30 days from this sensor" and skip the rest.
 
-**rsync copies, never moves.** Quiver invokes `rsync -avRq` with no `--remove-source-files` flag, so every `.gz` Archer ingests is a copy — the original stays in place under the sensor's local Zeek log directory. Whatever retention policy Zeek (or the sensor's filesystem) enforces is unaffected by Quiver. If a sensor disk fills up, that's a sensor-side rotation/retention issue, not an Archer-side one. The only data Archer ever deletes from a sensor is via its own admin-triggered `Purge data` action against `/logs/<name>/` on the Archer host — and even that just moves the tree to `/logs/_archived/<name>/<timestamp>/`, never reaches back to the sensor.
+**rsync copies, never moves.** Quiver invokes `rsync -avRqO --no-perms --timeout=60` with no `--remove-source-files` flag, so every `.gz` Archer ingests is a copy — the original stays in place under the sensor's local Zeek log directory. Whatever retention policy Zeek (or the sensor's filesystem) enforces is unaffected by Quiver. If a sensor disk fills up, that's a sensor-side rotation/retention issue, not an Archer-side one. The only data Archer ever deletes from a sensor is via its own admin-triggered `Purge data` action against `/logs/<name>/` on the Archer host — and even that just moves the tree to `/logs/_archived/<name>/<timestamp>/`, never reaches back to the sensor.
 
 ---
 
@@ -294,7 +294,7 @@ The protocol contract pinned at v2 is everything the sensor and server agree on 
 **Transport**
 
 - **Ports**: HTTPS on 8443, SSH on 22 (mapped host-side to 2222 in the bundled `docker-compose.yml`).
-- **Rsync directory layout**: server-side rrsync chroot at `/logs/<sensor-name>/`, forced via `command="rrsync -wo /logs/<name>/"` in `authorized_keys` (the `-w` is write-only, `-o` is read-only metadata). Sensor pushes use `-avR` so the YYYY-MM-DD/file.log.gz tree is preserved relative to the chroot root.
+- **Rsync directory layout**: server-side rrsync chroot at `/logs/<sensor-name>/`, forced via `command="rrsync -wo /logs/<name>/"` in `authorized_keys` (the `-w` is write-only, `-o` is read-only metadata). Sensor pushes use `-avRqO --no-perms` so the YYYY-MM-DD/file.log.gz tree is preserved relative to the chroot root; `-O --no-perms` are load-bearing — rrsync runs as `quiver` and doesn't own the target dir, so without them every push fails rc=23 on a `utimes()`/`chmod()` it can't perform.
 - **Source-files-never-deleted semantics**: rsync runs *without* `--remove-source-files`. Every `.gz` Archer ingests is a copy; the server never deletes from the sensor. Local rotation/retention is the sensor operator's responsibility. Reversing this is a v2 break — sensors built for v1 assume their files are safe.
 
 **Schedule and content**
