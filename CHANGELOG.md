@@ -40,6 +40,11 @@ relevant, `### Detection changes` in each release entry.
   finding), so the filter stamps it onto each finding from a per-request
   snapshot just before the query evaluator runs — one lock per request, not
   per finding. Non-breaking.
+- **Search box in the TLS Fingerprints modal** — a filter input that narrows
+  both the wall and the Benign list to fingerprints whose JA3/JA4 hash, type,
+  or concern (or, for benign entries, the note) matches the term. Filters the
+  already-fetched data in memory, so typing is instant; cleared each time the
+  modal opens.
 
 ## [v0.58.0] — 2026-06-04
 

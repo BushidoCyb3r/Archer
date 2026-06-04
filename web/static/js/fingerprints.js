@@ -15,6 +15,19 @@ const Fingerprints = (() => {
   let _onPivot = null;
   let _onToast = null;
   let _canWrite = true;
+  // Last-fetched data + the active search term, so filtering re-renders from
+  // memory without refetching. _filter is lowercased.
+  let _rows = [];
+  let _benign = [];
+  let _filter = '';
+
+  // _concernText is the human-readable concern string for a wall row, shared by
+  // the renderer and the search filter so they agree on what's searchable.
+  function _concernText(r) {
+    return r.known_bad
+      ? ('Known C2' + (r.label ? ': ' + r.label : ''))
+      : (r.detail || '');
+  }
 
   // Module-local fetch wrapper — app.js's api() is IIFE-private. Canonical
   // body shared with the other SPA modules (pinned by a Go consistency test).
@@ -51,9 +64,7 @@ const Fingerprints = (() => {
       tr.className = 'fp-row ' + sev;
       tr.dataset.kind = r.kind;
       tr.dataset.fp = r.fingerprint;
-      const concern = r.known_bad
-        ? ('Known C2' + (r.label ? ': ' + r.label : ''))
-        : (r.detail || '');
+      const concern = _concernText(r);
       // Known-C2 rows are non-markable — analysts must not be able to mute a
       // confirmed C2 fingerprint off the wall (the server rejects it too), and
       // it's already malicious so there's nothing to add. Markable rows get
@@ -168,24 +179,53 @@ const Fingerprints = (() => {
     if (tr) _unmarkBenign(tr.dataset.id);
   }
 
-  async function _reload() {
-    let rows = [];
-    let benign = [];
-    try {
-      rows = await _api('/api/fingerprints');
-    } catch (_) {
-      rows = [];
-    }
-    try {
-      benign = await _api('/api/fingerprint-allowlist');
-    } catch (_) {
-      benign = [];
+  // _applyFilter re-renders the wall + benign list from the cached data,
+  // narrowed to rows whose fingerprint / type / concern (or, for benign, the
+  // note) contains the current search term. Re-rendering from memory keeps
+  // typing responsive — no refetch per keystroke.
+  function _applyFilter() {
+    const q = _filter;
+    const rows = q
+      ? _rows.filter(r =>
+          (r.fingerprint + ' ' + (r.kind === 'ja4' ? 'ja4' : 'ja3') + ' ' + _concernText(r))
+            .toLowerCase().includes(q))
+      : _rows;
+    const benign = q
+      ? _benign.filter(e =>
+          (e.fingerprint + ' ' + (e.kind === 'ja4' ? 'ja4' : 'ja3') + ' ' + (e.note || ''))
+            .toLowerCase().includes(q))
+      : _benign;
+    // Distinguish "no fingerprints at all" from "no search matches" so the
+    // empty-state text doesn't wrongly tell the analyst to run an analysis.
+    const empty = document.getElementById('fingerprints-empty');
+    if (empty) {
+      empty.textContent = (q && _rows.length)
+        ? 'No fingerprints match your search.'
+        : 'No high-signal TLS fingerprints — run an analysis.';
     }
     _render(rows);
     _renderBenign(benign);
   }
 
+  async function _reload() {
+    try {
+      _rows = await _api('/api/fingerprints') || [];
+    } catch (_) {
+      _rows = [];
+    }
+    try {
+      _benign = await _api('/api/fingerprint-allowlist') || [];
+    } catch (_) {
+      _benign = [];
+    }
+    _applyFilter();
+  }
+
   async function open() {
+    // Fresh search each time the modal opens.
+    _filter = '';
+    const search = document.getElementById('fingerprints-search');
+    if (search) search.value = '';
     await _reload();
     const dlg = document.getElementById('fingerprints-dialog');
     if (dlg) dlg.showModal();
@@ -209,6 +249,13 @@ const Fingerprints = (() => {
     if (tbody) tbody.addEventListener('click', _onRowClick);
     const benignTbody = document.getElementById('fingerprints-benign-tbody');
     if (benignTbody) benignTbody.addEventListener('click', _onBenignClick);
+    const search = document.getElementById('fingerprints-search');
+    if (search) {
+      search.addEventListener('input', () => {
+        _filter = search.value.trim().toLowerCase();
+        _applyFilter();
+      });
+    }
   }
 
   return { init, open };
