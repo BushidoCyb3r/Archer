@@ -337,6 +337,17 @@ func (s *Store) ListEnrollmentTokens() []EnrollmentToken {
 // the check into the WHERE clause so the predicate is enforced by SQLite
 // itself; rowsAffected==0 means the token already had used_at!=0 or had
 // expired, regardless of when it transitioned. Audit 2026-05-10 LOW.
+//
+// The `token=?` match is a data-dependent indexed comparison, not constant
+// time — accepted trade-off (SEC-02, 2026-06-03 LOW). The token is the only
+// handle the sensor presents, so there is no non-secret index to fetch by
+// and constant-time-compare the way service tokens do; a constant-time path
+// would force either an O(n) scan of all outstanding tokens (losing this
+// atomic single-statement consume and reopening the TOCTOU above) or a new
+// lookup field in the enrollment payload (a Quiver protocol break). Neither
+// is justified: the token is 24-byte crypto/rand, single-use, time-bounded,
+// and the enroll endpoint is rate-limited, so the timing channel is not
+// practically attackable.
 func (s *Store) ConsumeEnrollmentToken(token string, sensorName string, now int64) (EnrollmentToken, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
