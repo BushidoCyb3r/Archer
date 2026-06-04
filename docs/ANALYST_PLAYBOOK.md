@@ -332,7 +332,7 @@ before trusting the result.
 | `type` | Finding type, e.g. `type:Beacon` | Exact (case-insensitive). Must name a real finding type — a misspelling (`type:Beaon`) is rejected with a toast, not silently empty. `type:beacons` matches the **whole** beacon family (Beacon / HTTP Beacon / DNS Beacon / Port-Hopping Beacon). |
 | `severity` | `critical` / `high` / `medium` / `low` | Exact. |
 | `score` | Composite score | Numeric — comparisons and ranges. |
-| `src` / `dst` | Source / destination IP | Bare IP = exact; CIDR (`dst:185.220.101.0/24`) = containment; wildcard (`dst:185.220.*`) = prefix/substring. |
+| `src` / `dst` | Source / destination IP | Bare IP = exact; CIDR (`dst:185.220.101.0/24`) = containment; wildcard (`dst:185.220.*`) = prefix/substring; the keyword `rfc1918` (or `private`) matches the internal IP space (RFC1918 + IPv6 ULA + loopback + link-local — the same boundary `dir:` uses). `NOT src:rfc1918` = external src. |
 | `port` | Destination port | Comma-separated list allowed (`port:443,8443`); equality only. |
 | `dir` | Traffic direction across the internal/external boundary | `dir:outbound` (internal→external — the usual beacon scope), `dir:inbound`, `dir:internal` (both RFC1918 — lateral; alias `dir:lateral`), `dir:external` (both public). Collapses hand-rolled `(src:10.0.0.0/8 OR src:172.16.0.0/12 OR src:192.168.0.0/16)` juggling into one term. An unknown direction is rejected with a toast. Alias: `direction`. |
 | `hostname` | Resolved hostname / SNI | Substring or wildcard. |

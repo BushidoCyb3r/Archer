@@ -43,6 +43,11 @@ func TestIPAndCIDR(t *testing.T) {
 		{"dst:91.218.0.0/16", true},
 		{"dst:10.0.0.0/8", false},
 		{"dst:91.218.*", true}, // non-CIDR -> wildcard against the IP string
+		{"src:rfc1918", true},  // 10.2.4.9 is private/internal
+		{"src:private", true},  // synonym for rfc1918
+		{"dst:rfc1918", false}, // 91.218.114.11 is external
+		{"NOT dst:rfc1918", true},
+		{"src:rfc1918 AND NOT dst:rfc1918", true}, // outbound shape
 	}
 	for _, tc := range tests {
 		if got := matches(t, tc.q, f); got != tc.want {
