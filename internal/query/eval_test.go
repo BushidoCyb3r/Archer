@@ -48,6 +48,10 @@ func TestIPAndCIDR(t *testing.T) {
 		{"dst:rfc1918", false}, // 91.218.114.11 is external
 		{"NOT dst:rfc1918", true},
 		{"src:rfc1918 AND NOT dst:rfc1918", true}, // outbound shape
+		{"dst:public", true},                      // 91.218.114.11 is public
+		{"dst:external", true},                    // synonym for public
+		{"src:public", false},                     // 10.2.4.9 is internal
+		{"src:rfc1918 AND dst:public", true},      // outbound shape, both keywords
 	}
 	for _, tc := range tests {
 		if got := matches(t, tc.q, f); got != tc.want {

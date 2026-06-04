@@ -32,11 +32,12 @@ relevant, `### Detection changes` in each release entry.
 
 ### Added
 
-- **`rfc1918` / `private` keyword on `src:` / `dst:` query fields** — `src:rfc1918`
-  matches the internal IP space instead of having to OR the three private CIDRs;
-  `NOT src:rfc1918` is external. Resolves through the same internal/external
-  boundary the `dir:` field uses (RFC1918 + IPv6 ULA + loopback + link-local), so
-  the two stay consistent.
+- **IP-space keywords on `src:` / `dst:` query fields** — `rfc1918`/`private`
+  matches the internal IP space (instead of OR-ing the three private CIDRs) and
+  `public`/`external` its strict inverse (a parseable, non-internal address), so
+  `src:rfc1918 AND dst:public` is the outbound shape. Both resolve through the
+  same internal/external boundary the `dir:` field uses (RFC1918 + IPv6 ULA +
+  loopback + link-local), so they stay consistent.
 - **Config-tunability golden tests** (`TestConfigThresholdsGate`). The standing
   golden fixtures all run at default config, so a threshold wired to nothing —
   the v0.8.0 dead-config bug class — would pass every one of them. This runs

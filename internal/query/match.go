@@ -60,16 +60,20 @@ func ipFieldMatch(ip string, t term) bool {
 		return false
 	}
 	val := t.value
-	// rfc1918 / private: a keyword for the whole internal IP space, so an
-	// analyst can write src:rfc1918 instead of OR-ing the three private CIDRs.
-	// Resolves through the same isInternalIP boundary the dir: field uses
-	// (RFC1918 + IPv6 ULA + loopback + link-local), so src:rfc1918 and
-	// dir:outbound agree on what "internal" means. Negate for external:
-	// NOT src:rfc1918.
+	// rfc1918 / private and public / external: keywords for the internal and
+	// public IP spaces, so an analyst can write src:rfc1918 / src:public instead
+	// of OR-ing private CIDRs or negating them. Both resolve through the same
+	// isInternalIP boundary the dir: field uses (RFC1918 + IPv6 ULA + loopback +
+	// link-local), so they agree on what "internal" means. public/external is
+	// the strict inverse: the address must parse AND be non-internal (an
+	// unparseable field is neither private nor public, unlike NOT src:rfc1918).
 	switch strings.ToLower(val) {
 	case "rfc1918", "private":
 		internal, ok := isInternalIP(ip)
 		return ok && internal
+	case "public", "external":
+		internal, ok := isInternalIP(ip)
+		return ok && !internal
 	}
 	if _, ipnet, err := net.ParseCIDR(val); err == nil {
 		p := net.ParseIP(ip)
