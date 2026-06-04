@@ -1,6 +1,9 @@
 package analysis
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
 // Detection heuristic tables. These are detection knowledge — what a
 // JA3 of cobalt strike looks like, which TLDs free-abuse providers
@@ -47,6 +50,33 @@ var KnownBadJA4 = map[string]string{
 	"t12d210800_76e208dd3e22_16bbda4055b2": "Cobalt Strike v4.9.1 winhttp",
 	// IcedID — TLS 1.3 loader fingerprint.
 	"t13d201100_2b729b4bf6f3_9e7b989ebec8": "IcedID loader",
+}
+
+// ja3Shape matches a JA3 hash: exactly 32 lowercase hex digits (an MD5).
+// JA4 fingerprints carry a structured prefix (e.g. t13d1516h2_...) and never
+// match, so this is a reliable JA3-vs-JA4 discriminator for operator input.
+var ja3Shape = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+// ClassifyFingerprints splits an operator fingerprint IOC list into JA3 and
+// JA4 lookup maps (fingerprint -> label), classifying each by shape. Empty and
+// comment lines are skipped; values are lowercased to match the analyzer's
+// lowercased ja3/ja4 reads. Shared by the analyzer's SetOperatorFingerprints
+// and the server's TLS-inventory union so both classify identically.
+func ClassifyFingerprints(fps []string) (ja3, ja4 map[string]string) {
+	ja3 = map[string]string{}
+	ja4 = map[string]string{}
+	for _, fp := range fps {
+		fp = strings.ToLower(strings.TrimSpace(fp))
+		if fp == "" || fp[0] == '#' {
+			continue
+		}
+		if ja3Shape.MatchString(fp) {
+			ja3[fp] = "Operator IOC"
+		} else {
+			ja4[fp] = "Operator IOC"
+		}
+	}
+	return ja3, ja4
 }
 
 // KnownBadJA3 maps JA3 hashes to C2 framework labels.

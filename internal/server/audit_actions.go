@@ -54,6 +54,8 @@ const (
 	ActionConfigChange               = "config_change"
 	ActionAllowlistEdit              = "allowlist_edit"
 	ActionIOCEdit                    = "ioc_edit"
+	ActionIOCFingerprintEdit         = "ioc_fingerprint_edit"
+	ActionIOCFingerprintAdd          = "ioc_fingerprint_add"
 	ActionSuppressionAdd             = "suppression_add"
 	ActionSuppressionDelete          = "suppression_delete"
 	ActionPairAllowlistAdd           = "pair_allowlist_add"
@@ -122,6 +124,8 @@ var knownAuditActions = map[string]struct{}{
 	ActionConfigChange:               {},
 	ActionAllowlistEdit:              {},
 	ActionIOCEdit:                    {},
+	ActionIOCFingerprintEdit:         {},
+	ActionIOCFingerprintAdd:          {},
 	ActionSuppressionAdd:             {},
 	ActionSuppressionDelete:          {},
 	ActionPairAllowlistAdd:           {},

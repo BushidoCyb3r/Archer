@@ -134,6 +134,15 @@ type Analyzer struct {
 	// parallel during phase 1.
 	spectralBlocked atomic.Int64
 
+	// Operator-supplied JA3/JA4 fingerprint IOCs, classified by shape and
+	// merged with the built-in KnownBadJA3/KnownBadJA4 tables in analyzeSSL.
+	// A fingerprint in either map emits the same Malicious JA3 / Malicious JA4
+	// finding as a built-in match — operator and built-in are indistinguishable
+	// downstream, only the Detail label differs. Empty until
+	// SetOperatorFingerprints is called (tests and the archive path leave them nil).
+	opJA3 map[string]string
+	opJA4 map[string]string
+
 	// Cancellation and pause
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -165,6 +174,34 @@ func New(cfg config.Config, logsDir string, progressCh chan<- ProgressEvent, sta
 		cancel:         cancel,
 		resumeCh:       resumeCh,
 	}
+}
+
+// SetOperatorFingerprints loads the operator JA3/JA4 fingerprint IOC list,
+// classifying each entry by shape into the analyzer's opJA3/opJA4 lookup maps.
+// Called by the server before Analyze with store.GetIOCFingerprints(); a nil
+// or empty list leaves the maps empty (built-in detection only).
+func (a *Analyzer) SetOperatorFingerprints(fps []string) {
+	a.opJA3, a.opJA4 = ClassifyFingerprints(fps)
+}
+
+// badJA3 reports whether ja3 is a known-bad fingerprint — built-in first, then
+// the operator IOC list — and returns its label. Built-in labels win on the
+// (effectively impossible) overlap so a Cobalt Strike hash keeps its name.
+func (a *Analyzer) badJA3(ja3 string) (string, bool) {
+	if label, ok := KnownBadJA3[ja3]; ok {
+		return label, true
+	}
+	label, ok := a.opJA3[ja3]
+	return label, ok
+}
+
+// badJA4 is the JA4 counterpart to badJA3.
+func (a *Analyzer) badJA4(ja4 string) (string, bool) {
+	if label, ok := KnownBadJA4[ja4]; ok {
+		return label, true
+	}
+	label, ok := a.opJA4[ja4]
+	return label, ok
 }
 
 // sensorOf returns the first path component under logsDir, which is the

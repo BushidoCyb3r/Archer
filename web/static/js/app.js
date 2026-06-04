@@ -3184,24 +3184,69 @@
     });
 
     const iocDlg = document.getElementById('ioc-dialog');
+    document.querySelectorAll('#ioc-tabs .dlg-tab-btn').forEach(b =>
+      b.addEventListener('click', () => _setIOCTab(b.dataset.ioctab)));
     document.getElementById('ioc-btn').addEventListener('click', async () => {
-      const data = await api('/api/ioc').catch(() => []);
-      document.getElementById('ioc-ta').value = (Array.isArray(data) ? data : []).join('\n');
+      const [net, fp] = await Promise.all([
+        api('/api/ioc').catch(() => []),
+        api('/api/ioc?kind=fp').catch(() => ({})),
+      ]);
+      document.getElementById('ioc-ta').value = (Array.isArray(net) ? net : []).join('\n');
+      document.getElementById('ioc-fp-ta').value = _composeFPText(fp);
+      _setIOCTab('net');
       iocDlg.showModal();
     });
     document.getElementById('ioc-cancel').addEventListener('click', () => iocDlg.close());
     document.getElementById('ioc-save').addEventListener('click', async () => {
-      const lines = document.getElementById('ioc-ta').value
+      const netLines = document.getElementById('ioc-ta').value
         .split('\n').map(s => s.trim()).filter(Boolean);
-      await api('/api/ioc', {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(lines),
-      }).catch(e => setStatus('Error: ' + e));
+      const fpLines = document.getElementById('ioc-fp-ta').value
+        .split('\n').map(s => s.trim()).filter(Boolean);
+      // Both panels are always in the DOM, so save persists whichever tab the
+      // operator edited — the net list and the JA3/JA4 list go in one click.
+      try {
+        await api('/api/ioc', {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(netLines),
+        });
+        await api('/api/ioc?kind=fp', {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(fpLines),
+        });
+      } catch (e) {
+        setStatus('Error: ' + e);
+        return;
+      }
       setStatus('IOC list saved');
       iocDlg.close();
       _loadIOCList();
     });
+  }
+
+  function _setIOCTab(name) {
+    document.querySelectorAll('#ioc-tabs .dlg-tab-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.ioctab === name));
+    document.querySelectorAll('#ioc-dialog .ioc-tab-panel').forEach(p =>
+      p.classList.toggle('active', p.dataset.iocpanel === name));
+  }
+
+  // _composeFPText builds the JA3/JA4 textarea from /api/ioc?kind=fp: a comment
+  // banner, the always-active built-in fingerprints (each with an inline label),
+  // then the operator's own entries. Built-in lines are informational — the
+  // server strips them on save and re-emits them here on the next open.
+  function _composeFPText(data) {
+    const builtin = (data && Array.isArray(data.builtin)) ? data.builtin : [];
+    const operator = (data && Array.isArray(data.operator)) ? data.operator : [];
+    const lines = [
+      '# Built-in C2 fingerprints — always active, cannot be removed.',
+      '# (editing the lines below has no effect; they return on save)',
+    ];
+    builtin.forEach(b => lines.push(b.fingerprint + '  # ' + (b.label || 'built-in')));
+    lines.push('', '# Your fingerprints (one JA3 or JA4 per line):');
+    operator.forEach(o => lines.push(o));
+    return lines.join('\n') + '\n';
   }
 
   // ── Settings dialog ────────────────────────────────────────────────────────

@@ -186,8 +186,9 @@ Single SQLite database at `/data/archer.db`. Driver: `modernc.org/sqlite`
 Created idempotently in `store.InitDB`:
 
 ```sql
-CREATE TABLE allowlist (entry TEXT PRIMARY KEY);
-CREATE TABLE ioc_list  (entry TEXT PRIMARY KEY);
+CREATE TABLE allowlist   (entry TEXT PRIMARY KEY);
+CREATE TABLE ioc_list    (entry TEXT PRIMARY KEY);
+CREATE TABLE ioc_fp_list (entry TEXT PRIMARY KEY);  -- operator JA3/JA4 IOCs (migration 0033); merged into Malicious JA3/JA4 detection at analyze time via Analyzer.SetOperatorFingerprints. Handler: internal/server/ioc_fingerprints.go
 
 CREATE TABLE findings (
     id           INTEGER PRIMARY KEY,

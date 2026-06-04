@@ -1117,12 +1117,25 @@
 
 <dialog id="ioc-dialog">
   <div class="dlg-header">IOC List</div>
+  <div class="dlg-tabs" id="ioc-tabs">
+    <button class="dlg-tab-btn active" data-ioctab="net">IPs &amp; Domains</button>
+    <button class="dlg-tab-btn" data-ioctab="fp">JA3 / JA4</button>
+  </div>
   <div class="dlg-body">
-    <label>One IP / CIDR / domain / JA3 hash per line</label>
-    <div style="color:var(--fg-dim);font-size:11px;margin:4px 0 6px">
-      Lines starting with <code>#</code> are kept as comments and survive save/reload — use them as section headers. Inline <code>1.2.3.4 # cobalt-strike</code> tails are stripped down to the entry. Save preserves your line order.
+    <div class="ioc-tab-panel active" data-iocpanel="net">
+      <label>One IP / CIDR / domain per line</label>
+      <div style="color:var(--fg-dim);font-size:11px;margin:4px 0 6px">
+        Lines starting with <code>#</code> are kept as comments and survive save/reload — use them as section headers. Inline <code>1.2.3.4 # cobalt-strike</code> tails are stripped down to the entry. Save preserves your line order.
+      </div>
+      <textarea class="dlg-textarea" id="ioc-ta" rows="18" style="width:100%;height:430px;resize:vertical"></textarea>
     </div>
-    <textarea class="dlg-textarea" id="ioc-ta" rows="12" style="width:100%"></textarea>
+    <div class="ioc-tab-panel" data-iocpanel="fp">
+      <label>One JA3 (32-hex) or JA4 fingerprint per line</label>
+      <div style="color:var(--fg-dim);font-size:11px;margin:4px 0 6px">
+        Your fingerprints flag as <strong>Malicious JA3 / JA4</strong> on the next analysis — the same finding the built-ins produce. The built-in C2 fingerprints listed below are always active: deleting one here does nothing, it returns on save. Comments aren't kept in this list.
+      </div>
+      <textarea class="dlg-textarea" id="ioc-fp-ta" rows="18" style="width:100%;height:430px;resize:vertical"></textarea>
+    </div>
   </div>
   <div class="dlg-footer">
     <button class="dlg-btn secondary" id="ioc-cancel">Cancel</button>

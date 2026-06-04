@@ -308,9 +308,10 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/config", any(s.handleConfig)) // PUT enforced inside handler
 
 	// Lists — read=any, write=analyst+
-	s.mux.Handle("/api/allowlist", any(s.handleAllowlist))       // PUT enforced inside handler
-	s.mux.Handle("/api/ioc", any(s.handleIOC))                   // PUT enforced inside handler
-	s.mux.Handle("/api/suppressions", any(s.handleSuppressions)) // POST enforced inside handler
+	s.mux.Handle("/api/allowlist", any(s.handleAllowlist))                      // PUT enforced inside handler
+	s.mux.Handle("/api/ioc", any(s.handleIOC))                                  // PUT enforced inside handler; kind=fp routes to fingerprint list
+	s.mux.Handle("/api/ioc-fingerprint", any(s.handleMarkFingerprintMalicious)) // POST enforced inside handler
+	s.mux.Handle("/api/suppressions", any(s.handleSuppressions))                // POST enforced inside handler
 	s.mux.Handle("/api/suppressions/", any(s.handleDeleteSuppression))
 	s.mux.Handle("/api/pair-allowlist", any(s.handlePairAllowlist))                // POST enforced inside handler
 	s.mux.Handle("/api/pair-allowlist/suggested", any(s.handleSuggestedAllowlist)) // exact path before prefix

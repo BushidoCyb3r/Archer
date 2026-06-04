@@ -1,0 +1,40 @@
+[
+  {
+    "type": "Host Risk Score",
+    "severity": "MEDIUM",
+    "score": 39,
+    "src_ip": "192.168.4.20",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 39 | Detections: [Malicious JA3]",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Host Risk Score",
+    "severity": "MEDIUM",
+    "score": 39,
+    "src_ip": "192.168.4.21",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 39 | Detections: [Malicious JA4]",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Malicious JA3",
+    "severity": "CRITICAL",
+    "score": 95,
+    "src_ip": "192.168.4.20",
+    "dst_ip": "203.0.113.120",
+    "dst_port": "443",
+    "detail": "JA3: deadbeefdeadbeefdeadbeefdeadbeef — Operator IOC | SNI: ops.example.com",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Malicious JA4",
+    "severity": "CRITICAL",
+    "score": 95,
+    "src_ip": "192.168.4.21",
+    "dst_ip": "203.0.113.121",
+    "dst_port": "443",
+    "detail": "JA4: t13d1234h1_aaaaaaaaaaaa_bbbbbbbbbbbb — Operator IOC | SNI: ops2.example.com",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

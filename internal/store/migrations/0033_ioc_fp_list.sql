@@ -1,0 +1,13 @@
+-- Operator JA3/JA4 fingerprint IOC list.
+--
+-- Sibling to ioc_list (0001), but for TLS client fingerprints instead of
+-- IPs/CIDRs/domains. An operator pastes JA3 (32-hex MD5) or JA4 fingerprints
+-- here, or marks one malicious from the TLS Fingerprints wall; on the next
+-- analysis pass the analyzer treats them exactly like the built-in
+-- KnownBadJA3/KnownBadJA4 tables and emits Malicious JA3 / Malicious JA4
+-- findings. The built-in C2 fingerprints are NOT stored here — they live in
+-- code and are always active; this table holds only operator additions.
+--
+-- Slice-backed in memory like ioc_list/allowlist: ORDER BY rowid on load,
+-- DELETE+INSERT in slice order on save, so operator ordering round-trips.
+CREATE TABLE IF NOT EXISTS ioc_fp_list (entry TEXT PRIMARY KEY);

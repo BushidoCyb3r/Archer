@@ -30,6 +30,20 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Added
+
+- **Operator JA3/JA4 fingerprint IOCs.** The IOC List modal is now tabbed —
+  **IPs & Domains** (the original list) and **JA3 / JA4**. Fingerprints added
+  to the JA3/JA4 tab are merged with the built-in `KnownBadJA3`/`KnownBadJA4`
+  C2 tables at analysis time and emit the same **Malicious JA3** / **Malicious
+  JA4** findings the built-ins do — only the detail label (`Operator IOC`)
+  distinguishes them. The built-in C2 fingerprints are listed in the tab as
+  always-active, undeletable lines (editing them is a no-op; they return on
+  save). A **Mark malicious** button on the TLS Fingerprints wall (next to
+  *Mark benign*) adds a fingerprint to the list in one click. New endpoints:
+  `GET/PUT /api/ioc?kind=fp` and `POST /api/ioc-fingerprint`. The default
+  `/api/ioc` contract (IP/CIDR/domain list) is unchanged.
+
 ### Changed
 
 - **Settings dialog is now tabbed.** The single long scroll is split into
@@ -40,6 +54,17 @@ relevant, `### Detection changes` in each release entry.
   semantics changed — every input still round-trips through the one Save
   button regardless of the active tab. Docs that cite a settings location
   now name the tab (e.g. *Settings → Detection → Beacon*).
+
+### Detection changes
+
+- **JA3/JA4 IOC list feeds the Malicious JA3/JA4 detectors.** Previously the
+  only source of a Malicious JA3/JA4 finding was the hardcoded
+  `KnownBadJA3`/`KnownBadJA4` tables. The analyzer now also consults the
+  operator JA3/JA4 IOC list (`Analyzer.SetOperatorFingerprints`, wired on the
+  full-analysis path); a matching fingerprint emits a CRITICAL `Malicious JA3`
+  or `Malicious JA4` at score 95, identical in shape to a built-in match. No
+  change to the built-in tables, scores, severities, or the TI-only
+  (incremental/archive) paths, which don't run SSL detection.
 
 ---
 

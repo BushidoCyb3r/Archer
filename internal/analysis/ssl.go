@@ -70,7 +70,7 @@ func (a *Analyzer) analyzeSSL(files []string) {
 
 			// Malicious JA3
 			if ja3 != "" {
-				if label, bad := KnownBadJA3[ja3]; bad {
+				if label, bad := a.badJA3(ja3); bad {
 					key := [3]string{src, dst, ja3}
 					if !seenJA3[key] {
 						seenJA3[key] = true
@@ -96,7 +96,7 @@ func (a *Analyzer) analyzeSSL(files []string) {
 
 			// Malicious JA4
 			if ja4 != "" {
-				if label, bad := KnownBadJA4[ja4]; bad {
+				if label, bad := a.badJA4(ja4); bad {
 					key := [3]string{src, dst, ja4}
 					if !seenJA4[key] {
 						seenJA4[key] = true

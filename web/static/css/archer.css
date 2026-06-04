@@ -1798,6 +1798,8 @@ dialog::backdrop {
 }
 .al-tab-panel { display: none; }
 .al-tab-panel.active { display: block; }
+.ioc-tab-panel { display: none; }
+.ioc-tab-panel.active { display: block; }
 
 .dlg-body {
   padding: 16px 22px;
@@ -2017,10 +2019,10 @@ dialog::backdrop {
 #escalate-dialog              { width: 420px; }
 #note-dialog                  { width: 440px; }
 #suppress-dialog              { width: 380px; }
-#ioc-dialog                   { width: 480px; }
-/* Fixed height so the entries/relationships/suggestions tabs don't reflow
-   the dialog to each panel's content height — the body scrolls within it.
-   IOC has no tabs, so it keeps width-only and sizes to its single textarea. */
+/* Fixed height so tab switches don't reflow the dialog to each panel's content
+   height — the body scrolls within it. IOC and Allowlist share the same size so
+   their JA3/JA4 and entries textareas line up. */
+#ioc-dialog                   { width: 640px; height: 700px; max-width: 95vw; }
 #allowlist-dialog             { width: 640px; height: 700px; max-width: 95vw; }
 #sensors-token-dlg            { width: min(95vw, 1250px); }
 /* Both modals default to the natural width of their widest table

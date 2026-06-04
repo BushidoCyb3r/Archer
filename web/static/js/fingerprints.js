@@ -55,10 +55,13 @@ const Fingerprints = (() => {
         ? ('Known C2' + (r.label ? ': ' + r.label : ''))
         : (r.detail || '');
       // Known-C2 rows are non-markable — analysts must not be able to mute a
-      // confirmed C2 fingerprint off the wall (the server rejects it too).
+      // confirmed C2 fingerprint off the wall (the server rejects it too), and
+      // it's already malicious so there's nothing to add. Markable rows get
+      // both actions: promote to the IOC list, or hide as benign.
       const action = (r.known_bad || !_canWrite)
         ? ''
-        : `<button class="dlg-btn secondary fp-benign-btn" type="button" title="Mark this fingerprint benign and hide it from the list">Mark benign</button>`;
+        : `<button class="dlg-btn secondary fp-malicious-btn" type="button" title="Add this fingerprint to the IOC list — it flags as Malicious JA3/JA4 on the next analysis">Mark malicious</button>` +
+          `<button class="dlg-btn secondary fp-benign-btn" type="button" title="Mark this fingerprint benign and hide it from the list">Mark benign</button>`;
       tr.innerHTML =
         `<td class="severity">${_esc(sev)}</td>` +
         `<td>${r.kind === 'ja4' ? 'JA4' : 'JA3'}</td>` +
@@ -111,6 +114,21 @@ const Fingerprints = (() => {
     await _reload();
   }
 
+  async function _markMalicious(kind, fp) {
+    try {
+      await _api('/api/ioc-fingerprint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fingerprint: fp }),
+      });
+    } catch (err) {
+      if (_onToast) _onToast('Could not mark malicious: ' + err.message);
+      return;
+    }
+    if (_onToast) _onToast('Added to IOC list — flags as malicious on the next analysis');
+    await _reload();
+  }
+
   async function _unmarkBenign(id) {
     try {
       await _api('/api/fingerprint-allowlist/' + encodeURIComponent(id), { method: 'DELETE' });
@@ -122,6 +140,12 @@ const Fingerprints = (() => {
   }
 
   function _onRowClick(e) {
+    const maliciousBtn = e.target.closest('.fp-malicious-btn');
+    if (maliciousBtn) {
+      const tr = e.target.closest('tr.fp-row');
+      if (tr) _markMalicious(tr.dataset.kind, tr.dataset.fp);
+      return;
+    }
     const benignBtn = e.target.closest('.fp-benign-btn');
     if (benignBtn) {
       const tr = e.target.closest('tr.fp-row');

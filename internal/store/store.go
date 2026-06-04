@@ -44,6 +44,7 @@ type Store struct {
 	findingsIdx    map[int]int
 	allowlist      []string
 	iocList        []string
+	iocFPList      []string                 // operator JA3/JA4 fingerprint IOCs; matched at analyze time, not read time
 	allowlistM     *match.Matcher           // cached compile of allowlist; rebuilt on Set
 	iocM           *match.Matcher           // cached compile of iocList; rebuilt on Set
 	feedMatchers   map[int64]*match.Matcher // per-feed cached compile; rebuilt on indicator write
@@ -157,6 +158,34 @@ func sanitizeListEntries(entries []string) []string {
 	return out
 }
 
+// sanitizeFingerprintEntries normalizes the JA3/JA4 IOC list. Unlike
+// sanitizeListEntries it does NOT keep comment lines: the fingerprint list is
+// machine state (the UI re-injects the built-in section on every open), so a
+// persisted comment would accumulate duplicate header lines across saves. Each
+// surviving entry is reduced to its first whitespace-delimited token (dropping
+// any inline ` # label` the UI rendered next to a built-in) and lowercased, so
+// it matches the lowercased ja3/ja4 the SSL analyzer reads from Zeek.
+func sanitizeFingerprintEntries(entries []string) []string {
+	out := make([]string, 0, len(entries))
+	seen := make(map[string]bool, len(entries))
+	for _, raw := range entries {
+		e := strings.TrimSpace(raw)
+		if e == "" || e[0] == '#' {
+			continue
+		}
+		if i := strings.IndexAny(e, " \t"); i >= 0 {
+			e = e[:i]
+		}
+		e = strings.ToLower(e)
+		if e == "" || seen[e] {
+			continue
+		}
+		seen[e] = true
+		out = append(out, e)
+	}
+	return out
+}
+
 func slicesEqual(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -227,6 +256,14 @@ func (s *Store) InitDB(db *sql.DB) {
 		if cleaned := sanitizeListEntries(s.iocList); !slicesEqual(cleaned, s.iocList) {
 			s.iocList = cleaned
 			s.persistList("ioc_list", s.iocList)
+		}
+	}
+	var fpOK bool
+	s.iocFPList, fpOK = loadOrdered("ioc_fp_list")
+	if fpOK {
+		if cleaned := sanitizeFingerprintEntries(s.iocFPList); !slicesEqual(cleaned, s.iocFPList) {
+			s.iocFPList = cleaned
+			s.persistList("ioc_fp_list", s.iocFPList)
 		}
 	}
 
@@ -1371,6 +1408,48 @@ func (s *Store) SetIOCList(entries []string) {
 	s.iocList = sanitizeListEntries(entries)
 	s.persistList("ioc_list", s.iocList)
 	s.iocM = match.Compile(s.iocList)
+}
+
+// GetIOCFingerprints returns the operator-supplied JA3/JA4 fingerprint IOCs
+// (lowercased, no comments). Built-in C2 fingerprints are NOT included — they
+// live in the analysis package and are merged at analyze time.
+func (s *Store) GetIOCFingerprints() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]string, len(s.iocFPList))
+	copy(out, s.iocFPList)
+	return out
+}
+
+// SetIOCFingerprints replaces the operator JA3/JA4 fingerprint IOC list.
+// Entries are lowercased and de-commented by sanitizeFingerprintEntries.
+func (s *Store) SetIOCFingerprints(entries []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.iocFPList = sanitizeFingerprintEntries(entries)
+	s.persistList("ioc_fp_list", s.iocFPList)
+}
+
+// AddIOCFingerprint appends a single fingerprint (the "Mark malicious" path
+// from the TLS Fingerprints wall) if not already present. Returns true if the
+// list changed. The caller is responsible for rejecting built-in fingerprints
+// before calling — those are always active and don't belong in the operator list.
+func (s *Store) AddIOCFingerprint(fp string) bool {
+	cleaned := sanitizeFingerprintEntries([]string{fp})
+	if len(cleaned) == 0 {
+		return false
+	}
+	fp = cleaned[0]
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, e := range s.iocFPList {
+		if e == fp {
+			return false
+		}
+	}
+	s.iocFPList = append(s.iocFPList, fp)
+	s.persistList("ioc_fp_list", s.iocFPList)
+	return true
 }
 
 // AllowlistMatcher returns the cached compiled matcher. Safe to call

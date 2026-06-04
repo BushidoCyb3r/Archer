@@ -1165,11 +1165,17 @@ itself, so a sensor whose Zeek build lacks the JA3 script produces no
 `ja3` and this detector cannot fire). The hash is looked up in
 `KnownBadJA3` (a static, curated `map[hash]→framework-label` in
 `heuristics.go` — Cobalt Strike default profiles, Metasploit, Sliver,
-Brute Ratel; not feed-driven). An exact match emits **Malicious JA3**,
-score **95**, severity **Critical**, deduped per `(src, dst, ja3)`; the
-label rides in the Detail string and the type carries risk weight 40 —
-the highest tier, because an exact known-C2-stack match is about as
-unambiguous as network-only evidence gets.
+Brute Ratel; not feed-driven) **unioned with the operator JA3/JA4 IOC
+list** (the *JA3 / JA4* tab of the IOC modal, or the *Mark malicious*
+button on the TLS Fingerprints wall — `Analyzer.SetOperatorFingerprints`,
+applied on the full-analysis path). An exact match against either source
+emits **Malicious JA3**, score **95**, severity **Critical**, deduped per
+`(src, dst, ja3)`; the label rides in the Detail string (`Operator IOC`
+for an operator-supplied hash, the framework name for a built-in) and the
+type carries risk weight 40 — the highest tier, because an exact
+known-C2-stack match is about as unambiguous as network-only evidence
+gets. The built-in table and the operator list are indistinguishable
+downstream — only the Detail label differs.
 
 **What it misses.** Exact-match only: a single changed cipher,
 extension, or TLS-version bump in the implant's stack yields a new hash

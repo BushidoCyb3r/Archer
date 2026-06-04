@@ -692,6 +692,7 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool, preStart 
 		az := analysis.New(cfg, logsDir, progressCh, statusCh)
 		az.SetFeedProvider(s.store)
 		az.SetFindingsProvider(s.store)
+		az.SetOperatorFingerprints(s.store.GetIOCFingerprints())
 		az.SetAllowlistMatcher(func(c string) bool {
 			return s.store.AllowlistMatcher().Matches(c)
 		})

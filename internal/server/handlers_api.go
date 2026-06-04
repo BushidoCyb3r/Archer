@@ -1395,6 +1395,13 @@ func (s *Server) handleAllowlist(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleIOC(w http.ResponseWriter, r *http.Request) {
+	// kind=fp routes to the JA3/JA4 fingerprint IOC list (ioc_fingerprints.go);
+	// the default (no kind / kind=net) is the IP/CIDR/domain list below. The
+	// default branch is unchanged so the original /api/ioc contract still holds.
+	if r.URL.Query().Get("kind") == "fp" {
+		s.handleIOCFingerprints(w, r)
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		w.Header().Set("Content-Type", "application/json")

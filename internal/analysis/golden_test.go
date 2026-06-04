@@ -196,6 +196,21 @@ func loadScenarioFeeds(dir string) (feodoIPs, urlhausIPs, urlhausHosts map[strin
 	return feodoIPs, urlhausIPs, urlhausHosts, provider, nil
 }
 
+// loadScenarioOperatorFingerprints reads an optional operator_fingerprints.json
+// (a JSON array of JA3/JA4 strings) from a scenario dir. Absent file = nil.
+func loadScenarioOperatorFingerprints(t *testing.T, dir string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(dir, "operator_fingerprints.json"))
+	if err != nil {
+		return nil
+	}
+	var fps []string
+	if err := json.Unmarshal(raw, &fps); err != nil {
+		t.Fatalf("decode operator_fingerprints.json in %s: %v", dir, err)
+	}
+	return fps
+}
+
 // goldenStubFeedProvider implements feeds.Provider for scenario injection.
 // Distinct type from feedprovider_test.go's stubFeedProvider (which lives
 // in a different test file) to keep the two test surfaces independent.
@@ -229,6 +244,12 @@ func runScenario(t *testing.T, dir string) {
 	a.urlhausHosts = urlhausHosts
 	if provider != nil {
 		a.SetFeedProvider(provider)
+	}
+	// Optional operator JA3/JA4 IOC list — a scenario drops an
+	// operator_fingerprints.json (JSON array of strings) to exercise the
+	// operator-supplied Malicious JA3/JA4 path alongside the built-in tables.
+	if fps := loadScenarioOperatorFingerprints(t, dir); len(fps) > 0 {
+		a.SetOperatorFingerprints(fps)
 	}
 
 	got := projectFindings(a.Analyze(files))
