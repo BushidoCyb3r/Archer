@@ -28,6 +28,19 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Config-tunability golden tests** (`TestConfigThresholdsGate`). The standing
+  golden fixtures all run at default config, so a threshold wired to nothing —
+  the v0.8.0 dead-config bug class — would pass every one of them. This runs
+  fixtures across the boundary (emit at the firing config, suppress with the
+  one threshold raised past the fixture's value) to prove the knob actually
+  gates: `beacon_min_connections`, `strobe_min_connections`,
+  `strobe_min_rate_per_sec`, `exfil_min_bytes_mb`, `dns_nxdomain_threshold`.
+  Test-only; no behaviour change.
+
 ## [v0.59.0] — 2026-06-04
 
 An analyst-workflow / fingerprint-triage slice: filter findings by whether a
