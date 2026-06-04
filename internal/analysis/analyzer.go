@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -587,6 +588,7 @@ func (a *Analyzer) enrichBeaconSNI() {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	var channelFindings []model.Finding
 	for i := range a.findings {
 		f := &a.findings[i]
 		if f.Type != "Beacon" {
@@ -631,8 +633,117 @@ func (a *Analyzer) enrichBeaconSNI() {
 			f.Detail = strings.Replace(f.Detail, need.prevDetail,
 				strings.Replace(need.prevDetail, "score boosted", "boost suppressed (SNI present)", 1), 1)
 		}
+		// Per-channel split (Fork A, non-destructive): partition this blend's
+		// retained TLS connections by JA3 and promote any channel that scores
+		// materially sharper than the blend — a secondary beacon the
+		// aggregation was hiding. The blend is always kept, so no detection is
+		// lost; channels are an overlay. Collected here and appended after the
+		// loop so the index-ranged a.findings isn't grown mid-iteration.
+		if len(need.chanRecs) > 0 {
+			channelFindings = append(channelFindings, a.splitChannels(f, need)...)
+		}
 	}
+	a.findings = append(a.findings, channelFindings...)
 	clear(a.beaconSNINeeds)
+}
+
+// splitChannels partitions a blended conn Beacon's retained TLS connections by
+// JA3 and returns a promoted "Beacon" sub-finding for each channel that (a)
+// independently clears BeaconMinConnections and the emit floor, and (b) scores
+// strictly higher than the blend — i.e. a coherent channel the noisy blend was
+// under-scoring. Connections with no JA3 (non-TLS, or Zeek didn't capture one)
+// stay represented by the blend. When fewer than two distinct channels are
+// present there is nothing to split, so the blend stands alone (no duplicate).
+// Caller holds a.mu; this assigns IDs from a.nextID and never re-locks.
+func (a *Analyzer) splitChannels(blend *model.Finding, need beaconSNINeed) []model.Finding {
+	type chanGroup struct {
+		recs []chanRec
+		ja4  string
+		sni  string
+	}
+	groups := make(map[string]*chanGroup)
+	for _, r := range need.chanRecs {
+		entry, ok := a.sslUIDIndex[r.uid]
+		if !ok || entry.ja3 == "" {
+			continue // non-TLS or no fingerprint — stays in the blend
+		}
+		g := groups[entry.ja3]
+		if g == nil {
+			g = &chanGroup{}
+			groups[entry.ja3] = g
+		}
+		g.recs = append(g.recs, r)
+		if g.ja4 == "" && entry.ja4 != "" {
+			g.ja4 = entry.ja4
+		}
+		if g.sni == "" && entry.serverName != "" {
+			g.sni = entry.serverName
+		}
+	}
+	if len(groups) < 2 {
+		return nil // single channel ≈ the blend; nothing to surface
+	}
+	// Deterministic emission order so channel finding IDs are stable across
+	// identical re-analyses (same reason aggregateRisk sorts its host keys).
+	ja3s := make([]string, 0, len(groups))
+	for ja3 := range groups {
+		ja3s = append(ja3s, ja3)
+	}
+	sort.Strings(ja3s)
+
+	var out []model.Finding
+	for _, ja3 := range ja3s {
+		g := groups[ja3]
+		if len(g.recs) < a.cfg.BeaconMinConnections {
+			continue
+		}
+		cs := a.scoreChannel(g.recs, need.winMin, need.winMax, need.prevalenceMod)
+		if cs.score < beaconMinEmitScore || cs.score <= need.blendScore {
+			continue // not promotable, or not sharper than the blend
+		}
+		ja3Short := ja3
+		if len(ja3Short) > 8 {
+			ja3Short = ja3Short[:8]
+		}
+		sniNote := ""
+		if g.sni != "" {
+			sniNote = " / SNI " + g.sni
+		}
+		a.nextID++
+		out = append(out, model.Finding{
+			ID:        a.nextID,
+			Type:      "Beacon",
+			Channel:   "ja3:" + ja3,
+			Severity:  cs.sev,
+			Score:     cs.score,
+			Sensor:    blend.Sensor,
+			SrcIP:     blend.SrcIP,
+			DstIP:     blend.DstIP,
+			DstPort:   blend.DstPort,
+			Timestamp: blend.Timestamp,
+			JA3:       ja3,
+			JA4:       g.ja4,
+			Hostname:  g.sni,
+			Detail: fmt.Sprintf("Per-channel beacon (JA3 %s%s) split from a blended beacon to %s | Connections: %d | Mean interval: %.1fs | CV: %.2f | Score components: ts=%.2f ds=%.2f hist=%.2f dur=%.2f conf=%.2f | ts_layers: raw=%.2f mm=%.2f ent=%.2f | blend score was %d",
+				ja3Short, sniNote, blend.DstIP, cs.n, cs.ivMean, cs.ivCV,
+				cs.tsScore, cs.dsScore, cs.hScore, cs.durScore, cs.confMod,
+				cs.tsRaw, cs.tsMM, cs.tsEnt, need.blendScore),
+			TSScore:         cs.tsScore,
+			DSScore:         cs.dsScore,
+			HistScore:       cs.hScore,
+			DurScore:        cs.durScore,
+			MeanInterval:    cs.ivMean,
+			MedianInterval:  cs.ivMedian,
+			Jitter:          cs.ivCV,
+			SampleSize:      cs.n,
+			SpectralRescued: cs.spectralRescued,
+			SpectralPeriod:  cs.spectralPeriod,
+			TSRaw:           cs.tsRaw,
+			TSMultimodal:    cs.tsMM,
+			TSEntropy:       cs.tsEnt,
+		})
+	}
+	return out
 }
 
 func (a *Analyzer) sendProgress(pct int, step string) {

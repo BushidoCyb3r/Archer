@@ -850,6 +850,62 @@ shape. The relabel doesn't change the score, so a benign port-hopper
 that scored low as a beacon still scores low; treat the type as a
 triage lens, not a verdict.
 
+### 2.8 Per-channel beacon scoring — surfacing a beacon hidden in noise
+
+**Where.** `internal/analysis/analyzer.go` (`splitChannels`, `scoreChannel`),
+fed by `conn.go` (`beaconState.chanRecs`), run at enrichment (Phase 2.5).
+
+**The problem.** The beacon key is `(sensor, src, dst)` — port excluded
+(§2.7), and *channel* excluded too. So two TLS channels to the same
+destination that differ only by JA3 — say a chatty CDN/telemetry client on
+one fingerprint and a periodic C2 on another, both on 443 — are aggregated
+into one beacon. When the noisy channel's irregular timing and variable
+payloads are interleaved with the clean channel's, the **blended** score is
+dragged down: a clean C2 can hide inside its own co-traffic and present as a
+merely-MEDIUM beacon an analyst skims past.
+
+**The split (Fork A — non-destructive overlay).** The conn analyzer retains
+each beacon's UID-bearing connections (capped at `beaconChanRecCap`, in time
+order — not reservoir-sampled, because per-channel intervals must be exact).
+JA3 isn't known at fold time (it lives in `ssl.log`, indexed in parallel), so
+the split is deferred to enrichment, once `sslUIDIndex` resolves each UID's
+fingerprint. `splitChannels` then partitions the retained connections by JA3
+and, for each channel, re-runs the **identical** four-axis + spectral stack the
+blend uses (`scoreChannel`), so the channel's score is directly comparable.
+
+**Promotion rule.** A channel is emitted as its own `Beacon` finding (carrying
+a `Channel` = `"ja3:<hash>"` discriminator) only when it (a) has at least
+`BeaconMinConnections` connections, (b) clears the beacon emit floor, and (c)
+scores **strictly higher** than the blend. Consequences of the rule:
+
+- The blend is **always kept** — the overlay never replaces it, so no
+  detection is ever lost to fragmentation (the failure mode that sank the
+  earlier per-port-split design).
+- A lone dominant channel scores ≈ the blend and is **not** promoted — no
+  duplicate when there's really only one channel.
+- Connections without a JA3 (non-TLS, or Zeek captured none) stay represented
+  by the blend; only fingerprinted channels split out.
+- Host Risk Score reflects the **higher** of blend and channels via its
+  max-per-type rule, so a hidden CRITICAL channel raises host risk rather than
+  being averaged into the blend's mediocre score.
+
+**Identity.** `Channel` enters `Finding.Fingerprint()` (and the `channel`
+column, migration 0035), so a promoted channel keeps analyst state — status,
+notes — separate from its blend across re-analyses and never collides with it.
+The blend's identity (`Channel=""`) and every existing on-disk key are
+unchanged.
+
+**Detail line.** `Per-channel beacon (JA3 <short> / SNI <host>) split from a
+blended beacon to <dst> | … | blend score was N` — the trailing blend score
+makes the "hidden inside a lower-scoring aggregate" relationship explicit.
+
+**False positives / the gate.** Because promotion requires out-scoring the
+blend, the overlay can't add a *lower*-confidence finding than already existed.
+The risk is fragmentation noise — many channels promoted by a thin margin.
+`corpus-spotcheck.sh` Check 6 (per-channel census) is the gate: a concentration
+of promoted channels at LOW/MEDIUM means the promotion margin is too generous
+and should be widened. The blend is unaffected either way.
+
 ---
 
 ## 3. HTTP Beacon

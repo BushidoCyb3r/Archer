@@ -286,3 +286,51 @@ else
     echo ""
     echo "INFO: no Port-Hopping Beacon findings in this corpus."
 fi
+
+# ── Check 6: per-channel beacon census (advisory) ────────────────────────────
+# Per-channel scoring (Fork A) is non-destructive: a promoted channel is an
+# overlay on top of the blend it split from, emitted only when a coherent JA3
+# channel scores STRICTLY HIGHER than the blend. "No detection lost" therefore
+# holds by construction — the blend is always kept. What this census answers is
+# the other half of the gate: does the split earn its false-positive budget? A
+# healthy corpus shows a small set of promoted channels whose top scorers are
+# plausibly C2 (high score, hidden inside a lower-scoring blend). A flood of
+# marginally-above-blend channels is fragmentation noise — a cue to raise the
+# promotion margin, not a correctness failure (the blend is unaffected).
+
+CHAN_OK=$(sqlite3 "$DB" "
+  SELECT COUNT(*) FROM pragma_table_info('findings') WHERE name = 'channel';
+")
+if [ "$CHAN_OK" -eq 0 ]; then
+    echo ""
+    echo "INFO: findings.channel not present (pre-0035 schema) — deploy current code,"
+    echo "  re-run a full analysis, and re-run to see the per-channel census."
+else
+    CHANS=$(sqlite3 "$DB" "SELECT COUNT(*) FROM findings WHERE channel <> '';")
+    if [ "$CHANS" -eq 0 ]; then
+        echo ""
+        echo "INFO: no per-channel beacon findings in this corpus."
+    else
+        echo ""
+        echo "ADVISORY: $CHANS promoted per-channel beacon(s). Each split out of a blend"
+        echo "it scored higher than — eyeball that the top scorers look like a real channel"
+        echo "hidden in noisier co-traffic, not marginal fragmentation:"
+        sqlite3 -column -header "$DB" "
+          SELECT id, src_ip, dst_ip, score, severity,
+                 SUBSTR(channel, 1, 16) AS channel,
+                 ROUND(median_interval, 1) AS median_interval
+          FROM findings
+          WHERE channel <> ''
+          ORDER BY score DESC
+          LIMIT 30;"
+        echo ""
+        echo "Severity split (promoted only because they out-scored their blend — a"
+        echo "concentration at LOW/MEDIUM suggests the promotion margin is too generous):"
+        sqlite3 -column -header "$DB" "
+          SELECT severity, COUNT(*) AS n, ROUND(AVG(score), 1) AS avg_score
+          FROM findings
+          WHERE channel <> ''
+          GROUP BY severity
+          ORDER BY avg_score DESC;"
+    fi
+fi

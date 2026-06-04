@@ -35,6 +35,17 @@ const (
 	// Pre-beacon UIDs (beaconLazyMinConn-1) plus the promotion UID are
 	// already below this; only post-promotion appends can hit the cap.
 	sniCandidateCap = 32
+	// beaconChanRecCap bounds the per-connection (uid, ts, origB) records a
+	// beacon retains for per-channel scoring (Fork A). Unlike the sampled
+	// reservoirs, these must be the actual records in time order so a single
+	// channel's intervals can be re-derived after sslUIDIndex resolves each
+	// UID's JA3 at enrichment. Retained only for connections that carried a
+	// UID (TLS-capable), so non-TLS beacons cost nothing here. 1500 records ×
+	// ~48 bytes ≈ 72 KB per TLS beacon — the memory price of the split, and
+	// the figure to watch if per-channel scoring is ever suspected of beacon-
+	// map bloat. A high-volume beacon keeps its first 1500 UID-bearing conns;
+	// that is ample to score even several co-resident channels.
+	beaconChanRecCap = 1500
 	// maxPreBeaconKeys caps the pre-beacon stash the same way HTTP does.
 	// Crafted logs with millions of unique (src, dst) pairs that never
 	// reach beaconLazyMinConn would otherwise grow this map without bound.
@@ -89,6 +100,16 @@ type preBeaconRec struct {
 	proto string
 }
 
+// chanRec is one UID-bearing connection retained verbatim (not reservoir-
+// sampled) so per-channel intervals can be re-derived at enrichment, once
+// sslUIDIndex resolves each UID's JA3. uid keys the channel; ts drives the
+// interval series; origB drives the per-channel data-size score.
+type chanRec struct {
+	uid   string
+	ts    float64
+	origB float64
+}
+
 type beaconState struct {
 	lastTs     float64
 	ivs        []float64
@@ -125,6 +146,10 @@ type beaconState struct {
 	sniCandidates []string
 	spectralTs    []float64
 	spectralHead  int // next write position in the spectralTs ring buffer
+	// chanRecs retains UID-bearing connections (capped, time-ordered) for
+	// per-channel scoring; partitioned by JA3 at enrichment. nil for beacons
+	// that never saw a TLS connection.
+	chanRecs []chanRec
 }
 
 // portStat is the per-destination-port roll-up behind a beacon's modal
@@ -133,6 +158,16 @@ type portStat struct {
 	conns           int
 	bytes           float64 // orig_bytes + resp_bytes, both directions
 	firstTs, lastTs float64
+}
+
+// addChanRec retains one UID-bearing connection for per-channel scoring, up
+// to beaconChanRecCap. No-op for connections without a UID (non-TLS) or
+// without a usable timestamp — those can't be attributed to a TLS channel.
+func (st *beaconState) addChanRec(uid string, ts, origB float64) {
+	if uid == "" || ts <= 0 || len(st.chanRecs) >= beaconChanRecCap {
+		return
+	}
+	st.chanRecs = append(st.chanRecs, chanRec{uid: uid, ts: ts, origB: origB})
 }
 
 func (st *beaconState) addPort(port int, origB, respB, ts float64) {
@@ -567,6 +602,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 						st.hourMap[int(e.ts)/3600]++
 						appendSpectralRing(&st.spectralTs, &st.spectralHead, e.ts)
 					}
+					st.addChanRec(e.uid, e.ts, e.origB)
 				}
 				// Collect SNI candidate UIDs from pre-beacon records (in
 				// replay order, earliest first) plus the promotion uid.
@@ -614,6 +650,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 				appendSpectralRing(&st.spectralTs, &st.spectralHead, ts)
 			}
 			st.addPort(dstPort, origB, respB, ts)
+			st.addChanRec(uid, ts, origB)
 			if !wasNew && uid != "" && len(st.sniCandidates) < sniCandidateCap {
 				st.sniCandidates = append(st.sniCandidates, uid)
 			}
@@ -817,6 +854,11 @@ func (a *Analyzer) analyzeConn(files []string) {
 				candidates:     st.sniCandidates,
 				prevDetail:     prevDetail,
 				unboostedScore: unboostedScore,
+				chanRecs:       st.chanRecs,
+				winMin:         w.min,
+				winMax:         w.max,
+				prevalenceMod:  prevalenceMod,
+				blendScore:     score,
 			}
 			a.mu.Unlock()
 		}
@@ -934,6 +976,125 @@ func (a *Analyzer) analyzeConn(files []string) {
 			Timestamp: fmtTS(ts),
 		})
 	}
+}
+
+// chanScore is the result of scoring one TLS channel's connections with the
+// same axes the blend uses. A zero score means the channel didn't have enough
+// signal to score (fewer than 3 intervals) and must not be promoted.
+type chanScore struct {
+	score           int
+	sev             model.Severity
+	tsScore         float64
+	dsScore         float64
+	hScore          float64
+	durScore        float64
+	tsRaw           float64
+	tsMM            float64
+	tsEnt           float64
+	spectralRescued bool
+	spectralPeriod  float64
+	ivMean          float64
+	ivMedian        float64
+	ivCV            float64
+	confMod         float64
+	n               int
+}
+
+// scoreChannel scores one coherent channel (the connections sharing a single
+// JA3 to the destination) with the identical timing/data-size/histogram/
+// duration/spectral stack the blended beacon uses, so a channel's score is
+// directly comparable to the blend's. recs need not be sorted; this sorts a
+// copy by timestamp before deriving intervals. prevalenceMod is reused from
+// the blend (same destination), keeping the channel on the blend's prevalence
+// footing. winMin/winMax are the channel's sensor capture window for the
+// duration-coverage axis.
+func (a *Analyzer) scoreChannel(recs []chanRec, winMin, winMax, prevalenceMod float64) chanScore {
+	var cs chanScore
+	cs.n = len(recs)
+	sorted := make([]chanRec, len(recs))
+	copy(sorted, recs)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ts < sorted[j].ts })
+
+	ivs := make([]float64, 0, len(sorted))
+	byteVals := make([]float64, 0, len(sorted))
+	hourMap := make(map[int]int, len(sorted))
+	spectralTs := make([]float64, 0, len(sorted))
+	var minTs, maxTs, last float64
+	for _, r := range sorted {
+		if r.ts <= 0 {
+			continue
+		}
+		if minTs == 0 || r.ts < minTs {
+			minTs = r.ts
+		}
+		if r.ts > maxTs {
+			maxTs = r.ts
+		}
+		// Sorted ascending, so only strictly-forward steps yield an interval;
+		// equal timestamps (Zeek close-time collisions) contribute none.
+		if last > 0 && r.ts > last {
+			ivs = append(ivs, r.ts-last)
+		}
+		if r.ts > last {
+			last = r.ts
+		}
+		if r.origB > 0 {
+			byteVals = append(byteVals, r.origB)
+		}
+		hourMap[int(r.ts)/3600]++
+		spectralTs = append(spectralTs, r.ts)
+	}
+	if len(ivs) < 3 {
+		return cs
+	}
+
+	tsRaw := statisticalScore(ivs, 1.0)
+	tsMM := intervalMultimodalScore(ivs)
+	tsEnt := intervalEntropyScore(ivs)
+	tsScore := tsRaw
+	if tsMM > tsScore {
+		tsScore = tsMM
+	}
+	if tsEnt > tsScore {
+		tsScore = tsEnt
+	}
+	ivMean := fmean(ivs)
+	ivMedian := fmedian(ivs)
+	if a.cfg.SpectralEnabled && tsScore < a.cfg.SpectralRescueThreshold && len(spectralTs) >= a.cfg.SpectralMinObservations {
+		spec := spectralScore(spectralTs, a.cfg.SpectralMinObservations, a.cfg.SpectralFAPThreshold, ivMedian/5.0, 0)
+		if spec.Score > tsScore {
+			tsScore = spec.Score
+			cs.spectralRescued = true
+			cs.spectralPeriod = spec.Period
+		}
+	}
+	dsScore := 0.0
+	if len(byteVals) >= 3 {
+		dsScore = statisticalScore(byteVals, 0.0)
+	}
+	hScore, _ := histScoreFromHourMap(hourMap)
+	durScore := durationScoreFromHourMap(hourMap, minTs, maxTs, winMin, winMax, 6)
+	confMod := beaconConfMod(cs.n, a.cfg.BeaconMinConnections)
+	baseScoreF := 100 * (tsScore*0.25 + dsScore*0.25 + hScore*0.25 + durScore*0.25) * confMod
+	score := clamp(int(baseScoreF*prevalenceMod), 1, 100)
+
+	cs.score = score
+	cs.tsScore, cs.dsScore, cs.hScore, cs.durScore = tsScore, dsScore, hScore, durScore
+	cs.tsRaw, cs.tsMM, cs.tsEnt = tsRaw, tsMM, tsEnt
+	cs.ivMean, cs.ivMedian = ivMean, ivMedian
+	cs.ivCV = intervalCV(ivs, ivMean)
+	cs.confMod = confMod
+	switch {
+	case score >= 85:
+		cs.sev = model.SevCritical
+	case score >= 70:
+		cs.sev = model.SevHigh
+	case score >= 50:
+		cs.sev = model.SevMedium
+	default:
+		cs.sev = model.SevLow
+	}
+	return cs
 }
 
 // reservoirAddF applies Algorithm R reservoir sampling to a float64 stream.

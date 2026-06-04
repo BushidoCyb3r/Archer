@@ -28,16 +28,47 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
-## [Unreleased]
+## [v0.57.0] — 2026-06-04
 
-Groundwork for **beacon timing-axis validation** — the long-open item of
-mapping which of the four `tsScore` layers (raw Bowley/MAD, multimodal,
-entropy, spectral rescue) drives which beacons, and whether each layer's
-rescued population holds up under analyst triage.
+**Per-channel beacon scoring** — the headline — lands on top of the
+timing-axis-validation groundwork. A conn-level beacon to a destination can
+blend more than one coherent TLS channel (e.g. a noisy CDN on one JA3 and a
+periodic C2 on another, sharing src/dst/443); the blended `(sensor,src,dst)`
+aggregate under-scores a clean C2 hidden inside noisier co-traffic. The
+analyzer now additionally surfaces each such channel as its own finding.
+
+### Breaking
+
+- **Per-channel beacon sub-findings are a new finding population.** A blended
+  conn `Beacon` whose retained TLS connections split into two or more JA3
+  channels now also emits a distinct `Beacon` finding for any channel that
+  independently clears the emit floor **and** scores strictly higher than the
+  blend. This is a **non-destructive overlay**: the blend is always kept, so no
+  detection is ever lost to fragmentation — but the finding set an analyst
+  baselines against grows, and Host Risk Score now reflects a hidden channel's
+  (higher) score via its max-per-type rule. Identity gains a `Channel`
+  discriminator (`Finding.Fingerprint()` + the additive `channel` column,
+  migration 0035) so a promoted channel keeps analyst state separate from its
+  blend; the blend's identity and every existing on-disk key are unchanged
+  (`Channel=""`). A new `channel` field appears in the findings JSON (additive).
+  Pre-1.0 minor bump.
+
+### Detection changes
+
+- Per-channel scoring re-runs the **identical** timing/data-size/histogram/
+  duration/spectral stack the blend uses, on one JA3 channel's connections, so
+  a channel's score is directly comparable to the blend's. Promotion requires
+  the channel to clear `BeaconMinConnections`, clear the beacon emit floor, and
+  score **strictly higher** than the blend — a lone dominant channel ≈ the
+  blend and is not promoted (no duplicate). Connections without a JA3 (non-TLS,
+  or Zeek captured none) stay represented by the blend. Gate it with
+  `corpus-spotcheck.sh` Check 6 (per-channel census): a concentration of
+  promoted channels at LOW/MEDIUM means the promotion margin is too generous.
 
 ### Added
 
-- **Per-layer timing attribution persisted on findings** (migration 0034).
+- **Per-layer timing attribution persisted on findings** (migration 0034) —
+  the groundwork the channel split reads.
   The individual layer scores (`ts_raw`, `ts_mm`, `ts_ent`) and the spectral
   decision (`spectral_rescued`, `spectral_period`) were computed at emit time
   but, like the sub-scores before migration 0018, were dropped on persist —
@@ -48,8 +79,10 @@ rescued population holds up under analyst triage.
   back as zero. No score, threshold, or finding-type change.
 - **`beacon-attribution.sh`** — operator tool that attributes every beacon to
   its deciding timing layer and cross-tabulates that against severity and
-  against analyst disposition (dismissed = flagged false positive), plus a
-  per-finding CSV. The live-corpus validation surface for the timing stack.
+  against analyst disposition (read as an attention signal — a dismissal
+  conflates a false positive with a real-but-benign beacon — never a verdict),
+  plus a per-finding CSV. The live-corpus validation surface for the timing
+  stack.
 - **`corpus-spotcheck.sh`** opens with a timing-layer census: how often each
   layer is the deciding one, with per-layer critical/dismissed counts,
   contextualising the spectral figures the script reports. Runs regardless of

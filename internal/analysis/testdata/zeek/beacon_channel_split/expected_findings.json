@@ -1,0 +1,31 @@
+[
+  {
+    "type": "Beacon",
+    "severity": "MEDIUM",
+    "score": 58,
+    "src_ip": "192.168.9.10",
+    "dst_ip": "203.0.113.90",
+    "dst_port": "443",
+    "detail": "Connections: 212 | Mean interval: 407.7s | CV: 1.35 | Score components: ts=0.95 ds=0.41 hist=0.00 dur=1.00 conf=1.00 | ts_layers: raw=0.11 mm=0.95 ent=0.05",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Beacon",
+    "severity": "CRITICAL",
+    "score": 85,
+    "src_ip": "192.168.9.10",
+    "dst_ip": "203.0.113.90",
+    "dst_port": "443",
+    "detail": "Per-channel beacon (JA3 bbbbbbbb / SNI telemetry.example.org) split from a blended beacon to 203.0.113.90 | Connections: 72 | Mean interval: 1200.0s | CV: 0.00 | Score components: ts=1.00 ds=1.00 hist=1.00 dur=1.00 conf=0.85 | ts_layers: raw=1.00 mm=0.00 ent=0.12 | blend score was 58",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Host Risk Score",
+    "severity": "MEDIUM",
+    "score": 28,
+    "src_ip": "192.168.9.10",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 28 | Detections: [Beacon]",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

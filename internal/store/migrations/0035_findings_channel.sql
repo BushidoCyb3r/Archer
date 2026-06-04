@@ -1,0 +1,21 @@
+-- 0035_findings_channel.sql
+-- Per-channel beacon scoring (Fork A / overlay): a conn-level Beacon to a
+-- destination can blend more than one coherent TLS channel (e.g. a noisy CDN
+-- on JA3-A and a periodic C2 on JA3-B sharing src/dst/443). The blended
+-- (sensor,src,dst) aggregation scores them as one, which under-scores a clean
+-- C2 hidden inside noisy co-traffic. The analyzer now also emits a distinct
+-- "Beacon" finding for any channel that independently clears the bar AND
+-- scores materially sharper than the blend — a non-destructive overlay: the
+-- blend is always kept, so no detection is ever lost to fragmentation.
+--
+-- The channel discriminator ("ja3:<hash>") enters Finding.Fingerprint() so a
+-- promoted channel keeps analyst state separate from its blend across
+-- re-analyses and never collides with it. It is persisted here for the same
+-- restart-survival reason as the 0018/0019 beacon fields: a carried-forward
+-- channel that didn't re-fire this run must still resolve to its own
+-- fingerprint rather than blanking to the blend's.
+--
+-- DEFAULT '': pre-0035 rows, blended beacons, and every non-channel finding
+-- read back as the empty string — the blend's existing identity, unchanged.
+
+ALTER TABLE findings ADD COLUMN channel TEXT NOT NULL DEFAULT '';

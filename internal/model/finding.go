@@ -141,6 +141,15 @@ type Finding struct {
 	// of blanking out.
 	JA3 string `json:"ja3,omitempty"`
 	JA4 string `json:"ja4,omitempty"`
+	// Channel discriminates a per-channel conn Beacon sub-finding from the
+	// blended (sensor,src,dst) beacon it was split out of. Empty on the blend
+	// and on every other finding type; set to "ja3:<hash>" (or "sni:<host>")
+	// on a promoted channel — a coherent TLS channel to the same destination
+	// that scores materially sharper than the noisy blend, i.e. a secondary
+	// beacon the aggregation was hiding. It enters the Fingerprint so the
+	// channel keeps independent analyst state and never collides with the
+	// blend across re-analyses. Persisted as a TEXT column (migration 0035).
+	Channel string `json:"channel,omitempty"`
 	// JA3SiblingCount / JA4SiblingCount are transient, derived-at-read
 	// fields — the count of OTHER beacon findings in the current dataset
 	// sharing the same JA3 or JA4. Computed by the single-finding detail
@@ -222,7 +231,7 @@ type URIStat struct {
 // round.
 func (f Finding) BeaconHistoryKey() string {
 	const sep = "\x1f"
-	return strings.Join([]string{
+	parts := []string{
 		scrubSeparator(f.Type),
 		scrubSeparator(f.SrcIP),
 		scrubSeparator(f.DstIP),
@@ -230,7 +239,15 @@ func (f Finding) BeaconHistoryKey() string {
 		scrubSeparator(f.Hostname),
 		scrubSeparator(f.URI),
 		scrubSeparator(f.Sensor),
-	}, sep)
+	}
+	// Channel keeps a promoted per-channel beacon's evolution history on its
+	// own track rather than colliding with the blend's (both share
+	// src/dst/port/sensor). Appended only when set, so the blend's key — and
+	// every existing on-disk beacon_history key — is byte-for-byte unchanged.
+	if f.Channel != "" {
+		parts = append(parts, scrubSeparator(f.Channel))
+	}
+	return strings.Join(parts, sep)
 }
 
 // scrubSeparator replaces any literal \x1f byte (the BeaconHistoryKey
@@ -407,6 +424,7 @@ type Fingerprint struct {
 	Sensor   string
 	Hostname string
 	URI      string
+	Channel  string
 }
 
 func (f Finding) Fingerprint() Fingerprint {
@@ -414,6 +432,13 @@ func (f Finding) Fingerprint() Fingerprint {
 	if f.Type == "HTTP Beacon" {
 		fp.Hostname = f.Hostname
 		fp.URI = f.URI
+	}
+	// A per-channel conn Beacon carries a Channel discriminator so it keeps
+	// identity (and analyst state) separate from the blended beacon at the
+	// same (src,dst,port,sensor). The blend leaves Channel empty, preserving
+	// its existing fingerprint.
+	if f.Channel != "" {
+		fp.Channel = f.Channel
 	}
 	return fp
 }

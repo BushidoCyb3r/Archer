@@ -18,10 +18,20 @@ type sensorPrevData struct {
 // boost if an SNI is found. unboostedScore is non-zero only when the rare
 // boost was applied; prevDetail is the prevalence fragment appended to Detail
 // so it can be updated in-place when the boost is suppressed.
+//
+// chanRecs / winMin / winMax / prevalenceMod / blendScore additionally carry
+// everything enrichBeaconSNI needs to split the blend into per-channel beacons
+// once sslUIDIndex resolves each UID's JA3 (per-channel scoring, Fork A). They
+// are zero/nil when the beacon had no TLS connections.
 type beaconSNINeed struct {
 	candidates     []string
 	prevDetail     string
 	unboostedScore int
+	chanRecs       []chanRec
+	winMin         float64
+	winMax         float64
+	prevalenceMod  float64
+	blendScore     int
 }
 
 // sslEntry holds the SSL/TLS metadata indexed by Zeek connection UID.

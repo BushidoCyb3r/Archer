@@ -598,6 +598,99 @@ func TestSetFindings_TimingLayersPersistAcrossReload(t *testing.T) {
 	assertLayers("after carry-forward reload", *reloaded)
 }
 
+// TestSetFindings_ChannelIdentityAndPersistence codifies the migration-0035
+// closure for per-channel beacon scoring. Two invariants:
+//
+//  1. A blended Beacon (Channel="") and a promoted per-channel Beacon
+//     (Channel set) at the SAME (src,dst,port,sensor) are DISTINCT findings.
+//     SetFindings must not merge them — each keeps its own ID and its own
+//     analyst state. This is the whole point of putting Channel in the
+//     Fingerprint: without it the overlay would collide with the blend and
+//     one would silently overwrite the other's status/notes.
+//  2. Channel survives save→reload and the carry-forward path, like the
+//     other persisted beacon fields.
+func TestSetFindings_ChannelIdentityAndPersistence(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db1, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db1.SetMaxOpenConns(1)
+	if err := RunMigrations(db1); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s1 := New(config.Default())
+	s1.InitDB(db1)
+
+	blend := model.Finding{
+		ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		Score: 60, Severity: model.SevMedium, Timestamp: "2026-06-04 09:00:00",
+	}
+	channel := model.Finding{
+		ID: 2, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+		Channel: "ja3:deadbeefdeadbeefdeadbeefdeadbeef",
+		Score:   92, Severity: model.SevCritical, Timestamp: "2026-06-04 09:00:00",
+	}
+	// (1) Distinct identity: both must persist, not merge to one.
+	s1.SetFindings([]model.Finding{blend, channel})
+	if got := len(s1.findings); got != 2 {
+		t.Fatalf("blend + channel at same (src,dst,port,sensor): got %d findings, want 2 (must not merge)", got)
+	}
+
+	// Analyst dismisses the blend; the channel must keep its own state.
+	s1.UpdateFinding(1, model.StatusDismissed, "analyst", "noisy CDN", "2026-06-04 09:30:00 UTC")
+	// Re-emit both (a fresh analysis pass): analyst state must carry by
+	// fingerprint independently — blend dismissed, channel untouched.
+	s1.SetFindings([]model.Finding{
+		{ID: 10, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+			Score: 61, Severity: model.SevMedium, Timestamp: "2026-06-04 12:00:00"},
+		{ID: 11, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443",
+			Channel: "ja3:deadbeefdeadbeefdeadbeefdeadbeef",
+			Score:   93, Severity: model.SevCritical, Timestamp: "2026-06-04 12:00:00"},
+	})
+	var gotBlend, gotChannel *model.Finding
+	for i := range s1.findings {
+		switch s1.findings[i].Channel {
+		case "":
+			gotBlend = &s1.findings[i]
+		case "ja3:deadbeefdeadbeefdeadbeefdeadbeef":
+			gotChannel = &s1.findings[i]
+		}
+	}
+	if gotBlend == nil || gotChannel == nil {
+		t.Fatalf("after re-emit: blend=%v channel=%v, want both present", gotBlend != nil, gotChannel != nil)
+	}
+	if gotBlend.Status != model.StatusDismissed {
+		t.Errorf("blend status = %q; want dismissed (analyst state must carry forward on the blend fingerprint)", gotBlend.Status)
+	}
+	if gotChannel.Status != model.StatusOpen {
+		t.Errorf("channel status = %q; want open (channel must not inherit the blend's dismissal)", gotChannel.Status)
+	}
+	_ = db1.Close()
+
+	// (2) Channel survives restart.
+	db2, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("reopen db: %v", err)
+	}
+	db2.SetMaxOpenConns(1)
+	defer db2.Close()
+	s2 := New(config.Default())
+	s2.InitDB(db2)
+	var reloaded *model.Finding
+	for i := range s2.findings {
+		if s2.findings[i].Channel == "ja3:deadbeefdeadbeefdeadbeefdeadbeef" {
+			reloaded = &s2.findings[i]
+		}
+	}
+	if reloaded == nil {
+		t.Fatal("after reload: channel finding missing (Channel did not persist)")
+	}
+	if reloaded.Status != model.StatusOpen {
+		t.Errorf("after reload: channel status = %q; want open", reloaded.Status)
+	}
+}
+
 // TestSetFindings_JA3PersistAcrossReload codifies the migration-0019
 // closure. JA3/JA4 are lifted onto a conn-level Beacon finding at
 // emit time from sslUIDIndex. Pre-0019 they had no columns, so the
