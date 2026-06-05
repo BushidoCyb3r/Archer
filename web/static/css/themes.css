@@ -341,7 +341,9 @@
   --bg-elev-1:      #d11d1d;
   --bg-elev-2:      #e02e2e;
   --bg-elev-3:      #a30909;
-  --bg-input:       #fff7e0;
+  /* Dark input wells so the light (cream) foreground reads — the rest of the
+     skin is dark-red, so a pale input would hide the cream text. */
+  --bg-input:       #5e0606;
 
   --fg-primary:     #fff8e0;
   --fg-secondary:   #ffe7a0;
@@ -455,44 +457,6 @@
   --shadow-lg:      0 10px 28px rgba(110, 10, 69, 0.18);
 }
 
-/* ── battlestations — submarine red-alert (Silent Hunter, surfaced) ───────── */
-:root[data-theme="battlestations"] {
-  --bg-base:        #160000;
-  --bg-elev-1:      #220303;
-  --bg-elev-2:      #2e0606;
-  --bg-elev-3:      #3d0a0a;
-  --bg-input:       #0e0000;
-
-  --fg-primary:     #ffb3b3;
-  --fg-secondary:   #e88a8a;
-  --fg-muted:       #c66a6a;
-  --fg-faint:       #964a4a;
-
-  --border-subtle:  rgba(255, 60, 60, 0.12);
-  --border:         rgba(255, 60, 60, 0.26);
-  --border-strong:  rgba(255, 60, 60, 0.45);
-
-  --accent:         #ff2a2a;
-  --accent-hover:   #ff5c5c;
-  --accent-active:  #e01010;
-  --accent-soft:    rgba(255, 42, 42, 0.14);
-  --accent-glow:    rgba(255, 42, 42, 0.40);
-  --on-accent:      #ffffff;
-
-  --sev-critical:   #ff4d4d;
-  --sev-high:       #ffae42;
-  --sev-medium:     #ffd24d;
-  --sev-low:        #c79a9a;
-  --sev-info:       #bda0a0;
-  --ioc:            #54d8ff;
-
-  --row-hover:      rgba(255, 42, 42, 0.07);
-  --row-selected:   rgba(255, 42, 42, 0.16);
-
-  --scrollbar-thumb:       rgba(255, 60, 60, 0.25);
-  --scrollbar-thumb-hover: rgba(255, 60, 60, 0.45);
-}
-
 /* ── nyancat — Bikini-Bottom-of-space rainbow (static watermark below) ─────── */
 :root[data-theme="nyancat"] {
   --bg-base:        #0a0a2a;
@@ -543,6 +507,6 @@
   background-image: url("/static/img/nyan.svg");
   background-repeat: no-repeat;
   background-position: center;
-  background-size: min(620px, 72vw) auto;
-  opacity: 0.07;
+  background-size: min(680px, 80vw) auto;
+  opacity: 0.18;
 }
