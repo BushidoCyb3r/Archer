@@ -691,7 +691,7 @@ button, input, select, textarea {
   min-width: 20px;
   text-align: center;
 }
-.view-btn.active .view-count { color: #fff; background: var(--bg-base); border-color: var(--bg-base); }
+.view-btn.active .view-count { color: var(--fg-primary); background: var(--bg-base); border-color: var(--bg-base); }
 /* ============================================================================
    View header — active view title + subtitle, with Dismissed sub-tabs
 ============================================================================ */
