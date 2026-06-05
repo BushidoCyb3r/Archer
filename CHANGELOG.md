@@ -32,6 +32,12 @@ relevant, `### Detection changes` in each release entry.
 
 ### Added
 
+- **Query-bar quality-of-life** — a wider query field (the cap grows from 746px
+  to 1100px so longer expressions stay on one line on a normal monitor) and a
+  **Recent ▾** button that reopens any of the last 10 distinct queries you ran.
+  History is per-browser (localStorage), most-recent-first, deduplicated, and
+  fed by every run path (Run, Enter, chip selects, pivots); clearing the box
+  records nothing. UI-only.
 - **IP-space keywords on `src:` / `dst:` query fields** — `rfc1918`/`private`
   matches the internal IP space (instead of OR-ing the three private CIDRs) and
   `public`/`external` its strict inverse (a parseable, non-internal address), so

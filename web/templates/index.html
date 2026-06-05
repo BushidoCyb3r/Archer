@@ -170,6 +170,10 @@
                placeholder="type:Beacon AND score:&gt;=90 AND NOT dst:10.0.0.0/8"></textarea>
         <button class="filter-btn" id="run-query-btn" title="Run the query (Enter runs it, Shift+Enter for a new line)">Run</button>
         <button class="filter-btn dim" id="reset-filter-btn" title="Clear the query">Clear</button>
+        <div class="query-history-dropdown">
+          <button class="filter-btn dim" id="query-history-btn" title="Reload one of the last 10 queries you ran">Recent ▾</button>
+          <ul class="query-history-menu hidden" id="query-history-menu"></ul>
+        </div>
         <button class="filter-btn dim" id="fingerprints-btn" title="List high-signal TLS client fingerprints (JA3/JA4) by severity; click one to pivot to its findings">TLS Fingerprints</button>
         <span class="filter-spacer"></span>
         <div class="logs-dropdown">

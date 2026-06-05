@@ -281,6 +281,13 @@ evaluated server-side and ANDed on top of whatever view you're in
 tab rather than fighting it. Clear the bar to see everything in
 the view again.
 
+The **Recent ▾** button next to Clear reopens the last 10 distinct
+queries you ran — pick one to drop it back in the box and run it.
+The list is per-browser, most-recent-first, and deduplicated; every
+run path feeds it (Run, Enter, a Hunts/chip pick, a TLS or
+contributing-activity pivot), so it's a quick way to step back to a
+query you've moved on from without retyping it.
+
 A bad query doesn't silently match everything or nothing — a red
 toast drops in from the top of the page with the reason, and the
 table keeps your last good results. It fires from every view —

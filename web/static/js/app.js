@@ -914,6 +914,18 @@
       queryInput.addEventListener('input', () => _autoGrowQuery());
       _autoGrowQuery();
     }
+    // Recent-queries dropdown: reopens any of the last 10 distinct queries.
+    const histBtn = document.getElementById('query-history-btn');
+    const histMenu = document.getElementById('query-history-menu');
+    if (histBtn && histMenu) {
+      histBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        document.querySelectorAll('.export-menu, .chip-menu, .logs-menu, .query-history-menu').forEach(m => { if (m !== histMenu) m.classList.add('hidden'); });
+        _renderQueryHistoryMenu();
+        histMenu.classList.toggle('hidden');
+      });
+      histMenu.addEventListener('click', e => e.stopPropagation());
+    }
     _initQueryChips();
 
     // Pagination footer wiring. Page-size dropdown resets to page 1
@@ -972,7 +984,7 @@
     if (logsBtn && logsMenu) {
       logsBtn.addEventListener('click', e => {
         e.stopPropagation();
-        document.querySelectorAll('.export-menu, .chip-menu, .logs-menu').forEach(m => { if (m !== logsMenu) m.classList.add('hidden'); });
+        document.querySelectorAll('.export-menu, .chip-menu, .logs-menu, .query-history-menu').forEach(m => { if (m !== logsMenu) m.classList.add('hidden'); });
         logsMenu.classList.toggle('hidden');
       });
       // Clicks inside the popover (expanding a sensor's dates) must not
@@ -982,7 +994,7 @@
     // Close any open export, chip, or logs menu when clicking outside it.
     // Each trigger's stopPropagation prevents this from firing on its own click.
     document.addEventListener('click', () => {
-      document.querySelectorAll('.export-menu, .chip-menu, .logs-menu').forEach(m => m.classList.add('hidden'));
+      document.querySelectorAll('.export-menu, .chip-menu, .logs-menu, .query-history-menu').forEach(m => m.classList.add('hidden'));
     });
   }
 
@@ -998,7 +1010,7 @@
       if (!menu) return;
       btn.addEventListener('click', e => {
         e.stopPropagation();
-        document.querySelectorAll('.export-menu, .chip-menu, .logs-menu').forEach(m => { if (m !== menu) m.classList.add('hidden'); });
+        document.querySelectorAll('.export-menu, .chip-menu, .logs-menu, .query-history-menu').forEach(m => { if (m !== menu) m.classList.add('hidden'); });
         menu.classList.toggle('hidden');
       });
     });
@@ -1685,7 +1697,58 @@
     applyFilter();
   }
 
+  // ── Query history ──────────────────────────────────────────────────────────
+  // The last N distinct queries the analyst ran, most-recent-first, persisted
+  // in localStorage so the list survives reloads. The Recent ▾ button reopens
+  // any of them. Recorded in applyFilter, so every run path (Run, Enter, chip
+  // selects, pivots) feeds the same list; a cleared (empty) box records nothing.
+  const _QUERY_HISTORY_KEY = 'archer:query-history';
+  const _QUERY_HISTORY_MAX = 10;
+
+  function _loadQueryHistory() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(_QUERY_HISTORY_KEY) || '[]');
+      return Array.isArray(raw) ? raw.filter(q => typeof q === 'string') : [];
+    } catch (_) { return []; }
+  }
+
+  function _recordQuery(q) {
+    q = (q || '').trim();
+    if (!q) return;
+    let hist = _loadQueryHistory().filter(item => item !== q);
+    hist.unshift(q);
+    hist = hist.slice(0, _QUERY_HISTORY_MAX);
+    try { localStorage.setItem(_QUERY_HISTORY_KEY, JSON.stringify(hist)); } catch (_) {}
+  }
+
+  function _renderQueryHistoryMenu() {
+    const menu = document.getElementById('query-history-menu');
+    if (!menu) return;
+    menu.innerHTML = '';
+    const hist = _loadQueryHistory();
+    if (!hist.length) {
+      const li = document.createElement('li');
+      li.className = 'query-history-empty';
+      li.textContent = 'No recent queries';
+      menu.appendChild(li);
+      return;
+    }
+    hist.forEach(q => {
+      const li = document.createElement('li');
+      li.textContent = q;
+      li.title = q;
+      li.addEventListener('click', e => {
+        e.stopPropagation();
+        menu.classList.add('hidden');
+        _setFullQuery(q);
+        applyFilter();
+      });
+      menu.appendChild(li);
+    });
+  }
+
   function applyFilter() {
+    _recordQuery(((document.getElementById('filter-query') || {}).value || ''));
     // A filter change can affect every tab's result set, so invalidate
     // all caches. Other tabs will re-fetch lazily when the analyst
     // visits them. The active tab refetches now. _loadCounts always
