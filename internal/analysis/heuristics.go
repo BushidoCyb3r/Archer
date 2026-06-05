@@ -181,3 +181,40 @@ var SuspiciousMIMETypes = map[string]bool{
 var LateralMovementPorts = map[int]bool{
 	445: true, 3389: true, 135: true, 5985: true, 5986: true, 22: true,
 }
+
+// expectedServicePorts maps a Zeek DPD service label to the set of ports that
+// service is normally expected on. It backs the "Protocol on Unexpected Port"
+// detector: Zeek's dynamic protocol detection names the actual L7 protocol
+// regardless of port, so http-on-8443 or ssl-on-4444 is visible here even
+// though a port-only view would miss it.
+//
+// Curated, not IANA-exhaustive: each entry lists the genuinely-common ports
+// for that protocol so ordinary alt-port deployments (8080 http, 8443 tls,
+// 2222 ssh) don't flag, and anything outside the set does. Only services with
+// a stable, well-known port footprint are listed — exotic or ephemeral-port
+// protocols are intentionally absent so they never produce a finding. Global
+// detection knowledge, tuned here on corpus evidence, not in Settings.
+//
+// Service labels are Zeek's lowercase DPD names. TLS-wrapped variants (imaps,
+// smtps, ftps, …) all surface as "ssl" in Zeek, so their ports live under the
+// ssl entry rather than under the cleartext protocol.
+var expectedServicePorts = map[string]map[int]bool{
+	"http": {80: true, 8080: true, 8000: true, 8008: true, 8081: true, 8888: true, 3128: true},
+	"ssl":  {443: true, 8443: true, 993: true, 995: true, 465: true, 990: true, 636: true, 989: true, 992: true, 994: true, 5061: true, 853: true},
+	"ssh":  {22: true, 2222: true},
+	"dns":  {53: true, 5353: true},
+	"smtp": {25: true, 587: true, 2525: true},
+	"ftp":  {20: true, 21: true, 2121: true},
+}
+
+// unexpectedServicePort reports whether Zeek identified a known service running
+// on a port outside its expected set. Returns false for an empty service (DPD
+// did not fingerprint the flow — the inherent coverage gap), for services not
+// in the curated table, and for services on an expected port.
+func unexpectedServicePort(service string, port int) bool {
+	ports, known := expectedServicePorts[strings.ToLower(service)]
+	if !known {
+		return false
+	}
+	return !ports[port]
+}

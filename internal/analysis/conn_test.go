@@ -508,3 +508,59 @@ func findingTypes(findings []model.Finding) []string {
 	}
 	return out
 }
+
+// TestProtocolOnUnexpectedPort pins the service-port-mismatch detector. The
+// invariant: a connection to an EXTERNAL destination whose Zeek DPD service is
+// known but runs on a port outside that service's expected set emits exactly
+// one "Protocol on Unexpected Port" finding; an expected-port connection, an
+// internal destination, and an empty (unfingerprinted) service emit none. The
+// fixture exercises all four shapes plus the C2-port score bump.
+func TestProtocolOnUnexpectedPort(t *testing.T) {
+	a := New(config.Default(), "", nil, nil)
+	a.feodoIPs = map[string]bool{}
+	a.urlhausIPs = map[string]bool{}
+	a.urlhausHosts = map[string]bool{}
+	findings := a.Analyze([]string{"testdata/zeek/service_port_mismatch/conn.log"})
+
+	var got []model.Finding
+	for _, f := range findings {
+		if f.Type == "Protocol on Unexpected Port" {
+			got = append(got, f)
+		}
+	}
+	// Two external mismatches: http/8443 and ssl/4444. The expected-port
+	// (http/80), internal-destination (http/9099), and empty-service (31337)
+	// records must each produce nothing.
+	if len(got) != 2 {
+		t.Fatalf("expected 2 Protocol on Unexpected Port findings (http/8443, ssl/4444), got %d: %v", len(got), findingTypes(findings))
+	}
+
+	byPort := map[string]model.Finding{}
+	for _, f := range got {
+		byPort[f.DstPort] = f
+	}
+	http8443, ok := byPort["8443"]
+	if !ok {
+		t.Fatalf("missing finding for http on 8443; ports seen: %v", byPort)
+	}
+	if http8443.Score != 70 {
+		t.Errorf("http/8443 score = %d; want 70 (mismatch on a non-C2 port)", http8443.Score)
+	}
+	if http8443.DstIP != "203.0.113.10" {
+		t.Errorf("http/8443 DstIP = %q; want 203.0.113.10", http8443.DstIP)
+	}
+	if !strings.Contains(http8443.Detail, "http") || !strings.Contains(http8443.Detail, "8443") {
+		t.Errorf("http/8443 Detail must name the service and port, got: %s", http8443.Detail)
+	}
+
+	ssl4444, ok := byPort["4444"]
+	if !ok {
+		t.Fatalf("missing finding for ssl on 4444; ports seen: %v", byPort)
+	}
+	if ssl4444.Score != 75 {
+		t.Errorf("ssl/4444 score = %d; want 75 (mismatch on a known C2 port)", ssl4444.Score)
+	}
+	if !strings.Contains(ssl4444.Detail, "Metasploit") {
+		t.Errorf("ssl/4444 Detail must carry the C2-port label, got: %s", ssl4444.Detail)
+	}
+}

@@ -30,6 +30,13 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.60.0] — 2026-06-05
+
+A protocol-visibility slice on a UI-polish base: a new beacon-adjacent detector
+that catches a recognized protocol egressing on a port it has no business being
+on (and the `service:` query field to hunt it), plus selectable UI skins, query-
+bar quality-of-life, and IP-space query keywords.
+
 ### Added
 
 - **Selectable UI skins** — a new Settings → Appearance tab picks the color
@@ -72,6 +79,44 @@ relevant, `### Detection changes` in each release entry.
   gates: `beacon_min_connections`, `strobe_min_connections`,
   `strobe_min_rate_per_sec`, `exfil_min_bytes_mb`, `dns_nxdomain_threshold`.
   Test-only; no behaviour change.
+- **`Protocol on Unexpected Port` detector** — where the `C2 Port` detector keys
+  on the *port*, this keys on the *protocol*. Zeek's dynamic protocol detection
+  (DPD) names the actual L7 protocol of a flow regardless of port; the analyzer
+  now compares that `conn.log` `service` against a curated set of ports the
+  protocol is expected on (`expectedServicePorts`: `http` → 80/8080/8000/8008/
+  8081/8888/3128, `ssl` → 443/8443/993/995/465/…, `ssh` → 22/2222, `dns`, `smtp`,
+  `ftp`) and emits a HIGH finding (score 70, or 75 on a known C2 port) when a
+  recognized protocol egresses to an external host on a port outside its set —
+  `http` on 8443, `ssl` on 4444. This is the port-control-evasion shape a
+  port-only view misses. Scoped to external destinations (internal hosts
+  legitimately bind odd ports) and to DPD-recognized protocols (an empty service
+  never fires — encrypted tunnels Zeek can't fingerprint are out of scope, by
+  design). See DETECTION_METHODS §8.
+- **`service:` query field** — matches the DPD service stamped on those findings
+  (`service:http`, `service:ssl`, …), case-insensitive substring/wildcard.
+  Populated only on `Protocol on Unexpected Port`, so it's naturally scoped.
+  Listed in the **+ more ▾** field chip.
+
+### Breaking
+
+- **DB schema (migration 0036):** new `service` TEXT column on `findings`
+  (`DEFAULT ''`) persisting the DPD protocol for the `Protocol on Unexpected
+  Port` detector and backing the `service:` query field. Applied automatically
+  on first boot of this version; pre-0036 rows read back as `''`.
+- **Detection semantics:** new finding type `Protocol on Unexpected Port`
+  (registered in `knownFindingTypes`, so `type:` queries resolve it) with a
+  host-risk weight of 25. See **Detection changes** below.
+
+### Detection changes
+
+- A new HIGH finding type, `Protocol on Unexpected Port`, now fires on
+  DPD-recognized protocols egressing to external hosts on unexpected ports
+  (score 70, or 75 on a known C2 port). It contributes **+25** to the composite
+  Host Risk Score — so hosts already doing odd-port egress may see their HRS
+  rise (and a connection that is *both* on a known C2 port and a protocol
+  mismatch produces two corroborating findings, `C2 Port` and `Protocol on
+  Unexpected Port`, both contributing). Analysts re-grounding baselines should
+  expect new findings of this type and modestly higher HRS on affected hosts.
 
 ## [v0.59.0] — 2026-06-04
 

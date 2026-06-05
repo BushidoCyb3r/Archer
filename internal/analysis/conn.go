@@ -352,6 +352,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 
 	lateralSeen := make(map[string]struct{})
 	c2Seen := make(map[string]struct{})
+	svcPortSeen := make(map[string]struct{})
 
 	// Per-sensor prevalence: unique internal sources and unique sources per
 	// external destination. Used at beacon emit time to apply the prevalence
@@ -415,6 +416,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 			}
 			dstPort := parser.GetInt(rec, "id.resp_p")
 			proto := parser.GetStr(rec, "proto")
+			service := parser.GetStr(rec, "service")
 			uid := parser.GetStr(rec, "uid")
 
 			if ts > 0 {
@@ -533,6 +535,37 @@ func (a *Analyzer) analyzeConn(files []string) {
 							DstIP:      dst,
 							DstPort:    fmt.Sprint(dstPort),
 							Detail:     fmt.Sprintf("Port %d — %s", dstPort, label),
+							Timestamp:  fmtTS(ts),
+							SourceFile: path,
+						})
+					}
+				}
+
+				// Protocol-on-unexpected-port: Zeek's DPD named an app-layer
+				// protocol that egresses on a port outside its expected set
+				// (http on 8443, ssl on 4444) — a common way to slip past
+				// port-based egress controls. Scoped to external destinations,
+				// mirroring the C2-port detector; internal apps legitimately
+				// bind odd ports, so internal→internal is out of scope.
+				if unexpectedServicePort(service, dstPort) {
+					sp := fmt.Sprintf("%s|%s→%s:%d|%s", sensor, src, dst, dstPort, service)
+					if _, ok := svcPortSeen[sp]; !ok {
+						svcPortSeen[sp] = struct{}{}
+						score := 70
+						detail := fmt.Sprintf("Zeek DPD identified %q on port %d, outside its expected ports", service, dstPort)
+						if label, isC2 := KnownC2Ports[dstPort]; isC2 {
+							score = 75
+							detail += fmt.Sprintf(" — %s", label)
+						}
+						a.add(model.Finding{
+							Type:       "Protocol on Unexpected Port",
+							Severity:   model.SevHigh,
+							Score:      score,
+							SrcIP:      src,
+							DstIP:      dst,
+							DstPort:    fmt.Sprint(dstPort),
+							Service:    service,
+							Detail:     detail,
 							Timestamp:  fmtTS(ts),
 							SourceFile: path,
 						})

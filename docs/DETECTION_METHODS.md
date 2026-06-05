@@ -1036,7 +1036,7 @@ threshold, or finding type changed.
 
 ---
 
-## 8. Lateral Movement and C2 Port
+## 8. Lateral Movement, C2 Port, and Protocol on Unexpected Port
 
 These are pure pattern-match detections — no math, just categorical lookups.
 
@@ -1048,6 +1048,39 @@ is one of the lateral-movement ports: 445 (SMB), 3389 (RDP), 135 (WMI/RPC),
 **C2 Port.** `dst` is public and `dst_port` matches a known-bad port (8443
 for many implants, 4444/5555 for Metasploit defaults, etc., as listed in the
 `KnownC2Ports` table). Score 75, severity High.
+
+**Protocol on Unexpected Port.** Where C2 Port keys on the *port*, this detector
+keys on the *protocol*. Zeek's dynamic protocol detection (DPD) inspects the
+actual bytes of a flow and stamps `conn.log`'s `service` field with the L7
+protocol it recognizes — `http`, `ssl`, `ssh`, `dns`, `smtp`, `ftp` — regardless
+of which port it rode in on. The detector compares that service against the set
+of ports the protocol is *expected* on (`expectedServicePorts` in
+`heuristics.go`, a curated whitelist: `http` → 80/8080/8000/8008/8081/8888/3128,
+`ssl` → 443/8443/993/995/465/…, `ssh` → 22/2222, etc.). A recognized service on
+a port outside its set — `http` on 8443, `ssl` on 4444 — is a finding. This is
+the answer to "an implant is speaking HTTP on a random high port to dodge my
+port-based egress rules, and a port-only view can't see it."
+
+Score 70 (High), bumped to 75 when the port is *also* a known C2 default — a
+protocol mismatch landing on 4444 is strictly more suspicious than one on an
+arbitrary port. The DPD service is stamped onto the finding's `service` field
+(persisted, migration 0036) and is queryable as `service:http`.
+
+Two deliberate scoping decisions:
+- **External destinations only.** Like C2 Port, this fires only when `dst` is
+  public. Internal hosts legitimately bind services to arbitrary ports (an
+  internal tool on `:9000`), so internal→internal mismatches are out of scope to
+  keep the false-positive rate low.
+- **Recognized protocols only.** When DPD can't fingerprint a flow — an encrypted
+  tunnel it doesn't understand, a custom protocol — `service` is empty and
+  nothing fires. This catches *known* protocols on the *wrong* port, not
+  unrecognized tunnels. It's the high-value common case, not total coverage.
+
+A connection can legitimately produce both a `C2 Port` and a `Protocol on
+Unexpected Port` finding (e.g. `ssl` on 4444): they're distinct, corroborating
+signals — one says "this port is a known C2 default," the other "DPD confirms a
+real protocol running where it shouldn't" — and both contribute to the host's
+risk roll-up.
 
 ---
 
@@ -1822,6 +1855,7 @@ contributes a weight:
 | HTTP Beacon          | 28     |
 | Data Exfiltration       | 25     |
 | Suspicious File Download| 25     |
+| Protocol on Unexpected Port | 25 |
 | DNS Subdomain DGA       | 22     |
 | C2 Port                 | 22     |
 | Lateral Movement        | 20     |

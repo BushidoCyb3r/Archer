@@ -235,10 +235,14 @@ CREATE TABLE findings (
     ts_ent           REAL    NOT NULL DEFAULT 0,  -- spectral). Persists the deciding layer so it
     spectral_rescued INTEGER NOT NULL DEFAULT 0,  -- survives restart and joins to the finding's
     spectral_period  REAL    NOT NULL DEFAULT 0,  -- analyst disposition (beacon-attribution.sh)
-    channel          TEXT    NOT NULL DEFAULT ''  -- migration 0035: per-channel beacon discriminator
+    channel          TEXT    NOT NULL DEFAULT '', -- migration 0035: per-channel beacon discriminator
                                                   -- ("ja3:<hash>"); empty on the blend. Enters
                                                   -- Fingerprint() so a split channel keeps its own
                                                   -- identity + analyst state.
+    service          TEXT    NOT NULL DEFAULT ''  -- migration 0036: Zeek DPD protocol on a "Protocol
+                                                  -- on Unexpected Port" finding; backs the service:
+                                                  -- query field. Empty on every other type. NOT in
+                                                  -- Fingerprint() — a descriptive attribute.
 );
 
 CREATE TABLE beacon_history (
@@ -809,6 +813,6 @@ CI is also pending (Phase 5) — currently `go vet`, `go test`, and
 
 ---
 
-*Last updated: 2026-06 alongside the v0.59.0 release. Update
+*Last updated: 2026-06 alongside the v0.60.0 release. Update
 this doc whenever the dataflow, schema, SSE catalog, or process model
 materially changes.*

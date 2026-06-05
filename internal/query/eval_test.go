@@ -315,6 +315,32 @@ func TestURIField(t *testing.T) {
 	}
 }
 
+func TestServiceField(t *testing.T) {
+	f := beacon()
+	f.Type = "Protocol on Unexpected Port"
+	f.Service = "http"
+	tests := []struct {
+		q    string
+		want bool
+	}{
+		{"service:http", true},
+		{"service:HTTP", true}, // case-insensitive
+		{"service:htt", true},  // substring
+		{"service:h*p", true},  // wildcard
+		{"service:ssl", false},
+	}
+	for _, tc := range tests {
+		if got := matches(t, tc.q, f); got != tc.want {
+			t.Errorf("%q = %v, want %v", tc.q, got, tc.want)
+		}
+	}
+	// A finding with no DPD service (every other type) must not match a
+	// non-empty pattern — naturally scoped without a guard.
+	if matches(t, "service:http", beacon()) {
+		t.Error("empty Service must not match service:http")
+	}
+}
+
 func TestNoteAndAnalystFields(t *testing.T) {
 	f := beacon()
 	f.AnalystNote = "pending pcap pull — looks like cobalt"

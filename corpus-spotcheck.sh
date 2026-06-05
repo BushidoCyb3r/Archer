@@ -103,40 +103,22 @@ echo "Spectral-rescued findings with median_interval: $TOTAL"
 if [ "$TOTAL" -eq 0 ]; then
     echo "PASS: no spectral-rescued findings to validate."
     echo "      (If you expected rescues, run analysis with the current code first.)"
-    exit 0
 fi
 
-# ── Check 1: lower-bound plausibility (PASS/FAIL) ──────────────────────
-# Extract spectral_period from the new-format detail string:
-# "Spectral rescued: score=X.XX (period Ys, N×median, ...)"
-# Note: old-format detail has "dominant period Ys" — different keyword.
-# Run analysis with current code to populate the new format before running.
+# Checks 1-2 validate the spectral-rescued findings themselves, so they only run
+# when rescues exist. The detector censuses further down (blocked-rescue trend,
+# Port-Hopping, per-channel, protocol-on-unexpected-port) are independent of
+# spectral rescue and run regardless — so a corpus with no rescues no longer
+# short-circuits the whole script before reaching them.
+if [ "$TOTAL" -gt 0 ]; then
 
-VIOLATIONS=$(sqlite3 "$DB" "
-  WITH rescued AS (
-    SELECT id, type, src_ip, dst_ip, score, severity, median_interval,
-           CAST(
-             SUBSTR(detail,
-               INSTR(detail, 'period ') + 7,
-               INSTR(SUBSTR(detail, INSTR(detail, 'period ') + 7), 's') - 1
-             ) AS REAL
-           ) AS spectral_period
-    FROM findings
-    WHERE detail LIKE '%Spectral rescued%'
-      AND detail LIKE '% period %s,%'
-      AND median_interval > 0
-  )
-  SELECT COUNT(*) FROM rescued
-  WHERE spectral_period > 0
-    AND spectral_period < median_interval / 5.0;
-")
+    # ── Check 1: lower-bound plausibility (PASS/FAIL) ──────────────────────
+    # Extract spectral_period from the new-format detail string:
+    # "Spectral rescued: score=X.XX (period Ys, N×median, ...)"
+    # Note: old-format detail has "dominant period Ys" — different keyword.
+    # Run analysis with current code to populate the new format before running.
 
-echo "Gate violations (spectral_period < median/5): $VIOLATIONS"
-
-if [ "$VIOLATIONS" -gt 0 ]; then
-    echo ""
-    echo "FAIL: $VIOLATIONS rescued finding(s) have spectral_period below median/5:"
-    sqlite3 -column -header "$DB" "
+    VIOLATIONS=$(sqlite3 "$DB" "
       WITH rescued AS (
         SELECT id, type, src_ip, dst_ip, score, severity, median_interval,
                CAST(
@@ -150,52 +132,77 @@ if [ "$VIOLATIONS" -gt 0 ]; then
           AND detail LIKE '% period %s,%'
           AND median_interval > 0
       )
-      SELECT id, src_ip, dst_ip, type, score,
-             ROUND(spectral_period, 1)       AS spectral_period,
-             ROUND(median_interval, 1)       AS median_interval,
-             ROUND(spectral_period / median_interval, 4) AS ratio
-      FROM rescued
+      SELECT COUNT(*) FROM rescued
       WHERE spectral_period > 0
-        AND spectral_period < median_interval / 5.0
-      ORDER BY ratio ASC;"
-    echo ""
-    echo "Remediation: the plausibility gate (median/5 lower bound) is not blocking"
-    echo "these artifacts. Investigate the pair's connection pattern to understand"
-    echo "why the short-period artifact survives — the burst clustering may be real."
-    exit 1
-fi
+        AND spectral_period < median_interval / 5.0;
+    ")
 
-echo "PASS: all spectral-rescued findings have period >= median/5 (no artifacts slipping through)."
+    echo "Gate violations (spectral_period < median/5): $VIOLATIONS"
 
-# ── Check 2: suppressed artifacts alongside successful rescues (advisory) ──
-# These findings rescued on a plausible peak but also had a rejected
-# shorter-period artifact. A human should check whether the suppressed
-# period is clearly burst-shaped (artifact) or suspiciously beacon-shaped.
+    if [ "$VIOLATIONS" -gt 0 ]; then
+        echo ""
+        echo "FAIL: $VIOLATIONS rescued finding(s) have spectral_period below median/5:"
+        sqlite3 -column -header "$DB" "
+          WITH rescued AS (
+            SELECT id, type, src_ip, dst_ip, score, severity, median_interval,
+                   CAST(
+                     SUBSTR(detail,
+                       INSTR(detail, 'period ') + 7,
+                       INSTR(SUBSTR(detail, INSTR(detail, 'period ') + 7), 's') - 1
+                     ) AS REAL
+                   ) AS spectral_period
+            FROM findings
+            WHERE detail LIKE '%Spectral rescued%'
+              AND detail LIKE '% period %s,%'
+              AND median_interval > 0
+          )
+          SELECT id, src_ip, dst_ip, type, score,
+                 ROUND(spectral_period, 1)       AS spectral_period,
+                 ROUND(median_interval, 1)       AS median_interval,
+                 ROUND(spectral_period / median_interval, 4) AS ratio
+          FROM rescued
+          WHERE spectral_period > 0
+            AND spectral_period < median_interval / 5.0
+          ORDER BY ratio ASC;"
+        echo ""
+        echo "Remediation: the plausibility gate (median/5 lower bound) is not blocking"
+        echo "these artifacts. Investigate the pair's connection pattern to understand"
+        echo "why the short-period artifact survives — the burst clustering may be real."
+        exit 1
+    fi
 
-SUPPRESSED=$(sqlite3 "$DB" "
-  SELECT COUNT(*) FROM findings
-  WHERE detail LIKE '%[artifact%suppressed]%';
-")
+    echo "PASS: all spectral-rescued findings have period >= median/5 (no artifacts slipping through)."
 
-if [ "$SUPPRESSED" -gt 0 ]; then
-    echo ""
-    echo "ADVISORY: $SUPPRESSED finding(s) rescued on a plausible peak but with a"
-    echo "suppressed artifact alongside. Eyeball these — confirm the suppressed"
-    echo "period is burst-shaped (artifact), not beacon-shaped (real detection missed):"
-    sqlite3 -column -header "$DB" "
-      SELECT id, src_ip, dst_ip, type, score,
-             ROUND(median_interval, 1) AS median_interval,
-             SUBSTR(detail,
-               INSTR(detail, '[artifact'),
-               INSTR(detail, 'suppressed]') - INSTR(detail, '[artifact') + 11
-             ) AS suppressed_peak
-      FROM findings
-      WHERE detail LIKE '%[artifact%suppressed]%'
-      ORDER BY score DESC
-      LIMIT 30;"
-    echo ""
-    echo "Rule of thumb: if suppressed_period is < median/100, it's burst-shaped."
-    echo "If suppressed_period is within an order of magnitude of median, investigate."
+    # ── Check 2: suppressed artifacts alongside successful rescues (advisory) ──
+    # These findings rescued on a plausible peak but also had a rejected
+    # shorter-period artifact. A human should check whether the suppressed
+    # period is clearly burst-shaped (artifact) or suspiciously beacon-shaped.
+
+    SUPPRESSED=$(sqlite3 "$DB" "
+      SELECT COUNT(*) FROM findings
+      WHERE detail LIKE '%[artifact%suppressed]%';
+    ")
+
+    if [ "$SUPPRESSED" -gt 0 ]; then
+        echo ""
+        echo "ADVISORY: $SUPPRESSED finding(s) rescued on a plausible peak but with a"
+        echo "suppressed artifact alongside. Eyeball these — confirm the suppressed"
+        echo "period is burst-shaped (artifact), not beacon-shaped (real detection missed):"
+        sqlite3 -column -header "$DB" "
+          SELECT id, src_ip, dst_ip, type, score,
+                 ROUND(median_interval, 1) AS median_interval,
+                 SUBSTR(detail,
+                   INSTR(detail, '[artifact'),
+                   INSTR(detail, 'suppressed]') - INSTR(detail, '[artifact') + 11
+                 ) AS suppressed_peak
+          FROM findings
+          WHERE detail LIKE '%[artifact%suppressed]%'
+          ORDER BY score DESC
+          LIMIT 30;"
+        echo ""
+        echo "Rule of thumb: if suppressed_period is < median/100, it's burst-shaped."
+        echo "If suppressed_period is within an order of magnitude of median, investigate."
+    fi
 fi
 
 # ── Check 3: fully-blocked rescues over recent runs (advisory) ───────────────
@@ -330,6 +337,65 @@ else
           SELECT severity, COUNT(*) AS n, ROUND(AVG(score), 1) AS avg_score
           FROM findings
           WHERE channel <> ''
+          GROUP BY severity
+          ORDER BY avg_score DESC;"
+    fi
+fi
+
+# ── Check 7: Protocol on Unexpected Port census (advisory) ───────────────────
+# This detector keys on Zeek's DPD service vs. the curated expectedServicePorts
+# whitelist: a recognized protocol egressing on a port outside its set. Unlike
+# the relabel/overlay detectors above, this one EMITS a finding that wouldn't
+# otherwise exist, so "no detection lost" is not the question — the FP-budget
+# question is. The whitelist is the tuning surface: a benign service that
+# legitimately runs on an odd port (an internal SaaS proxy on http/8090, a mail
+# gateway on an alt port) will recur as the SAME (service, dst, port) tuple and
+# is a candidate for an expectedServicePorts entry, not a real detection. This
+# census surfaces the recurring (service, port) pairs so that judgement can be
+# made on evidence. Requires migration 0036 (findings.service).
+
+SVC_OK=$(sqlite3 "$DB" "
+  SELECT COUNT(*) FROM pragma_table_info('findings') WHERE name = 'service';
+")
+if [ "$SVC_OK" -eq 0 ]; then
+    echo ""
+    echo "INFO: findings.service not present (pre-0036 schema) — deploy current code,"
+    echo "  re-run a full analysis, and re-run to see the protocol-on-unexpected-port census."
+else
+    MISMATCHES=$(sqlite3 "$DB" "
+      SELECT COUNT(*) FROM findings WHERE type = 'Protocol on Unexpected Port';
+    ")
+    if [ "$MISMATCHES" -eq 0 ]; then
+        echo ""
+        echo "INFO: no Protocol on Unexpected Port findings in this corpus."
+    else
+        echo ""
+        echo "ADVISORY: $MISMATCHES Protocol on Unexpected Port finding(s). Recurring"
+        echo "(service, port) pairs that are actually benign belong in the"
+        echo "expectedServicePorts whitelist (internal/analysis/heuristics.go), not in"
+        echo "the findings list — eyeball these before tuning:"
+        sqlite3 -column -header "$DB" "
+          SELECT service,
+                 dst_port,
+                 COUNT(*)                       AS n,
+                 COUNT(DISTINCT dst_ip)         AS distinct_dsts,
+                 COUNT(DISTINCT src_ip)         AS distinct_srcs,
+                 ROUND(AVG(score), 1)           AS avg_score
+          FROM findings
+          WHERE type = 'Protocol on Unexpected Port'
+          GROUP BY service, dst_port
+          ORDER BY n DESC
+          LIMIT 30;"
+        echo ""
+        echo "A pair with many connections to FEW distinct dsts across FEW srcs reads as"
+        echo "a benign alt-port service (whitelist candidate); many distinct dsts/srcs on"
+        echo "one (service, port) reads as a real egress-evasion pattern worth chasing."
+        echo ""
+        echo "Severity split:"
+        sqlite3 -column -header "$DB" "
+          SELECT severity, COUNT(*) AS n, ROUND(AVG(score), 1) AS avg_score
+          FROM findings
+          WHERE type = 'Protocol on Unexpected Port'
           GROUP BY severity
           ORDER BY avg_score DESC;"
     fi

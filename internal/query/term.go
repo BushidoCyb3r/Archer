@@ -42,7 +42,7 @@ var knownFields = map[string]bool{
 	"tscore": true, "dscore": true, "hist": true, "dur": true,
 	"conns": true, "meanint": true, "medint": true, "jitter": true,
 	"uri": true, "note": true, "analyst": true, "dir": true, "detected": true,
-	"channel": true, "benign": true,
+	"channel": true, "benign": true, "service": true,
 }
 
 // parseTerm turns a raw term token into a leaf node.
@@ -196,6 +196,11 @@ func (t term) eval(f model.Finding, opLoc *time.Location) bool {
 		return stringPatternMatch(f.Hostname, t.value)
 	case "file":
 		return stringPatternMatch(f.SourceFile, t.value)
+	case "service":
+		// Zeek DPD service ("http", "ssl", …) stamped on Protocol on Unexpected
+		// Port findings; empty on every other type, so a service: predicate
+		// implicitly scopes to that detector. Wildcard glob, like uri/note.
+		return stringPatternMatch(f.Service, t.value)
 	case "uri":
 		return stringPatternMatch(f.URI, t.value)
 	case "note":

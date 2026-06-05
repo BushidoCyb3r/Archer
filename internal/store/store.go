@@ -471,7 +471,7 @@ func (s *Store) loadFindings() {
 		s.findingsLoadOK = true
 		return
 	}
-	rows, err := s.db.Query(`SELECT id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, detected_at, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size, ja3, ja4, top_uris, ts_raw, ts_mm, ts_ent, spectral_rescued, spectral_period, channel FROM findings ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, detected_at, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size, ja3, ja4, top_uris, ts_raw, ts_mm, ts_ent, spectral_rescued, spectral_period, channel, service FROM findings ORDER BY id`)
 	if err != nil {
 		// A query failure here means we can't establish the canonical
 		// in-memory state. Starting with findingsLoadOK=false silently
@@ -488,7 +488,7 @@ func (s *Store) loadFindings() {
 		var f model.Finding
 		var iocMatch, isNew, spectralRescued int
 		var intervals, tsData, notes, correlations, topURIs string
-		if err := rows.Scan(&f.ID, &f.Type, &f.Severity, &f.Score, &f.SrcIP, &f.DstIP, &f.DstPort, &f.Detail, &f.Timestamp, &f.SourceFile, &f.Status, &f.Analyst, &f.AnalystNote, &f.StatusTS, &iocMatch, &isNew, &f.DetectedAt, &f.Sensor, &intervals, &tsData, &notes, &correlations, &f.TSScore, &f.DSScore, &f.HistScore, &f.DurScore, &f.MeanInterval, &f.MedianInterval, &f.Jitter, &f.SampleSize, &f.JA3, &f.JA4, &topURIs, &f.TSRaw, &f.TSMultimodal, &f.TSEntropy, &spectralRescued, &f.SpectralPeriod, &f.Channel); err != nil {
+		if err := rows.Scan(&f.ID, &f.Type, &f.Severity, &f.Score, &f.SrcIP, &f.DstIP, &f.DstPort, &f.Detail, &f.Timestamp, &f.SourceFile, &f.Status, &f.Analyst, &f.AnalystNote, &f.StatusTS, &iocMatch, &isNew, &f.DetectedAt, &f.Sensor, &intervals, &tsData, &notes, &correlations, &f.TSScore, &f.DSScore, &f.HistScore, &f.DurScore, &f.MeanInterval, &f.MedianInterval, &f.Jitter, &f.SampleSize, &f.JA3, &f.JA4, &topURIs, &f.TSRaw, &f.TSMultimodal, &f.TSEntropy, &spectralRescued, &f.SpectralPeriod, &f.Channel, &f.Service); err != nil {
 			slog.Error("store: scan finding", "err", err)
 			loadOK = false
 			continue
@@ -558,7 +558,7 @@ func (s *Store) saveFindings() {
 		slog.Error("store: save findings delete", "err", err)
 		return
 	}
-	stmt, err := tx.Prepare(`INSERT INTO findings (id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, detected_at, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size, ja3, ja4, top_uris, ts_raw, ts_mm, ts_ent, spectral_rescued, spectral_period, channel) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+	stmt, err := tx.Prepare(`INSERT INTO findings (id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, detected_at, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size, ja3, ja4, top_uris, ts_raw, ts_mm, ts_ent, spectral_rescued, spectral_period, channel, service) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		tx.Rollback()
 		slog.Error("store: save findings prepare", "err", err)
@@ -595,7 +595,7 @@ func (s *Store) saveFindings() {
 			string(intervals), string(tsData), string(notes), string(correlations),
 			f.TSScore, f.DSScore, f.HistScore, f.DurScore, f.MeanInterval, f.MedianInterval, f.Jitter, f.SampleSize,
 			f.JA3, f.JA4, string(topURIs),
-			f.TSRaw, f.TSMultimodal, f.TSEntropy, spectralRescued, f.SpectralPeriod, f.Channel,
+			f.TSRaw, f.TSMultimodal, f.TSEntropy, spectralRescued, f.SpectralPeriod, f.Channel, f.Service,
 		); err != nil {
 			tx.Rollback()
 			slog.Error("store: save findings insert", "err", err)

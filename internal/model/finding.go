@@ -150,6 +150,14 @@ type Finding struct {
 	// channel keeps independent analyst state and never collides with the
 	// blend across re-analyses. Persisted as a TEXT column (migration 0035).
 	Channel string `json:"channel,omitempty"`
+	// Service is Zeek's dynamic-protocol-detection (DPD) label for the flow
+	// that seeded the finding — the actual L7 protocol ("http", "ssl", "ssh", …)
+	// regardless of port. Set by the conn analyzer on "Protocol on Unexpected
+	// Port" findings (the DPD service that ran on a port outside its expected
+	// set); empty on every other type. Persisted as a TEXT column (migration
+	// 0036) so it survives a restart and backs the `service:` query field. Not
+	// part of Fingerprint() — a descriptive attribute, not an identity field.
+	Service string `json:"service,omitempty"`
 	// JA3SiblingCount / JA4SiblingCount are transient, derived-at-read
 	// fields — the count of OTHER beacon findings in the current dataset
 	// sharing the same JA3 or JA4. Computed by the single-finding detail
@@ -365,7 +373,8 @@ var knownFindingTypes = map[string]bool{
 	"Off-Hours Transfer": true, "Lateral Movement": true,
 	"DNS Tunneling": true, "DNS NXDOMAIN Flood": true, "DNS Subdomain DGA": true,
 	"Protocol Anomaly": true, "C2 Port": true, "C2 URI Pattern": true,
-	"Cobalt Strike URI": true, "Domain Fronting": true, "DoH Bypass": true,
+	"Protocol on Unexpected Port": true,
+	"Cobalt Strike URI":           true, "Domain Fronting": true, "DoH Bypass": true,
 	"Malicious JA3": true, "Malicious JA4": true, "Weak TLS": true,
 	"SSL No-SNI": true, "SSL No-SNI on C2 Port": true,
 	"Suspicious Certificate": true, "Suspicious File Download": true,
@@ -588,6 +597,9 @@ var ScoreExplanations = map[string]string{
 	"Suspicious File Download": "Score: 72 (executable or script MIME type / extension in files.log)",
 
 	"Protocol Anomaly": "Score: 65 (HIGH-interest) | 22 (general) from Zeek weird.log",
+
+	"Protocol on Unexpected Port": "Score: 70 (HIGH) | 75 on a known C2 port\n" +
+		"Zeek DPD identified an app-layer protocol (http/ssl/ssh/dns/smtp/ftp) egressing on a port outside its expected set — port-control evasion. Scoped to external destinations.",
 
 	"TI Hit (IP)":     "Score: 97-99 (CRITICAL) for FeodoTracker / URLhaus | variable for OTX/AbuseIPDB | 90 (HIGH) for MISP/OpenCTI feed IP/CIDR matches.",
 	"TI Hit (Domain)": "Score: 97 (CRITICAL) for URLhaus host matches | 90 (HIGH) for MISP/OpenCTI feed domain matches.",
