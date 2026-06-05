@@ -52,9 +52,9 @@ bar quality-of-life, and IP-space query keywords.
   canvas-drawn colors track the theme too. Severity encoding is also corrected
   across every skin: **low** and **info** are now neutrals (low was green —
   reads as "safe" on a finding row; info was byte-identical to the accent).
-  Plus a **Just for fun** set of novelty skins — **Bikini Bottom** (SpongeBob
+  Plus a **Just for fun** set of novelty skins — **Bikini Bottom** (bright
   yellow, Comic Sans), **Vaporwave**, **Hot Dog Stand** (Win 3.1), **Hollywood
-  Hacker** (green-on-black monospace), **Hunter Pink** (Barbiecore), and **Nyan
+  Hacker** (green-on-black monospace), **Barbiecore**, and **Nyan
   Cat** (with an animated, window-fitting nyan gif background) — kept legible by a new `--on-accent`
   token (so light-accent skins don't render white text on yellow/green) and the
   same neutral-low/info severity rule. UI-only.
