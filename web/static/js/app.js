@@ -3328,8 +3328,28 @@
       p.classList.toggle('active', p.dataset.setpanel === name));
   }
 
+  // Skin is a per-browser UI preference, not server config: applied to
+  // <html data-theme> (the early head script seeds it before first paint) and
+  // persisted to localStorage. Canvas-drawn surfaces can't observe CSS-var
+  // changes, so applyTheme fires archer:themechange for graph/chart to redraw.
+  function applyTheme(name) {
+    document.documentElement.setAttribute('data-theme', name);
+    window.dispatchEvent(new CustomEvent('archer:themechange', { detail: { theme: name } }));
+  }
+
+  function initTheme() {
+    const sel = document.getElementById('cfg-theme');
+    if (!sel) return;
+    sel.value = localStorage.getItem('archer.theme') || 'cobalt';
+    sel.addEventListener('change', () => {
+      localStorage.setItem('archer.theme', sel.value);
+      applyTheme(sel.value);
+    });
+  }
+
   function initSettings() {
     const dlg = document.getElementById('settings-dialog');
+    initTheme();
     document.querySelectorAll('#settings-tabs .dlg-tab-btn').forEach(b =>
       b.addEventListener('click', () => _setSettingsTab(b.dataset.settab)));
     document.getElementById('settings-btn').addEventListener('click', async () => {

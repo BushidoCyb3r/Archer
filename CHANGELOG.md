@@ -32,6 +32,18 @@ relevant, `### Detection changes` in each release entry.
 
 ### Added
 
+- **Selectable UI skins** — a new Settings → Appearance tab picks the color
+  theme for the workbench: **Cobalt slate** (the existing default), **Tactical
+  phosphor** (monospace, green accent), **GitHub dark** (dimmed), **GitHub
+  light** (low-glare), and **Blackout** (true-black / OLED). The choice is
+  per-browser (localStorage `archer.theme`), applies instantly with no save or
+  reload, is honored on the login/register pages, and is applied before first
+  paint so there's no flash of the default. All design tokens moved to a shared
+  `themes.css`; the graph and beacon charts read the active skin's tokens so
+  canvas-drawn colors track the theme too. Severity encoding is also corrected
+  across every skin: **low** and **info** are now neutrals (low was green —
+  reads as "safe" on a finding row; info was byte-identical to the accent).
+  UI-only.
 - **Query-bar quality-of-life** — a wider query field (the cap grows from 746px
   to 1100px so longer expressions stay on one line on a normal monitor) and a
   **▾** caret at the field's left edge that reopens any of the last 10 distinct

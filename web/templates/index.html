@@ -1,17 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="cobalt">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Archer — Silent Hunter</title>
+<script>
+  // Apply the saved skin before first paint to avoid a flash of the default
+  // theme. The picker lives in Settings → Appearance (app.js); it persists to
+  // localStorage 'archer.theme'. CSP is frame-ancestors only, so no nonce.
+  document.documentElement.setAttribute(
+    'data-theme', localStorage.getItem('archer.theme') || 'cobalt');
+</script>
 <link rel="icon" type="image/svg+xml" href="/static/img/favicon.svg">
+<link rel="stylesheet" href="/static/css/themes.css">
 <link rel="stylesheet" href="/static/css/archer.css">
 </head>
 <body>
 
 <!-- Low-disk warning. Shown when /data or /logs free space drops below
      the threshold (10%). Driven by the disk-usage poll in app.js. -->
-<div id="disk-warning-banner" style="display:none;background:var(--sev-high,#f97316);color:#fff;text-align:center;padding:6px 12px;font-size:12px;font-weight:600;letter-spacing:0.02em"></div>
+<div id="disk-warning-banner" style="display:none;background:var(--sev-high);color:#fff;text-align:center;padding:6px 12px;font-size:12px;font-weight:600;letter-spacing:0.02em"></div>
 
 <!-- ── App frame: full-height sidebar on the left, main column with
      topbar/content/statusbar on the right. Archer brand lives in the
@@ -1256,6 +1264,7 @@
     <button class="dlg-tab-btn active" data-settab="detection">Detection</button>
     <button class="dlg-tab-btn" data-settab="ti">Threat Intel</button>
     <button class="dlg-tab-btn" data-settab="ops">Operations</button>
+    <button class="dlg-tab-btn" data-settab="appearance">Appearance</button>
     <button class="dlg-tab-btn" data-settab="admin">Admin</button>
   </div>
   <div class="dlg-body">
@@ -1408,7 +1417,7 @@
         <input class="dlg-input" id="service-token-label" type="text" placeholder="Token label (e.g. prometheus-scraper)" style="flex:1">
         <button class="dlg-btn secondary" id="service-token-create-btn" type="button">Generate</button>
       </div>
-      <div id="service-token-new" style="display:none;margin-top:10px;padding:10px;background:var(--bg-alt,#1a1a2e);border:1px solid var(--accent);border-radius:4px;font-size:0.9em">
+      <div id="service-token-new" style="display:none;margin-top:10px;padding:10px;background:var(--bg-elev-2);border:1px solid var(--accent);border-radius:4px;font-size:0.9em">
         <div style="color:var(--fg-dim);margin-bottom:6px">Copy this token now — it will not be shown again.</div>
         <code id="service-token-value" style="word-break:break-all;font-size:0.95em"></code>
       </div>
@@ -1429,6 +1438,25 @@
       </div>
       <button class="dlg-btn secondary" id="reset-analyze-btn" type="button" style="border-color:var(--sev-high, #c66);color:var(--sev-high, #c66)">Discard findings &amp; re-analyze</button>
       <span id="reset-analyze-status" style="margin-left:12px;color:var(--fg-dim)"></span>
+    </div>
+    </div>
+    <div class="settings-tab-panel" data-setpanel="appearance">
+    <div class="settings-group">
+      <div class="settings-group-title">Skin</div>
+      <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
+        Color theme for this browser. Applies immediately and is remembered on this device.
+      </div>
+      <div class="settings-grid">
+        <label>Theme
+          <select class="dlg-input" id="cfg-theme">
+            <option value="cobalt">Cobalt slate (default)</option>
+            <option value="phosphor">Tactical phosphor</option>
+            <option value="gh-dark">GitHub dark</option>
+            <option value="gh-light">GitHub light</option>
+            <option value="blackout">Blackout (OLED)</option>
+          </select>
+        </label>
+      </div>
     </div>
     </div>
   </div>
@@ -1464,9 +1492,9 @@
 
 <div id="pcap-toast" style="
   position:fixed;bottom:36px;left:50%;transform:translateX(-50%);
-  background:#1e1e2e;border:1px solid #313244;border-radius:6px;
-  padding:8px 16px;font-family:monospace;font-size:12px;color:#a6e3a1;
-  box-shadow:0 4px 16px rgba(0,0,0,.6);z-index:9999;display:none">
+  background:var(--bg-elev-2);border:1px solid var(--border);border-radius:6px;
+  padding:8px 16px;font-family:monospace;font-size:12px;color:var(--fg-primary);
+  box-shadow:var(--shadow-md);z-index:9999;display:none">
 </div>
 
 <div id="query-toast" role="alert"></div>

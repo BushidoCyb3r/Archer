@@ -38,18 +38,27 @@ const BeaconChart = (() => {
   // timestamps without re-running the stats pipeline.
   let _timelinePlot = null; // { padLeft, plotW, tMin, tMax }
 
-  const PALETTE = {
-    bg:    '#1e1e2e',
-    panel: '#2a2a3e',
-    bar:   '#7c3aed',
-    barHi: '#f38ba8',  // sent > received (potential exfil)
-    tick:  '#7c3aed',
-    grid:  '#313244',
-    axis:  '#6c7086',
-    text:  '#cdd6f4',
-    label: '#a6adc8',
-    accent:'#89b4fa',
-  };
+  // Canvas can't read CSS vars, so the palette is resolved from the active
+  // skin's tokens each render (refreshed at the top of _render and on
+  // archer:themechange). barHi flags sent > received (potential exfil).
+  function _tok(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+  function _readPalette() {
+    return {
+      bg:    _tok('--bg-elev-2'),
+      panel: _tok('--bg-elev-3'),
+      bar:   _tok('--accent'),
+      barHi: _tok('--sev-critical'),
+      tick:  _tok('--accent'),
+      grid:  _tok('--border'),
+      axis:  _tok('--fg-faint'),
+      text:  _tok('--fg-primary'),
+      label: _tok('--fg-secondary'),
+      accent:_tok('--accent'),
+    };
+  }
+  let PALETTE = _readPalette();
 
   // ── Formatters ────────────────────────────────────────────────────
 
@@ -217,18 +226,20 @@ const BeaconChart = (() => {
     const tickHalf = plotH * 0.42;
     ctx.lineCap = 'round';
     ctx.lineWidth = 1.5;
+    ctx.strokeStyle = PALETTE.bar;
     ptsX.forEach(x => {
       const idx = Math.max(0, Math.min(plotW - 1, Math.floor(x - PAD.left)));
       const density = buckets[idx];
       // Alpha climbs with density up to a soft cap so dense regions stay
       // visible but sparse ticks aren't washed out
       const alpha = Math.min(0.95, 0.35 + 0.65 * Math.min(1, density / Math.max(2, maxDensity / 4)));
-      ctx.strokeStyle = `rgba(124,58,237,${alpha.toFixed(3)})`;
+      ctx.globalAlpha = alpha;
       ctx.beginPath();
       ctx.moveTo(x, midY - tickHalf);
       ctx.lineTo(x, midY + tickHalf);
       ctx.stroke();
     });
+    ctx.globalAlpha = 1;
 
     // Axes
     ctx.strokeStyle = PALETTE.grid;
@@ -270,11 +281,14 @@ const BeaconChart = (() => {
       const x0 = Math.min(_brushStartX, _brushCurrentX);
       const x1 = Math.max(_brushStartX, _brushCurrentX);
       const w = Math.max(1, x1 - x0);
-      ctx.fillStyle = 'rgba(137,180,250,0.18)';
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = PALETTE.accent;
       ctx.fillRect(x0, PAD.top, w, plotH);
-      ctx.strokeStyle = 'rgba(137,180,250,0.6)';
+      ctx.globalAlpha = 0.6;
+      ctx.strokeStyle = PALETTE.accent;
       ctx.lineWidth = 1;
       ctx.strokeRect(x0 + 0.5, PAD.top + 0.5, w, plotH);
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -343,8 +357,10 @@ const BeaconChart = (() => {
       const barY = PAD.top + plotH - barH;
       const barX = cx - barW / 2;
       if (i % 2 === 0) {
-        ctx.fillStyle = 'rgba(255,255,255,0.018)';
+        ctx.globalAlpha = 0.03;
+        ctx.fillStyle = PALETTE.label;
         ctx.fillRect(x, PAD.top, slotW, plotH);
+        ctx.globalAlpha = 1;
       }
       if (c > 0) {
         ctx.fillStyle = PALETTE.bar;
@@ -458,8 +474,10 @@ const BeaconChart = (() => {
       const barY = PAD.top + plotH - barH;
       const barX = cx - barW / 2;
       if (i % 2 === 0) {
-        ctx.fillStyle = 'rgba(255,255,255,0.018)';
+        ctx.globalAlpha = 0.03;
+        ctx.fillStyle = PALETTE.label;
         ctx.fillRect(x, PAD.top, slotW, plotH);
+        ctx.globalAlpha = 1;
       }
       if (b.origBytes > 0) {
         ctx.fillStyle = b.origBytes > b.respBytes ? PALETTE.barHi : PALETTE.bar;
@@ -515,6 +533,7 @@ const BeaconChart = (() => {
   // ── Render ───────────────────────────────────────────────────────
 
   function _render() {
+    PALETTE = _readPalette();
     const cv  = document.getElementById('chart-canvas');
     const ctx = cv.getContext('2d');
     const W = cv.width, H = cv.height;
@@ -679,6 +698,11 @@ const BeaconChart = (() => {
       window.addEventListener('mousemove', _onMouseMove);
       window.addEventListener('mouseup', _onMouseUp);
     }
+    // Repaint with the new skin's tokens if the theme changes while open.
+    window.addEventListener('archer:themechange', () => {
+      const dlg = document.getElementById('chart-dialog');
+      if (dlg && dlg.open) _render();
+    });
   }
 
   return { init, show, exportImage };

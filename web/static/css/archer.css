@@ -1,69 +1,11 @@
 /* ============================================================================
-   Archer — design tokens
-   Cool slate-blue palette, single-accent (cobalt), restrained chroma.
-   Severity colors are saturated for at-a-glance triage but used sparingly.
+   Archer — component styles
+
+   All design tokens (surfaces, fg, borders, accent, severity, radii, shadows,
+   the UI font, and the legacy aliases) live in themes.css, defined per skin
+   under :root[data-theme="..."] and linked before this file. This file styles
+   components against those tokens and never hardcodes a palette value.
 ============================================================================ */
-:root {
-  /* Surfaces (deepest → shallowest) */
-  --bg-base:        #0a0e15;
-  --bg-elev-1:      #10161f;
-  --bg-elev-2:      #161e2a;
-  --bg-elev-3:      #1d2735;
-  --bg-input:       #0d121a;
-
-  /* Foreground */
-  --fg-primary:     #e6ecf2;
-  --fg-secondary:   #b3c0d0;
-  --fg-muted:       #8b9aae;
-  --fg-faint:       #5a6678;
-
-  /* Borders / dividers */
-  --border-subtle:  rgba(148, 163, 184, 0.08);
-  --border:         rgba(148, 163, 184, 0.14);
-  --border-strong:  rgba(148, 163, 184, 0.24);
-
-  /* Brand accent — cobalt, used sparingly for primary actions, focus, links */
-  --accent:         #4f8cff;
-  --accent-hover:   #6ba1ff;
-  --accent-active:  #3b75e8;
-  --accent-soft:    rgba(79, 140, 255, 0.14);
-  --accent-glow:    rgba(79, 140, 255, 0.32);
-
-  /* Severity scale */
-  --sev-critical:   #f43f5e;
-  --sev-high:       #f97316;
-  --sev-medium:     #eab308;
-  --sev-low:        #22c55e;
-  --sev-info:       #4f8cff;
-  --ioc:            #c084fc;
-
-  /* Row interaction */
-  --row-hover:      rgba(96, 165, 250, 0.05);
-  --row-selected:   rgba(79, 140, 255, 0.12);
-
-  /* Shadows */
-  --shadow-sm:      0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md:      0 4px 12px rgba(0, 0, 0, 0.5);
-  --shadow-lg:      0 16px 40px rgba(0, 0, 0, 0.6);
-
-  /* Radii */
-  --radius-sm:      3px;
-  --radius:         5px;
-  --radius-lg:      8px;
-
-  /* ── Backwards-compatible aliases ───────────────────────────────────────
-     A handful of inline styles in templates and JS still reference the
-     legacy names; map them onto the new tokens so nothing visually drifts. */
-  --bg-dark:        var(--bg-base);
-  --bg-panel:       var(--bg-elev-1);
-  --bg-row-alt:     var(--bg-elev-1);
-  --bg-hover:       var(--row-hover);
-  --fg-text:        var(--fg-primary);
-  --fg-dim:         var(--fg-muted);
-  --fg-border:      var(--border);
-  --fg-sel:         var(--bg-elev-3);
-  --ioc-color:      var(--ioc);
-}
 
 /* ============================================================================
    Reset + base
@@ -74,8 +16,7 @@ html, body {
   height: 100%;
   background: var(--bg-base);
   color: var(--fg-primary);
-  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI",
-               "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-ui);
   font-size: 17px;
   line-height: 1.5;
   font-feature-settings: "ss01", "cv11";
@@ -95,8 +36,8 @@ button, input, select, textarea {
 /* Custom scrollbars — subtle, not Chrome's default chunky gray */
 ::-webkit-scrollbar         { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track   { background: transparent; }
-::-webkit-scrollbar-thumb   { background: rgba(148, 163, 184, 0.16); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
-::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.28); background-clip: padding-box; }
+::-webkit-scrollbar-thumb   { background: var(--scrollbar-thumb); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); background-clip: padding-box; }
 ::-webkit-scrollbar-corner  { background: transparent; }
 
 /* ============================================================================

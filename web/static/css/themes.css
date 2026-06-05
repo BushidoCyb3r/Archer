@@ -1,0 +1,239 @@
+/* ============================================================================
+   Archer — theme tokens
+   Single source of truth for all design tokens, shared by the app shell
+   (index.html → archer.css) and the pre-auth pages (login/register).
+
+   Primary tokens (surfaces, fg, borders, accent, severity, ioc, rows,
+   scrollbar) are defined per skin under :root[data-theme="..."]. The active
+   skin is set on <html data-theme="..."> before first paint (early inline
+   script in each template, seeded from localStorage 'archer.theme').
+
+   Severity semantics are uniform across every skin: low is a neutral (green
+   reads as "safe" on a finding row) and info is a neutral distinct from the
+   accent (so info findings don't share a colour with links/focus/buttons).
+============================================================================ */
+
+/* ── Theme-independent tokens ─────────────────────────────────────────────── */
+:root {
+  /* Radii */
+  --radius-sm:      3px;
+  --radius:         5px;
+  --radius-lg:      8px;
+
+  /* Shadows (dark-skin default; gh-light overrides these in its block) */
+  --shadow-sm:      0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md:      0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg:      0 16px 40px rgba(0, 0, 0, 0.6);
+
+  /* UI font (phosphor overrides to monospace in its block) */
+  --font-ui:        -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI",
+                    "Helvetica Neue", Arial, sans-serif;
+
+  /* ── Backwards-compatible aliases ───────────────────────────────────────
+     A handful of inline styles in templates and JS still reference the
+     legacy names; map them onto the primary tokens. Custom-property
+     substitution resolves at use time against the element's computed value,
+     so these automatically follow whichever data-theme is active — they are
+     defined once here, never per skin. */
+  --bg-dark:        var(--bg-base);
+  --bg-panel:       var(--bg-elev-1);
+  --bg-row-alt:     var(--bg-elev-1);
+  --bg-hover:       var(--row-hover);
+  --fg-text:        var(--fg-primary);
+  --fg-dim:         var(--fg-muted);
+  --fg-border:      var(--border);
+  --fg-sel:         var(--bg-elev-3);
+  --ioc-color:      var(--ioc);
+}
+
+/* ── cobalt — cool slate-blue (default) ───────────────────────────────────── */
+:root[data-theme="cobalt"] {
+  --bg-base:        #0a0e15;
+  --bg-elev-1:      #10161f;
+  --bg-elev-2:      #161e2a;
+  --bg-elev-3:      #1d2735;
+  --bg-input:       #0d121a;
+
+  --fg-primary:     #e6ecf2;
+  --fg-secondary:   #b3c0d0;
+  --fg-muted:       #8b9aae;
+  --fg-faint:       #5a6678;
+
+  --border-subtle:  rgba(148, 163, 184, 0.08);
+  --border:         rgba(148, 163, 184, 0.14);
+  --border-strong:  rgba(148, 163, 184, 0.24);
+
+  --accent:         #4f8cff;
+  --accent-hover:   #6ba1ff;
+  --accent-active:  #3b75e8;
+  --accent-soft:    rgba(79, 140, 255, 0.14);
+  --accent-glow:    rgba(79, 140, 255, 0.32);
+
+  --sev-critical:   #f43f5e;
+  --sev-high:       #f97316;
+  --sev-medium:     #eab308;
+  --sev-low:        #6d8aa0;
+  --sev-info:       #7d8ca0;
+  --ioc:            #c084fc;
+
+  --row-hover:      rgba(96, 165, 250, 0.05);
+  --row-selected:   rgba(79, 140, 255, 0.12);
+
+  --scrollbar-thumb:       rgba(148, 163, 184, 0.16);
+  --scrollbar-thumb-hover: rgba(148, 163, 184, 0.28);
+}
+
+/* ── phosphor — tactical phosphor (monospace UI) ──────────────────────────── */
+:root[data-theme="phosphor"] {
+  --bg-base:        #0a0d0c;
+  --bg-elev-1:      #0e1211;
+  --bg-elev-2:      #141a18;
+  --bg-elev-3:      #1b2320;
+  --bg-input:       #0b0f0e;
+
+  --fg-primary:     #d2d8d4;
+  --fg-secondary:   #a7b1ab;
+  --fg-muted:       #8a948e;
+  --fg-faint:       #5b665f;
+
+  --border-subtle:  rgba(150, 180, 165, 0.08);
+  --border:         rgba(150, 180, 165, 0.15);
+  --border-strong:  rgba(150, 180, 165, 0.26);
+
+  --accent:         #86d96a;
+  --accent-hover:   #9fe884;
+  --accent-active:  #6dc053;
+  --accent-soft:    rgba(134, 217, 106, 0.12);
+  --accent-glow:    rgba(134, 217, 106, 0.30);
+
+  --sev-critical:   #ff6b5e;
+  --sev-high:       #ffab47;
+  --sev-medium:     #eccf52;
+  --sev-low:        #7c8a84;
+  --sev-info:       #8a8f93;
+  --ioc:            #c9a0ff;
+
+  --row-hover:      rgba(134, 217, 106, 0.06);
+  --row-selected:   rgba(134, 217, 106, 0.12);
+
+  --scrollbar-thumb:       rgba(150, 180, 165, 0.16);
+  --scrollbar-thumb-hover: rgba(150, 180, 165, 0.30);
+
+  --font-ui:        ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+}
+
+/* ── gh-dark — GitHub dark dimmed ─────────────────────────────────────────── */
+:root[data-theme="gh-dark"] {
+  --bg-base:        #1c2128;
+  --bg-elev-1:      #22272e;
+  --bg-elev-2:      #2d333b;
+  --bg-elev-3:      #373e47;
+  --bg-input:       #1c2128;
+
+  --fg-primary:     #adbac7;
+  --fg-secondary:   #909dab;
+  --fg-muted:       #768390;
+  --fg-faint:       #545d68;
+
+  --border-subtle:  #373e47;
+  --border:         #444c56;
+  --border-strong:  #586069;
+
+  --accent:         #539bf5;
+  --accent-hover:   #6cb0ff;
+  --accent-active:  #3a86e6;
+  --accent-soft:    rgba(83, 155, 245, 0.12);
+  --accent-glow:    rgba(83, 155, 245, 0.28);
+
+  --sev-critical:   #e5534b;
+  --sev-high:       #cc6b2c;
+  --sev-medium:     #c69026;
+  --sev-low:        #768390;
+  --sev-info:       #687482;
+  --ioc:            #b083f0;
+
+  --row-hover:      rgba(83, 155, 245, 0.06);
+  --row-selected:   rgba(83, 155, 245, 0.12);
+
+  --scrollbar-thumb:       rgba(173, 186, 199, 0.18);
+  --scrollbar-thumb-hover: rgba(173, 186, 199, 0.32);
+}
+
+/* ── gh-light — GitHub light (low glare) ──────────────────────────────────── */
+:root[data-theme="gh-light"] {
+  --bg-base:        #f6f8fa;
+  --bg-elev-1:      #ffffff;
+  --bg-elev-2:      #ffffff;
+  --bg-elev-3:      #eaeef2;
+  --bg-input:       #ffffff;
+
+  --fg-primary:     #1f2328;
+  --fg-secondary:   #424a53;
+  --fg-muted:       #656d76;
+  --fg-faint:       #818b98;
+
+  --border-subtle:  #eaeef2;
+  --border:         #d1d9e0;
+  --border-strong:  #b7bfc7;
+
+  --accent:         #0969da;
+  --accent-hover:   #0860c7;
+  --accent-active:  #0757ba;
+  --accent-soft:    rgba(9, 105, 218, 0.10);
+  --accent-glow:    rgba(9, 105, 218, 0.20);
+
+  --sev-critical:   #cf222e;
+  --sev-high:       #bc4c00;
+  --sev-medium:     #9a6700;
+  --sev-low:        #57606a;
+  --sev-info:       #6e7781;
+  --ioc:            #8250df;
+
+  --row-hover:      rgba(9, 105, 218, 0.05);
+  --row-selected:   rgba(9, 105, 218, 0.10);
+
+  --scrollbar-thumb:       rgba(31, 35, 40, 0.18);
+  --scrollbar-thumb-hover: rgba(31, 35, 40, 0.32);
+
+  /* Light surfaces need much lighter shadows than the dark default. */
+  --shadow-sm:      0 1px 0 rgba(31, 35, 40, 0.04);
+  --shadow-md:      0 3px 6px rgba(31, 35, 40, 0.10);
+  --shadow-lg:      0 8px 24px rgba(31, 35, 40, 0.14);
+}
+
+/* ── blackout — true black / OLED ─────────────────────────────────────────── */
+:root[data-theme="blackout"] {
+  --bg-base:        #000000;
+  --bg-elev-1:      #0a0a0c;
+  --bg-elev-2:      #121214;
+  --bg-elev-3:      #1b1b1e;
+  --bg-input:       #050506;
+
+  --fg-primary:     #f2f3f5;
+  --fg-secondary:   #c2c6cc;
+  --fg-muted:       #8c9099;
+  --fg-faint:       #5a5e66;
+
+  --border-subtle:  rgba(255, 255, 255, 0.06);
+  --border:         rgba(255, 255, 255, 0.12);
+  --border-strong:  rgba(255, 255, 255, 0.20);
+
+  --accent:         #5b93ff;
+  --accent-hover:   #79a8ff;
+  --accent-active:  #4a82f0;
+  --accent-soft:    rgba(91, 147, 255, 0.14);
+  --accent-glow:    rgba(91, 147, 255, 0.30);
+
+  --sev-critical:   #ff5470;
+  --sev-high:       #ff8a3d;
+  --sev-medium:     #ffd23f;
+  --sev-low:        #6d8aa0;
+  --sev-info:       #7d8ca0;
+  --ioc:            #c084fc;
+
+  --row-hover:      rgba(255, 255, 255, 0.04);
+  --row-selected:   rgba(91, 147, 255, 0.12);
+
+  --scrollbar-thumb:       rgba(255, 255, 255, 0.14);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.26);
+}

@@ -266,7 +266,8 @@ archer/
     │   ├── login.html          # Standalone sign-in page
     │   └── register.html       # Standalone first-user / new-user registration page
     └── static/
-        ├── css/archer.css
+        ├── css/themes.css      # Per-skin design tokens (:root[data-theme])
+        ├── css/archer.css      # Component styles (consume the tokens)
         └── js/
             ├── app.js          # Main application state machine
             ├── sse.js          # SSE client with auto-reconnect
@@ -1061,6 +1062,7 @@ Opened with the gear button in the header. Contains:
 - **Disk Usage** — auto-refreshing block (5-minute server-side cache via `/api/disk-usage`) showing per-sensor `/logs/<name>/` byte totals under a **Logs** section, the `/data/archive` total under an **Archive** section, and the free-space remaining on each volume. A red banner pins to the top of the page when any tracked volume drops below 10% free.
 - **Detector Health** — block (via `/api/detector-activity`, refreshed each time Settings opens) listing new-detection counts per type for the last 7 days, the prior 7, and all-time. A detector that fired last week and is silent this week is highlighted and sorted to the top, with a one-line warning naming how many went quiet — a capture-side regression caught before the missing findings would otherwise be noticed.
 - **Danger Zone** — **Discard findings & re-analyze** button that clears every finding in the database and runs a fresh analysis. Useful for clean re-baselines after threshold changes. Destructive — analyst notes and statuses on existing findings are lost; confirmation required.
+- **Appearance** — picks the workbench color skin: **Cobalt slate** (default), **Tactical phosphor** (monospace, green accent), **GitHub dark** (dimmed), **GitHub light** (low-glare), **Blackout** (true-black / OLED). The choice is per-browser (localStorage `archer.theme`), applies instantly with no save or reload, and is applied before first paint so there's no flash of the default; it's also honored on the login/register pages. Skins are defined as design tokens in `web/static/css/themes.css`; the graph and beacon charts read the active skin's tokens so canvas colors track the theme too.
 
 ### New-Findings Alert
 

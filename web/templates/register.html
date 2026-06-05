@@ -1,21 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="cobalt">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Archer — Register</title>
+  <script>
+    document.documentElement.setAttribute(
+      'data-theme', localStorage.getItem('archer.theme') || 'cobalt');
+  </script>
   <link rel="icon" type="image/svg+xml" href="/static/img/favicon.svg">
+  <link rel="stylesheet" href="/static/css/themes.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       background:
-        radial-gradient(circle at 15% 0%, rgba(79, 140, 255, 0.06), transparent 50%),
-        radial-gradient(circle at 85% 100%, rgba(79, 140, 255, 0.04), transparent 55%),
-        #0a0e15;
-      color: #e6ecf2;
-      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI",
-                   "Helvetica Neue", Arial, sans-serif;
+        radial-gradient(circle at 15% 0%, var(--accent-soft), transparent 50%),
+        radial-gradient(circle at 85% 100%, var(--accent-soft), transparent 55%),
+        var(--bg-base);
+      color: var(--fg-primary);
+      font-family: var(--font-ui);
       font-size: 13px;
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
@@ -26,13 +30,13 @@
     }
 
     .card {
-      background: #10161f;
-      border: 1px solid rgba(148, 163, 184, 0.14);
+      background: var(--bg-elev-1);
+      border: 1px solid var(--border);
       border-radius: 10px;
       padding: 44px 40px 36px;
       width: 100%;
       max-width: 420px;
-      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+      box-shadow: var(--shadow-lg);
     }
 
     .brand {
@@ -46,20 +50,20 @@
       width: 44px;
       height: 44px;
       border-radius: 10px;
-      background: rgba(79, 140, 255, 0.08);
-      border: 1px solid rgba(79, 140, 255, 0.24);
-      color: #4f8cff;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-glow);
+      color: var(--accent);
       margin-bottom: 14px;
     }
     .brand-name {
       font-size: 18px;
       font-weight: 600;
-      color: #e6ecf2;
+      color: var(--fg-primary);
       letter-spacing: 0.18em;
     }
     .brand-sub {
       font-size: 10px;
-      color: #6b7a8e;
+      color: var(--fg-muted);
       margin-top: 6px;
       letter-spacing: 0.22em;
       text-transform: uppercase;
@@ -76,7 +80,7 @@
     label {
       display: block;
       font-size: 10px;
-      color: #a3b1c2;
+      color: var(--fg-secondary);
       margin-bottom: 6px;
       text-transform: uppercase;
       letter-spacing: 0.1em;
@@ -84,7 +88,7 @@
     }
     .label-hint {
       font-size: 10px;
-      color: #6b7a8e;
+      color: var(--fg-muted);
       font-style: italic;
       text-transform: none;
       letter-spacing: 0;
@@ -94,10 +98,10 @@
     input[type="email"],
     input[type="password"] {
       width: 100%;
-      background: #0d121a;
-      border: 1px solid rgba(148, 163, 184, 0.14);
+      background: var(--bg-input);
+      border: 1px solid var(--border);
       border-radius: 5px;
-      color: #e6ecf2;
+      color: var(--fg-primary);
       font-size: 13px;
       padding: 10px 12px;
       outline: none;
@@ -105,16 +109,16 @@
       font-family: inherit;
     }
     input:focus {
-      border-color: #4f8cff;
-      box-shadow: 0 0 0 2px rgba(79, 140, 255, 0.16);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-soft);
     }
-    input::placeholder { color: #6b7a8e; opacity: 1; }
+    input::placeholder { color: var(--fg-muted); opacity: 1; }
 
     .error {
       background: rgba(244, 63, 94, 0.08);
       border: 1px solid rgba(244, 63, 94, 0.32);
       border-radius: 5px;
-      color: #fb7185;
+      color: var(--sev-critical);
       font-size: 12px;
       padding: 10px 14px;
       margin-bottom: 18px;
@@ -123,7 +127,7 @@
 
     .btn {
       width: 100%;
-      background: #4f8cff;
+      background: var(--accent);
       border: 1px solid transparent;
       border-radius: 5px;
       color: #fff;
@@ -136,31 +140,31 @@
       font-family: inherit;
       margin-top: 6px;
     }
-    .btn:hover { background: #6ba1ff; }
-    .btn:active { background: #3b75e8; }
+    .btn:hover { background: var(--accent-hover); }
+    .btn:active { background: var(--accent-active); }
 
     .footer {
       text-align: center;
       margin-top: 24px;
       padding-top: 18px;
-      border-top: 1px solid rgba(148, 163, 184, 0.08);
+      border-top: 1px solid var(--border-subtle);
       font-size: 12px;
-      color: #6b7a8e;
+      color: var(--fg-muted);
     }
-    .footer a { color: #4f8cff; text-decoration: none; font-weight: 500; }
-    .footer a:hover { color: #6ba1ff; text-decoration: underline; }
+    .footer a { color: var(--accent); text-decoration: none; font-weight: 500; }
+    .footer a:hover { color: var(--accent-hover); text-decoration: underline; }
 
     .pending {
       background: rgba(34, 197, 94, 0.06);
       border: 1px solid rgba(34, 197, 94, 0.30);
       border-radius: 5px;
-      color: #86efac;
+      color: var(--fg-secondary);
       font-size: 12px;
       line-height: 1.55;
       padding: 14px 16px;
       margin-bottom: 18px;
     }
-    .pending strong { color: #e6ecf2; display: block; margin-bottom: 6px; font-weight: 600; }
+    .pending strong { color: var(--fg-primary); display: block; margin-bottom: 6px; font-weight: 600; }
   </style>
 </head>
 <body>

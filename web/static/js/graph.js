@@ -105,56 +105,68 @@ const Graph = (() => {
     };
   }
 
-  // Style array — read by cytoscape on init. Matches the slate + cobalt theme;
-  // severity-coloured nodes/edges so analysts can spot critical infrastructure
-  // at a glance without expanding labels.
-  const STYLE = [
-    {
-      selector: 'node',
-      style: {
-        'background-color': '#4f8cff',
-        'label': 'data(label)',
-        'color': '#e6ecf2',
-        'font-size': '10px',
-        'font-family': 'ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace',
-        'text-valign': 'bottom',
-        'text-halign': 'center',
-        'text-margin-y': 4,
-        'text-background-color': '#0a0e15',
-        'text-background-opacity': 0.7,
-        'text-background-padding': '2px',
-        'text-background-shape': 'roundrectangle',
-        'border-width': 1,
-        'border-color': '#3a4555',
-        'width': 'mapData(count, 1, 50, 22, 60)',
-        'height': 'mapData(count, 1, 50, 22, 60)',
+  // Resolve a theme token to its computed value. Cytoscape paints to a canvas,
+  // which can't read CSS vars, so the style array is built from live token
+  // values each render and re-applied on archer:themechange.
+  function _tok(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  // Style array — built from the active skin's tokens. Severity-coloured
+  // nodes/edges so analysts can spot critical infrastructure at a glance
+  // without expanding labels.
+  function _buildStyle() {
+    const crit = _tok('--sev-critical'), high = _tok('--sev-high'),
+          med = _tok('--sev-medium'), low = _tok('--sev-low'),
+          accent = _tok('--accent');
+    return [
+      {
+        selector: 'node',
+        style: {
+          'background-color': accent,
+          'label': 'data(label)',
+          'color': _tok('--fg-primary'),
+          'font-size': '10px',
+          'font-family': 'ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace',
+          'text-valign': 'bottom',
+          'text-halign': 'center',
+          'text-margin-y': 4,
+          'text-background-color': _tok('--bg-base'),
+          'text-background-opacity': 0.7,
+          'text-background-padding': '2px',
+          'text-background-shape': 'roundrectangle',
+          'border-width': 1,
+          'border-color': _tok('--border-strong'),
+          'width': 'mapData(count, 1, 50, 22, 60)',
+          'height': 'mapData(count, 1, 50, 22, 60)',
+        },
       },
-    },
-    { selector: 'node[severity="CRITICAL"]', style: { 'background-color': '#f43f5e' } },
-    { selector: 'node[severity="HIGH"]',     style: { 'background-color': '#f97316' } },
-    { selector: 'node[severity="MEDIUM"]',   style: { 'background-color': '#eab308' } },
-    { selector: 'node[severity="LOW"]',      style: { 'background-color': '#22c55e' } },
-    { selector: 'node:selected', style: {
-      'border-color': '#6ba1ff',
-      'border-width': 3,
-    }},
-    {
-      selector: 'edge',
-      style: {
-        'width': 'data(weight)',
-        'line-color': '#5a6678',
-        'target-arrow-color': '#5a6678',
-        'target-arrow-shape': 'triangle',
-        'curve-style': 'bezier',
-        'opacity': 0.6,
-        'arrow-scale': 0.8,
+      { selector: 'node[severity="CRITICAL"]', style: { 'background-color': crit } },
+      { selector: 'node[severity="HIGH"]',     style: { 'background-color': high } },
+      { selector: 'node[severity="MEDIUM"]',   style: { 'background-color': med } },
+      { selector: 'node[severity="LOW"]',      style: { 'background-color': low } },
+      { selector: 'node:selected', style: {
+        'border-color': _tok('--accent-hover'),
+        'border-width': 3,
+      }},
+      {
+        selector: 'edge',
+        style: {
+          'width': 'data(weight)',
+          'line-color': _tok('--fg-faint'),
+          'target-arrow-color': _tok('--fg-faint'),
+          'target-arrow-shape': 'triangle',
+          'curve-style': 'bezier',
+          'opacity': 0.6,
+          'arrow-scale': 0.8,
+        },
       },
-    },
-    { selector: 'edge[severity="CRITICAL"]', style: { 'line-color': '#f43f5e', 'target-arrow-color': '#f43f5e', 'opacity': 0.85 } },
-    { selector: 'edge[severity="HIGH"]',     style: { 'line-color': '#f97316', 'target-arrow-color': '#f97316', 'opacity': 0.8 } },
-    { selector: 'edge[severity="MEDIUM"]',   style: { 'line-color': '#eab308', 'target-arrow-color': '#eab308', 'opacity': 0.75 } },
-    { selector: 'edge:selected', style: { 'line-color': '#4f8cff', 'target-arrow-color': '#4f8cff', 'opacity': 1, 'width': 4 } },
-  ];
+      { selector: 'edge[severity="CRITICAL"]', style: { 'line-color': crit, 'target-arrow-color': crit, 'opacity': 0.85 } },
+      { selector: 'edge[severity="HIGH"]',     style: { 'line-color': high, 'target-arrow-color': high, 'opacity': 0.8 } },
+      { selector: 'edge[severity="MEDIUM"]',   style: { 'line-color': med, 'target-arrow-color': med, 'opacity': 0.75 } },
+      { selector: 'edge:selected', style: { 'line-color': accent, 'target-arrow-color': accent, 'opacity': 1, 'width': 4 } },
+    ];
+  }
 
   // Cytoscape's bundled `cose` layout produces decent force-directed results
   // with no extra dependencies. animate:false avoids a layout animation that
@@ -176,7 +188,7 @@ const Graph = (() => {
     _cy = window.cytoscape({
       container,
       elements: [...elements.nodes, ...elements.edges],
-      style: STYLE,
+      style: _buildStyle(),
       layout: LAYOUT,
       wheelSensitivity: 0.2,
       minZoom: 0.1,
@@ -238,6 +250,10 @@ const Graph = (() => {
     const relayoutBtn = document.getElementById('graph-relayout');
     if (relayoutBtn) relayoutBtn.addEventListener('click', () => {
       if (_cy) _cy.layout(LAYOUT).run();
+    });
+    // Re-skin a live graph without relayout if the theme changes while open.
+    window.addEventListener('archer:themechange', () => {
+      if (_cy) _cy.style(_buildStyle());
     });
   }
 
