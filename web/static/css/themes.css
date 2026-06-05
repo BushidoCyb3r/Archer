@@ -20,7 +20,7 @@
   --radius:         5px;
   --radius-lg:      8px;
 
-  /* Shadows (dark-skin default; gh-light overrides these in its block) */
+  /* Shadows (dark-skin default; the light skin overrides these in its block) */
   --shadow-sm:      0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md:      0 4px 12px rgba(0, 0, 0, 0.5);
   --shadow-lg:      0 16px 40px rgba(0, 0, 0, 0.6);
@@ -159,46 +159,50 @@
   --scrollbar-thumb-hover: rgba(173, 186, 199, 0.32);
 }
 
-/* ── gh-light — GitHub light (low glare) ──────────────────────────────────── */
-:root[data-theme="gh-light"] {
-  --bg-base:        #f6f8fa;
-  --bg-elev-1:      #ffffff;
+/* ── boardroom — corporate light, low glare ───────────────────────────────────
+   For stakeholder / shareholder reporting: a soft neutral-gray canvas (not
+   stark white) with white cards, a restrained corporate navy accent, and a
+   muted severity ramp so a screenshot in a deck reads as a report rather than
+   a neon dashboard. */
+:root[data-theme="boardroom"] {
+  --bg-base:        #e8eaed;
+  --bg-elev-1:      #f6f7f9;
   --bg-elev-2:      #ffffff;
-  --bg-elev-3:      #eaeef2;
+  --bg-elev-3:      #dde0e4;
   --bg-input:       #ffffff;
 
-  --fg-primary:     #1f2328;
-  --fg-secondary:   #424a53;
-  --fg-muted:       #656d76;
-  --fg-faint:       #818b98;
+  --fg-primary:     #1c2530;
+  --fg-secondary:   #3d4754;
+  --fg-muted:       #626c78;
+  --fg-faint:       #8a929c;
 
-  --border-subtle:  #eaeef2;
-  --border:         #d1d9e0;
-  --border-strong:  #b7bfc7;
+  --border-subtle:  #e2e5e9;
+  --border:         #cdd2d8;
+  --border-strong:  #aeb5bd;
 
-  --accent:         #0969da;
-  --accent-hover:   #0860c7;
-  --accent-active:  #0757ba;
-  --accent-soft:    rgba(9, 105, 218, 0.10);
-  --accent-glow:    rgba(9, 105, 218, 0.20);
+  --accent:         #2c5282;
+  --accent-hover:   #34629a;
+  --accent-active:  #21426b;
+  --accent-soft:    rgba(44, 82, 130, 0.10);
+  --accent-glow:    rgba(44, 82, 130, 0.20);
 
-  --sev-critical:   #cf222e;
-  --sev-high:       #bc4c00;
-  --sev-medium:     #9a6700;
-  --sev-low:        #57606a;
-  --sev-info:       #6e7781;
-  --ioc:            #8250df;
+  --sev-critical:   #b3261e;
+  --sev-high:       #b86e00;
+  --sev-medium:     #8a6d00;
+  --sev-low:        #5a6675;
+  --sev-info:       #6b7480;
+  --ioc:            #6b4fa3;
 
-  --row-hover:      rgba(9, 105, 218, 0.05);
-  --row-selected:   rgba(9, 105, 218, 0.10);
+  --row-hover:      rgba(44, 82, 130, 0.05);
+  --row-selected:   rgba(44, 82, 130, 0.10);
 
-  --scrollbar-thumb:       rgba(31, 35, 40, 0.18);
-  --scrollbar-thumb-hover: rgba(31, 35, 40, 0.32);
+  --scrollbar-thumb:       rgba(28, 37, 48, 0.18);
+  --scrollbar-thumb-hover: rgba(28, 37, 48, 0.32);
 
-  /* Light surfaces need much lighter shadows than the dark default. */
-  --shadow-sm:      0 1px 0 rgba(31, 35, 40, 0.04);
-  --shadow-md:      0 3px 6px rgba(31, 35, 40, 0.10);
-  --shadow-lg:      0 8px 24px rgba(31, 35, 40, 0.14);
+  /* Soft, restrained shadows for a clean report look on light surfaces. */
+  --shadow-sm:      0 1px 0 rgba(28, 37, 48, 0.04);
+  --shadow-md:      0 2px 6px rgba(28, 37, 48, 0.08);
+  --shadow-lg:      0 8px 24px rgba(28, 37, 48, 0.12);
 }
 
 /* ── blackout — true black / OLED ─────────────────────────────────────────── */

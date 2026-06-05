@@ -34,8 +34,9 @@ relevant, `### Detection changes` in each release entry.
 
 - **Selectable UI skins** — a new Settings → Appearance tab picks the color
   theme for the workbench: **Cobalt slate** (the existing default), **Tactical
-  phosphor** (monospace, green accent), **GitHub dark** (dimmed), **GitHub
-  light** (low-glare), and **Blackout** (true-black / OLED). The choice is
+  phosphor** (monospace, green accent), **GitHub dark** (dimmed), **Boardroom**
+  (corporate light — soft gray canvas, navy accent, muted severity ramp for
+  stakeholder reporting), and **Blackout** (true-black / OLED). The choice is
   per-browser (localStorage `archer.theme`), applies instantly with no save or
   reload, is honored on the login/register pages, and is applied before first
   paint so there's no flash of the default. All design tokens moved to a shared

@@ -3337,10 +3337,13 @@
     window.dispatchEvent(new CustomEvent('archer:themechange', { detail: { theme: name } }));
   }
 
+  const _THEMES = ['cobalt', 'phosphor', 'gh-dark', 'boardroom', 'blackout'];
+
   function initTheme() {
     const sel = document.getElementById('cfg-theme');
     if (!sel) return;
-    sel.value = localStorage.getItem('archer.theme') || 'cobalt';
+    const saved = localStorage.getItem('archer.theme');
+    sel.value = _THEMES.includes(saved) ? saved : 'cobalt';
     sel.addEventListener('change', () => {
       localStorage.setItem('archer.theme', sel.value);
       applyTheme(sel.value);
