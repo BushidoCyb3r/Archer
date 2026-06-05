@@ -765,7 +765,7 @@ button, input, select, textarea {
 .query-input-wrap {
   position: relative;
   display: flex;
-  flex: 0 1 1100px;
+  flex: 0 1 990px;
   min-width: 0;
 }
 .query-input {

@@ -52,7 +52,7 @@ relevant, `### Detection changes` in each release entry.
   token (so light-accent skins don't render white text on yellow/green) and the
   same neutral-low/info severity rule. UI-only.
 - **Query-bar quality-of-life** — a wider query field (the cap grows from 746px
-  to 1100px so longer expressions stay on one line on a normal monitor) and a
+  to 990px so longer expressions stay on one line on a normal monitor) and a
   **▾** caret at the field's left edge that reopens any of the last 10 distinct
   queries you ran.
   History is per-browser (localStorage), most-recent-first, deduplicated, and
