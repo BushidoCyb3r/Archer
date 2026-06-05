@@ -48,7 +48,7 @@ relevant, `### Detection changes` in each release entry.
   Plus a **Just for fun** set of novelty skins — **Bikini Bottom** (SpongeBob
   yellow, Comic Sans), **Vaporwave**, **Hot Dog Stand** (Win 3.1), **Hollywood
   Hacker** (green-on-black monospace), **Hunter Pink** (Barbiecore), and **Nyan
-  Cat** (with a static rainbow watermark) — kept legible by a new `--on-accent`
+  Cat** (with an animated, window-fitting nyan gif background) — kept legible by a new `--on-accent`
   token (so light-accent skins don't render white text on yellow/green) and the
   same neutral-low/info severity rule. UI-only.
 - **Query-bar quality-of-life** — a wider query field (the cap grows from 746px

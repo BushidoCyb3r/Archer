@@ -495,18 +495,19 @@
   --scrollbar-thumb-hover: rgba(150, 170, 255, 0.40);
 }
 
-/* Nyan Cat watermark — a single static (never-animated) nyan cat. Rendered as
-   a faint, fixed, click-through overlay so it reads over the opaque panels;
-   <dialog> modals (top layer) still sit above it. */
+/* Nyan Cat — the animated gif as a fixed, window-fitting, click-through
+   background wash. position:fixed pins it (no scroll drift); background-size:
+   contain fits the whole frame to the window without cropping; pointer-events
+   stays off so it never blocks clicks; <dialog> modals (top layer) sit above. */
 :root[data-theme="nyancat"] body::after {
   content: "";
   position: fixed;
   inset: 0;
   z-index: 100;
   pointer-events: none;
-  background-image: url("/static/img/nyan.svg");
+  background-image: url("/static/img/nyan-cat.gif");
   background-repeat: no-repeat;
   background-position: center;
-  background-size: min(680px, 80vw) auto;
-  opacity: 0.18;
+  background-size: contain;
+  opacity: 0.2;
 }
