@@ -1819,6 +1819,11 @@ dialog::backdrop {
 .dlg-body {
   padding: 16px 22px;
   overflow: auto;
+  /* Dialog base font. The labeled controls (.dlg-input 15px, label 14px, tabs
+     12px, buttons 14px) set their own sizes; this brings the loose prose and
+     description text down from the 17px body base so they don't tower over the
+     controls. */
+  font-size: 14px;
   /* `flex: 1 1 auto` + `min-height: 0` is the canonical Safari fix
      for a flex column's overflow:auto child collapsing or squashing
      the parent. The shorthand `flex: 1` resolves to `flex: 1 1 0%`
