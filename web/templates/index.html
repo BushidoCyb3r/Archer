@@ -5,16 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Archer — Silent Hunter</title>
 <script>
-  // Apply the saved skin before first paint to avoid a flash of the default
-  // theme. The picker lives in Settings → Appearance (app.js); it persists to
-  // localStorage 'archer.theme'. CSP is frame-ancestors only, so no nonce.
-  // Validate against the known set so a stale/removed value falls back to
-  // cobalt rather than rendering with no tokens.
-  (function () {
-    var ok = ['cobalt', 'phosphor', 'gh-dark', 'boardroom', 'blackout'];
-    var t = localStorage.getItem('archer.theme');
-    document.documentElement.setAttribute('data-theme', ok.indexOf(t) >= 0 ? t : 'cobalt');
-  })();
+  // Apply the saved skin before first paint to avoid a flash of the default.
+  // Unknown/missing values fall back to the base :root (cobalt) via CSS, so no
+  // allowlist is needed here. Picker: Settings → Appearance (app.js); persisted
+  // to localStorage 'archer.theme'. CSP is frame-ancestors only, so no nonce.
+  document.documentElement.setAttribute(
+    'data-theme', localStorage.getItem('archer.theme') || 'cobalt');
 </script>
 <link rel="icon" type="image/svg+xml" href="/static/img/favicon.svg">
 <link rel="stylesheet" href="/static/css/themes.css">
@@ -1459,6 +1455,15 @@
             <option value="gh-dark">GitHub dark</option>
             <option value="boardroom">Boardroom (light)</option>
             <option value="blackout">Blackout (OLED)</option>
+            <optgroup label="Just for fun">
+              <option value="spongebob">Bikini Bottom (SpongeBob)</option>
+              <option value="vaporwave">Vaporwave</option>
+              <option value="hotdog">Hot Dog Stand</option>
+              <option value="hollywood">Hollywood Hacker</option>
+              <option value="hunterpink">Hunter Pink (Barbiecore)</option>
+              <option value="battlestations">Battle Stations</option>
+              <option value="nyancat">Nyan Cat</option>
+            </optgroup>
           </select>
         </label>
       </div>

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 320" fill="none">
+  <!-- rainbow trail -->
+  <rect x="10" y="120" width="300" height="20" fill="#ff1a1a"/>
+  <rect x="10" y="140" width="300" height="20" fill="#ff9933"/>
+  <rect x="10" y="160" width="300" height="20" fill="#ffee33"/>
+  <rect x="10" y="180" width="300" height="20" fill="#33dd33"/>
+  <rect x="10" y="200" width="300" height="20" fill="#3399ff"/>
+  <rect x="10" y="220" width="300" height="20" fill="#9955ff"/>
+  <!-- tail -->
+  <rect x="286" y="150" width="28" height="16" rx="8" fill="#8f8f8f" transform="rotate(-20 300 158)"/>
+  <!-- pop-tart body -->
+  <rect x="300" y="118" width="150" height="124" rx="16" fill="#ffc1d8" stroke="#d98aa6" stroke-width="6"/>
+  <circle cx="335" cy="150" r="5" fill="#5ad1ff"/>
+  <circle cx="380" cy="140" r="5" fill="#ff66cc"/>
+  <circle cx="415" cy="165" r="5" fill="#5ad1ff"/>
+  <circle cx="355" cy="190" r="5" fill="#ff66cc"/>
+  <circle cx="400" cy="210" r="5" fill="#5ad1ff"/>
+  <circle cx="340" cy="220" r="5" fill="#ff66cc"/>
+  <!-- legs -->
+  <rect x="318" y="240" width="20" height="26" rx="8" fill="#8f8f8f"/>
+  <rect x="360" y="244" width="20" height="26" rx="8" fill="#8f8f8f"/>
+  <rect x="408" y="244" width="20" height="26" rx="8" fill="#8f8f8f"/>
+  <!-- cat head -->
+  <ellipse cx="510" cy="180" rx="62" ry="56" fill="#a0a0a0"/>
+  <path d="M468 138 L478 108 L500 132 Z" fill="#8f8f8f"/>
+  <path d="M552 138 L542 108 L520 132 Z" fill="#8f8f8f"/>
+  <ellipse cx="492" cy="176" rx="9" ry="12" fill="#2b2b2b"/>
+  <ellipse cx="528" cy="176" rx="9" ry="12" fill="#2b2b2b"/>
+  <circle cx="495" cy="171" r="3" fill="#ffffff"/>
+  <circle cx="531" cy="171" r="3" fill="#ffffff"/>
+  <circle cx="478" cy="198" r="9" fill="#ff9bbf"/>
+  <circle cx="542" cy="198" r="9" fill="#ff9bbf"/>
+  <path d="M500 196 q10 8 20 0" stroke="#2b2b2b" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <line x1="510" y1="189" x2="510" y2="198" stroke="#2b2b2b" stroke-width="3"/>
+</svg>

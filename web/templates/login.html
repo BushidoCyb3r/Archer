@@ -5,11 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Archer — Sign In</title>
   <script>
-    (function () {
-      var ok = ['cobalt', 'phosphor', 'gh-dark', 'boardroom', 'blackout'];
-      var t = localStorage.getItem('archer.theme');
-      document.documentElement.setAttribute('data-theme', ok.indexOf(t) >= 0 ? t : 'cobalt');
-    })();
+    document.documentElement.setAttribute(
+      'data-theme', localStorage.getItem('archer.theme') || 'cobalt');
   </script>
   <link rel="icon" type="image/svg+xml" href="/static/img/favicon.svg">
   <link rel="stylesheet" href="/static/css/themes.css">

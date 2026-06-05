@@ -3,38 +3,81 @@
    Single source of truth for all design tokens, shared by the app shell
    (index.html → archer.css) and the pre-auth pages (login/register).
 
-   Primary tokens (surfaces, fg, borders, accent, severity, ioc, rows,
-   scrollbar) are defined per skin under :root[data-theme="..."]. The active
-   skin is set on <html data-theme="..."> before first paint (early inline
-   script in each template, seeded from localStorage 'archer.theme').
+   The DEFAULT skin (cobalt) lives on the base :root, so any unknown or missing
+   data-theme value harmlessly falls back to it — no allowlist needed in the
+   early-paint scripts. Every other skin is a :root[data-theme="..."] override.
+   The active skin is set on <html data-theme="..."> before first paint (early
+   inline script in each template, seeded from localStorage 'archer.theme').
 
    Severity semantics are uniform across every skin: low is a neutral (green
    reads as "safe" on a finding row) and info is a neutral distinct from the
    accent (so info findings don't share a colour with links/focus/buttons).
+   --on-accent is the text colour for solid-accent surfaces (buttons, active
+   tabs); it's white by default and darkened in skins whose accent is light.
 ============================================================================ */
 
-/* ── Theme-independent tokens ─────────────────────────────────────────────── */
+/* ── Base / default skin: cobalt — cool slate-blue ────────────────────────── */
 :root {
-  /* Radii */
+  /* Surfaces (deepest → shallowest) */
+  --bg-base:        #0a0e15;
+  --bg-elev-1:      #10161f;
+  --bg-elev-2:      #161e2a;
+  --bg-elev-3:      #1d2735;
+  --bg-input:       #0d121a;
+
+  /* Foreground */
+  --fg-primary:     #e6ecf2;
+  --fg-secondary:   #b3c0d0;
+  --fg-muted:       #8b9aae;
+  --fg-faint:       #5a6678;
+
+  /* Borders / dividers */
+  --border-subtle:  rgba(148, 163, 184, 0.11);
+  --border:         rgba(148, 163, 184, 0.18);
+  --border-strong:  rgba(148, 163, 184, 0.24);
+
+  /* Accent */
+  --accent:         #4f8cff;
+  --accent-hover:   #6ba1ff;
+  --accent-active:  #3b75e8;
+  --accent-soft:    rgba(79, 140, 255, 0.14);
+  --accent-glow:    rgba(79, 140, 255, 0.32);
+  --on-accent:      #ffffff;
+
+  /* Severity */
+  --sev-critical:   #f43f5e;
+  --sev-high:       #f97316;
+  --sev-medium:     #eab308;
+  --sev-low:        #6d8aa0;
+  --sev-info:       #7d8ca0;
+  --ioc:            #c084fc;
+
+  /* Row interaction */
+  --row-hover:      rgba(96, 165, 250, 0.05);
+  --row-selected:   rgba(79, 140, 255, 0.12);
+
+  /* Scrollbar */
+  --scrollbar-thumb:       rgba(148, 163, 184, 0.16);
+  --scrollbar-thumb-hover: rgba(148, 163, 184, 0.28);
+
+  /* Radii (theme-independent) */
   --radius-sm:      3px;
   --radius:         5px;
   --radius-lg:      8px;
 
-  /* Shadows (dark-skin default; the light skin overrides these in its block) */
+  /* Shadows (dark-skin default; light skins override these in their block) */
   --shadow-sm:      0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md:      0 4px 12px rgba(0, 0, 0, 0.5);
   --shadow-lg:      0 16px 40px rgba(0, 0, 0, 0.6);
 
-  /* UI font (phosphor overrides to monospace in its block) */
+  /* UI font (phosphor / hollywood / spongebob override this) */
   --font-ui:        -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI",
                     "Helvetica Neue", Arial, sans-serif;
 
   /* ── Backwards-compatible aliases ───────────────────────────────────────
-     A handful of inline styles in templates and JS still reference the
-     legacy names; map them onto the primary tokens. Custom-property
-     substitution resolves at use time against the element's computed value,
-     so these automatically follow whichever data-theme is active — they are
-     defined once here, never per skin. */
+     Some inline styles in templates/JS still reference the legacy names; map
+     them onto the primary tokens. Custom-property substitution resolves at use
+     time, so they follow whichever data-theme is active — defined once here. */
   --bg-dark:        var(--bg-base);
   --bg-panel:       var(--bg-elev-1);
   --bg-row-alt:     var(--bg-elev-1);
@@ -44,43 +87,6 @@
   --fg-border:      var(--border);
   --fg-sel:         var(--bg-elev-3);
   --ioc-color:      var(--ioc);
-}
-
-/* ── cobalt — cool slate-blue (default) ───────────────────────────────────── */
-:root[data-theme="cobalt"] {
-  --bg-base:        #0a0e15;
-  --bg-elev-1:      #10161f;
-  --bg-elev-2:      #161e2a;
-  --bg-elev-3:      #1d2735;
-  --bg-input:       #0d121a;
-
-  --fg-primary:     #e6ecf2;
-  --fg-secondary:   #b3c0d0;
-  --fg-muted:       #8b9aae;
-  --fg-faint:       #5a6678;
-
-  --border-subtle:  rgba(148, 163, 184, 0.11);
-  --border:         rgba(148, 163, 184, 0.18);
-  --border-strong:  rgba(148, 163, 184, 0.24);
-
-  --accent:         #4f8cff;
-  --accent-hover:   #6ba1ff;
-  --accent-active:  #3b75e8;
-  --accent-soft:    rgba(79, 140, 255, 0.14);
-  --accent-glow:    rgba(79, 140, 255, 0.32);
-
-  --sev-critical:   #f43f5e;
-  --sev-high:       #f97316;
-  --sev-medium:     #eab308;
-  --sev-low:        #6d8aa0;
-  --sev-info:       #7d8ca0;
-  --ioc:            #c084fc;
-
-  --row-hover:      rgba(96, 165, 250, 0.05);
-  --row-selected:   rgba(79, 140, 255, 0.12);
-
-  --scrollbar-thumb:       rgba(148, 163, 184, 0.16);
-  --scrollbar-thumb-hover: rgba(148, 163, 184, 0.28);
 }
 
 /* ── phosphor — tactical phosphor (monospace UI) ──────────────────────────── */
@@ -199,7 +205,6 @@
   --scrollbar-thumb:       rgba(28, 37, 48, 0.18);
   --scrollbar-thumb-hover: rgba(28, 37, 48, 0.32);
 
-  /* Soft, restrained shadows for a clean report look on light surfaces. */
   --shadow-sm:      0 1px 0 rgba(28, 37, 48, 0.04);
   --shadow-md:      0 2px 6px rgba(28, 37, 48, 0.08);
   --shadow-lg:      0 8px 24px rgba(28, 37, 48, 0.12);
@@ -240,4 +245,304 @@
 
   --scrollbar-thumb:       rgba(255, 255, 255, 0.14);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.26);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Novelty skins — loud on purpose. CRITICAL/HIGH are kept legible and low/info
+   stay neutral so triage survives the chaos.
+════════════════════════════════════════════════════════════════════════════ */
+
+/* ── spongebob — Bikini Bottom (full sponge-yellow, Comic Sans) ───────────── */
+:root[data-theme="spongebob"] {
+  --bg-base:        #f4d935;
+  --bg-elev-1:      #f8e25c;
+  --bg-elev-2:      #fbec8a;
+  --bg-elev-3:      #e6c01c;
+  --bg-input:       #fffae0;
+
+  --fg-primary:     #3a2a12;
+  --fg-secondary:   #5c4422;
+  --fg-muted:       #836a3c;
+  --fg-faint:       #a88e58;
+
+  --border-subtle:  rgba(90, 62, 24, 0.18);
+  --border:         rgba(90, 62, 24, 0.32);
+  --border-strong:  rgba(90, 62, 24, 0.46);
+
+  --accent:         #00a7c4;
+  --accent-hover:   #1fbcd8;
+  --accent-active:  #0089a3;
+  --accent-soft:    rgba(0, 167, 196, 0.16);
+  --accent-glow:    rgba(0, 167, 196, 0.34);
+  --on-accent:      #ffffff;
+
+  --sev-critical:   #d11f1f;
+  --sev-high:       #b5530a;
+  --sev-medium:     #8a6a00;
+  --sev-low:        #6b5e45;
+  --sev-info:       #7e7156;
+  --ioc:            #e85aa0;
+
+  --row-hover:      rgba(0, 167, 196, 0.10);
+  --row-selected:   rgba(0, 167, 196, 0.18);
+
+  --scrollbar-thumb:       rgba(58, 42, 18, 0.28);
+  --scrollbar-thumb-hover: rgba(58, 42, 18, 0.45);
+
+  --shadow-sm:      0 1px 0 rgba(58, 42, 18, 0.10);
+  --shadow-md:      0 2px 8px rgba(58, 42, 18, 0.18);
+  --shadow-lg:      0 10px 28px rgba(58, 42, 18, 0.24);
+
+  --font-ui:        "Comic Sans MS", "Comic Sans", "Chalkboard SE",
+                    "Comic Neue", cursive;
+}
+
+/* ── vaporwave — A E S T H E T I C ────────────────────────────────────────── */
+:root[data-theme="vaporwave"] {
+  --bg-base:        #1a0b2e;
+  --bg-elev-1:      #2a1245;
+  --bg-elev-2:      #371858;
+  --bg-elev-3:      #46206e;
+  --bg-input:       #150823;
+
+  --fg-primary:     #f5e6ff;
+  --fg-secondary:   #d9b8f0;
+  --fg-muted:       #b088d0;
+  --fg-faint:       #8a64ad;
+
+  --border-subtle:  rgba(255, 113, 206, 0.12);
+  --border:         rgba(255, 113, 206, 0.26);
+  --border-strong:  rgba(255, 113, 206, 0.42);
+
+  --accent:         #2de2e6;
+  --accent-hover:   #5cebee;
+  --accent-active:  #1ac3c7;
+  --accent-soft:    rgba(45, 226, 230, 0.14);
+  --accent-glow:    rgba(45, 226, 230, 0.34);
+  --on-accent:      #14233a;
+
+  --sev-critical:   #ff5470;
+  --sev-high:       #ff9e64;
+  --sev-medium:     #ffd166;
+  --sev-low:        #9a8cc0;
+  --sev-info:       #8f9ec4;
+  --ioc:            #ff71ce;
+
+  --row-hover:      rgba(45, 226, 230, 0.06);
+  --row-selected:   rgba(255, 113, 206, 0.14);
+
+  --scrollbar-thumb:       rgba(255, 113, 206, 0.22);
+  --scrollbar-thumb-hover: rgba(255, 113, 206, 0.40);
+}
+
+/* ── hotdog — Windows 3.1 "Hot Dog Stand" (red field, mustard accent) ─────── */
+:root[data-theme="hotdog"] {
+  --bg-base:        #c40d0d;
+  --bg-elev-1:      #d11d1d;
+  --bg-elev-2:      #e02e2e;
+  --bg-elev-3:      #a30909;
+  --bg-input:       #fff7e0;
+
+  --fg-primary:     #fff8e0;
+  --fg-secondary:   #ffe7a0;
+  --fg-muted:       #f3c860;
+  --fg-faint:       #d6a23a;
+
+  --border-subtle:  rgba(255, 224, 0, 0.22);
+  --border:         rgba(255, 224, 0, 0.44);
+  --border-strong:  rgba(255, 224, 0, 0.64);
+
+  --accent:         #ffe000;
+  --accent-hover:   #fff04d;
+  --accent-active:  #e6c900;
+  --accent-soft:    rgba(255, 224, 0, 0.20);
+  --accent-glow:    rgba(255, 224, 0, 0.45);
+  --on-accent:      #3a1500;
+
+  --sev-critical:   #ff5a5a;
+  --sev-high:       #ffb84d;
+  --sev-medium:     #ffe39e;
+  --sev-low:        #e3b0b0;
+  --sev-info:       #d6bcbc;
+  --ioc:            #36e0ff;
+
+  --row-hover:      rgba(255, 224, 0, 0.10);
+  --row-selected:   rgba(255, 224, 0, 0.20);
+
+  --scrollbar-thumb:       rgba(255, 224, 0, 0.35);
+  --scrollbar-thumb-hover: rgba(255, 224, 0, 0.55);
+}
+
+/* ── hollywood — "I'M IN." movie-hacker green-on-black (monospace) ────────── */
+:root[data-theme="hollywood"] {
+  --bg-base:        #000000;
+  --bg-elev-1:      #020a02;
+  --bg-elev-2:      #03120a;
+  --bg-elev-3:      #051f0e;
+  --bg-input:       #000800;
+
+  --fg-primary:     #33ff66;
+  --fg-secondary:   #28cc52;
+  --fg-muted:       #1f9940;
+  --fg-faint:       #167030;
+
+  --border-subtle:  rgba(0, 255, 65, 0.12);
+  --border:         rgba(0, 255, 65, 0.26);
+  --border-strong:  rgba(0, 255, 65, 0.45);
+
+  --accent:         #00ff41;
+  --accent-hover:   #5cff7d;
+  --accent-active:  #00cc34;
+  --accent-soft:    rgba(0, 255, 65, 0.14);
+  --accent-glow:    rgba(0, 255, 65, 0.40);
+  --on-accent:      #001a05;
+
+  --sev-critical:   #ff3131;
+  --sev-high:       #ff8c00;
+  --sev-medium:     #ffe000;
+  --sev-low:        #9a8a6a;
+  --sev-info:       #8a8f80;
+  --ioc:            #ff5cf0;
+
+  --row-hover:      rgba(0, 255, 65, 0.06);
+  --row-selected:   rgba(0, 255, 65, 0.14);
+
+  --scrollbar-thumb:       rgba(0, 255, 65, 0.20);
+  --scrollbar-thumb-hover: rgba(0, 255, 65, 0.40);
+
+  --font-ui:        ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+}
+
+/* ── hunterpink — Barbiecore (bubblegum field, hot-magenta accent) ────────── */
+:root[data-theme="hunterpink"] {
+  --bg-base:        #ffd1e8;
+  --bg-elev-1:      #ffe0f0;
+  --bg-elev-2:      #fff0f7;
+  --bg-elev-3:      #ffbcdd;
+  --bg-input:       #fff7fb;
+
+  --fg-primary:     #6e0a45;
+  --fg-secondary:   #8a1a5e;
+  --fg-muted:       #a8447e;
+  --fg-faint:       #c47aa3;
+
+  --border-subtle:  rgba(150, 20, 90, 0.16);
+  --border:         rgba(150, 20, 90, 0.28);
+  --border-strong:  rgba(150, 20, 90, 0.42);
+
+  --accent:         #ff1493;
+  --accent-hover:   #ff47ab;
+  --accent-active:  #e00d80;
+  --accent-soft:    rgba(255, 20, 147, 0.12);
+  --accent-glow:    rgba(255, 20, 147, 0.30);
+  --on-accent:      #ffffff;
+
+  --sev-critical:   #c1121f;
+  --sev-high:       #b5530a;
+  --sev-medium:     #8a6a00;
+  --sev-low:        #7a5e72;
+  --sev-info:       #806a80;
+  --ioc:            #7b2cbf;
+
+  --row-hover:      rgba(255, 20, 147, 0.06);
+  --row-selected:   rgba(255, 20, 147, 0.12);
+
+  --scrollbar-thumb:       rgba(150, 20, 90, 0.25);
+  --scrollbar-thumb-hover: rgba(150, 20, 90, 0.40);
+
+  --shadow-sm:      0 1px 0 rgba(110, 10, 69, 0.06);
+  --shadow-md:      0 2px 8px rgba(110, 10, 69, 0.12);
+  --shadow-lg:      0 10px 28px rgba(110, 10, 69, 0.18);
+}
+
+/* ── battlestations — submarine red-alert (Silent Hunter, surfaced) ───────── */
+:root[data-theme="battlestations"] {
+  --bg-base:        #160000;
+  --bg-elev-1:      #220303;
+  --bg-elev-2:      #2e0606;
+  --bg-elev-3:      #3d0a0a;
+  --bg-input:       #0e0000;
+
+  --fg-primary:     #ffb3b3;
+  --fg-secondary:   #e88a8a;
+  --fg-muted:       #c66a6a;
+  --fg-faint:       #964a4a;
+
+  --border-subtle:  rgba(255, 60, 60, 0.12);
+  --border:         rgba(255, 60, 60, 0.26);
+  --border-strong:  rgba(255, 60, 60, 0.45);
+
+  --accent:         #ff2a2a;
+  --accent-hover:   #ff5c5c;
+  --accent-active:  #e01010;
+  --accent-soft:    rgba(255, 42, 42, 0.14);
+  --accent-glow:    rgba(255, 42, 42, 0.40);
+  --on-accent:      #ffffff;
+
+  --sev-critical:   #ff4d4d;
+  --sev-high:       #ffae42;
+  --sev-medium:     #ffd24d;
+  --sev-low:        #c79a9a;
+  --sev-info:       #bda0a0;
+  --ioc:            #54d8ff;
+
+  --row-hover:      rgba(255, 42, 42, 0.07);
+  --row-selected:   rgba(255, 42, 42, 0.16);
+
+  --scrollbar-thumb:       rgba(255, 60, 60, 0.25);
+  --scrollbar-thumb-hover: rgba(255, 60, 60, 0.45);
+}
+
+/* ── nyancat — Bikini-Bottom-of-space rainbow (static watermark below) ─────── */
+:root[data-theme="nyancat"] {
+  --bg-base:        #0a0a2a;
+  --bg-elev-1:      #12123a;
+  --bg-elev-2:      #1a1a4a;
+  --bg-elev-3:      #24245e;
+  --bg-input:       #07071f;
+
+  --fg-primary:     #eaf0ff;
+  --fg-secondary:   #c4cdf0;
+  --fg-muted:       #9aa3d0;
+  --fg-faint:       #6a72a0;
+
+  --border-subtle:  rgba(150, 170, 255, 0.12);
+  --border:         rgba(150, 170, 255, 0.24);
+  --border-strong:  rgba(150, 170, 255, 0.40);
+
+  --accent:         #ff5fb0;
+  --accent-hover:   #ff85c6;
+  --accent-active:  #e63f95;
+  --accent-soft:    rgba(255, 95, 176, 0.14);
+  --accent-glow:    rgba(255, 95, 176, 0.34);
+  --on-accent:      #ffffff;
+
+  --sev-critical:   #ff3b5e;
+  --sev-high:       #ff9f1c;
+  --sev-medium:     #ffe000;
+  --sev-low:        #8a93c0;
+  --sev-info:       #9aa0c8;
+  --ioc:            #5ce1e6;
+
+  --row-hover:      rgba(255, 95, 176, 0.07);
+  --row-selected:   rgba(255, 95, 176, 0.16);
+
+  --scrollbar-thumb:       rgba(150, 170, 255, 0.22);
+  --scrollbar-thumb-hover: rgba(150, 170, 255, 0.40);
+}
+
+/* Nyan Cat watermark — a single static (never-animated) nyan cat. Rendered as
+   a faint, fixed, click-through overlay so it reads over the opaque panels;
+   <dialog> modals (top layer) still sit above it. */
+:root[data-theme="nyancat"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  background-image: url("/static/img/nyan.svg");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: min(620px, 72vw) auto;
+  opacity: 0.07;
 }

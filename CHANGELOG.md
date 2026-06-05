@@ -40,11 +40,17 @@ relevant, `### Detection changes` in each release entry.
   per-browser (localStorage `archer.theme`), applies instantly with no save or
   reload, is honored on the login/register pages, and is applied before first
   paint so there's no flash of the default. All design tokens moved to a shared
-  `themes.css`; the graph and beacon charts read the active skin's tokens so
+  `themes.css` (cobalt is the base `:root`, so an unknown saved value falls back
+  cleanly); the graph and beacon charts read the active skin's tokens so
   canvas-drawn colors track the theme too. Severity encoding is also corrected
   across every skin: **low** and **info** are now neutrals (low was green —
   reads as "safe" on a finding row; info was byte-identical to the accent).
-  UI-only.
+  Plus a **Just for fun** set of novelty skins — **Bikini Bottom** (SpongeBob
+  yellow, Comic Sans), **Vaporwave**, **Hot Dog Stand** (Win 3.1), **Hollywood
+  Hacker** (green-on-black monospace), **Hunter Pink** (Barbiecore), **Battle
+  Stations** (sub red-alert), and **Nyan Cat** (with a static watermark) — kept
+  legible by a new `--on-accent` token (so light-accent skins don't render white
+  text on yellow/green) and the same neutral-low/info severity rule. UI-only.
 - **Query-bar quality-of-life** — a wider query field (the cap grows from 746px
   to 1100px so longer expressions stay on one line on a normal monitor) and a
   **▾** caret at the field's left edge that reopens any of the last 10 distinct
