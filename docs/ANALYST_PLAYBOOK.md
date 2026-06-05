@@ -395,7 +395,7 @@ distinguishes it (sub-scores are in `[0, 1]`):
 | Hunt | Query |
 |------|-------|
 | Threat-intel matches | `ioc:true` |
-| Known C2 signatures | `type:"Cobalt Strike URI" OR type:"C2 URI Pattern" OR type:"C2 Port" OR type:"Malicious JA3" OR type:"Malicious JA4"` |
+| Known C2 signatures | `type:"Cobalt Strike URI" OR type:"C2 URI Pattern" OR type:"C2 Port" OR type:"Malicious JA3" OR type:"Malicious JA4" OR type:"Protocol on Unexpected Port"` |
 | DNS covert channels | `type:"DNS Tunneling" OR type:"DNS Subdomain DGA" OR type:"DNS NXDOMAIN Flood" OR type:"DNS Beacon"` |
 | Data exfiltration | `type:"Data Exfiltration" OR type:"Off-Hours Transfer"` |
 | TLS evasion | `type:"DoH Bypass" OR type:"Domain Fronting" OR type:"SSL No-SNI on C2 Port" OR type:"SSL No-SNI"` |

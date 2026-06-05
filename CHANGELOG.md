@@ -30,6 +30,12 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Changed
+
+- The **Known C2 signatures** prebuilt hunt now also surfaces
+  `Protocol on Unexpected Port` — a port-control-evasion signal that belongs in
+  the same sweep as the C2-port and JA3/JA4 signatures. UI-only.
+
 ## [v0.60.0] — 2026-06-05
 
 A protocol-visibility slice on a UI-polish base: a new beacon-adjacent detector
