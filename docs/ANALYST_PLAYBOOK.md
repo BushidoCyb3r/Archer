@@ -281,8 +281,9 @@ evaluated server-side and ANDed on top of whatever view you're in
 tab rather than fighting it. Clear the bar to see everything in
 the view again.
 
-The **Recent ▾** button next to Clear reopens the last 10 distinct
-queries you ran — pick one to drop it back in the box and run it.
+The **▾** caret at the left edge of the query field reopens the last
+10 distinct queries you ran — pick one to drop it back in the box and
+run it.
 The list is per-browser, most-recent-first, and deduplicated; every
 run path feeds it (Run, Enter, a Hunts/chip pick, a TLS or
 contributing-activity pivot), so it's a quick way to step back to a

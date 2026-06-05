@@ -34,7 +34,8 @@ relevant, `### Detection changes` in each release entry.
 
 - **Query-bar quality-of-life** — a wider query field (the cap grows from 746px
   to 1100px so longer expressions stay on one line on a normal monitor) and a
-  **Recent ▾** button that reopens any of the last 10 distinct queries you ran.
+  **▾** caret at the field's left edge that reopens any of the last 10 distinct
+  queries you ran.
   History is per-browser (localStorage), most-recent-first, deduplicated, and
   fed by every run path (Run, Enter, chip selects, pivots); clearing the box
   records nothing. UI-only.

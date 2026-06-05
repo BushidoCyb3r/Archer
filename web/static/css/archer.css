@@ -816,16 +816,25 @@ button, input, select, textarea {
   background: var(--bg-base);
 }
 .query-input-row { display: flex; align-items: flex-start; gap: 8px; }
-.query-input {
-  /* Capped width: the field sits in a left-aligned group with Run/Clear/
-     Recent/TLS; the spacer after TLS pushes Logs + Export to the right edge.
-     Shrinks on narrow viewports (min-width:0) but never grows past the basis. */
+/* The query field and its inline Recent-queries caret share one wrapper so the
+   caret can sit at the field's far-left edge and the dropdown can anchor to it.
+   Capped width: the group sits left-aligned with Run/Clear/TLS; the spacer
+   after TLS pushes Logs + Export to the right edge. Shrinks on narrow viewports
+   (min-width:0) but never grows past the basis. */
+.query-input-wrap {
+  position: relative;
+  display: flex;
   flex: 0 1 1100px;
+  min-width: 0;
+}
+.query-input {
+  flex: 1 1 auto;
   min-width: 0;
   background: var(--bg-input);
   border: 1px solid var(--border);
   color: var(--fg-primary);
-  padding: 10px 12px;
+  /* Left pad clears the absolutely-positioned caret button. */
+  padding: 10px 12px 10px 34px;
   border-radius: var(--radius);
   font-size: 14px;
   font-family: var(--mono, monospace);
@@ -1560,9 +1569,32 @@ body.dock-resizing {
   max-height: 240px;
 }
 
+/* Recent-queries caret, pinned to the field's far-left edge with a divider
+   rule so it reads as a button (▾|) rather than decoration. Aligns to the
+   resting single-row height; stays top-anchored when the field grows. */
+.query-history-toggle {
+  position: absolute;
+  left: 1px;
+  top: 1px;
+  height: 38px;
+  width: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border);
+  border-radius: var(--radius) 0 0 var(--radius);
+  color: var(--fg-dim);
+  font-size: 11px;
+  cursor: pointer;
+  z-index: 2;
+}
+.query-history-toggle:hover { color: var(--fg-primary); background: var(--bg-elev-2); }
+
 /* Recent-queries dropdown: the last 10 distinct queries, most-recent-first.
    Items are mono-truncated; the full query is in the title and loads on click. */
-.query-history-dropdown { position: relative; display: inline-block; }
 .query-history-menu {
   position: absolute;
   top: calc(100% + 4px);
