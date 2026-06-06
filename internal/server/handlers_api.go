@@ -195,8 +195,17 @@ func (s *Server) handleAnalyzeStatus(w http.ResponseWriter, r *http.Request) {
 	running := hasAnalyzer || slotHeld
 	paused := hasAnalyzer && az.IsPaused()
 	blocked := slotHeld && !hasAnalyzer
+	resp := map[string]any{"running": running, "paused": paused, "blocked": blocked}
+	// Carry the current progress so a client connecting mid-run (a page reload
+	// during analysis) can restore its progress bar immediately, rather than
+	// resetting to 0 and waiting for the next coarse phase-boundary SSE event.
+	if hasAnalyzer {
+		pct, step := az.Progress()
+		resp["pct"] = pct
+		resp["step"] = step
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]bool{"running": running, "paused": paused, "blocked": blocked})
+	json.NewEncoder(w).Encode(resp)
 }
 
 // handleAnalyzeCancel stops the running analysis.

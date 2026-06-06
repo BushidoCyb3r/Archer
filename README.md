@@ -1114,7 +1114,7 @@ All API endpoints require authentication. Role requirements are noted where appl
 | Method | Path | Role | Description |
 |---|---|---|---|
 | `POST` | `/api/analyze` | Analyst+ | Start analysis |
-| `GET` | `/api/analyze/status` | Any | `{"running":bool,"paused":bool}` |
+| `GET` | `/api/analyze/status` | Any | `{"running":bool,"paused":bool,"blocked":bool}`, plus `"pct"`/`"step"` while a run is active (so a page reloaded mid-analysis can restore its progress bar) |
 | `POST` | `/api/analyze/cancel` | Analyst+ | Stop running analysis |
 | `POST` | `/api/analyze/pause` | Analyst+ | Pause running analysis |
 | `POST` | `/api/analyze/resume` | Analyst+ | Resume paused analysis |

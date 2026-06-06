@@ -44,6 +44,19 @@ relevant, `### Detection changes` in each release entry.
   chip was stale until the next `/api/findings` call; the TLS Fingerprints modal
   now re-fetches the current view on close when any benign mark/unmark landed,
   and the detail-pane Benign button does the same right after the mark. UI-only.
+- Editing the **IOC list** (the IOC dialog Save and the right-click *Add to IOC
+  List*) now refreshes the findings table so the `ioc` chip / `ioc:` matches
+  update immediately. `ioc_match` is stamped at `/api/findings` read time from
+  the IOC list — the same stale-until-reload class as the benign chip above —
+  but only the IOC-cache was refreshed, not the table. (The JA3/JA4 fingerprint
+  IOC sublist is analysis-time, so it correctly still waits for the next pass.)
+  UI-only.
+- **Reloading the page mid-analysis no longer freezes the progress bar.** The UI
+  restored the Stop/Pause controls but the bar sat at 0 until the next coarse
+  phase-boundary event — on a large corpus, long enough to look stuck.
+  `/api/analyze/status` now also returns the run's current `pct`/`step` (the
+  analyzer records the last progress it emitted), and the page restores the bar
+  from it on load. Additive to the status response; no client breakage.
 - **DNS findings now report the observed transport port** instead of a hardcoded
   `53`. DNS Beacon, DNS Tunneling, DNS Subdomain DGA, and Suspicious TLD read
   `id.resp_p` from the first contributing query (defaulting to 53 when absent),

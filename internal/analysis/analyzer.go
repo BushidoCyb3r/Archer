@@ -60,10 +60,18 @@ type TIError struct {
 
 // Analyzer orchestrates all Zeek log analysis steps.
 type Analyzer struct {
-	cfg            config.Config
-	logsDir        string
-	progressCh     chan<- ProgressEvent
-	statusCh       chan<- string
+	cfg        config.Config
+	logsDir    string
+	progressCh chan<- ProgressEvent
+	statusCh   chan<- string
+	// Last progress emitted, so a client that connects mid-run (a page
+	// reload during analysis) can initialise its progress bar to the
+	// current value via /api/analyze/status instead of sitting at 0 until
+	// the next coarse phase-boundary event. Written by sendProgress on the
+	// analysis goroutine, read by the status handler on an HTTP goroutine.
+	progressMu     sync.Mutex
+	progressPct    int
+	progressStep   string
 	mu             sync.RWMutex
 	findings       []model.Finding
 	nextID         int
@@ -747,12 +755,25 @@ func (a *Analyzer) splitChannels(blend *model.Finding, need beaconSNINeed) []mod
 }
 
 func (a *Analyzer) sendProgress(pct int, step string) {
+	a.progressMu.Lock()
+	a.progressPct = pct
+	a.progressStep = step
+	a.progressMu.Unlock()
 	if a.progressCh != nil {
 		select {
 		case a.progressCh <- ProgressEvent{Pct: pct, Step: step}:
 		default:
 		}
 	}
+}
+
+// Progress returns the most recent progress percentage and step label this
+// analyzer emitted. Used by the status endpoint so a page reloaded mid-run
+// can restore its progress bar without waiting for the next phase event.
+func (a *Analyzer) Progress() (int, string) {
+	a.progressMu.Lock()
+	defer a.progressMu.Unlock()
+	return a.progressPct, a.progressStep
 }
 
 func (a *Analyzer) sendStatus(msg string) {

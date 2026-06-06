@@ -1763,12 +1763,13 @@
     }
   }
 
-  // Re-fetch the current view in place after a TLS-fingerprint benign mark/unmark
-  // so the "fp benign" chip reflects the new allowlist without a manual page
-  // refresh. The chip is stamped server-side at /api/findings read time, so the
-  // cached rows are stale until we refetch. Stays on the current page (gotoOffset)
-  // and invalidates the other tabs so a benign: filtered view re-derives lazily.
-  function _reloadAfterFingerprintChange() {
+  // Re-fetch the current view in place after a server-state change that affects
+  // a read-time-stamped findings field — the TLS-fingerprint benign mark (the
+  // "fp benign" chip) or an IOC-list edit (the "ioc" chip / ioc_match). Those
+  // are stamped server-side at /api/findings read time, so the cached rows are
+  // stale until we refetch. Stays on the current page (gotoOffset) and
+  // invalidates the other tabs so a benign:/ioc: filtered view re-derives lazily.
+  function _reloadFindingsInPlace() {
     _invalidateAllTabs();
     if (_isAggregateTab(_tabMode)) {
       _ensureAggregate();
@@ -1936,12 +1937,22 @@
 
   function _applyRunningState(st) {
     _setAnalyzing(true);
+    // Restore the bar to the run's current position. Without this a reload
+    // mid-analysis leaves the bar at 0 until the next phase-boundary SSE event,
+    // which on a large corpus can be far off — it looks frozen even though the
+    // run (and Stop/Pause) are live. st.pct/step come from /api/analyze/status.
+    if (typeof st.pct === 'number') {
+      document.getElementById('progress-bar').value = st.pct;
+    }
+    if (st.step) {
+      document.getElementById('analysis-status').textContent = st.step;
+    }
     if (st.paused) {
       _paused = true;
       document.getElementById('pause-btn').textContent = 'Resume';
       setStatus('Analysis paused — click Resume to continue');
     } else {
-      setStatus('Analysis in progress…');
+      setStatus(st.step ? `Analysis in progress… ${st.step}` : 'Analysis in progress…');
     }
   }
 
@@ -3299,6 +3310,10 @@
       setStatus('IOC list saved');
       iocDlg.close();
       _loadIOCList();
+      // The network IOC list is matched at /api/findings read time (the "ioc"
+      // chip / ioc_match), so refresh the table; the JA3/JA4 fp sublist is
+      // analysis-time and unaffected until the next pass.
+      _reloadFindingsInPlace();
     });
   }
 
@@ -4647,7 +4662,10 @@
     });
     document.getElementById('ctx-ioc-add').addEventListener('click', () => {
       if (!_ctxTarget) return;
-      _addToList('/api/ioc', 'IOC List', _ctxTarget, _loadIOCList);
+      _addToList('/api/ioc', 'IOC List', _ctxTarget, () => {
+        _loadIOCList();
+        _reloadFindingsInPlace();
+      });
     });
 
     // External-service lookups — open in a new tab. URL templates chosen
@@ -5289,7 +5307,7 @@
         Fingerprints.init({
           onPivot: (kind, fp) => pivotByTLS(kind === 'ja4' ? { ja4: fp } : { ja3: fp }),
           onToast: (msg) => showToast(msg, 4000),
-          onChange: _reloadAfterFingerprintChange,
+          onChange: _reloadFindingsInPlace,
           canWrite: u.role !== 'viewer',
         });
       }
@@ -5307,7 +5325,7 @@
             })
               .then(() => {
                 showToast('Marked benign — findings carrying this fingerprint now show the “fp benign” chip', 4500);
-                _reloadAfterFingerprintChange();
+                _reloadFindingsInPlace();
               })
               .catch(err => showToast('Could not mark benign: ' + err, 4500));
           },
