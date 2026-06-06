@@ -50,7 +50,10 @@ hardening choices against deviations from this baseline.
 - Analyst-fabricated findings via `/api/import` — closed by
   admin-only gate + per-finding validation (NEW-14).
 - CSV/XLSX formula injection in exports — closed by leading-char
-  quoting (NEW-17).
+  quoting on both the server-streamed exports (NEW-17) and the
+  client-built CSV exports incl. the raw-records dump (M-1); the
+  server check also skips leading whitespace before testing the
+  cell so `" =cmd"` can't slip past (L-1).
 - Feed-URL SSRF — closed by config-time literal-IP refusal + fetch-
   time CheckRedirect (NEW-18).
 - Compromised analyst session — analyst can mark findings, add
