@@ -86,6 +86,23 @@ relevant, `### Detection changes` in each release entry.
   re-analyze** (a full reset), which regenerates from logs without the suppressed
   classes. See DETECTION_METHODS §2.1 and §9.6.
 
+### Security
+
+- **Client-side CSV exports now neutralize spreadsheet formula injection.** The
+  five browser-built exports (Campaigns/Hosts CSV and the raw-records dump) route
+  through `_csvField`, which previously did RFC-4180 quoting only — a Zeek field
+  pushed by a malicious sensor (DNS query, URI, cert subject, filename) that led
+  with `=`/`+`/`-`/`@` would execute as a formula when the analyst opened the CSV
+  in Excel/Sheets/LibreOffice. `_csvField` now prefixes a single quote on a
+  dangerous leading cell, mirroring the server-side `spreadsheetSafe` the
+  streamed `/api/export.csv` / `.xlsx` paths already use. Export contract change
+  (cell contents); no API shape change.
+- **`spreadsheetSafe` now skips leading whitespace before its formula check.** It
+  inspected only the first byte, so `" =cmd|..."` (leading space) slipped through
+  even though spreadsheet apps trim leading whitespace before evaluating a cell.
+  It now tests the first non-whitespace character, closing the bypass on both the
+  CSV and XLSX server export paths.
+
 ## [v0.60.0] — 2026-06-05
 
 A protocol-visibility slice on a UI-polish base: a new beacon-adjacent detector

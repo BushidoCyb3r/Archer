@@ -1209,9 +1209,22 @@
 
   // ── Client-side export helpers (Campaigns / Hosts) ─────────────────────────
   // CSV escaping per RFC 4180: wrap fields containing comma, quote, CR, or LF
-  // in double quotes; double up internal quotes.
+  // in double quotes; double up internal quotes. Formula injection is
+  // neutralized first — mirrors the server's spreadsheetSafe (handlers_api.go)
+  // so attacker-controlled Zeek content (the raw-records export dumps DNS
+  // queries, URIs, cert subjects, filenames) can't smuggle a leading
+  // =/+/-/@ formula into the analyst's spreadsheet.
   function _csvField(v) {
-    const s = v == null ? '' : String(v);
+    let s = v == null ? '' : String(v);
+    if (s !== '') {
+      const c0 = s[0];
+      if (c0 === '\t' || c0 === '\r' || c0 === '\n') {
+        s = "'" + s;
+      } else {
+        const t = s.replace(/^[ \t\r\n]+/, '');
+        if (t && '=+-@'.indexOf(t[0]) !== -1) s = "'" + s;
+      }
+    }
     if (/[",\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
     return s;
   }

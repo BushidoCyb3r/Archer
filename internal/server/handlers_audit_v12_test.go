@@ -327,11 +327,17 @@ func TestSpreadsheetSafe_PrefixesDangerousLeadingChars(t *testing.T) {
 		{`@admin`, `'@admin`},
 		{"\tindented", "'\tindented"},
 		{"\rcr-leading", "'\rcr-leading"},
+		// L-1: leading whitespace before a formula char must still be
+		// neutralized — spreadsheet apps trim it before evaluating.
+		{` =cmd|'/c calc'!A1`, `' =cmd|'/c calc'!A1`},
+		{`  +1`, `'  +1`},
+		{" \t=HYPERLINK(\"x\")", "' \t=HYPERLINK(\"x\")"},
 		// Safe inputs unchanged.
 		{`192.168.1.1`, `192.168.1.1`},
 		{``, ``},
 		{`Beacon`, `Beacon`},
 		{`http://example.com`, `http://example.com`},
+		{`  leading spaces then text`, `  leading spaces then text`},
 	}
 	for _, c := range cases {
 		got := spreadsheetSafe(c.in)

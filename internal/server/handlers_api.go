@@ -2177,9 +2177,25 @@ func spreadsheetSafe(v string) string {
 	if v == "" {
 		return v
 	}
+	// A leading control char (tab/CR/LF) is dangerous on its own — some
+	// importers strip or mishandle it. Otherwise skip leading whitespace,
+	// since spreadsheet apps trim it before deciding whether a cell is a
+	// formula, then test the first significant character. Checking only
+	// v[0] let " =cmd|..." (leading space) bypass the defense. Audit
+	// 2026-05-10 NEW-17; leading-whitespace bypass closed 2026-06-06 (L-1).
 	switch v[0] {
-	case '=', '+', '-', '@', '\t', '\r':
+	case '\t', '\r', '\n':
 		return "'" + v
+	}
+	i := 0
+	for i < len(v) && (v[i] == ' ' || v[i] == '\t' || v[i] == '\r' || v[i] == '\n') {
+		i++
+	}
+	if i < len(v) {
+		switch v[i] {
+		case '=', '+', '-', '@':
+			return "'" + v
+		}
 	}
 	return v
 }
