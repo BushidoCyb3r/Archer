@@ -79,9 +79,12 @@ relevant, `### Detection changes` in each release entry.
   off-hours/long-connection/C2-port/protocol-on-port detectors. These slipped
   the `!isPrivateIP(dst)` egress gate because they aren't RFC-1918, so a printer
   on mDNS or a TV on SSDP could read as a periodic Beacon to an "external" host.
-  Re-grounding note: standing Beacon/Strobe findings to a multicast/broadcast
-  destination, and any DNS finding on a `.local` apex, disappear on the next
-  analysis. See DETECTION_METHODS §2.1 and §9.6.
+  Re-grounding note: these exclusions are forward-only. Findings already in the
+  store (a standing Beacon/Strobe to a multicast/broadcast dst, or a DNS finding
+  on a `.local` apex) are *not* dropped by re-analysis — `SetFindings` preserves
+  historical findings by design. Clear them with **Discard findings &
+  re-analyze** (a full reset), which regenerates from logs without the suppressed
+  classes. See DETECTION_METHODS §2.1 and §9.6.
 
 ## [v0.60.0] — 2026-06-05
 
