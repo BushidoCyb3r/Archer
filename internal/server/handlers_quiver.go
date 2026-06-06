@@ -159,6 +159,10 @@ func (s *Server) handleQuiverEnroll(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "invalid sensor name (allowed: a-z, 0-9, '-', '_'; max 52 chars; must start with alphanumeric)", http.StatusBadRequest)
 		return
 	}
+	if !validEnrollPubkey(req.Pubkey) {
+		jsonError(w, "invalid ssh public key (expected '<type> <base64-blob>' with a recognized key type)", http.StatusBadRequest)
+		return
+	}
 	// req.Host is the sensor's self-reported FQDN, persisted in the
 	// sensors row and surfaced in admin views (Sensors modal table,
 	// JSON exports, log lines via fmt.Errorf wrappers). Pre-fix it

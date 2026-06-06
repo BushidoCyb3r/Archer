@@ -11,6 +11,7 @@ package server
 // a leaked sensor key can do exactly one thing: write that sensor's logs.
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,6 +45,20 @@ var knownKeyTypes = map[string]bool{
 	"ecdsa-sha2-nistp521":                true,
 	"sk-ssh-ed25519@openssh.com":         true,
 	"sk-ecdsa-sha2-nistp256@openssh.com": true,
+}
+
+// validEnrollPubkey reports whether pubkey is a well-formed SSH public key:
+// a recognized key type followed by a base64-encoded blob. Enrollment
+// rejects anything else at the boundary rather than writing an
+// authorized_keys line sshd would silently refuse at connect time (and that
+// would leave a dead-but-present sensor row). Audit 2026-06-06 (L-3).
+func validEnrollPubkey(pubkey string) bool {
+	parts := strings.Fields(strings.TrimSpace(pubkey))
+	if len(parts) < 2 || !knownKeyTypes[parts[0]] {
+		return false
+	}
+	_, err := base64.StdEncoding.DecodeString(parts[1])
+	return err == nil
 }
 
 // BuildAuthKeyLine assembles the authorized_keys line for a sensor. The

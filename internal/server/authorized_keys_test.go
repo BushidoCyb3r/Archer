@@ -51,6 +51,27 @@ func TestBuildAuthKeyLine_RejectsUnknownKeyType(t *testing.T) {
 	}
 }
 
+func TestValidEnrollPubkey(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"ssh-ed25519 dGVzdGtleWJsb2I= quiver@host", true},
+		{"ssh-ed25519 dGVzdGtleWJsb2I=", true},
+		{"ecdsa-sha2-nistp256 dGVzdGtleWJsb2I=", true},
+		{"", false},                              // empty
+		{"ssh-ed25519", false},                   // no blob
+		{"unknown-type dGVzdGtleWJsb2I=", false}, // unrecognized key type
+		{"ssh-ed25519 not!valid!base64!", false}, // blob isn't base64
+		{"AAAAC3blob quiver@host", false},        // first field isn't a key type
+	}
+	for _, c := range cases {
+		if got := validEnrollPubkey(c.in); got != c.want {
+			t.Errorf("validEnrollPubkey(%q)=%v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
 func TestAppendRemoveAuthKey_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "authorized_keys")

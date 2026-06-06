@@ -102,6 +102,12 @@ relevant, `### Detection changes` in each release entry.
   even though spreadsheet apps trim leading whitespace before evaluating a cell.
   It now tests the first non-whitespace character, closing the bypass on both the
   CSV and XLSX server export paths.
+- **Quiver enrollment now rejects a malformed SSH public key at the boundary.**
+  Enroll validates that the submitted pubkey is a recognized key type followed
+  by a base64-decodable blob (`400` otherwise) instead of writing a line sshd
+  would silently refuse at connect time and leaving a live-but-unusable sensor
+  row. Not exploitable (the prior line could not break the `command=` sandbox);
+  hygiene hardening of the sensor edge.
 
 ## [v0.60.0] — 2026-06-05
 
