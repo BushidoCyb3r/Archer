@@ -14,7 +14,13 @@ const Fingerprints = (() => {
   // callback at init time rather than us reaching into its private scope.
   let _onPivot = null;
   let _onToast = null;
+  let _onChange = null;
   let _canWrite = true;
+  // Set when a benign mark/unmark mutates the allowlist while the modal is open.
+  // The findings table behind the modal caches each row's tls_allowlisted at
+  // fetch time, so the "fp benign" chip is stale until it re-fetches; we fire
+  // _onChange on close (once, if dirty) to let app.js reload the table in place.
+  let _dirty = false;
   // Last-fetched data + the active search term, so filtering re-renders from
   // memory without refetching. _filter is lowercased.
   let _rows = [];
@@ -122,6 +128,7 @@ const Fingerprints = (() => {
       if (_onToast) _onToast('Could not mark benign: ' + err.message);
       return;
     }
+    _dirty = true;
     await _reload();
   }
 
@@ -147,6 +154,7 @@ const Fingerprints = (() => {
       if (_onToast) _onToast('Could not unmark: ' + err.message);
       return;
     }
+    _dirty = true;
     await _reload();
   }
 
@@ -224,6 +232,7 @@ const Fingerprints = (() => {
   async function open() {
     // Fresh search each time the modal opens.
     _filter = '';
+    _dirty = false;
     const search = document.getElementById('fingerprints-search');
     if (search) search.value = '';
     await _reload();
@@ -234,14 +243,23 @@ const Fingerprints = (() => {
   function init(opts) {
     _onPivot = (opts && opts.onPivot) || null;
     _onToast = (opts && opts.onToast) || null;
+    _onChange = (opts && opts.onChange) || null;
     _canWrite = !opts || opts.canWrite !== false;
     const btn = document.getElementById('fingerprints-btn');
     if (!btn) return;
     btn.addEventListener('click', open);
+    const dlg = document.getElementById('fingerprints-dialog');
+    // Refresh the findings table once on close if any benign mark/unmark
+    // landed — covers the close button, Escape, and backdrop dismissal alike.
+    if (dlg) {
+      dlg.addEventListener('close', () => {
+        if (_dirty && _onChange) _onChange();
+        _dirty = false;
+      });
+    }
     const closeBtn = document.getElementById('fingerprints-close');
     if (closeBtn) {
       closeBtn.addEventListener('click', () => {
-        const dlg = document.getElementById('fingerprints-dialog');
         if (dlg) dlg.close();
       });
     }

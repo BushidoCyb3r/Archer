@@ -36,6 +36,15 @@ relevant, `### Detection changes` in each release entry.
   `Protocol on Unexpected Port` — a port-control-evasion signal that belongs in
   the same sweep as the C2-port and JA3/JA4 signatures. UI-only.
 
+### Fixed
+
+- Marking a TLS fingerprint **benign** now refreshes the findings table so the
+  `fp benign` chip appears immediately, instead of only after a manual page
+  reload. The table caches each row's allowlist state at fetch time, so the
+  chip was stale until the next `/api/findings` call; the TLS Fingerprints modal
+  now re-fetches the current view on close when any benign mark/unmark landed,
+  and the detail-pane Benign button does the same right after the mark. UI-only.
+
 ## [v0.60.0] — 2026-06-05
 
 A protocol-visibility slice on a UI-polish base: a new beacon-adjacent detector

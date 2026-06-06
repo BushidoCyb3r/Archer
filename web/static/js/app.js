@@ -1763,6 +1763,20 @@
     }
   }
 
+  // Re-fetch the current view in place after a TLS-fingerprint benign mark/unmark
+  // so the "fp benign" chip reflects the new allowlist without a manual page
+  // refresh. The chip is stamped server-side at /api/findings read time, so the
+  // cached rows are stale until we refetch. Stays on the current page (gotoOffset)
+  // and invalidates the other tabs so a benign: filtered view re-derives lazily.
+  function _reloadAfterFingerprintChange() {
+    _invalidateAllTabs();
+    if (_isAggregateTab(_tabMode)) {
+      _ensureAggregate();
+    } else {
+      loadFindings(_currentFilterParams(), { gotoOffset: _curTab().offset });
+    }
+  }
+
   // ── Delta mode ─────────────────────────────────────────────────────────────
   function initDeltaBar() {
     document.getElementById('delta-btn').addEventListener('click', () => {
@@ -5275,6 +5289,7 @@
         Fingerprints.init({
           onPivot: (kind, fp) => pivotByTLS(kind === 'ja4' ? { ja4: fp } : { ja3: fp }),
           onToast: (msg) => showToast(msg, 4000),
+          onChange: _reloadAfterFingerprintChange,
           canWrite: u.role !== 'viewer',
         });
       }
@@ -5290,7 +5305,10 @@
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ kind, fingerprint: fp, note: '' }),
             })
-              .then(() => showToast('Marked benign — findings carrying this fingerprint get the “fp benign” chip on next refresh', 4500))
+              .then(() => {
+                showToast('Marked benign — findings carrying this fingerprint now show the “fp benign” chip', 4500);
+                _reloadAfterFingerprintChange();
+              })
               .catch(err => showToast('Could not mark benign: ' + err, 4500));
           },
           onMarkMalicious: (kind, fp) => {
