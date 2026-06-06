@@ -108,6 +108,10 @@ relevant, `### Detection changes` in each release entry.
   would silently refuse at connect time and leaving a live-but-unusable sensor
   row. Not exploitable (the prior line could not break the `command=` sandbox);
   hygiene hardening of the sensor edge.
+- `entrypoint.sh` now sets `-o pipefail` (was `set -eu`), matching the other
+  operator scripts. No behavior change today — the entrypoint has no pipelines
+  whose mid-stream failure could be masked — but it removes the inconsistency a
+  future pipeline would inherit.
 
 ## [v0.60.0] — 2026-06-05
 

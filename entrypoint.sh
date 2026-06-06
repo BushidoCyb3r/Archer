@@ -1,5 +1,5 @@
 #!/bin/sh
-set -eu
+set -euo pipefail
 
 # ── sshd bootstrap ────────────────────────────────────────────────────────
 # Host keys live in /etc/ssh/keys (a persistent volume in the docker-compose
