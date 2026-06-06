@@ -1,6 +1,8 @@
 package analysis
 
 import (
+	"net"
+
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
 
@@ -67,6 +69,23 @@ func isPrivateIP(ip string) bool {
 		}
 	}
 	return false
+}
+
+// isLocalInfraDest reports whether ip is a destination that is local network
+// infrastructure rather than a routable remote host: multicast (224.0.0.0/4,
+// ff00::/8 — mDNS, SSDP, LLMNR), the limited broadcast address, the
+// unspecified address, or an IPv6 link-local unicast (fe80::/10). These are
+// never a C2 endpoint, but they are NOT caught by isPrivateIP (which only
+// covers RFC-1918 / loopback / IPv4 link-local), so without an explicit check
+// they slip the `!isPrivateIP(dst)` egress gate and their regular chatter
+// (a printer announcing on mDNS, a TV on SSDP) trips the beacon/strobe
+// detectors. The egress conn detectors drop such destinations up front.
+func isLocalInfraDest(ip string) bool {
+	p := net.ParseIP(ip)
+	if p == nil {
+		return false
+	}
+	return p.IsMulticast() || p.IsLinkLocalUnicast() || p.IsUnspecified() || p.Equal(net.IPv4bcast)
 }
 
 // sevFromScore converts a numeric score to a Severity level using generic thresholds.

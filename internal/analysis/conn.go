@@ -385,6 +385,16 @@ func (a *Analyzer) analyzeConn(files []string) {
 				return true
 			}
 
+			// Drop traffic to local network infrastructure (multicast / broadcast
+			// / IPv6 link-local) before any conn detector sees it. mDNS, SSDP, and
+			// LLMNR are not RFC-1918, so they slip the !isPrivateIP egress gate and
+			// their regular announce cadence otherwise reads as a Beacon/Strobe to
+			// an "external" host. None of the conn detectors (beacon, strobe, exfil,
+			// off-hours, long-conn, C2 port, protocol-on-port) apply to these.
+			if isLocalInfraDest(dst) {
+				return true
+			}
+
 			// Track internal→external pairs for the prevalence modifier.
 			// Floor of 10 unique sources guards against small fixtures and
 			// single-host test environments where 1/1 = 100% is meaningless.

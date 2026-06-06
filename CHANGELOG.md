@@ -44,6 +44,31 @@ relevant, `### Detection changes` in each release entry.
   chip was stale until the next `/api/findings` call; the TLS Fingerprints modal
   now re-fetches the current view on close when any benign mark/unmark landed,
   and the detail-pane Benign button does the same right after the mark. UI-only.
+- **DNS findings now report the observed transport port** instead of a hardcoded
+  `53`. DNS Beacon, DNS Tunneling, DNS Subdomain DGA, and Suspicious TLD read
+  `id.resp_p` from the first contributing query (defaulting to 53 when absent),
+  so a detection over DoT (853) or an mDNS query on 5353 is labelled honestly —
+  the constant `53` previously masked exactly the signal that flags mDNS. (DNS
+  NXDOMAIN Flood stays `53`/`(network)` — it's a per-source roll-up across many
+  apexes with no single transport.)
+
+### Detection changes
+
+- **DNS detectors now exclude mDNS (`.local`).** RFC 6762 multicast DNS is
+  link-local service discovery (UDP 5353, multicast group), never a routable
+  resolver lookup or C2 — but its regular device announcements scored as a DNS
+  Beacon (e.g. `samsung.local`) and its rotating service names
+  (`_airplay._tcp.local`, …) could inflate the Subdomain DGA diversity counter.
+  `.local` queries are now dropped before any DNS detector sees them.
+- **Conn detectors now exclude local-infrastructure destinations.** Traffic to
+  multicast (224.0.0.0/4, ff00::/8 — mDNS/SSDP/LLMNR), the broadcast address,
+  and IPv6 link-local (fe80::/10) is dropped before the beacon/strobe/exfil/
+  off-hours/long-connection/C2-port/protocol-on-port detectors. These slipped
+  the `!isPrivateIP(dst)` egress gate because they aren't RFC-1918, so a printer
+  on mDNS or a TV on SSDP could read as a periodic Beacon to an "external" host.
+  Re-grounding note: standing Beacon/Strobe findings to a multicast/broadcast
+  destination, and any DNS finding on a `.local` apex, disappear on the next
+  analysis. See DETECTION_METHODS §2.1 and §9.6.
 
 ## [v0.60.0] — 2026-06-05
 

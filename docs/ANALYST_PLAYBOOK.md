@@ -153,7 +153,7 @@ network resolve in under thirty seconds this way.
 | `*.slack.com`, `*.zoom.us`, `*.teams.microsoft.com`, port 443 | SaaS heartbeat | suppress |
 | `mtalk.google.com`, `fcm.googleapis.com` | FCM push | suppress |
 | `*.snmp-trap.<your domain>` | internal monitoring | suppress |
-| `mdns.local`, multicast IPs (224.0.0.0/4) | service discovery | suppress |
+| `*.local` (mDNS), multicast IPs (224.0.0.0/4), broadcast, IPv6 link-local | service discovery | auto-excluded — no action needed |
 | Your own DNS resolver (8.8.8.8, 1.1.1.1, internal) | DNS health | suppress destination |
 
 "Suppress" means: add the destination to the allowlist with a

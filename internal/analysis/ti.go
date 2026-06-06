@@ -199,7 +199,7 @@ func (a *Analyzer) checkTI(files []string) {
 	a.parallelEach(conns, func(path string) {
 		a.parseLog(path, func(rec map[string]any) bool {
 			dst := parser.GetStr(rec, "id.resp_h")
-			if dst != "" && !isPrivateIP(dst) && isIPAddr(dst) {
+			if dst != "" && !isPrivateIP(dst) && !isLocalInfraDest(dst) && isIPAddr(dst) {
 				addDstIP(dst)
 			}
 			return true
@@ -240,7 +240,7 @@ func (a *Analyzer) checkTI(files []string) {
 	a.mu.RLock()
 	for _, f := range a.findings {
 		dst := f.DstIP
-		if dst == "" || isPrivateIP(dst) ||
+		if dst == "" || isPrivateIP(dst) || isLocalInfraDest(dst) ||
 			dst == "(network)" || dst == "(escalation)" || dst == "(cert)" {
 			continue
 		}

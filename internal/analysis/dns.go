@@ -60,6 +60,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 	type apexData struct {
 		subs    map[string]bool
 		firstTS float64
+		port    string // observed dst port of the first contributing query
 	}
 
 	// dnsBeaconState accumulates per-(src, apex) query timing for the
@@ -80,6 +81,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 		maxTS          float64
 		firstTS        float64
 		count          int
+		port           string // observed dst port of the first contributing query
 		spectralTs     []float64
 		spectralTsHead int
 	}
@@ -109,6 +111,18 @@ func (a *Analyzer) analyzeDNS(files []string) {
 				return true
 			}
 
+			// mDNS (RFC 6762): a `.local` query is link-local multicast service
+			// discovery (224.0.0.251 / ff02::fb on UDP 5353), never a routable
+			// resolver lookup or C2 — and MUST NOT be sent to a unicast resolver,
+			// so anything ending in `.local` here is mDNS. Its regular device
+			// announcements otherwise trip DNS Beacon (cadence) and its rotating
+			// service names (`_airplay._tcp.local`, `_raop._tcp.local`, …) inflate
+			// the subdomain-diversity DGA counter. Drop it before any DNS detector
+			// sees it, rather than asking operators to allowlist each device name.
+			if strings.HasSuffix(query, ".local") {
+				return true
+			}
+
 			// NXDOMAIN flood
 			if rcode == "NXDOMAIN" {
 				nk := nxKey{sensor, src}
@@ -133,6 +147,15 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			apex := apexFromQuery(query)
 			if apex == "" {
 				return true
+			}
+
+			// Observed transport port for this query, shared by every DNS finding
+			// emitted from it. Defaults to 53 when the record omits id.resp_p —
+			// honest when a detector fires on DNS over an unusual port (DoT 853)
+			// instead of the constant 53 that previously masked such cases.
+			dnsPort := "53"
+			if p := parser.GetInt(rec, "id.resp_p"); p > 0 {
+				dnsPort = fmt.Sprint(p)
 			}
 
 			// DNS-cadence beacon accumulation (§2g). Every query to a
@@ -162,7 +185,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 				bk := apexKey{sensor, src, apex}
 				bs := beaconApex[bk]
 				if bs == nil {
-					bs = &dnsBeaconState{hourMap: make(map[int]int), firstTS: ts, minTS: ts, maxTS: ts}
+					bs = &dnsBeaconState{hourMap: make(map[int]int), firstTS: ts, minTS: ts, maxTS: ts, port: dnsPort}
 					beaconApex[bk] = bs
 				}
 				bs.count++
@@ -209,7 +232,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 						Score:      52,
 						SrcIP:      src,
 						DstIP:      apex,
-						DstPort:    "53",
+						DstPort:    dnsPort,
 						Detail:     fmt.Sprintf("TLD %q is a free/abused zone — query: %s", tld, query),
 						Timestamp:  fmtTS(ts),
 						SourceFile: f,
@@ -222,7 +245,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 				sub := strings.Join(labels[:len(labels)-2], ".")
 				k := apexKey{sensor, src, apex}
 				if apexMap[k] == nil {
-					apexMap[k] = &apexData{subs: make(map[string]bool), firstTS: ts}
+					apexMap[k] = &apexData{subs: make(map[string]bool), firstTS: ts, port: dnsPort}
 				}
 				apexMap[k].subs[sub] = true
 				if ts > 0 && (apexMap[k].firstTS == 0 || ts < apexMap[k].firstTS) {
@@ -291,7 +314,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 						Score:      score,
 						SrcIP:      src,
 						DstIP:      apex,
-						DstPort:    "53",
+						DstPort:    dnsPort,
 						Detail:     fmt.Sprintf("Tunnel indicators: %s | query: %s", strings.Join(reasons, ", "), query),
 						Timestamp:  fmtTS(ts),
 						SourceFile: f,
@@ -347,7 +370,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			Sensor:    k.sensor,
 			SrcIP:     k.src,
 			DstIP:     k.apex,
-			DstPort:   "53",
+			DstPort:   data.port,
 			Detail:    fmt.Sprintf("High subdomain diversity — apex: %s | Unique subdomains: %d | Avg entropy: %.2f", k.apex, len(data.subs), avgEnt),
 			Timestamp: fmtTS(data.firstTS),
 		})
@@ -487,7 +510,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			Sensor:          k.sensor,
 			SrcIP:           k.src,
 			DstIP:           k.apex,
-			DstPort:         "53",
+			DstPort:         bs.port,
 			Detail:          detail,
 			Timestamp:       fmtTS(bs.firstTS),
 			TSData:          tsData,

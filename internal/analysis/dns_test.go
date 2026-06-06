@@ -95,6 +95,36 @@ func TestDNSBeaconing_DefersHighDiversityToDGA(t *testing.T) {
 	}
 }
 
+// TestDNSBeaconing_SuppressesMDNS codifies the mDNS-exclusion invariant:
+// a `.local` apex (RFC 6762 multicast DNS — link-local service discovery on
+// 5353, never a routable resolver lookup or C2) must not produce a DNS Beacon
+// even when its announce cadence is perfectly regular. The fixture is the
+// dns_beacon shape (120 queries, 300s spacing — fires CRITICAL there) with
+// only the name/transport changed to mDNS, so a fired beacon here would mean
+// the suppression isn't holding.
+func TestDNSBeaconing_SuppressesMDNS(t *testing.T) {
+	a := newDNSTestAnalyzer()
+	findings := a.Analyze([]string{"testdata/zeek/dns_mdns_local/dns.log"})
+	if hasFindingType(findings, "DNS Beacon") {
+		t.Errorf("DNS Beacon fired on an mDNS (.local) cadence — mDNS must be suppressed; got types: %v", findingTypes(findings))
+	}
+}
+
+// TestDNSBeaconing_CarriesObservedPort codifies the port-honesty invariant:
+// a DNS beacon over a non-53 transport (here DoT on 853) must report the
+// observed port, not the hardcoded 53 that masked mDNS-on-5353 before.
+func TestDNSBeaconing_CarriesObservedPort(t *testing.T) {
+	a := newDNSTestAnalyzer()
+	findings := a.Analyze([]string{"testdata/zeek/dns_beacon_dot/dns.log"})
+	b := findingOfType(findings, "DNS Beacon")
+	if b == nil {
+		t.Fatalf("DNS Beacon did not fire on the DoT-port fixture; got types: %v", findingTypes(findings))
+	}
+	if b.DstPort != "853" {
+		t.Errorf("DNS Beacon DstPort = %q; want \"853\" (observed port, not hardcoded 53)", b.DstPort)
+	}
+}
+
 // TestDNSBeaconing_IgnoresNXDOMAINFlood codifies the NXDOMAIN-exclusion
 // invariant: an NXDOMAIN-dominated stream is the DNS NXDOMAIN Flood
 // detector's responsibility (a sinkholed/dead C2, with resolver-retry

@@ -388,15 +388,18 @@ The rescue path has hard limits. No knob will recover these:
   They still emit beacon findings via the statistical path;
   only the spectral score boost is suppressed.
 - **High-frequency local traffic with genuine long-period structure.**
-  mDNS pairs (`_tcp.local`, `_udp.local`) and similar broadcast
-  traffic with sub-30 s median intervals accumulate enough
+  A pair with sub-30 s median intervals accumulates enough
   observations to produce real weekday/weekend periodogram peaks
   at 6–10 day periods. These cross FAP=12 after DC-correction
-  because the structure is genuine, not an artifact. The detector
+  because the structure is genuine, not an artifact, and the detector
   cannot distinguish "real weekly rhythm" from "weekly C2 cadence"
-  without additional signal. Allowlist known-benign mDNS pairs, or
-  confirm a spectral-rescued mDNS finding with a second axis
-  (TI hits, data-size regularity, persistence score) before acting.
+  without additional signal. mDNS — historically the worst offender —
+  is now removed upstream: `.local` queries and multicast/broadcast/
+  link-local destinations are dropped before any detector, so they
+  never reach the spectral path. For the chatty *unicast* local
+  traffic that remains, allowlist the pair or confirm a spectral
+  rescue with a second axis (TI hit, data-size regularity,
+  persistence) before acting.
 
 For these, lean on the other detectors (data exfiltration,
 lateral movement, TI hits, weird events) rather than trying to

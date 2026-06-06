@@ -501,6 +501,24 @@ func hasFindingType(findings []model.Finding, t string) bool {
 	return false
 }
 
+// TestConnDetectors_SkipMulticastDest pins the local-infrastructure exclusion:
+// a perfectly periodic UDP stream to the mDNS multicast group (224.0.0.251:5353)
+// — which would otherwise qualify as a Beacon — must produce no conn findings.
+// Multicast/broadcast/IPv6-link-local destinations are local network
+// infrastructure (mDNS, SSDP, LLMNR), never a routable C2 endpoint, and slip
+// isPrivateIP because they aren't RFC-1918, so they must be dropped up front.
+func TestConnDetectors_SkipMulticastDest(t *testing.T) {
+	a := New(config.Default(), "", nil, nil)
+	a.feodoIPs = map[string]bool{}
+	a.urlhausIPs = map[string]bool{}
+	a.urlhausHosts = map[string]bool{}
+	findings := a.Analyze([]string{"testdata/zeek/beacon_multicast/conn.log"})
+	if len(findings) != 0 {
+		t.Errorf("multicast-dest traffic produced %d finding(s); want 0 — local infra must be skipped: %v",
+			len(findings), findingTypes(findings))
+	}
+}
+
 func findingTypes(findings []model.Finding) []string {
 	out := make([]string, 0, len(findings))
 	for _, f := range findings {

@@ -1,0 +1,21 @@
+[
+  {
+    "type": "DNS Beacon",
+    "severity": "CRITICAL",
+    "score": 99,
+    "src_ip": "192.168.5.20",
+    "dst_ip": "secure-update.net",
+    "dst_port": "853",
+    "detail": "DNS queries: 120 | Unique subdomains: 1 | Mean interval: 300.0s | CV: 0.00 | Score: ts=1.00 div=0.98 cov=1.00 conf=1.00 | ts_layers: raw=1.00 mm=0.00 ent=0.50",
+    "timestamp": "2024-01-15 12:00:00"
+  },
+  {
+    "type": "Host Risk Score",
+    "severity": "MEDIUM",
+    "score": 30,
+    "src_ip": "192.168.5.20",
+    "dst_ip": "(network)",
+    "detail": "Composite risk: 30 | Detections: [DNS Beacon]",
+    "timestamp": "2024-01-15 12:00:00"
+  }
+]

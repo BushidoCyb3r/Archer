@@ -89,6 +89,17 @@ Archer tracks:
 A pair is only scored if it has at least `BeaconMinConnections` connections
 (default 4) and at least 3 intervals.
 
+**Local-infrastructure destinations are dropped first.** A connection whose
+destination is multicast (224.0.0.0/4, ff00::/8 — mDNS, SSDP, LLMNR), the
+limited broadcast address, the unspecified address, or IPv6 link-local
+(fe80::/10) is skipped before any conn detector sees it. These are local
+network chatter, never a routable C2 endpoint, but they are *not* RFC-1918, so
+they slip the `!isPrivateIP(dst)` egress gate — without this an mDNS printer or
+an SSDP-announcing TV reads as a perfectly periodic Beacon (and as a Strobe,
+off-hours transfer, etc.) to an "external" host. The same drop covers every
+conn detector: beacon, strobe, exfil, off-hours, long-connection, C2 Port, and
+Protocol on Unexpected Port (`isLocalInfraDest` in `types.go`).
+
 **Destination-port labeling.** Connections are aggregated per
 `(sensor, source, destination)` — *not* per port — so a beacon that runs on
 a single port is still scored on all of that pair's traffic. The finding's
@@ -604,15 +615,18 @@ legitimate sporadic traffic. The histogram and bytes axes still
 contribute if those signals survive.
 
 Known false-positive class — long-period rescues on high-frequency
-local traffic: mDNS pairs (`_tcp.local`, `_udp.local`) with
-sub-30 s median intervals accumulate enough observations to produce
-genuine periodogram peaks at 6–10 day periods (weekday/weekend
-traffic rhythm), crossing FAP=12 after DC-correction. These produce
-spectral-rescued findings at score 95+ that are operationally
-benign. DC-correction cannot suppress them because the structure is
-real. Analyst response: allowlist the pair, or treat mDNS findings
-in the spectral-rescued set as noise unless TI hits, data-size
-regularity, or high persistence score provide additional support.
+local traffic: a pair with sub-30 s median intervals accumulates
+enough observations to produce genuine periodogram peaks at 6–10 day
+periods (weekday/weekend traffic rhythm), crossing FAP=12 after
+DC-correction. These produce spectral-rescued findings at score 95+
+that are operationally benign; DC-correction cannot suppress them
+because the structure is real. The dominant offender — mDNS — is now
+removed upstream: `.local` queries and multicast/broadcast/link-local
+destinations are dropped before any detector (§2.1, §9.6), so they
+never reach the spectral path. What remains is other chatty *unicast*
+local traffic (an internal telemetry agent on a tight interval).
+Analyst response: allowlist the pair, or require a second axis (TI
+hit, data-size regularity, high persistence) before acting.
 
 ### 2.5 DGA hostname augmentation
 
@@ -1200,7 +1214,7 @@ as conn and HTTP beacons). `ds_score` is intentionally left zero (DNS
 has no payload-size axis — the diversity axis is detector-internal and
 surfaced in the Detail string, not overloaded onto `ds_score`).
 
-**Two scoping rules keep it from double-counting:**
+**Three scoping rules keep it from double-counting and off benign noise:**
 
 - **Diversity gate.** At or above `DNSUniqueSubdomainMin` the apex is
   exfil-shaped — DNS Tunneling owns it, and Correlated Activity links
@@ -1209,6 +1223,22 @@ surfaced in the Detail string, not overloaded onto `ds_score`).
   cadence accumulation entirely: a beacon to a sinkholed/dead C2 is
   the NXDOMAIN-flood detector's finding (§9.1), and resolver-retry
   behaviour on failed lookups contaminates inter-arrival timing.
+- **mDNS exclusion.** A `.local` query (RFC 6762 multicast DNS — link-local
+  service discovery to 224.0.0.251/ff02::fb on UDP 5353, never a routable
+  resolver lookup or C2) is dropped at the record level, ahead of *every* DNS
+  detector — not just this one. mDNS device announcements have a naturally
+  regular cadence that otherwise scores HIGH (a `samsung.local` printer or TV
+  reading as a beacon), and their rotating service names
+  (`_airplay._tcp.local`, …) inflate the Subdomain DGA diversity counter.
+  Excluding `.local` at the source beats asking every operator to allowlist
+  each device name.
+
+**Port.** Every DNS finding's `DstPort` is the transport port of the first
+contributing query (`id.resp_p`), not a hardcoded 53 — so a detection over DoT
+(853) or an internal resolver on an odd port is labelled honestly. It defaults
+to 53 only when the record omits the field. (The DNS keys are name-based, so the
+port is informational, not part of identity. The one exception is DNS NXDOMAIN
+Flood, a per-source roll-up across many apexes, which stays `(network)`/`53`.)
 
 **Benign suppression.** Before scoring, an apex matching the built-in
 CDN/cloud suffix allowlist (shared with the DGA augmentation, §2.5) or
