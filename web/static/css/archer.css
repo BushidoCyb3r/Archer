@@ -2069,6 +2069,64 @@ dialog::backdrop {
   color: var(--fg-dim);
   font-size: 14px;
 }
+
+/* ── MITRE ATT&CK technique chip (detail pane) + coverage modal ───────────── */
+.attack-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  margin-right: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+a.attack-chip:hover { background: var(--accent-glow); }
+
+.attack-group { margin-bottom: 14px; }
+.attack-tactic {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-muted);
+  margin: 0 0 6px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.attack-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.attack-tech {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  color: var(--fg-primary);
+  cursor: pointer;
+  font-size: 13px;
+}
+.attack-tech:hover { background: var(--row-hover); border-color: var(--border); }
+.attack-count {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+.attack-ext { color: var(--fg-muted); text-decoration: none; font-size: 14px; }
+.attack-ext:hover { color: var(--accent); }
+#attack-unmapped-list .attack-row { color: var(--fg-muted); font-size: 13px; padding: 2px 6px; }
+#attack-unmapped-list .attack-row span:first-child { flex: 1; }
 #fingerprints-table {
   width: 100%;
   table-layout: fixed;
@@ -2646,22 +2704,6 @@ dialog::backdrop {
    finding IDs. Click pivots to the Correlated Activity roll-up.
    Compact accent styling to read as "supplementary info" rather than
    competing with the row's severity colour. */
-.corr-chip {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 0 6px;
-  border-radius: 99px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--accent-hover);
-  background: var(--accent-soft);
-  border: 1px solid rgba(79, 140, 255, 0.32);
-  cursor: pointer;
-  vertical-align: middle;
-  white-space: nowrap;
-}
-.corr-chip:hover { background: var(--accent-glow); color: var(--on-accent); }
 /* TLS-allowlist chip — muted/neutral, not an action: the fingerprint was
    triaged benign, so this reads as a quiet note rather than an alert. */
 .fp-allow-chip {

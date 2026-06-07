@@ -30,11 +30,55 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.61.0] — 2026-06-07
+
+A detection-context slice: findings now carry the MITRE ATT&CK technique(s)
+they evidence — a detail-pane tag, an `attack:` query field, and an ATT&CK
+Coverage modal — on a base of fingerprint-triage / IOC-refresh fixes,
+honest DNS/conn handling of local-infrastructure traffic, and export
+formula-injection hardening accumulated since v0.60.0.
+
+### Added
+
+- **MITRE ATT&CK technique mapping per finding type.** Each finding type now
+  maps to the ATT&CK technique(s) it most precisely evidences (a curated Go
+  table in `internal/model/attack.go` — dominated by Command and Control with
+  a few Exfiltration / Lateral Movement entries, an honest reflection of what
+  network telemetry attributes). Three surfaces, all driven from that single
+  table:
+  - **Detail-pane tag** — a finding's detail view shows its technique(s) as
+    chips linking to attack.mitre.org (e.g. Beacon → `T1071`, DNS Beacon →
+    `T1071.004`), and the detail pane's **Export TXT** carries an `ATT&CK:`
+    header line too. The map is bootstrapped into the page (`window.ATTACK_MAP`,
+    same mechanism as score explanations), so there's no per-finding API bloat.
+  - **`attack:` query field** — filter findings by technique ID, tactic, or
+    name: `attack:T1071` (matches the base and its sub-techniques),
+    `attack:"command and control"`, `attack:DNS`. Additive to the query
+    grammar.
+  - **ATT&CK Coverage modal** — a button in the left sidebar's **Hunt** section
+    opens a tactic-grouped view of the techniques the current findings evidence,
+    with counts and a contributing-types breakdown; clicking a technique pivots
+    the Findings tab to `attack:<id>`. Unmapped types (TI hits, roll-ups, Zeek
+    notices) are listed too, so coverage gaps are explicit. Backed by the new
+    `GET /api/attack-coverage` endpoint.
+  TI-feed matches, analyzer roll-ups (Host Risk Score, Correlated Activity),
+  and raw Zeek notices are intentionally unmapped rather than forced onto a
+  loose technique; a drift test (`TestEveryFindingTypeMappedOrExempt`) ensures
+  every new finding type is consciously mapped or exempted.
+
 ### Changed
 
 - The **Known C2 signatures** prebuilt hunt now also surfaces
   `Protocol on Unexpected Port` — a port-control-evasion signal that belongs in
   the same sweep as the C2-port and JA3/JA4 signatures. UI-only.
+- **TLS Fingerprints** and **ATT&CK Coverage** moved from the query/filter bar
+  into a new **Hunt** section in the left sidebar (dim outline buttons, matching
+  Watch Mode / Edit Allowlist). UI-only.
+- **Removed the inline `+N corr` correlation chip** from the findings table. The
+  correlation it surfaced is already represented by the **Correlated Activity**
+  finding (its own row and view) and the right-click *Show contributing
+  activity* pivot, so the chip was redundant clutter in the Type column. The
+  correlation data and those two surfaces are unchanged. UI-only.
 
 ### Fixed
 

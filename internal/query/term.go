@@ -42,7 +42,7 @@ var knownFields = map[string]bool{
 	"tscore": true, "dscore": true, "hist": true, "dur": true,
 	"conns": true, "meanint": true, "medint": true, "jitter": true,
 	"uri": true, "note": true, "analyst": true, "dir": true, "detected": true,
-	"channel": true, "benign": true, "service": true,
+	"channel": true, "benign": true, "service": true, "attack": true,
 }
 
 // parseTerm turns a raw term token into a leaf node.
@@ -117,6 +117,21 @@ func parseTerm(raw string) (node, error) {
 //   - dir: must be one of the four directions (or the `lateral` alias).
 //
 // A no-op for every free-text / numeric / wildcard field.
+// attackMatch reports whether the finding type's ATT&CK techniques match the
+// query value on technique ID, tactic, or name. Substring/glob semantics
+// (stringPatternMatch) mean attack:T1071 also matches the sub-technique
+// T1071.004, and attack:"command and control" matches the tactic.
+func attackMatch(findingType, val string) bool {
+	for _, tech := range model.AttackTechniquesFor(findingType) {
+		if stringPatternMatch(tech.ID, val) ||
+			stringPatternMatch(tech.Tactic, val) ||
+			stringPatternMatch(tech.Name, val) {
+			return true
+		}
+	}
+	return false
+}
+
 func validateFieldValue(field, value string) error {
 	switch field {
 	case "type":
@@ -201,6 +216,11 @@ func (t term) eval(f model.Finding, opLoc *time.Location) bool {
 		// Port findings; empty on every other type, so a service: predicate
 		// implicitly scopes to that detector. Wildcard glob, like uri/note.
 		return stringPatternMatch(f.Service, t.value)
+	case "attack":
+		// MITRE ATT&CK technique the finding's Type maps to. Matches the
+		// technique ID (attack:T1071 hits T1071 and its sub-techniques via
+		// substring), tactic, or name. Derived from Type, not a stored field.
+		return attackMatch(f.Type, t.value)
 	case "uri":
 		return stringPatternMatch(f.URI, t.value)
 	case "note":

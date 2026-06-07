@@ -101,6 +101,32 @@ func TestStringFieldsAndWildcards(t *testing.T) {
 	}
 }
 
+func TestAttackField(t *testing.T) {
+	b := beacon()                                                          // Beacon → T1071
+	dns := model.Finding{Type: "DNS Beacon", Severity: model.SevHigh}      // → T1071.004
+	hrs := model.Finding{Type: "Host Risk Score", Severity: model.SevHigh} // exempt
+	tests := []struct {
+		q    string
+		f    model.Finding
+		want bool
+	}{
+		{"attack:T1071", b, true},                 // exact base id
+		{"attack:t1071", b, true},                 // case-insensitive
+		{"attack:T1071", dns, true},               // base matches sub-technique T1071.004
+		{"attack:T1071.004", dns, true},           // exact sub-technique
+		{"attack:T1071.004", b, false},            // beacon is the base, not the sub
+		{`attack:"command and control"`, b, true}, // tactic
+		{"attack:DNS", dns, true},                 // technique-name substring
+		{"attack:T1071", hrs, false},              // exempt type maps to nothing
+		{"attack:T9999", b, false},                // no such technique
+	}
+	for _, tc := range tests {
+		if got := matches(t, tc.q, tc.f); got != tc.want {
+			t.Errorf("%q on %q = %v, want %v", tc.q, tc.f.Type, got, tc.want)
+		}
+	}
+}
+
 func TestStatus(t *testing.T) {
 	open := beacon() // Status ""
 	ack := beacon()

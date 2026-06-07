@@ -14,7 +14,6 @@ const Table = (() => {
   let _selected = null;
   let _onSelect    = null;
   let _onCtx       = null;
-  let _onCorrChip  = null;
 
   // Row height is pinned in archer.css (#findings-tbody > tr:not([aria-hidden])
   // { height: 32px }). Using a constant here — and a CSS rule there — keeps
@@ -79,16 +78,6 @@ const Table = (() => {
     const detail = detailRaw.slice(0, 60) + (detailRaw.length > 60 ? '…' : '');
     const sev = f.severity || '';
     const cls = sev + (isSel ? ' selected' : '');
-    // Correlation chip — visible when the analyzer's correlation
-    // phase annotated this finding with sibling IDs. Click pivots
-    // to the Correlated Activity roll-up for this row's (src, dst),
-    // handled in _onTbodyClick.
-    const corrCount = (Array.isArray(f.correlations) ? f.correlations.length : 0) | 0;
-    const corrChip = corrCount > 0
-      ? ' <span class="corr-chip" title="' +
-          _esc('Part of a correlation with ' + corrCount + ' other finding(s) on the same (src, dst). Click to filter the table to this pair.') +
-          '">+' + corrCount + ' corr</span>'
-      : '';
     // TLS-allowlist chip — this finding's JA3/JA4 client fingerprint has been
     // marked benign on the TLS Fingerprints wall. A hint, not a filter: the
     // finding still shows, but the analyst is told its fingerprint was triaged.
@@ -101,7 +90,7 @@ const Table = (() => {
       '<td class="status-icon">' + _statusIcon(f) + '</td>' +
       '<td class="score">' + _esc(f.score) + '</td>' +
       '<td class="severity">' + _esc(sev) + '</td>' +
-      '<td title="' + _esc(f.type) + '">' + _esc(f.type) + corrChip + fpChip + '</td>' +
+      '<td title="' + _esc(f.type) + '">' + _esc(f.type) + fpChip + '</td>' +
       '<td class="src-ip" title="' + _esc(f.src_ip) + '" style="font-family:monospace">' + _esc(f.src_ip) + '</td>' +
       '<td class="dst-ip" title="' + _esc(f.dst_ip) + '" style="font-family:monospace">' + _esc(f.dst_ip) + '</td>' +
       '<td class="port">' + _esc(f.dst_port) + '</td>' +
@@ -190,14 +179,6 @@ const Table = (() => {
     const id = parseInt(tr.dataset.id, 10);
     const f = _findById(id);
     if (!f) return;
-    // Click on the correlation chip filters the Findings tab to the
-    // (src, dst) pair so all contributors are visible in context.
-    // Delegates to app.js via _onCorrChip so the filter state lives
-    // in one place; always works regardless of current filter or page.
-    if (e.target.closest('.corr-chip')) {
-      if (_onCorrChip) _onCorrChip(f);
-      return;
-    }
     _select(f);
   }
 
@@ -277,10 +258,9 @@ const Table = (() => {
     jumpTo(next.id);
   }
 
-  function init(onSelect, onCtx, onCorrChip) {
+  function init(onSelect, onCtx) {
     _onSelect   = onSelect;
     _onCtx      = onCtx;
-    _onCorrChip = onCorrChip || null;
     document.querySelectorAll('#findings-table thead th[data-col]').forEach(th => {
       th.addEventListener('click', () => _sortBy(th.dataset.col));
     });

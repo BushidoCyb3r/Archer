@@ -5,6 +5,8 @@ import (
 	"html/template"
 	"net/http"
 	"path/filepath"
+
+	"github.com/BushidoCyb3r/Archer/internal/model"
 )
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -27,8 +29,15 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	// which redacts secrets for non-admins.
 	scoreJSON, _ := json.Marshal(scoreExplanationsJS())
 
+	// Finding-type → ATT&CK technique map, bootstrapped into the page so the
+	// detail pane and coverage modal render technique tags from a finding's
+	// Type without per-finding API bloat. Single source of truth is the Go
+	// table (internal/model); same mechanism as ScoreExplanations.
+	attackJSON, _ := json.Marshal(model.AttackMap())
+
 	data := map[string]template.JS{
 		"ScoreExplanations": template.JS(scoreJSON),
+		"AttackMap":         template.JS(attackJSON),
 	}
 
 	// Like /static/, the index page is served no-store so a UI redeploy

@@ -3,6 +3,7 @@
 
 const Detail = (() => {
   const EXPLANATIONS = window.SCORE_EXPLANATIONS || {};
+  const ATTACK = window.ATTACK_MAP || {};
   const _TI_TYPES = new Set(['TI Hit (IP)', 'TI Hit (Domain)', 'TI Hit (Hash)', 'Threat Intel Hit']);
 
   // Per-fingerprint mark actions in the JA3/JA4 rows let an analyst triage a
@@ -131,6 +132,13 @@ const Detail = (() => {
     let id = '';
     if (f.id != null) id += _row('ID', _esc(String(f.id)), true);
     id += _row('Type',      _esc(f.type));
+    const techs = ATTACK[f.type] || [];
+    if (techs.length) {
+      const chips = techs.map(tk =>
+        `<a class="attack-chip" href="${_esc(tk.url)}" target="_blank" rel="noopener noreferrer" title="${_esc(tk.tactic)} — ${_esc(tk.name)}">${_esc(tk.id)}</a>`
+      ).join(' ');
+      id += _row('ATT&CK', chips);
+    }
     id += _row('Severity',  `${_esc(f.severity)}<span style="color:var(--fg-dim)">  score </span>${_esc(String(f.score))}`, false);
     id += _row('Status',    _esc(_statusLabel(f.status)));
     if (sensor)           id += _row('Sensor',    _esc(sensor));

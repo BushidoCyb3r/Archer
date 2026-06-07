@@ -2894,10 +2894,13 @@
   function _downloadFindingText(f) {
     const sep = '────────────────────────────────────────────────────────────';
     const dst = f.dst_ip ? (f.dst_ip + (f.dst_port ? ':' + f.dst_port : '')) : '';
+    const techs = (window.ATTACK_MAP && window.ATTACK_MAP[f.type]) || [];
+    const attackLine = techs.map(t => `${t.id} ${t.name}`).join('; ');
     const lines = [
       `Archer Finding #${f.id}`,
       sep,
       `Type:        ${f.type || ''}`,
+      `ATT&CK:      ${attackLine}`,
       `Severity:    ${f.severity || ''}`,
       `Score:       ${f.score == null ? '' : f.score}`,
       `Source:      ${f.src_ip || ''}`,
@@ -5080,15 +5083,7 @@
           Detail.render(full);
         }).catch(() => {});
       },
-      (e, f) => showMenu(e, f),
-      f => {
-        if (!f || (!f.src_ip && !f.dst_ip)) return;
-        _resetFilterUI();
-        if (f.src_ip) _setQueryToken('src', f.src_ip);
-        if (f.dst_ip) _setQueryToken('dst', f.dst_ip);
-        _switchToFindingsView();
-        applyFilter();
-      }
+      (e, f) => showMenu(e, f)
     );
 
     // Hosts-row click opens the host-pivot view: HRS roll-up at top,
@@ -5322,6 +5317,13 @@
           onToast: (msg) => showToast(msg, 4000),
           onChange: _reloadFindingsInPlace,
           canWrite: u.role !== 'viewer',
+        });
+      }
+      // ATT&CK Coverage modal — clicking a technique pivots the Findings tab
+      // to attack:<id> via the query bar (same upsert path the chips use).
+      if (typeof Attack !== 'undefined' && Attack.init) {
+        Attack.init({
+          onPivot: (id) => { _setQueryToken('attack', id); applyFilter(); },
         });
       }
       // Per-fingerprint Benign / Malicious actions in the finding detail pane,

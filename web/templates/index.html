@@ -72,6 +72,11 @@
     <span class="ti-label" id="ti-status">Not fetched</span>
 
     <div class="sidebar-divider"></div>
+    <div class="sidebar-section-title">Hunt</div>
+    <button class="sb-btn dim full" id="fingerprints-btn" title="List high-signal TLS client fingerprints (JA3/JA4) by severity; click one to pivot to its findings">TLS Fingerprints</button>
+    <button class="sb-btn dim full" id="attack-coverage-btn" title="MITRE ATT&amp;CK coverage across current findings; click a technique to pivot to its findings">ATT&amp;CK Coverage</button>
+
+    <div class="sidebar-divider"></div>
     <div class="sidebar-section-title" id="watch-mode-label">Watch Mode</div>
     <div class="sidebar-btn-row" id="watch-mode-btn-row" style="display:none">
       <button type="button" class="sb-btn dim" id="watch-mode-title" title="Open Watch Mode settings">Watch Mode</button>
@@ -183,7 +188,6 @@
         </div>
         <button class="filter-btn" id="run-query-btn" title="Run the query (Enter runs it, Shift+Enter for a new line)">Run</button>
         <button class="filter-btn dim" id="reset-filter-btn" title="Clear the query">Clear</button>
-        <button class="filter-btn dim" id="fingerprints-btn" title="List high-signal TLS client fingerprints (JA3/JA4) by severity; click one to pivot to its findings">TLS Fingerprints</button>
         <span class="filter-spacer"></span>
         <div class="logs-dropdown">
           <button class="filter-btn dim" id="logs-preview-btn" title="Preview the logs currently staged for analysis">Logs: — ▾</button>
@@ -275,6 +279,7 @@
             <li data-field="hostname:">Hostname</li>
             <li data-field="uri:">HTTP beacon URI</li>
             <li data-field="service:">Protocol on unexpected port (DPD service)</li>
+            <li data-field="attack:">MITRE ATT&amp;CK technique / tactic</li>
             <li data-field="detail:">Detail text</li>
             <li data-field="note:">Analyst note</li>
             <li data-field="analyst:">Analyst</li>
@@ -679,6 +684,22 @@
   </div>
   <div class="dlg-footer">
     <button class="dlg-btn secondary" id="fingerprints-close">Close</button>
+  </div>
+</dialog>
+
+<dialog id="attack-dialog">
+  <div class="dlg-header">MITRE ATT&amp;CK Coverage</div>
+  <div class="dlg-body">
+    <p class="fp-hint">MITRE ATT&amp;CK techniques evidenced by the current findings, grouped by tactic. Click a technique to filter findings to it; the ID links to attack.mitre.org.</p>
+    <div id="attack-coverage"></div>
+    <div id="attack-empty" class="fp-empty" style="display:none">No findings yet — run an analysis.</div>
+    <details id="attack-unmapped" style="display:none;margin-top:14px">
+      <summary>Unmapped (<span id="attack-unmapped-count">0</span>) — finding types with no ATT&amp;CK technique (TI hits, roll-ups, notices)</summary>
+      <div id="attack-unmapped-list"></div>
+    </details>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="attack-close">Close</button>
   </div>
 </dialog>
 
@@ -1510,6 +1531,7 @@
 <!-- ── JS modules ─────────────────────────────────────────────── -->
 <script>
   window.SCORE_EXPLANATIONS = {{.ScoreExplanations}}; // nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag -- static hardcoded score-explanation text (json.Marshal of a constant map), no user input or secrets; config bootstrap removed in the v0.25.1 fix
+  window.ATTACK_MAP = {{.AttackMap}}; // nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag -- static MITRE ATT&CK finding-type→technique map (json.Marshal of a constant Go table), no user input or secrets
 </script>
 <script src="/static/js/sse.js"></script>
 <script src="/static/js/notifications.js"></script>
@@ -1524,6 +1546,7 @@
 <script src="/static/js/graph.js"></script>
 <script src="/static/js/sensors.js"></script>
 <script src="/static/js/fingerprints.js"></script>
+<script src="/static/js/attack.js"></script>
 <script src="/static/js/feeds.js"></script>
 <script src="/static/js/audit_log.js"></script>
 <script src="/static/js/app.js"></script>
