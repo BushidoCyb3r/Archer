@@ -30,6 +30,12 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.62.0] — 2026-06-07
+
+Wildcard matching in the operator Allowlist and IOC list — so noisy
+destination families (reverse-DNS apexes, internal domain suffixes, IP
+prefixes) can be suppressed or flagged per-deployment with one entry.
+
 ### Changed
 
 - **Wildcards in the Allowlist and IOC list.** Entries containing `*` (any run
