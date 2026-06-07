@@ -5319,11 +5319,12 @@
           canWrite: u.role !== 'viewer',
         });
       }
-      // ATT&CK Coverage modal — clicking a technique pivots the Findings tab
-      // to attack:<id> via the query bar (same upsert path the chips use).
+      // ATT&CK Coverage modal — clicking a technique replaces the whole query
+      // with just attack:<id> (a focused pivot, not an upsert onto the current
+      // query) and lands on the Findings view.
       if (typeof Attack !== 'undefined' && Attack.init) {
         Attack.init({
-          onPivot: (id) => { _setQueryToken('attack', id); applyFilter(); },
+          onPivot: (id) => { _setFullQuery('attack:' + id); _switchToFindingsView(); applyFilter(); },
         });
       }
       // Per-fingerprint Benign / Malicious actions in the finding detail pane,

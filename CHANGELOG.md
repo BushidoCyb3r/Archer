@@ -30,6 +30,13 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Changed
+
+- Clicking a technique in the **ATT&CK Coverage** modal now replaces the query
+  with just `attack:<id>` (and lands on the Findings view) instead of upserting
+  the token onto whatever was already in the query bar — a focused pivot to
+  that technique's findings.
+
 ## [v0.62.0] — 2026-06-07
 
 Wildcard matching in the operator Allowlist and IOC list — so noisy
