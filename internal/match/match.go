@@ -3,13 +3,21 @@
 // across many Matches calls — what was previously rebuilt per
 // /api/findings request.
 //
-// Match semantics: exact entries (IPs, domains, any free-form string)
-// live in `exact`. CIDR entries are parsed into ipnets and matched
-// against IP-shaped candidates only. Whole-line `# ...` comments are
-// ignored. Empty entries are ignored. Inline `value # tail` tails are
-// expected to have been stripped at store time (see
-// internal/store.sanitizeListEntries) — anything reaching Compile
-// without a `#` prefix is treated as a real entry.
+// Match semantics — three tiers, checked in order:
+//   - exact: IPs (canonicalized), domains, any free-form literal.
+//   - globs: entries containing `*` / `?` wildcards, matched anchored
+//     (whole-candidate) and case-insensitively — e.g. `*.in-addr.arpa`,
+//     `185.220.*`, `*.internal.corp`. Operator-entered only; feed
+//     indicators are always literal, so a feed matcher's glob tier is
+//     empty and adds zero per-candidate cost (keeps the 1M-indicator
+//     feed path fast).
+//   - cidrs: parsed ipnets, matched against IP-shaped candidates only.
+//
+// CIDR is tried before the wildcard check, so `10.0.0.0/8` stays a CIDR
+// match and only non-CIDR entries with `*`/`?` become globs. Whole-line
+// `# ...` comments and empty entries are ignored. Inline `value # tail`
+// tails are expected to have been stripped at store time (see
+// internal/store.sanitizeListEntries).
 package match
 
 import (
@@ -22,6 +30,7 @@ import (
 type Matcher struct {
 	exact map[string]bool
 	cidrs []*net.IPNet
+	globs []string
 }
 
 // Compile builds a Matcher from a slice of entries. Order is irrelevant
@@ -35,6 +44,10 @@ func Compile(entries []string) *Matcher {
 		}
 		if _, ipnet, err := net.ParseCIDR(e); err == nil {
 			m.cidrs = append(m.cidrs, ipnet)
+			continue
+		}
+		if strings.ContainsAny(e, "*?") {
+			m.globs = append(m.globs, e)
 			continue
 		}
 		if ip := net.ParseIP(e); ip != nil {
@@ -59,6 +72,11 @@ func (m *Matcher) Matches(candidate string) bool {
 	if m.exact[key] {
 		return true
 	}
+	for _, g := range m.globs {
+		if globMatch(g, candidate) {
+			return true
+		}
+	}
 	if len(m.cidrs) == 0 {
 		return false
 	}
@@ -72,4 +90,39 @@ func (m *Matcher) Matches(candidate string) bool {
 		}
 	}
 	return false
+}
+
+// globMatch reports whether s matches the wildcard pattern (anchored,
+// whole-string, case-insensitive). `*` matches any run of characters,
+// `?` exactly one. Linear-time backtracking — fine for the handful of
+// operator wildcard entries a list carries.
+func globMatch(pattern, s string) bool {
+	p := []rune(strings.ToLower(pattern))
+	str := []rune(strings.ToLower(s))
+	ip, is := 0, 0
+	star, match := -1, 0
+	for is < len(str) {
+		if ip < len(p) && (p[ip] == '?' || p[ip] == str[is]) {
+			ip++
+			is++
+			continue
+		}
+		if ip < len(p) && p[ip] == '*' {
+			star = ip
+			match = is
+			ip++
+			continue
+		}
+		if star != -1 {
+			ip = star + 1
+			match++
+			is = match
+			continue
+		}
+		return false
+	}
+	for ip < len(p) && p[ip] == '*' {
+		ip++
+	}
+	return ip == len(p)
 }

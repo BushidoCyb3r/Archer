@@ -30,6 +30,29 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Changed
+
+- **Wildcards in the Allowlist and IOC list.** Entries containing `*` (any run
+  of characters) or `?` (exactly one) are now matched as anchored,
+  case-insensitive globs against a finding's source and destination — e.g.
+  `*.in-addr.arpa` / `*.ip6.arpa` to suppress the reverse-DNS apexes the DNS
+  detectors surface as a destination, `*.internal.corp` for a domain family, or
+  `185.220.*` for an IP prefix. CIDR is still tried first (`10.0.0.0/8` stays a
+  CIDR match), so wildcards only catch non-CIDR entries; literals and CIDRs are
+  unchanged. Wildcards are an operator-list feature only — TI-feed indicators
+  are always literal, so feed matchers carry no glob tier and the large-feed
+  matching path is unaffected. The Edit Allowlist / Edit IOC dialogs note the
+  syntax.
+
+### Detection changes
+
+- The wildcard support above changes **IOC-list matching semantics**: an IOC
+  entry that literally contained `*`/`?` (which matched nothing before, since it
+  was treated as an exact string) is now a glob. No shipped/exported indicator
+  uses those characters, so in practice this only enables new operator
+  wildcards rather than altering existing matches — but an operator who had
+  pasted a literal `*` into the IOC or allowlist text should review it.
+
 ## [v0.61.0] — 2026-06-07
 
 A detection-context slice: findings now carry the MITRE ATT&CK technique(s)

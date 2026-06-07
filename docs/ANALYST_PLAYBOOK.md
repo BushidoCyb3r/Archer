@@ -161,6 +161,15 @@ clear comment (`# WSUS — Windows Update`). The detector still
 runs against those flows; it just doesn't surface them. Future
 analysts will read your comment and understand why.
 
+The allowlist (and the IOC list) match a finding's source and
+destination as **exact** values, **CIDR** ranges (`10.0.0.0/8`), or
+**wildcards** — `*` matches any run of characters, `?` exactly one. So
+the `*.`-prefixed patterns above work as written: `*.in-addr.arpa`
+suppresses the reverse-DNS apexes the DNS detectors surface in the
+destination column, `*.internal.corp` a domain family, `185.220.*` an IP
+prefix (though CIDR is cleaner for ranges). Wildcards are matched
+case-insensitively and anchored to the whole value.
+
 The fast filter is the difference between a triage queue you
 can actually work and one you abandon at finding number forty.
 
@@ -561,12 +570,12 @@ The chart is the right view for "how is this beacon changing
 over weeks." For intra-day timing detail (interval distribution,
 byte distribution), use the Beacon Chart dialog instead.
 
-**Correlation chip.** If this finding's `(src, dst)` pair is
-also carrying findings from N+ other detector types, the row
-shows a `+N corr` chip. Click it to filter the Findings tab to
-that `(src, dst)` pair — every contributor *and* the Correlated
-Activity roll-up row land in one view (it clears any active
-filter/page first, so it works regardless of where you were).
+**Correlated Activity.** If this finding's `(src, dst)` pair is
+also carrying findings from N+ other detector types, the analyzer
+emits a separate **Correlated Activity** roll-up row for that pair.
+Right-click it → **Show contributing activity** to filter the
+Findings tab to that `(src, dst)` pair — every contributor *and*
+the roll-up land in one view.
 This is the fastest way to spot kill-chain progression — a
 Beacon finding plus a DNS Tunneling finding plus a Suspicious File
 Download on the same pair is a much higher-signal story than
@@ -1249,7 +1258,7 @@ meets both gates).
 
 ### Marking a TLS fingerprint benign
 
-The **TLS Fingerprints** modal (filter bar → TLS Fingerprints)
+The **TLS Fingerprints** modal (left sidebar → Hunt → TLS Fingerprints)
 is the third noise-reduction tool, scoped not to a destination
 or a pair but to a **TLS client shape**. When a rare or
 cross-host JA3/JA4 keeps re-surfacing on the wall and you've

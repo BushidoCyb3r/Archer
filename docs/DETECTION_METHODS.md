@@ -1848,13 +1848,11 @@ correlations on benign destinations. Value < 2 is rejected at the
 config API and short-circuited defensively in `correlateFindings`
 itself (NEW-66 defense-in-depth pattern).
 
-**UI surface.** Each contributor row in the Findings table shows a
-`+N corr` chip next to its Type. Clicking the chip pivots to the
-`Correlated Activity` row so analysts can read the full
-multi-detector context from one place. If the roll-up row isn't in
-the currently-loaded findings (pagination, active filter), the chip
-falls back to selecting the originating finding — its Detail field
-lists every contributing ID and the analyst can navigate from there.
+**UI surface.** The roll-up appears as its own `Correlated Activity`
+row. Right-click it → **Show contributing activity** to filter the
+Findings tab to that `(src, dst)` pair, so the roll-up and every
+contributor land in one view. Each contributor also carries its
+sibling IDs in the `correlations` field (exposed on `/api/findings`).
 
 ---
 

@@ -42,6 +42,62 @@ func TestCompile_ExactAndCIDR(t *testing.T) {
 	}
 }
 
+func TestCompile_Wildcards(t *testing.T) {
+	m := Compile([]string{
+		"*.in-addr.arpa", // reverse-DNS apex family (the motivating case)
+		"*.ip6.arpa",
+		"185.220.*",       // IP-prefix glob
+		"10.?.0.1",        // single-char glob
+		"*.internal.corp", // domain suffix glob
+		"203.0.113.10",    // a literal alongside (must still be exact)
+		"192.168.0.0/16",  // a CIDR alongside (must still be CIDR)
+	})
+	tests := []struct {
+		candidate string
+		want      bool
+	}{
+		// Reverse-DNS apexes (DNS findings put the apex in DstIP).
+		{"172.in-addr.arpa", true},
+		{"10.in-addr.arpa", true},
+		{"168.192.in-addr.arpa", true},
+		{"172.IN-ADDR.ARPA", true}, // case-insensitive
+		{"1.0.0.0.ip6.arpa", true},
+		// in-addr.arpa without the leading label still needs a label before the
+		// dot to satisfy `*.in-addr.arpa`; the bare suffix should NOT match.
+		{"in-addr.arpa", false},
+		// IP-prefix glob.
+		{"185.220.114.11", true},
+		{"185.221.1.1", false},
+		// Single-char glob.
+		{"10.5.0.1", true},
+		{"10.55.0.1", false}, // ? is exactly one char
+		// Domain suffix glob.
+		{"host.internal.corp", true},
+		{"internal.corp", false},
+		{"host.internal.corp.evil.com", false}, // anchored — must end at the pattern
+		// Literal and CIDR neighbours still work.
+		{"203.0.113.10", true},
+		{"203.0.113.11", false},
+		{"192.168.5.5", true},
+		{"11.0.0.1", false},
+	}
+	for _, tt := range tests {
+		if got := m.Matches(tt.candidate); got != tt.want {
+			t.Errorf("Matches(%q) = %v, want %v", tt.candidate, got, tt.want)
+		}
+	}
+}
+
+// TestCompile_NoWildcardsNoGlobTier pins the feed-path guarantee: a list with
+// no wildcard entries compiles to an empty glob tier, so the per-candidate
+// glob scan is skipped entirely (the 1M-indicator feed matchers stay fast).
+func TestCompile_NoWildcardsNoGlobTier(t *testing.T) {
+	m := Compile([]string{"1.2.3.4", "evil.test", "10.0.0.0/8"})
+	if len(m.globs) != 0 {
+		t.Errorf("expected no glob entries, got %v", m.globs)
+	}
+}
+
 func TestMatches_NilReceiver(t *testing.T) {
 	var m *Matcher
 	if m.Matches("1.2.3.4") {
