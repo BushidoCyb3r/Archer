@@ -1782,15 +1782,47 @@
   // are stamped server-side at /api/findings read time, so the cached rows are
   // stale until we refetch. Stays on the current page (gotoOffset) and
   // invalidates the other tabs so a benign:/ioc: filtered view re-derives lazily.
-  function _reloadFindingsInPlace() {
-    // Capture the page offset before _invalidateAllTabs zeroes every tab's
-    // offset — otherwise the reload always lands on page 1.
-    const keepOffset = _curTab().offset;
-    _invalidateAllTabs();
+  // The scroll container for the active aggregate tab. Campaigns, Hosts,
+  // and Dismissed-Campaigns each render into a `.table-wrap` (Dismissed-
+  // Campaigns shares the Campaigns panel); their renderers rebuild the
+  // tbody but don't touch scrollTop, so an in-place reload has to save and
+  // restore it explicitly (the findings table does this via Table.load's
+  // preserveScroll instead).
+  function _aggScrollEl() {
+    const tb = document.getElementById(_tabMode === 'hosts' ? 'hosts-tbody' : 'campaigns-tbody');
+    return tb ? tb.closest('.table-wrap') : null;
+  }
+
+  // Reload the active view — a findings tab or a Campaigns/Hosts aggregate —
+  // after a list-mutating action (allowlist/IOC/suppress, dismiss, status
+  // change) without losing the analyst's place: same tab, same page, same
+  // scroll position. The curated rows drop out and the rest shift up.
+  // opts.counts also refreshes the per-status totals — a status change moves
+  // a finding between tabs, so the info line and sidebar badges need
+  // reconciling; curate-in-place actions leave the status untouched and skip
+  // it.
+  async function _reloadFindingsInPlace(opts) {
+    const refreshCounts = !!(opts && opts.counts);
     if (_isAggregateTab(_tabMode)) {
-      _ensureAggregate();
+      // Capture the aggregate page offset + scroll before _invalidateAllTabs
+      // (which calls _invalidateAggregate) zeroes them, then restore both
+      // around the rebuild.
+      const key = _aggTabKey(_tabMode);
+      const keepOffset = _aggTabState[key].offset;
+      const sc = _aggScrollEl();
+      const keepScroll = sc ? sc.scrollTop : 0;
+      _invalidateAllTabs();
+      if (refreshCounts) _loadCounts();
+      _aggTabState[key].offset = keepOffset;
+      await _ensureAggregate();
+      if (sc) sc.scrollTop = keepScroll;
     } else {
-      loadFindings(_currentFilterParams(), { gotoOffset: keepOffset, preserveScroll: true });
+      // Capture the page offset before _invalidateAllTabs zeroes every tab's
+      // offset — otherwise the reload always lands on page 1.
+      const keepOffset = _curTab().offset;
+      _invalidateAllTabs();
+      if (refreshCounts) _loadCounts();
+      await loadFindings(_currentFilterParams(), { gotoOffset: keepOffset, preserveScroll: true });
     }
   }
 
@@ -2603,10 +2635,9 @@
       Table.update(updated);
       // After dismiss the row leaves the current tab; after
       // un-dismiss it leaves the Dismissed tab. Either way the
-      // tab needs to refetch so totals + visible rows reconcile.
-      _invalidateAllTabs();
-      _loadCounts();
-      _applyTabFilter();
+      // tab needs to refetch so totals + visible rows reconcile —
+      // in place, holding the analyst's page and scroll position.
+      await _reloadFindingsInPlace({ counts: true });
     } catch (e) { setStatus('Error: ' + e); }
   }
 
@@ -2649,14 +2680,7 @@
         ok++;
       } catch (_) { fail++; }
     }
-    _invalidateAggregate();
-    _invalidateAllTabs();
-    _loadCounts();
-    if (_isAggregateTab(_tabMode)) {
-      await _ensureAggregate();
-    } else {
-      _applyTabFilter();
-    }
+    await _reloadFindingsInPlace({ counts: true });
     if (fail === 0) setStatus(`Dismissed ${ok} finding${ok === 1 ? '' : 's'} in campaign`);
     else            setStatus(`Dismissed ${ok}, failed ${fail} — re-try to clear remaining`);
   }
@@ -2749,7 +2773,7 @@
         const idx = _allFindings.findIndex(x => x.id === f.id);
         if (idx >= 0) _allFindings[idx] = updated;
         Table.update(updated);
-        _applyTabFilter();
+        _applyTabFilter({ preserveScroll: true });
       } catch (e) { setStatus('Error: ' + e); }
     });
 
@@ -2826,7 +2850,7 @@
           const idx = _allFindings.findIndex(x => x.id === f.id);
           if (idx >= 0) _allFindings[idx] = updated;
           Table.update(updated);
-          _applyTabFilter();
+          _applyTabFilter({ preserveScroll: true });
           setStatus(ips.length > 0 ? 'Escalated — TI lookup running in background' : 'Escalated');
         } catch (e) { setStatus('Error: ' + e); }
       };
@@ -3043,7 +3067,7 @@
           body: JSON.stringify({target, days, detail: dlg.dataset.detail || ''}),
         });
         setStatus(`Suppressed ${target} for ${days} day(s)`);
-        loadFindings(_currentFilterParams());
+        _reloadFindingsInPlace();
       } catch (e) { setStatus('Suppress error: ' + e); }
       dlg.close();
     });
@@ -3081,7 +3105,7 @@
           await api(`/api/suppressions/${encodeURIComponent(s.target)}`, {method:'DELETE'}).catch(() => {});
           setStatus(`Unsuppressed ${s.target}`);
           await _renderSuppressions();
-          loadFindings(_currentFilterParams());
+          _reloadFindingsInPlace();
         });
         listEl.appendChild(row);
       });
@@ -3144,7 +3168,7 @@
         await api(`/api/pair-allowlist/${p.id}`, {method: 'DELETE'}).catch(() => {});
         setStatus(`Removed pair rule ${p.src} → ${p.dst}:${p.port || ''}`);
         await _renderPairAllow();
-        loadFindings(_currentFilterParams());
+        _reloadFindingsInPlace();
       });
       listEl.appendChild(row);
     });
@@ -3174,7 +3198,7 @@
         });
         addDlg.close();
         setStatus(`Pair allowlisted ${src} → ${dst}:${port || ''}`);
-        loadFindings(_currentFilterParams());
+        _reloadFindingsInPlace();
         // Keep the Relationships tab fresh if the Allowlist dialog is open.
         if (document.getElementById('allowlist-dialog').open) _renderPairAllow();
       } catch (e) {
@@ -3253,7 +3277,7 @@
           });
           setStatus('Allowlisted ' + s.src_ip + ' → ' + s.dst_ip + ':' + (s.dst_port || ''));
           card.remove();
-          loadFindings(_currentFilterParams());
+          _reloadFindingsInPlace();
           if (document.getElementById('allowlist-dialog').open) _renderPairAllow();
         } catch (e) {
           errEl.textContent = e || 'Failed.';
@@ -3286,7 +3310,7 @@
       }).catch(e => setStatus('Error: ' + e));
       setStatus('Allowlist saved');
       alDlg.close();
-      loadFindings(_currentFilterParams());
+      _reloadFindingsInPlace();
       _loadAllowSet();
     });
 

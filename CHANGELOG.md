@@ -39,18 +39,24 @@ relevant, `### Detection changes` in each release entry.
 
 ### Fixed
 
-- **Right-click → Add to Allowlist / Suppress no longer throws the findings
-  view back to the top.** Both actions re-rendered through the full
-  `loadFindings` path, which resets the page offset to 1 and the table scroll
-  to the top — so curating from deep in a long list dumped the analyst back at
-  the start every time. Both now reload in place, preserving the active tab,
-  the page offset, and the within-page scroll position (the allowlisted /
-  suppressed rows drop out and the rest shift up). The in-place reload also
-  stopped silently resetting the page to 1: it read the current offset *after*
-  invalidating the tab caches (which zero every offset), so the offset it
-  "preserved" was always 0 — fixed by capturing it first. The IOC-list path,
-  which already reloaded in place, inherits the same scroll/offset
-  preservation. UI-only.
+- **List-mutating actions no longer throw the view back to the top or to
+  page 1.** Acknowledge, Escalate, Dismiss, bulk-dismiss-campaign, Add to
+  Allowlist, Add to IOC List, Suppress, and Allow-this-Relationship — from
+  the right-click menu, the detail-pane footer, or the management dialogs —
+  all re-rendered through the full reload path, which resets the page offset
+  to 1 and the table scroll to the top. Curating or triaging from deep in a
+  long list dumped the analyst back at the start every time. Every one now
+  reloads in place, holding the active tab, the page offset, and the
+  scroll position (the curated/acted rows drop out and the rest shift up).
+  This works on the Campaigns and Hosts aggregate tabs too — their tables
+  render outside the findings virtual-scroller, so the in-place reload saves
+  and restores their scroll container explicitly. Status-changing actions
+  also refresh the per-status totals so the info line and sidebar badges stay
+  accurate. The in-place reload had a latent bug of its own: it read the
+  page offset *after* invalidating the tab caches (which zero every offset),
+  so the offset it "preserved" was always 0 — fixed by capturing it first.
+  View *changes* (running a query, toggling delta mode, changing page size)
+  still reset to the top, as intended. UI-only.
 
 ## [v0.62.0] — 2026-06-07
 

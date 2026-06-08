@@ -278,12 +278,15 @@ Dismiss when triaging volume; reach for Acknowledge + suppress
 when triaging a benign pattern; reach for Escalate when the
 beacon doesn't fit either bucket.
 
-**Curating without losing your place:** right-click → Add to
-Allowlist / Add to IOC List / Suppress reload the list in place —
-the curated rows drop out and the rest shift up, but your tab,
-page, and scroll position hold. You can work straight down a long
-list of noisy destinations without being thrown back to the top
-after each entry.
+**Working without losing your place:** every action that mutates
+the list — Acknowledge, Escalate, Dismiss, bulk-dismiss-campaign,
+Add to Allowlist / Add to IOC List, Suppress, Allow this
+Relationship — reloads in place. The acted rows drop out and the
+rest shift up, but your tab, page, and scroll position hold (on
+the Campaigns and Hosts tabs too). You can triage or curate
+straight down a long list without being thrown back to the top
+after each entry. Only a deliberate view change — running a new
+query, toggling delta mode, changing page size — resets to the top.
 
 ---
 
