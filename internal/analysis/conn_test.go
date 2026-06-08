@@ -492,6 +492,101 @@ func TestPortHoppingBeacon(t *testing.T) {
 	}
 }
 
+// TestLateralMovementPorts pins the Lateral Movement detector's port set and
+// labeling. Invariant: an internal→internal connection on any port in
+// LateralMovementPorts emits exactly one Lateral Movement finding labeled with
+// that port's protocol (never "unknown"), while an internal→internal
+// connection on a non-admin port and an internal→external connection on an
+// admin port both emit none (the detector is internal-only and port-scoped).
+// Iterating the live port map means a future port added without a matching
+// lateralPortLabel entry, or removed from the set, fails here — and it pins the
+// VNC (5900) and Telnet (23) additions specifically.
+func TestLateralMovementPorts(t *testing.T) {
+	// Each lateral port gets its own internal→internal pair so the per-pair
+	// dedup never collapses two ports together.
+	ports := make([]int, 0, len(LateralMovementPorts))
+	for p := range LateralMovementPorts {
+		ports = append(ports, p)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "conn.log")
+	var b strings.Builder
+	uid := 0
+	// base is 2024-01-15 12:00:00 UTC — daytime, outside the default 22–06
+	// off-hours window, so Off-Hours Transfer doesn't fire on these conns.
+	base := 1705320000.0
+	line := func(src, dst string, port int) {
+		fmt.Fprintf(&b, `{"ts": %.1f, "uid": "C%07d", "id.orig_h": "%s", "id.orig_p": 40000, "id.resp_h": "%s", "id.resp_p": %d, "proto": "tcp", "duration": 1.2, "orig_bytes": 500, "resp_bytes": 700, "orig_ip_bytes": 540, "resp_ip_bytes": 740, "conn_state": "SF"}`+"\n",
+			base+float64(uid), uid, src, dst, port)
+		uid++
+	}
+
+	for i, p := range ports {
+		line(fmt.Sprintf("192.168.10.%d", i+1), fmt.Sprintf("192.168.20.%d", i+1), p)
+	}
+	// Negative: internal→internal on a non-admin port (443) must not fire.
+	line("192.168.30.1", "192.168.30.2", 443)
+	// Negative: internal→external on an admin port (3389) must not fire — the
+	// detector requires both endpoints to be internal.
+	line("192.168.40.1", "203.0.113.9", 3389)
+
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	a := New(config.Default(), "", nil, nil)
+	a.feodoIPs = map[string]bool{}
+	a.urlhausIPs = map[string]bool{}
+	a.urlhausHosts = map[string]bool{}
+	findings := a.Analyze([]string{path})
+
+	lateralByPort := map[string]model.Finding{}
+	for _, f := range findings {
+		if f.Type == "Lateral Movement" {
+			lateralByPort[f.DstPort] = f
+		}
+	}
+
+	for _, p := range ports {
+		f, ok := lateralByPort[fmt.Sprint(p)]
+		if !ok {
+			t.Errorf("port %d in LateralMovementPorts produced no Lateral Movement finding", p)
+			continue
+		}
+		label := lateralPortLabel(p)
+		if label == "unknown" {
+			t.Errorf("port %d is in LateralMovementPorts but lateralPortLabel returns \"unknown\" — add a label", p)
+		}
+		if !strings.Contains(f.Detail, label) {
+			t.Errorf("port %d: Detail %q does not carry the protocol label %q", p, f.Detail, label)
+		}
+	}
+
+	// Explicit pins for the two additions so their intent is documented even
+	// if the port set is later reshaped.
+	if _, ok := lateralByPort["23"]; !ok {
+		t.Error("Telnet (23) must be flagged as Lateral Movement")
+	}
+	if _, ok := lateralByPort["5900"]; !ok {
+		t.Error("VNC (5900) must be flagged as Lateral Movement")
+	}
+
+	// Negative cases: the non-admin internal pair and the external-dst admin
+	// pair must not appear.
+	for _, f := range findings {
+		if f.Type != "Lateral Movement" {
+			continue
+		}
+		if f.SrcIP == "192.168.30.1" {
+			t.Errorf("internal→internal on non-admin port 443 must not emit Lateral Movement, got: %s", f.Detail)
+		}
+		if f.DstIP == "203.0.113.9" {
+			t.Errorf("internal→external on admin port 3389 must not emit Lateral Movement (internal-only detector)")
+		}
+	}
+}
+
 func hasFindingType(findings []model.Finding, t string) bool {
 	for _, f := range findings {
 		if f.Type == t {

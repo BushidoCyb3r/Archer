@@ -180,6 +180,7 @@ var SuspiciousMIMETypes = map[string]bool{
 // LateralMovementPorts are ports used for internal admin protocols.
 var LateralMovementPorts = map[int]bool{
 	445: true, 3389: true, 135: true, 5985: true, 5986: true, 22: true,
+	23: true, 5900: true,
 }
 
 // expectedServicePorts maps a Zeek DPD service label to the set of ports that

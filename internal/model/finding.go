@@ -556,7 +556,7 @@ var ScoreExplanations = map[string]string{
 		"Triggered when: outbound bytes > min_MB AND out/in ratio > threshold.",
 
 	"Lateral Movement": "Score: 78 (internal→internal on administrative protocol)\n" +
-		"Both src and dst are RFC-1918. Port in: 445/SMB 3389/RDP 135/WMI 5985-5986/WinRM 22/SSH",
+		"Both src and dst are RFC-1918. Port in: 445/SMB 3389/RDP 135/WMI 5985-5986/WinRM 22/SSH 23/Telnet 5900/VNC",
 
 	"Off-Hours Transfer": "Score = 45 + log10(MB+1)×12, capped at 78\n" +
 		"Flags external transfers > min_MB outside business hours (UTC).",

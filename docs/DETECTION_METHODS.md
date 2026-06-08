@@ -1056,7 +1056,10 @@ These are pure pattern-match detections — no math, just categorical lookups.
 
 **Lateral Movement.** Both `src` and `dst` are in RFC 1918 space and `dst_port`
 is one of the lateral-movement ports: 445 (SMB), 3389 (RDP), 135 (WMI/RPC),
-5985/5986 (WinRM), 22 (SSH). Score is fixed at 78, severity High. Deduped per
+5985/5986 (WinRM), 22 (SSH), 23 (Telnet), 5900 (VNC). Score is fixed at 78,
+severity High. Detection is purely port-based, not protocol-aware: a remoting
+service tunneled over a non-standard port (RDP over 443, VNC on 5901) won't
+fire, and a non-remoting service squatting one of these ports will. Deduped per
 `src→dst:port` so a noisy AD environment doesn't drown the analyst.
 
 **C2 Port.** `dst` is public and `dst_port` matches a known-bad port (8443

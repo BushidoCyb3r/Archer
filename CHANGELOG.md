@@ -30,6 +30,17 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Detection changes
+
+- **Lateral Movement now also flags Telnet (23) and VNC (5900).** Both are
+  internal-to-internal remoting protocols that belong alongside the existing
+  SMB / RDP / WMI / WinRM / SSH set. Internal traffic on either port now emits
+  a `Lateral Movement` finding (HIGH, score 78, labeled "Telnet" / "VNC").
+  Deployments with legitimate internal Telnet or VNC (lab gear, KVM-over-IP,
+  jump boxes) will see new findings and should allowlist those pairs. The
+  detector remains purely port-based, not protocol-aware — VNC on alternate
+  display ports (5901+) and tunneled remoting are still out of scope.
+
 ### Changed
 
 - Clicking a technique in the **ATT&CK Coverage** modal now replaces the query

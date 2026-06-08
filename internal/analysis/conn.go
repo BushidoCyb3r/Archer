@@ -1335,6 +1335,7 @@ func durationScoreFromHourMap(hourMap map[int]int, firstTs, lastTs, dsMin, dsMax
 func lateralPortLabel(port int) string {
 	labels := map[int]string{
 		445: "SMB", 3389: "RDP", 135: "WMI/RPC", 5985: "WinRM HTTP", 5986: "WinRM HTTPS", 22: "SSH",
+		23: "Telnet", 5900: "VNC",
 	}
 	if l, ok := labels[port]; ok {
 		return l
