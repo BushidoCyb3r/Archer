@@ -29,7 +29,7 @@ import (
 func correlationEligibleType(t string) bool {
 	switch t {
 	case model.TypeHostRiskScore, model.TypeCorrelatedActivity,
-		"Zeek Notice", "Long Connection":
+		model.TypeMultiStageBeacon, "Zeek Notice", "Long Connection":
 		return false
 	}
 	return true

@@ -922,6 +922,69 @@ and should be widened. The blend is unaffected either way.
 
 ---
 
+### 2.9 Multi-Stage Beacon — cross-host C2 staging
+
+**Where.** `internal/analysis/stage.go`. Runs in phase 3.5, right after the
+same-pair correlation roll-up and before host-risk scoring.
+
+**The phenomenon.** An operator lands on host A, A beacons to a C2 endpoint,
+the operator moves laterally to host B, and B starts beaconing to the *same*
+C2. The single-pair beacon detectors see two unrelated beacons; the staging
+detector binds them. The conviction lift is that a single host beaconing to a
+rare destination is the ambiguous case analysts agonize over, but two or more
+internal hosts independently beaconing to the *same rare* destination, staged
+in time, is much harder to explain benignly — and the bound finding can score
+CRITICAL and ring the bell even when no individual beacon would.
+
+**Inputs.** Beacon-family findings (`Beacon`, `HTTP Beacon`, `DNS Beacon`,
+`Port-Hopping Beacon`) that already cleared the emit floor — this run plus the
+historical union (a host present in both counts once; the fresh copy's ID is
+the one linked). It never mints new low-quality findings; it only binds
+credible ones.
+
+**The gate (high-precision conjunction).** All must hold:
+
+1. **≥ `stagingMinHosts` (2) distinct internal hosts** converging on one
+   `(sensor, external dst)`.
+2. **Rare destination** — `≤ stagingMaxDstSources` (6) unique internal sources
+   talking to it (the per-sensor prevalence map from the conn scan). This is
+   the false-positive killer: a CDN / O365 / update server has hundreds of
+   sources and is excluded; a real staging cluster is a small fan-in to a rare
+   dst.
+3. **Clustered onsets** — the spread between earliest and latest beacon onset
+   is `≤ stagingWindowHours` (48h). Onsets weeks apart read as independent
+   niche-app users, not one campaign.
+
+The destination must be external (internal→internal convergence is out of
+scope). The Campaigns view remains the broad, high-recall fan-in lens over
+*all* multi-host destinations; this detector is the narrow conviction beside
+it, not a replacement.
+
+**Scoring.** **HIGH (80)** for a staged cluster on its own. **CRITICAL (96 —
+above the 95 bell threshold)** when corroborated by any of: a `Lateral
+Movement` finding linking two participants (the staging mechanic itself), a
+`TI Hit (IP)` on the destination, or a `Malicious JA3`/`Malicious JA4` on the
+destination. Corroboration earns the conviction tier; it is not a hard gate, so
+real staging still surfaces (at HIGH) when the lateral hop wasn't captured.
+
+**Identity and roll-up handling.** Anchored on patient zero (earliest-onset
+host) as `SrcIP`, the C2 as `DstIP`, with the contributing beacon IDs in
+`Correlations` (the `+N corr` chip) and the full host/onset timeline plus the
+corroboration reason in the detail string. It is an `IsRollupType`, so
+`SetFindings` purges stale instances whose cluster no longer regenerates, the
+host-risk weight table excludes it (its constituent beacons already count), and
+the same-pair correlation roll-up excludes it from its eligible set on
+subsequent runs (no recursive feedback).
+
+**Calibration.** All thresholds are global constants in `stage.go`, not Settings
+knobs (calibration discipline). With no labeled malicious corpus to tune
+against, the gate is deliberately stingy — under-fire by design. The worst case
+from imperfect thresholds is a rare HIGH cluster on a rare shared internal-use
+cloud app, never a CRITICAL false-positive storm (corroboration is required for
+CRITICAL). Widen on first real-corpus contact.
+
+---
+
 ## 3. HTTP Beacon
 
 **Where.** `internal/analysis/http_analysis.go`.

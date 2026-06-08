@@ -312,6 +312,12 @@ const (
 const (
 	TypeHostRiskScore      = "Host Risk Score"
 	TypeCorrelatedActivity = "Correlated Activity"
+	// TypeMultiStageBeacon binds two or more beacons that converge on the
+	// same rare external destination with staggered onsets — cross-host C2
+	// staging. Like the other roll-ups it's regenerated each run (by
+	// detectStaging) from the beacon finding set, so it carries the same
+	// purge-when-stale and don't-feed-itself properties.
+	TypeMultiStageBeacon = "Multi-Stage Beacon"
 )
 
 // IsRollupType reports whether a finding type is an analyzer roll-up
@@ -321,7 +327,7 @@ const (
 // underlying detections age out or get archived.
 func IsRollupType(t string) bool {
 	switch t {
-	case TypeHostRiskScore, TypeCorrelatedActivity:
+	case TypeHostRiskScore, TypeCorrelatedActivity, TypeMultiStageBeacon:
 		return true
 	}
 	return false
@@ -384,6 +390,7 @@ var knownFindingTypes = map[string]bool{
 	TypeTIHitIP:       true, TypeTIHitDomain: true, TypeTIHitHash: true,
 	TypeTIHitLegacy:   true,
 	TypeHostRiskScore: true, TypeCorrelatedActivity: true,
+	TypeMultiStageBeacon: true,
 }
 
 // IsKnownFindingType reports whether t is a finding type the analyzer can
@@ -619,4 +626,13 @@ var ScoreExplanations = map[string]string{
 
 	"Zeek Notice": "Score: 92 (attack notices) | 68 (general)\n" +
 		"Zeek policy script detections: Sensitive_Signature, Scan, Attack, Brute.",
+
+	"Multi-Stage Beacon": "Cross-host C2 staging roll-up: ≥2 internal hosts beaconing to the\n" +
+		"same rare external destination, onsets staggered within a window.\n" +
+		"Gate: rare dst (≤ stagingMaxDstSources unique sources) AND ≥2 hosts AND\n" +
+		"onset spread ≤ stagingWindowHours. Score 80/HIGH; 96/CRITICAL when\n" +
+		"corroborated by a lateral hop between participants, a TI hit on the dst,\n" +
+		"or a Malicious JA3/JA4 on the dst. Anchored on patient zero (earliest onset);\n" +
+		"binds the contributing beacons via the correlation chip.\n" +
+		"Complements the Campaigns view (broad fan-in lens) with a high-precision conviction.",
 }

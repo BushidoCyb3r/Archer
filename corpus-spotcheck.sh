@@ -400,3 +400,52 @@ else
           ORDER BY avg_score DESC;"
     fi
 fi
+
+# ── Check 8: Multi-Stage Beacon census (advisory) ────────────────────────────
+# Cross-host C2 staging: ≥2 internal hosts beaconing to the same rare external
+# dst with staggered onsets (internal/analysis/stage.go). Like Check 7 this
+# detector EMITS a finding that wouldn't otherwise exist, so the question is the
+# FP budget. The gate is high-precision by design (rare dst + ≥2 hosts +
+# clustered onsets), and CRITICAL requires corroboration (lateral hop / TI on
+# dst / Malicious JA3-JA4 on dst). The recurring failure mode to watch for is a
+# rare internal-use cloud app shared by a handful of users firing HIGH (staged
+# but uncorroborated) — that destination is an allowlist candidate, not a real
+# campaign. This census surfaces the clusters and their corroboration state so
+# that judgement can be made on evidence.
+
+MSB=$(sqlite3 "$DB" "
+  SELECT COUNT(*) FROM findings WHERE type = 'Multi-Stage Beacon';
+")
+if [ "$MSB" -eq 0 ]; then
+    echo ""
+    echo "INFO: no Multi-Stage Beacon findings in this corpus."
+else
+    echo ""
+    echo "ADVISORY: $MSB Multi-Stage Beacon finding(s). A HIGH (uncorroborated)"
+    echo "cluster on a rare shared internal-use cloud app is an allowlist"
+    echo "candidate, not a campaign; CRITICAL (corroborated) clusters are the"
+    echo "conviction. Eyeball the destinations:"
+    sqlite3 -column -header "$DB" "
+      SELECT dst_ip                                              AS c2_dst,
+             severity,
+             score,
+             CASE WHEN detail LIKE '%corroboration:%'
+                  THEN 'yes' ELSE 'no' END                       AS corroborated,
+             src_ip                                              AS patient_zero
+      FROM findings
+      WHERE type = 'Multi-Stage Beacon'
+      ORDER BY score DESC, dst_ip
+      LIMIT 30;"
+    echo ""
+    echo "A recurring c2_dst with corroborated=no across runs that is a known"
+    echo "benign shared service belongs in the allowlist; corroborated=yes is a"
+    echo "staged-C2 conviction worth chasing."
+    echo ""
+    echo "Severity split:"
+    sqlite3 -column -header "$DB" "
+      SELECT severity, COUNT(*) AS n, ROUND(AVG(score), 1) AS avg_score
+      FROM findings
+      WHERE type = 'Multi-Stage Beacon'
+      GROUP BY severity
+      ORDER BY avg_score DESC;"
+fi

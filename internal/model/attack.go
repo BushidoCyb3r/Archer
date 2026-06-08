@@ -88,6 +88,10 @@ var attackByType = map[string][]AttackTechnique{
 	"Suspicious TLD":              {tAppLayer},
 	"Suspicious UA":               {tWebProto},
 	TypeSuspiciousURL:             {tWebProto},
+	// Cross-host C2 staging evidences both the C2 channel and the lateral
+	// hop that spread it — a specific technique pair, unlike the generic
+	// roll-ups (Correlated Activity / HRS) which carry no single technique.
+	TypeMultiStageBeacon: {tAppLayer, tRemoteSvc},
 }
 
 // attackExemptTypes are finding types that intentionally carry no ATT&CK

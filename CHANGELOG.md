@@ -30,8 +30,28 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.63.0] — 2026-06-08
+
 ### Added
 
+- **New `Multi-Stage Beacon` finding — cross-host C2 staging detection.** Binds
+  two or more internal hosts that beacon to the same *rare* external destination
+  with staggered onsets — the "operator lands on A, moves laterally to B, B
+  calls the same C2" pattern that single-pair beacon detection can't see. It
+  runs after the same-pair correlation roll-up over the full beacon finding set
+  (this run + the historical union), anchored on patient zero (earliest onset)
+  and binding the contributing beacons via the correlation chip. Gate is
+  deliberately high-precision: rare dst (≤6 unique internal sources) **and** ≥2
+  hosts **and** onsets clustered within 48h. Severity is **HIGH (80)** for a
+  staged cluster, escalating to **CRITICAL (96, rings the bell)** when
+  corroborated by a lateral hop between participants, a TI hit on the
+  destination, or a Malicious JA3/JA4 on the destination. Thresholds are global
+  constants in code (`internal/analysis/stage.go`), not Settings knobs, and are
+  stingy pending calibration against a labeled corpus. Complements the Campaigns
+  view — that stays the broad, high-recall fan-in lens; this is the narrow
+  conviction beside it. Excluded from the host-risk weight table and from the
+  same-pair correlation's eligible set (it's a roll-up; its constituents already
+  count). ATT&CK: T1071 (C2) + T1021 (Lateral Movement).
 - **Every conn-derived finding now carries the Zeek DPD `service`, shown in
   the detail pane.** Beacon, Lateral Movement, C2 Port, Strobe, Data
   Exfiltration, Off-Hours Transfer, and Long Connection are stamped with the
@@ -49,6 +69,13 @@ relevant, `### Detection changes` in each release entry.
 
 ### Detection changes
 
+- **New finding type `Multi-Stage Beacon` (see Added).** A new finding type is a
+  detection-semantics change: existing baselines, saved `type:` queries, and
+  exports gain a type they haven't seen. The detector adds findings only on the
+  high-precision conjunction (rare shared dst + ≥2 staged hosts); it never
+  rescores or removes an existing finding. Deployments with a small set of rare
+  internal-use cloud apps shared by a handful of users could see a HIGH staged
+  cluster — allowlist those destinations if so.
 - **Lateral Movement now also flags Telnet (23) and VNC (5900).** Both are
   internal-to-internal remoting protocols that belong alongside the existing
   SMB / RDP / WMI / WinRM / SSH set. Internal traffic on either port now emits

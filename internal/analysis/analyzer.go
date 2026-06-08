@@ -454,6 +454,12 @@ func (a *Analyzer) Analyze(files []string) []model.Finding {
 	a.correlateFindings()
 	a.sendProgress(94, "Correlate")
 
+	// Cross-host C2 staging: bind beacons converging on a shared rare
+	// external destination with staggered onsets. Runs after correlate
+	// (so its rows never feed the same-pair roll-up) and before
+	// aggregateRisk; IsRollupType keeps it out of the host-risk weights.
+	a.detectStaging()
+
 	if !a.waitIfPaused() {
 		return collect()
 	}
