@@ -587,6 +587,68 @@ func TestLateralMovementPorts(t *testing.T) {
 	}
 }
 
+// TestConnFindingsCarryService pins the service-enrichment slice: a
+// conn-derived finding is stamped with the Zeek DPD service of its originating
+// connection(s). Invariant covers both emit paths — the aggregated beacon
+// (which reads the per-pair service map populated during the file loop) and an
+// inline detector (Lateral Movement, which has the record's service in scope).
+// A regression that drops the stamp at either site fails here. The slice is
+// pure enrichment: it must not change which findings are produced, only attach
+// the label, so the beacon and lateral findings must still be present.
+func TestConnFindingsCarryService(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "conn.log")
+	var b strings.Builder
+	uid := 0
+	line := func(ts float64, src, dst string, port int, service string) {
+		fmt.Fprintf(&b, `{"ts": %.1f, "uid": "C%07d", "id.orig_h": "%s", "id.orig_p": 40000, "id.resp_h": "%s", "id.resp_p": %d, "proto": "tcp", "service": "%s", "duration": 0.3, "orig_bytes": 400, "resp_bytes": 800, "orig_ip_bytes": 440, "resp_ip_bytes": 840, "conn_state": "SF"}`+"\n",
+			ts, uid, src, dst, port, service)
+		uid++
+	}
+
+	// A clean 60s beacon over TLS — 100 connections, DPD service "ssl".
+	base := 1705320000.0 // 2024-01-15 12:00:00 UTC (daytime, not off-hours)
+	for i := 0; i < 100; i++ {
+		line(base+float64(i)*60.0, "192.168.1.10", "203.0.113.77", 8443, "ssl")
+	}
+	// An internal→internal RDP connection — Lateral Movement, DPD service "rdp".
+	line(base, "192.168.5.1", "192.168.5.2", 3389, "rdp")
+
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	a := New(config.Default(), "", nil, nil)
+	a.feodoIPs = map[string]bool{}
+	a.urlhausIPs = map[string]bool{}
+	a.urlhausHosts = map[string]bool{}
+	findings := a.Analyze([]string{path})
+
+	var beacon, lateral *model.Finding
+	for i := range findings {
+		switch {
+		case findings[i].Type == "Beacon" && findings[i].DstIP == "203.0.113.77":
+			beacon = &findings[i]
+		case findings[i].Type == "Lateral Movement" && findings[i].DstIP == "192.168.5.2":
+			lateral = &findings[i]
+		}
+	}
+
+	if beacon == nil {
+		t.Fatalf("expected a Beacon to 203.0.113.77 (enrichment must not drop findings); got: %v", findingTypes(findings))
+	}
+	if beacon.Service != "ssl" {
+		t.Errorf("Beacon.Service = %q; want \"ssl\" — aggregated emit must carry the per-pair DPD service", beacon.Service)
+	}
+
+	if lateral == nil {
+		t.Fatalf("expected a Lateral Movement finding to 192.168.5.2; got: %v", findingTypes(findings))
+	}
+	if lateral.Service != "rdp" {
+		t.Errorf("Lateral Movement.Service = %q; want \"rdp\" — inline emit must carry the record's DPD service", lateral.Service)
+	}
+}
+
 func hasFindingType(findings []model.Finding, t string) bool {
 	for _, f := range findings {
 		if f.Type == t {

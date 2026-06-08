@@ -30,6 +30,23 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Added
+
+- **Every conn-derived finding now carries the Zeek DPD `service`, shown in
+  the detail pane.** Beacon, Lateral Movement, C2 Port, Strobe, Data
+  Exfiltration, Off-Hours Transfer, and Long Connection are stamped with the
+  originating connection's L7 protocol (`ssl`, `http`, `rdp`, `ssh`, …);
+  previously only Protocol on Unexpected Port set it. The aggregated detectors
+  read a per-pair service map built during the conn scan (first non-empty
+  service per `sensor,src,dst` — a pair's connections share a protocol); the
+  inline ones read the record directly. The detail pane's **Endpoints**
+  section now shows a **Service** row (the DPD protocol, blank when Zeek
+  didn't fingerprint the flow), so a beacon's protocol reads at a glance, and
+  the `service:` query field spans the whole dataset (`type:Beacon AND
+  service:ssl`; a blank service on a beacon is itself a triage signal). Pure
+  enrichment — no finding is added, dropped, or rescored. Blank on a
+  non-Security-Onion sensor that doesn't run the analyzer.
+
 ### Detection changes
 
 - **Lateral Movement now also flags Telnet (23) and VNC (5900).** Both are

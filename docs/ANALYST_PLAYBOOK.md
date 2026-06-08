@@ -364,7 +364,7 @@ before trusting the result.
 | `dir` | Traffic direction across the internal/external boundary | `dir:outbound` (internal→external — the usual beacon scope), `dir:inbound`, `dir:internal` (both RFC1918 — lateral; alias `dir:lateral`), `dir:external` (both public). Collapses hand-rolled `(src:10.0.0.0/8 OR src:172.16.0.0/12 OR src:192.168.0.0/16)` juggling into one term. An unknown direction is rejected with a toast. Alias: `direction`. |
 | `hostname` | Resolved hostname / SNI | Substring or wildcard. |
 | `uri` | HTTP Beacon request path | Substring or wildcard (`uri:/submit.php`, `uri:*pixel*`). Populated only for HTTP Beacon, so it's naturally scoped — hunt arbitrary paths the C2-URI detectors don't hardcode. |
-| `service` | Zeek DPD protocol on a `Protocol on Unexpected Port` finding | Substring or wildcard, case-insensitive (`service:http`, `service:ssl`). Populated only on that detector (the L7 protocol Zeek recognized running on a port outside its expected set), so it's naturally scoped — `service:http` is every HTTP flow caught egressing on a non-HTTP port. See DETECTION_METHODS §8. |
+| `service` | Zeek DPD protocol (the L7 Zeek fingerprinted for the flow) | Substring or wildcard, case-insensitive (`service:http`, `service:ssl`, `service:rdp`). Stamped on every conn-derived finding — Beacon, Lateral Movement, C2 Port, Strobe, Data Exfiltration, Off-Hours Transfer, Long Connection, and Protocol on Unexpected Port — with the originating connection's service. Blank when Zeek's DPD didn't fingerprint the flow (and on a non-Security-Onion sensor that doesn't run the analyzer). Combine with `type:` to scope — e.g. `type:Beacon AND service:ssl`, or `type:"Protocol on Unexpected Port" AND service:http` for the protocol-mismatch hunt. See DETECTION_METHODS §8. |
 | `detail` | The Detail string | Substring or wildcard — useful for `detail:"every 47s"` or `detail:*domain fronting*`. |
 | `sensor` | Sensor name | Exact. |
 | `file` | Source log file | Substring or wildcard. |
@@ -641,11 +641,13 @@ Archer automates much of this with the **Protocol on Unexpected Port**
 detector (DETECTION_METHODS §8): Zeek's DPD names the *actual* L7
 protocol regardless of port, so `http` on 8443 or `ssl` on 4444 to an
 external host is its own finding — you don't have to eyeball the
-port column. Query `service:http` (or `ssl`, `ssh`, …) to pull every
-recognized protocol caught egressing where it shouldn't. It's scoped
-to external destinations and to protocols DPD recognizes — an encrypted
-tunnel Zeek can't fingerprint carries no service and won't appear, so
-this is a strong positive signal but not a guarantee of total coverage.
+port column. Query `type:"Protocol on Unexpected Port" AND service:http`
+(or `ssl`, `ssh`, …) to pull every recognized protocol caught egressing
+where it shouldn't — `service:` now spans all conn-derived findings, so
+`type:` scopes it to the mismatch detector. It's scoped to external
+destinations and to protocols DPD recognizes — an encrypted tunnel Zeek
+can't fingerprint carries no service and won't appear, so this is a
+strong positive signal but not a guarantee of total coverage.
 
 ### 3. The source host doesn't normally reach the internet
 

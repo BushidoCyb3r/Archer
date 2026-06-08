@@ -354,6 +354,16 @@ func (a *Analyzer) analyzeConn(files []string) {
 	c2Seen := make(map[string]struct{})
 	svcPortSeen := make(map[string]struct{})
 
+	// First non-empty Zeek DPD service per (sensor,src,dst) pair, stamped
+	// onto the conn-derived findings for triage/enrichment. The aggregated
+	// detectors (beacon, strobe, exfil, off-hours) emit after the file loop
+	// from per-pair state and so can't read the per-record service directly;
+	// this map carries it across. Connections of a given pair share a
+	// protocol in practice, so first-non-empty is the pair's service (the
+	// same seed-connection logic beaconState uses for proto/UID/JA3). Empty
+	// when Zeek's DPD didn't fingerprint the flow — left blank, never guessed.
+	pairService := map[pairKey]string{}
+
 	// Per-sensor prevalence: unique internal sources and unique sources per
 	// external destination. Used at beacon emit time to apply the prevalence
 	// modifier, and merged into a.sensorPrev for use by analyzeHTTP.
@@ -428,6 +438,13 @@ func (a *Analyzer) analyzeConn(files []string) {
 			proto := parser.GetStr(rec, "proto")
 			service := parser.GetStr(rec, "service")
 			uid := parser.GetStr(rec, "uid")
+
+			if service != "" {
+				psk := pairKey{sensor, src, dst}
+				if _, ok := pairService[psk]; !ok {
+					pairService[psk] = service
+				}
+			}
 
 			if ts > 0 {
 				w := localWindows[sensor]
@@ -505,6 +522,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 					SrcIP:      src,
 					DstIP:      dst,
 					DstPort:    fmt.Sprint(dstPort),
+					Service:    service,
 					Detail:     fmt.Sprintf("Duration: %.2f hours | Proto: %s", hours, proto),
 					Timestamp:  fmtTS(ts),
 					SourceFile: path,
@@ -525,6 +543,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 						SrcIP:      src,
 						DstIP:      dst,
 						DstPort:    fmt.Sprint(dstPort),
+						Service:    service,
 						Detail:     fmt.Sprintf("Internal→Internal on port %d (%s)", dstPort, lateralPortLabel(dstPort)),
 						Timestamp:  fmtTS(ts),
 						SourceFile: path,
@@ -544,6 +563,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 							SrcIP:      src,
 							DstIP:      dst,
 							DstPort:    fmt.Sprint(dstPort),
+							Service:    service,
 							Detail:     fmt.Sprintf("Port %d — %s", dstPort, label),
 							Timestamp:  fmtTS(ts),
 							SourceFile: path,
@@ -913,6 +933,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 			SrcIP:           pk.src,
 			DstIP:           pk.dst,
 			DstPort:         fmt.Sprint(modalPort),
+			Service:         pairService[pk],
 			Detail:          detail,
 			Timestamp:       fmtTS(st.firstTs),
 			TSData:          tsData,
@@ -960,6 +981,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 			Sensor:    sk.sensor,
 			SrcIP:     sk.src,
 			DstIP:     sk.dst,
+			Service:   pairService[pairKey{sk.sensor, sk.src, sk.dst}],
 			Detail:    fmt.Sprintf("Connection count: %d | Rate: %.2f/s (threshold: ≥%.2f/s)", count, rate, a.cfg.StrobeMinRatePerSec),
 			Timestamp: fmtTS(strobeFirst[sk]),
 		})
@@ -992,6 +1014,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 			Sensor:    ek.sensor,
 			SrcIP:     ek.src,
 			DstIP:     ek.dst,
+			Service:   pairService[pairKey{ek.sensor, ek.src, ek.dst}],
 			Detail:    fmt.Sprintf("Outbound: %.2f MB | Ratio out/in: %.1f (threshold: %.1f)", mb, ratio, a.cfg.ExfilRatioThreshold),
 			Timestamp: fmtTS(exfilFirst[ek]),
 		})
@@ -1015,6 +1038,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 			Sensor:    ok2.sensor,
 			SrcIP:     ok2.src,
 			DstIP:     ok2.dst,
+			Service:   pairService[pairKey{ok2.sensor, ok2.src, ok2.dst}],
 			Detail:    fmt.Sprintf("%.2f MB outbound at %02d:xx %s (off-hours window: %02d-%02d)", mb, hour, tzAbbrev, a.cfg.OffHoursStart, a.cfg.OffHoursEnd),
 			Timestamp: fmtTS(ts),
 		})

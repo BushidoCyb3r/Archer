@@ -212,9 +212,11 @@ func (t term) eval(f model.Finding, opLoc *time.Location) bool {
 	case "file":
 		return stringPatternMatch(f.SourceFile, t.value)
 	case "service":
-		// Zeek DPD service ("http", "ssl", …) stamped on Protocol on Unexpected
-		// Port findings; empty on every other type, so a service: predicate
-		// implicitly scopes to that detector. Wildcard glob, like uri/note.
+		// Zeek DPD service ("http", "ssl", "rdp", …) stamped on every
+		// conn-derived finding (beacon, lateral movement, C2 port, strobe,
+		// exfil, off-hours, long connection, protocol-on-unexpected-port) with
+		// the originating connection's L7; empty when DPD didn't fingerprint
+		// the flow. Combine with type: to scope. Wildcard glob, like uri/note.
 		return stringPatternMatch(f.Service, t.value)
 	case "attack":
 		// MITRE ATT&CK technique the finding's Type maps to. Matches the

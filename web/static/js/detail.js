@@ -151,6 +151,10 @@ const Detail = (() => {
     if (f.src_ip)   ep += _row('Src IP',   _esc(f.src_ip),   true);
     if (f.dst_ip)   ep += _row('Dst IP',   _esc(f.dst_ip),   true);
     if (f.dst_port) ep += _row('Dst Port', _esc(f.dst_port), true);
+    // Zeek DPD's L7 identification for the flow, independent of port — so a
+    // beacon's protocol (ssl/http/dns/…) reads at a glance and an unexpected
+    // service-on-port jumps out. Blank when DPD didn't fingerprint it.
+    if (f.service) ep += _row('Service', `${_esc(f.service)}<span style="color:var(--fg-dim)">  (Zeek DPD)</span>`, true);
     if (f.ja4) {
       ep += _row('JA4', _esc(f.ja4), true);
       const n4 = f.ja4_sibling_count || 0;
