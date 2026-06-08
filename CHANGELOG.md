@@ -39,6 +39,14 @@ relevant, `### Detection changes` in each release entry.
 
 ### Fixed
 
+- **The Analysis Complete modal no longer needs horizontal scrolling.** Its
+  declared width (360px) was a hair under what the "N new findings since you
+  last checked" line needs at 16px plus padding, so the `white-space:pre`
+  message overflowed and the modal scrolled left/right. The narrow pinning
+  was a side effect of the `min-width:0` Safari overflow fix on `.dlg-body`
+  (which lets a dialog collapse to its declared width instead of growing to
+  its content). Widened to 460px and switched the message to `pre-wrap` so it
+  wraps within the modal rather than ever scrolling. UI-only.
 - **List-mutating actions no longer throw the view back to the top or to
   page 1.** Acknowledge, Escalate, Dismiss, bulk-dismiss-campaign, Add to
   Allowlist, Add to IOC List, Suppress, and Allow-this-Relationship — from

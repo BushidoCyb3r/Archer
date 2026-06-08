@@ -2035,7 +2035,7 @@ dialog::backdrop {
 }
 
 /* Per-dialog default widths */
-#analysis-alert-dlg           { width: 360px; }
+#analysis-alert-dlg           { width: 460px; }
 #escalate-dialog              { width: 420px; }
 #note-dialog                  { width: 440px; }
 #suppress-dialog              { width: 380px; }
