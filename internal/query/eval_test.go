@@ -365,6 +365,53 @@ func TestServiceField(t *testing.T) {
 	if matches(t, "service:http", beacon()) {
 		t.Error("empty Service must not match service:http")
 	}
+
+	// Value alias: Zeek labels VNC "rfb"; service:vnc must find it (the analyst
+	// types the common name, which is also the Lateral Movement port-label).
+	vnc := beacon()
+	vnc.Type = "Lateral Movement"
+	vnc.Service = "rfb"
+	aliasTests := []struct {
+		q    string
+		want bool
+	}{
+		{"service:vnc", true},   // alias → rfb
+		{"service:VNC", true},   // alias is case-insensitive
+		{"service:rfb", true},   // Zeek's literal still works
+		{"service:http", false}, // unrelated service must not match
+	}
+	for _, tc := range aliasTests {
+		if got := matches(t, tc.q, vnc); got != tc.want {
+			t.Errorf("rfb finding: %q = %v, want %v", tc.q, got, tc.want)
+		}
+	}
+	// The alias must not make service:vnc match a finding that isn't rfb.
+	if matches(t, "service:vnc", f) { // f.Service == "http"
+		t.Error("service:vnc must not match an http finding")
+	}
+
+	// The remaining same-field synonyms: each common name an analyst types
+	// must find the finding stamped with Zeek's actual label.
+	for _, ac := range []struct{ query, zeek string }{
+		{"service:tls", "ssl"},
+		{"service:https", "ssl"},
+		{"service:kerberos", "krb"},
+		{"service:cifs", "smb"},
+		{"service:microsoft-ds", "smb"},
+	} {
+		fz := beacon()
+		fz.Service = ac.zeek
+		if !matches(t, ac.query, fz) {
+			t.Errorf("%q should match a finding with Service %q", ac.query, ac.zeek)
+		}
+		// And the alias must not match the literal common name as a value when
+		// the Service is something unrelated.
+		other := beacon()
+		other.Service = "dns"
+		if matches(t, ac.query, other) {
+			t.Errorf("%q must not match an unrelated (dns) finding", ac.query)
+		}
+	}
 }
 
 func TestNoteAndAnalystFields(t *testing.T) {

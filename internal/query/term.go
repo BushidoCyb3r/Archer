@@ -45,6 +45,22 @@ var knownFields = map[string]bool{
 	"channel": true, "benign": true, "service": true, "attack": true,
 }
 
+// serviceQueryAliases maps the common protocol name an analyst types to Zeek's
+// DPD service string, so `service:<common>` finds findings stamped with Zeek's
+// label. Each is a same-field synonym (the alias value is matched against the
+// finding's Service), never a cross-field expansion — e.g. there is
+// deliberately no winrm→port alias, since WinRM rides HTTP (service "http")
+// and a port-based expansion would conflate the service and port axes and
+// match unrelated traffic; query WinRM as `port:5985,5986` instead.
+var serviceQueryAliases = map[string]string{
+	"vnc":          "rfb", // Zeek's RFB analyzer; Lateral Movement labels it "VNC"
+	"tls":          "ssl", // Zeek tags all TLS flows "ssl"
+	"https":        "ssl",
+	"kerberos":     "krb",
+	"cifs":         "smb",
+	"microsoft-ds": "smb",
+}
+
 // parseTerm turns a raw term token into a leaf node.
 func parseTerm(raw string) (node, error) {
 	field, rest := splitField(raw)
@@ -217,7 +233,14 @@ func (t term) eval(f model.Finding, opLoc *time.Location) bool {
 		// exfil, off-hours, long connection, protocol-on-unexpected-port) with
 		// the originating connection's L7; empty when DPD didn't fingerprint
 		// the flow. Combine with type: to scope. Wildcard glob, like uri/note.
-		return stringPatternMatch(f.Service, t.value)
+		// A value alias bridges the common name to Zeek's DPD string (vnc→rfb).
+		if stringPatternMatch(f.Service, t.value) {
+			return true
+		}
+		if alias, ok := serviceQueryAliases[strings.ToLower(t.value)]; ok {
+			return stringPatternMatch(f.Service, alias)
+		}
+		return false
 	case "attack":
 		// MITRE ATT&CK technique the finding's Type maps to. Matches the
 		// technique ID (attack:T1071 hits T1071 and its sub-techniques via

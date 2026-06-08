@@ -60,6 +60,15 @@ relevant, `### Detection changes` in each release entry.
 
 ### Changed
 
+- **`service:` now aliases common protocol names to Zeek's DPD strings.** Zeek
+  labels some flows by a name analysts don't type — VNC is `rfb`, all TLS is
+  `ssl`, Kerberos is `krb`, SMB answers to `cifs`/`microsoft-ds` — so a literal
+  `service:vnc` matched nothing. The query field now bridges them: `vnc`→`rfb`,
+  `tls`/`https`→`ssl`, `kerberos`→`krb`, `cifs`/`microsoft-ds`→`smb` (both the
+  common name and Zeek's label work). These are same-field synonyms only;
+  WinRM is deliberately not aliased (it rides HTTP as `service:http`, so a
+  port-based expansion would conflate the service and port axes — query it as
+  `port:5985,5986`).
 - **The theme picker is now available to every role, not just admins.** The
   Settings gear was hidden for non-admins, so analysts and viewers couldn't
   change their skin even though the theme is a per-browser preference with no
