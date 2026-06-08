@@ -84,6 +84,12 @@ relevant, `### Detection changes` in each release entry.
 
 ### Fixed
 
+- **Acknowledging or escalating a finding now moves it out of the Findings
+  view immediately.** It used to get a check mark / chip and linger in the
+  open list until a page refresh; now it leaves the open Findings view and
+  lands in the Acknowledged / Escalated tab (and returns to Findings on
+  re-open), with the per-status counts reconciled, holding the analyst's page
+  and scroll position.
 - **The Analysis Complete modal no longer needs horizontal scrolling.** Its
   declared width (360px) was a hair under what the "N new findings since you
   last checked" line needs at 16px plus padding, so the `white-space:pre`

@@ -2770,10 +2770,12 @@
         const updated = await fetchFinding(f.id);
         _selectedFinding = updated;
         Detail.render(updated);
-        const idx = _allFindings.findIndex(x => x.id === f.id);
-        if (idx >= 0) _allFindings[idx] = updated;
-        Table.update(updated);
-        _applyTabFilter({ preserveScroll: true });
+        // Acknowledging moves the finding out of the open Findings view and
+        // into the Acknowledged tab (re-open does the reverse). Reload in
+        // place so it leaves the current view immediately and the per-status
+        // counts reconcile — holding the analyst's page and scroll position —
+        // rather than lingering with a check mark until a refresh.
+        await _reloadFindingsInPlace({ counts: true });
       } catch (e) { setStatus('Error: ' + e); }
     });
 
@@ -2847,10 +2849,11 @@
           const updated = await fetchFinding(f.id);
           _selectedFinding = updated;
           Detail.render(updated);
-          const idx = _allFindings.findIndex(x => x.id === f.id);
-          if (idx >= 0) _allFindings[idx] = updated;
-          Table.update(updated);
-          _applyTabFilter({ preserveScroll: true });
+          // Escalating moves the finding out of the open Findings view into
+          // the Escalated tab immediately, mirroring Ack — reload in place so
+          // it leaves the current view and the counts reconcile, holding the
+          // analyst's page and scroll position.
+          await _reloadFindingsInPlace({ counts: true });
           setStatus(ips.length > 0 ? 'Escalated — TI lookup running in background' : 'Escalated');
         } catch (e) { setStatus('Error: ' + e); }
       };
