@@ -278,6 +278,13 @@ Dismiss when triaging volume; reach for Acknowledge + suppress
 when triaging a benign pattern; reach for Escalate when the
 beacon doesn't fit either bucket.
 
+**Curating without losing your place:** right-click → Add to
+Allowlist / Add to IOC List / Suppress reload the list in place —
+the curated rows drop out and the rest shift up, but your tab,
+page, and scroll position hold. You can work straight down a long
+list of noisy destinations without being thrown back to the top
+after each entry.
+
 ---
 
 ## Querying the findings table

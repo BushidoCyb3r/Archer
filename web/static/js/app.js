@@ -475,7 +475,7 @@
     ts.loaded = true;
 
     _allFindings = ts.findings;
-    _renderCurrentTab();
+    _renderCurrentTab({ preserveScroll: opts.preserveScroll });
   }
 
   // _renderCurrentTab paints whatever the current tab's cache holds.
@@ -1783,11 +1783,14 @@
   // stale until we refetch. Stays on the current page (gotoOffset) and
   // invalidates the other tabs so a benign:/ioc: filtered view re-derives lazily.
   function _reloadFindingsInPlace() {
+    // Capture the page offset before _invalidateAllTabs zeroes every tab's
+    // offset — otherwise the reload always lands on page 1.
+    const keepOffset = _curTab().offset;
     _invalidateAllTabs();
     if (_isAggregateTab(_tabMode)) {
       _ensureAggregate();
     } else {
-      loadFindings(_currentFilterParams(), { gotoOffset: _curTab().offset });
+      loadFindings(_currentFilterParams(), { gotoOffset: keepOffset, preserveScroll: true });
     }
   }
 
@@ -4641,7 +4644,7 @@
           body: JSON.stringify({target, days: parseFloat(li.dataset.days), detail}),
         }).catch(e => setStatus('Error: ' + e));
         setStatus(`Suppressed ${target} for ${li.dataset.days} day(s)`);
-        loadFindings(_currentFilterParams());
+        _reloadFindingsInPlace();
       });
     });
 
@@ -4673,7 +4676,7 @@
       if (!_ctxTarget) return;
       _addToList('/api/allowlist', 'Allowlist', _ctxTarget, () => {
         _loadAllowSet();
-        loadFindings(_currentFilterParams());
+        _reloadFindingsInPlace();
       });
     });
     document.getElementById('ctx-ioc-add').addEventListener('click', () => {

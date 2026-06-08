@@ -1024,6 +1024,7 @@ The context menu reshapes itself based on what was right-clicked, the user's rol
 - **Role-gated**: write actions (Ack, Escalate, Suppress, Add to Allowlist/IOC) are hidden entirely for viewer-role users so the menu never offers a click that would dead-end at a 403.
 - **Tab-gated**: Acknowledge / Escalate / Suppress are hidden on the Campaigns and Hosts tabs (and the separator above them collapses with them). Those actions operate on a single finding's status and don't make sense on a synthesised aggregate row.
 - **Campaign-only items** (View campaign in Graph, Export campaign ▸) appear when right-clicking a row in the Campaigns tab.
+- **View-preserving curation** — Add to Allowlist, Add to IOC List, and Suppress reload the findings list in place: the active tab, the page offset, and the within-page scroll position are all preserved. The curated rows drop out and the rest shift up, but you stay exactly where you were reading — curating from deep in a long list no longer kicks you back to the top.
 
 ### Detail Pane
 

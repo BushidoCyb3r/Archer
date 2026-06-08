@@ -37,6 +37,21 @@ relevant, `### Detection changes` in each release entry.
   the token onto whatever was already in the query bar — a focused pivot to
   that technique's findings.
 
+### Fixed
+
+- **Right-click → Add to Allowlist / Suppress no longer throws the findings
+  view back to the top.** Both actions re-rendered through the full
+  `loadFindings` path, which resets the page offset to 1 and the table scroll
+  to the top — so curating from deep in a long list dumped the analyst back at
+  the start every time. Both now reload in place, preserving the active tab,
+  the page offset, and the within-page scroll position (the allowlisted /
+  suppressed rows drop out and the rest shift up). The in-place reload also
+  stopped silently resetting the page to 1: it read the current offset *after*
+  invalidating the tab caches (which zero every offset), so the offset it
+  "preserved" was always 0 — fixed by capturing it first. The IOC-list path,
+  which already reloaded in place, inherits the same scroll/offset
+  preservation. UI-only.
+
 ## [v0.62.0] — 2026-06-07
 
 Wildcard matching in the operator Allowlist and IOC list — so noisy
