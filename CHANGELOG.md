@@ -60,6 +60,14 @@ relevant, `### Detection changes` in each release entry.
 
 ### Changed
 
+- **The theme picker is now available to every role, not just admins.** The
+  Settings gear was hidden for non-admins, so analysts and viewers couldn't
+  change their skin even though the theme is a per-browser preference with no
+  privilege implications. Settings now opens for all roles, but non-admins see
+  *only* the Appearance tab — the detection / Threat Intel / Operations /
+  Admin tabs and the Save button stay hidden for them, and the open handler
+  skips the admin config fetches. Admin config remains admin-only (and writes
+  are enforced admin server-side regardless).
 - Clicking a technique in the **ATT&CK Coverage** modal now replaces the query
   with just `attack:<id>` (and lands on the Findings view) instead of upserting
   the token onto whatever was already in the query bar — a focused pivot to

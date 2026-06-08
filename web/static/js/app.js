@@ -3429,6 +3429,14 @@
     document.querySelectorAll('#settings-tabs .dlg-tab-btn').forEach(b =>
       b.addEventListener('click', () => _setSettingsTab(b.dataset.settab)));
     document.getElementById('settings-btn').addEventListener('click', async () => {
+      // Non-admins get Settings too, but only the Appearance tab (theme is a
+      // per-browser preference). Skip the admin config fetches and open
+      // straight to Appearance; tab/Save visibility is gated once at init.
+      if (!(_currentUser && _currentUser.role === 'admin')) {
+        _setSettingsTab('appearance');
+        dlg.showModal();
+        return;
+      }
       const [cfg, archive] = await Promise.all([
         api('/api/config').catch(() => ({})),
         api('/api/archive').catch(() => null),
@@ -3437,11 +3445,9 @@
       _populateArchive(archive);
       _refreshDiskUsage(); // populates the Disk Usage row and the warning banner
       _refreshDetectorActivity(); // populates the Detector Health block
-      if (_currentUser && _currentUser.role === 'admin') {
-        const sec = document.getElementById('service-tokens-section');
-        if (sec) sec.style.display = '';
-        _loadServiceTokens();
-      }
+      const sec = document.getElementById('service-tokens-section');
+      if (sec) sec.style.display = '';
+      _loadServiceTokens();
       _setSettingsTab('detection');
       dlg.showModal();
     });
@@ -5390,10 +5396,20 @@
           if (el) el.style.display = 'none';
         });
       }
-      // Hide settings button and watch controls for non-admins
+      // Settings is open to all roles, but non-admins see only the Appearance
+      // tab — theme is a per-browser preference, the rest of Settings is admin
+      // config. Hide the admin config tabs and the Save button (the appearance
+      // picker applies instantly via localStorage, no save), and relabel
+      // Cancel to Close since there's nothing to cancel.
       if (u.role !== 'admin') {
-        const sb = document.getElementById('settings-btn');
-        if (sb) sb.style.display = 'none';
+        ['detection', 'ti', 'ops', 'admin'].forEach(t => {
+          const btn = document.querySelector('#settings-tabs .dlg-tab-btn[data-settab="' + t + '"]');
+          if (btn) btn.style.display = 'none';
+        });
+        const saveBtn = document.getElementById('settings-save');
+        if (saveBtn) saveBtn.style.display = 'none';
+        const cancelBtn = document.getElementById('settings-cancel');
+        if (cancelBtn) cancelBtn.textContent = 'Close';
       }
     }).catch(() => {});
 
