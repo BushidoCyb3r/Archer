@@ -480,6 +480,7 @@ func (s *Server) handleFindingsCounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var open, ack, esc, dis, ioc int
+	nonDismissed := make([]model.Finding, 0, len(all))
 	for _, f := range all {
 		switch f.Status {
 		case model.StatusOpen:
@@ -491,19 +492,31 @@ func (s *Server) handleFindingsCounts(w http.ResponseWriter, r *http.Request) {
 		case model.StatusDismissed:
 			dis++
 		}
+		if f.Status != model.StatusDismissed {
+			nonDismissed = append(nonDismissed, f)
+		}
 		if (f.IOCMatch || model.IsThreatIntelType(f.Type)) && f.Status != model.StatusDismissed {
 			ioc++
 		}
 	}
+	// Campaigns/Hosts chip counts — built from the same filtered set with the
+	// shared rollup builders (identical rules to the views), so the sidebar
+	// chips stay live on every filter change like the status chips, without the
+	// client fetching + aggregating the full findings set. Dismissed is
+	// excluded to match the top-level Campaigns/Hosts views.
+	campaigns := len(buildCampaignsRollup(nonDismissed))
+	hosts := len(buildHostsRollup(nonDismissed, s.store.GetConfig().OrgInternalCIDRs))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]int{
-		"open":  open,
-		"ack":   ack,
-		"esc":   esc,
-		"dis":   dis,
-		"ioc":   ioc,
-		"total": len(all) - dis,
+		"open":      open,
+		"ack":       ack,
+		"esc":       esc,
+		"dis":       dis,
+		"ioc":       ioc,
+		"total":     len(all) - dis,
+		"campaigns": campaigns,
+		"hosts":     hosts,
 	})
 }
 

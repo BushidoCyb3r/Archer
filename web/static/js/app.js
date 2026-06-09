@@ -84,6 +84,10 @@
     _aggTabState.hosts     = { offset: 0, total: 0 };
   }
   let _countsLoaded = false;
+  // Campaigns/Hosts sidebar-chip counts, served by /api/findings/counts (like
+  // the status chips) so they update live on every filter change without
+  // building the heavy client aggregate. null → "—" until the first response.
+  let _viewBadgeCounts = { campaigns: null, hosts: null };
 
   // Show-Dismissed toggle state. When true the Dismissed tab is
   // visible in the tab strip and its count surfaces in the info line.
@@ -638,6 +642,8 @@
       _tabState.esc.total       = c.esc  || 0;
       _tabState.ioc.total       = c.ioc  || 0;
       _tabState.dismissed.total = c.dis  || 0;
+      _viewBadgeCounts.campaigns = (typeof c.campaigns === 'number') ? c.campaigns : null;
+      _viewBadgeCounts.hosts     = (typeof c.hosts === 'number') ? c.hosts : null;
       _countsLoaded = true;
       // Per-tab `loaded` is reserved for "findings rows fetched". The
       // counts endpoint only populates totals; the row data arrives on
@@ -805,21 +811,12 @@
     set('esc', fmt(ts.esc.total));
     set('ioc', fmt(ts.ioc.total));
     set('dismissed', fmt(ts.dismissed.total));
-    try {
-      // Campaigns/Hosts counts come from the aggregate cache, which a filter
-      // change invalidates (_invalidateAggregate sets loaded=false). While the
-      // cache is stale, show a pending dash rather than the previous filter's
-      // count — reading Campaigns.getCampaigns() here would paint the old
-      // (e.g. query-scoped) arrays until the view is next visited. The real
-      // number fills in when the aggregate is rebuilt, which happens lazily on
-      // visit, not eagerly on every query, by design.
-      const aggReady = _aggregateState.loaded
-        && typeof Campaigns !== 'undefined' && Campaigns.getCampaigns;
-      const camps = aggReady ? Campaigns.getCampaigns() : null;
-      const hosts = aggReady ? Campaigns.getHosts() : null;
-      set('campaigns', camps ? camps.length.toLocaleString() : '—');
-      set('hosts', hosts ? hosts.length.toLocaleString() : '—');
-    } catch (_) { /* aggregate not built yet */ }
+    // Campaigns/Hosts chips are server-driven (same /api/findings/counts call
+    // as the status chips), so they stay live on every filter change without
+    // building the lazy client aggregate. "—" only until the first counts
+    // response arrives.
+    set('campaigns', _viewBadgeCounts.campaigns == null ? '—' : Number(_viewBadgeCounts.campaigns).toLocaleString());
+    set('hosts', _viewBadgeCounts.hosts == null ? '—' : Number(_viewBadgeCounts.hosts).toLocaleString());
   }
 
   // Fetch IOC list into _iocSet; re-applies tab filter if IOC tab is active.

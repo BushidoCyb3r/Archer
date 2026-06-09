@@ -76,6 +76,49 @@ func TestFilterFindings_BadQueryErrors(t *testing.T) {
 // front-end gets a consistent message no matter which view is active when the
 // bad query is run (list vs the Campaigns/Hosts roll-up, which also pulls the
 // counts endpoint).
+// TestFindingsCounts_CampaignsAndHosts pins the sidebar-chip contract: the
+// counts endpoint reports the live Campaigns and Hosts counts (computed with
+// the same rollup rules as the views) so the chips stay correct on every filter
+// change without the client building the heavy aggregate. Dismissed findings
+// are excluded, matching the top-level views.
+func TestFindingsCounts_CampaignsAndHosts(t *testing.T) {
+	s := newAuditTestServer(t)
+	s.store.SetFindingsForImport([]model.Finding{
+		// dst 1.1.1.1:443 — two distinct internal sources → 1 campaign
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443", Score: 90, Status: model.StatusOpen, Timestamp: "2026-05-12 09:00:00"},
+		{ID: 2, Type: "Beacon", SrcIP: "10.0.0.2", DstIP: "1.1.1.1", DstPort: "443", Score: 80, Status: model.StatusOpen, Timestamp: "2026-05-12 09:01:00"},
+		// dst 2.2.2.2:53 — only one source → not a campaign
+		{ID: 3, Type: "Beacon", SrcIP: "10.0.0.3", DstIP: "2.2.2.2", DstPort: "53", Score: 70, Status: model.StatusOpen, Timestamp: "2026-05-12 09:02:00"},
+		// dismissed → excluded from campaigns and hosts
+		{ID: 4, Type: "Beacon", SrcIP: "10.0.0.4", DstIP: "1.1.1.1", DstPort: "443", Score: 60, Status: model.StatusDismissed, Timestamp: "2026-05-12 09:03:00"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/findings/counts", nil)
+	w := httptest.NewRecorder()
+	s.handleFindingsCounts(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", w.Code)
+	}
+	var c struct {
+		Campaigns, Hosts, Open, Dis int
+	}
+	if err := json.NewDecoder(w.Body).Decode(&c); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// Fixture sanity: 3 open, 1 dismissed.
+	if c.Open != 3 || c.Dis != 1 {
+		t.Fatalf("fixture counts open/dis = %d/%d; want 3/1", c.Open, c.Dis)
+	}
+	// 1.1.1.1:443 has ≥2 non-dismissed sources (10.0.0.1, 10.0.0.2); 2.2.2.2:53 has one.
+	if c.Campaigns != 1 {
+		t.Errorf("campaigns = %d; want 1", c.Campaigns)
+	}
+	// Distinct org-internal sources among non-dismissed: 10.0.0.1/.2/.3.
+	if c.Hosts != 3 {
+		t.Errorf("hosts = %d; want 3", c.Hosts)
+	}
+}
+
 func TestHandleFindings_BadQueryReturnsJSON400(t *testing.T) {
 	s := newAuditTestServer(t)
 	endpoints := []struct {
