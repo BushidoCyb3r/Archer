@@ -802,7 +802,7 @@ func (s *Server) forwardEscalationToSIEM(cfg config.Config, before model.Finding
 		port = 9003
 	}
 	addr := net.JoinHostPort(cfg.SIEMHost, strconv.Itoa(port))
-	line := siem.FormatCEF(fwd, version.Version, deepLink, time.Now().UTC())
+	line := siem.FormatCEF(fwd, version.Version, deepLink)
 	if err := s.siemSend(addr, line); err != nil {
 		slog.Warn("SIEM forward failed", "finding_id", before.ID, "addr", addr, "err", err)
 	}

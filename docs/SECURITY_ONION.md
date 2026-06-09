@@ -9,7 +9,9 @@ Archer reuses Security Onion's supported **CEF** Elastic Fleet integration
 (the same syslog-ingest pattern SO documents for UniFi:
 https://docs.securityonion.net/en/2.4/unifi.html). No Cases API, no custom
 Logstash pipeline. Forwarded findings land in Hunt/Dashboards as fully-fielded
-ECS records.
+ECS records. Archer emits **bare CEF** — the line starts at `CEF:0|...` with no
+RFC3164 syslog header — so the integration's `decode_cef` input parses it
+directly (a syslog-wrapped line would not parse on this input).
 
 ## On Security Onion
 

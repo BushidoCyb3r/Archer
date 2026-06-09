@@ -5,7 +5,6 @@ package siem
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -13,31 +12,25 @@ import (
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
 
-const (
-	// maxMsgLen caps the Detail carried in the CEF msg extension so the
-	// datagram stays under the ~1.5 KB UDP fragmentation threshold; the
-	// full detail is reachable via the deep-link.
-	maxMsgLen = 800
-	// syslogPRI is local0.info (facility 16*8 + severity 6). Cosmetic — the
-	// CEF severity field carries the real severity; this is framing only.
-	syslogPRI = 134
-)
+// maxMsgLen caps the Detail carried in the CEF msg extension so the datagram
+// stays well under the ~1.5 KB UDP fragmentation threshold; the full detail is
+// reachable via the deep-link.
+const maxMsgLen = 800
 
 // tsLayouts are the UTC layouts the analyzer emits Finding.Timestamp in
 // (second- then minute-precision). Tried in order for the CEF rt field.
 var tsLayouts = []string{"2006-01-02 15:04:05", "2006-01-02 15:04"}
 
-// FormatCEF renders one escalated finding as an RFC3164-framed CEF line:
+// FormatCEF renders one escalated finding as a bare CEF line:
 //
-//	<PRI>Mmm dd HH:MM:SS HOST CEF:0|Archer|Archer|<ver>|<type>|<type>|<sev>|<ext>
+//	CEF:0|Archer|Archer|<ver>|<type>|<type>|<sev>|<ext>
 //
-// version is the Archer build version, deepLink is a URL back to the finding,
-// and now is the framing timestamp (caller passes time.Now().UTC()).
-func FormatCEF(f model.Finding, version, deepLink string, now time.Time) string {
-	host, err := os.Hostname()
-	if err != nil || host == "" {
-		host = "archer"
-	}
+// No syslog (RFC3164) header — the line begins at "CEF:" so Elastic's
+// decode_cef (the Security Onion CEF Fleet integration's input) parses it
+// directly, the same way it parses bare-CEF senders. version is the Archer
+// build version; deepLink is a URL back to the finding. Event time travels in
+// the rt extension (→ @timestamp), so no framing timestamp is needed.
+func FormatCEF(f model.Finding, version, deepLink string) string {
 	header := strings.Join([]string{
 		"CEF:0", "Archer", "Archer",
 		cefHeaderEscape(version),
@@ -45,8 +38,7 @@ func FormatCEF(f model.Finding, version, deepLink string, now time.Time) string 
 		cefHeaderEscape(f.Type),
 		strconv.Itoa(cefSeverity(f.Score)),
 	}, "|")
-	return fmt.Sprintf("<%d>%s %s %s|%s",
-		syslogPRI, now.Format("Jan _2 15:04:05"), host, header, buildExtensions(f, deepLink))
+	return header + "|" + buildExtensions(f, deepLink)
 }
 
 func buildExtensions(f model.Finding, deepLink string) string {

@@ -17,7 +17,6 @@ func mustContain(t *testing.T, s, sub string) {
 }
 
 func TestFormatCEF_Beacon(t *testing.T) {
-	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	f := model.Finding{
 		ID: 42, Type: "HTTP Beacon", Score: 98,
 		SrcIP: "10.0.0.5", DstIP: "8.8.8.8", DstPort: "443",
@@ -26,9 +25,13 @@ func TestFormatCEF_Beacon(t *testing.T) {
 		Timestamp: "2026-06-08 04:11:00",
 		Detail:    "Connections: 200 | Mean interval: 7214.7s",
 	}
-	line := FormatCEF(f, "v0.63.0", "https://archer/?finding=42", now)
+	line := FormatCEF(f, "v0.63.0", "https://archer/?finding=42")
 
-	mustContain(t, line, "<134>Jun  9 12:00:00 ")
+	// Bare CEF: the line must begin at "CEF:" (no syslog header) so the
+	// Elastic decode_cef input parses it directly, like UniFi's bare CEF.
+	if !strings.HasPrefix(line, "CEF:0|Archer|Archer|") {
+		t.Errorf("line must start with bare CEF header, got:\n%s", line)
+	}
 	mustContain(t, line, "CEF:0|Archer|Archer|v0.63.0|HTTP Beacon|HTTP Beacon|10|")
 	mustContain(t, line, "externalId=42")
 	mustContain(t, line, "src=10.0.0.5")
@@ -47,26 +50,23 @@ func TestFormatCEF_Beacon(t *testing.T) {
 }
 
 func TestFormatCEF_SeverityScaling(t *testing.T) {
-	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	cases := map[int]string{0: "|0|", 35: "|4|", 94: "|9|", 95: "|10|", 98: "|10|"}
 	for score, want := range cases {
-		line := FormatCEF(model.Finding{ID: 1, Type: "X", Score: score}, "v", "u", now)
+		line := FormatCEF(model.Finding{ID: 1, Type: "X", Score: score}, "v", "u")
 		mustContain(t, line, want)
 	}
 }
 
 func TestFormatCEF_Escaping(t *testing.T) {
-	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	f := model.Finding{ID: 7, Type: "A|B", Score: 50, Detail: "k=v\nline2", Analyst: "x"}
-	line := FormatCEF(f, "v", "u", now)
+	line := FormatCEF(f, "v", "u")
 	mustContain(t, line, `A\|B`)            // pipe escaped in header
 	mustContain(t, line, `msg=k\=v\nline2`) // = and newline escaped in value
 }
 
 func TestFormatCEF_OmitsEmptyAndNonNumericPort(t *testing.T) {
-	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	f := model.Finding{ID: 9, Type: "X", Score: 50, DstPort: "n/a", Analyst: "x"}
-	line := FormatCEF(f, "v", "u", now)
+	line := FormatCEF(f, "v", "u")
 	if strings.Contains(line, "dpt=") {
 		t.Errorf("non-numeric port should be omitted:\n%s", line)
 	}
@@ -76,9 +76,8 @@ func TestFormatCEF_OmitsEmptyAndNonNumericPort(t *testing.T) {
 }
 
 func TestFormatCEF_BadTimestampOmitsRT(t *testing.T) {
-	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	f := model.Finding{ID: 9, Type: "X", Score: 50, Timestamp: "not-a-time", Analyst: "x"}
-	if strings.Contains(FormatCEF(f, "v", "u", now), "rt=") {
+	if strings.Contains(FormatCEF(f, "v", "u"), "rt=") {
 		t.Error("unparseable timestamp must omit rt")
 	}
 }
@@ -95,7 +94,6 @@ func TestTruncateDetail_ClauseBoundaryNoEllipsis(t *testing.T) {
 }
 
 func TestFormatCEF_EscapesEqualsInNonMsgField(t *testing.T) {
-	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	f := model.Finding{ID: 1, Type: "X", Score: 50, Sensor: "a=b", Analyst: "x"}
-	mustContain(t, FormatCEF(f, "v", "u", now), `cs2Label=ArcherSensor cs2=a\=b`)
+	mustContain(t, FormatCEF(f, "v", "u"), `cs2Label=ArcherSensor cs2=a\=b`)
 }
