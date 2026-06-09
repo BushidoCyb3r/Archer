@@ -10,6 +10,23 @@ import (
 	"github.com/BushidoCyb3r/Archer/internal/parser"
 )
 
+// domainFrontingMismatch reports whether the SNI observed on a connection
+// and the HTTP Host header sent over it name different hosts — the domain-
+// fronting signal. Both sides are normalized before comparison: a Host
+// header can carry a :port suffix (an explicit-proxy CONNECT is logged as
+// "example.com:443" against a bare-name SNI) and the two can differ only in
+// case, neither of which is a real mismatch. Comparing them raw produced a
+// false CRITICAL for every proxied HTTPS destination.
+func domainFrontingMismatch(sni, host string) bool {
+	if sni == "" || host == "" {
+		return false
+	}
+	if i := strings.LastIndex(host, ":"); i >= 0 && strings.Count(host, ":") == 1 {
+		host = host[:i]
+	}
+	return !strings.EqualFold(sni, host)
+}
+
 // httpBeaconTopURICap bounds the per-(sensor,src,dst,host) request-path
 // footprint stamped on each HTTP Beacon finding. A footprint is the
 // multi-path implant shape, not an exhaustive site map — top-N by
@@ -221,7 +238,7 @@ func (a *Analyzer) analyzeHTTP(files []string) {
 				a.mu.RLock()
 				ssl, hasSSL := a.sslUIDIndex[uid]
 				a.mu.RUnlock()
-				if hasSSL && ssl.serverName != "" && ssl.serverName != host {
+				if hasSSL && domainFrontingMismatch(ssl.serverName, host) {
 					key := [2]string{src, uid}
 					if !seenDF[key] {
 						seenDF[key] = true

@@ -30,6 +30,15 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Detection changes
+
+- **Domain Fronting no longer false-fires on proxied HTTPS.** The detector
+  compared the HTTP Host header against the connection's SNI raw; an explicit-
+  proxy CONNECT logs the Host with a `:443` suffix (and either side can differ
+  in case), so every proxied HTTPS destination produced a spurious score-88
+  CRITICAL. Host and SNI are now normalized (single `:port` stripped,
+  case-insensitive) before comparison; genuine SNI≠Host fronting still fires.
+
 ## [v0.64.2] — 2026-06-09
 
 ### Fixed
