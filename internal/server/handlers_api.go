@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,7 +18,9 @@ import (
 	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/analysis"
+	"github.com/BushidoCyb3r/Archer/internal/config"
 	"github.com/BushidoCyb3r/Archer/internal/model"
+	"github.com/BushidoCyb3r/Archer/internal/siem"
 	"github.com/BushidoCyb3r/Archer/internal/store"
 	"github.com/BushidoCyb3r/Archer/internal/version"
 )
@@ -770,6 +774,40 @@ func (s *Server) handleTIServices(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// siemDeepLink builds a URL back to the finding from the escalating analyst's
+// own request (scheme + the host they reach Archer on). The frontend's
+// ?finding= loader resolves it to the finding's row.
+func siemDeepLink(r *http.Request, id int) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return fmt.Sprintf("%s://%s/?finding=%d", scheme, r.Host, id)
+}
+
+// forwardEscalationToSIEM forwards an escalated finding to a configured SIEM,
+// best-effort. It fires only on the transition into escalated (before.Status
+// guards against re-sending on a redundant escalate). Errors are logged, never
+// surfaced — escalation's outcome is unchanged whether the SIEM is up, down,
+// or unconfigured.
+func (s *Server) forwardEscalationToSIEM(cfg config.Config, before model.Finding, analyst, deepLink string) {
+	if !cfg.SIEMEnabled || cfg.SIEMHost == "" || before.Status == model.StatusEscalated {
+		return
+	}
+	fwd := before
+	fwd.Status = model.StatusEscalated
+	fwd.Analyst = analyst
+	port := cfg.SIEMPort
+	if port == 0 {
+		port = 9003
+	}
+	addr := net.JoinHostPort(cfg.SIEMHost, strconv.Itoa(port))
+	line := siem.FormatCEF(fwd, version.Version, deepLink, time.Now().UTC())
+	if err := s.siemSend(addr, line); err != nil {
+		slog.Warn("SIEM forward failed", "finding_id", before.ID, "addr", addr, "err", err)
+	}
+}
+
 func (s *Server) handleEscalate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -844,6 +882,10 @@ func (s *Server) handleEscalate(w http.ResponseWriter, r *http.Request) {
 		f, _ := s.store.GetFinding(id)
 		go s.runTIEscalation(f, req.IPs, svcSet)
 	}
+	// Off the response path (like runTIEscalation above), so a slow or
+	// unreachable SIEM never adds latency to the escalation. Arguments are
+	// evaluated now, before the goroutine reads them.
+	go s.forwardEscalationToSIEM(s.store.GetConfig(), before, user.DisplayName(), siemDeepLink(r, id))
 	jsonOK(w)
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/BushidoCyb3r/Archer/internal/analysis"
 	model "github.com/BushidoCyb3r/Archer/internal/model"
+	"github.com/BushidoCyb3r/Archer/internal/siem"
 	"github.com/BushidoCyb3r/Archer/internal/store"
 )
 
@@ -59,6 +60,10 @@ type Server struct {
 	// quiver checkin). Prevents audit-log flood attacks from a
 	// single source IP. v0.14.3 NEW-39.
 	rateLimit *rateLimiter
+
+	// siemSend writes one CEF datagram to addr ("host:port"). Defaults to
+	// siem.Send; overridable in tests to assert forwarding without a socket.
+	siemSend func(addr, line string) error
 }
 
 type sensorMtimeEntry struct {
@@ -75,6 +80,7 @@ func New(st *store.Store, us *store.UserStore, broker *Broker, webDir, logsDir, 
 		rateLimit: newRateLimiter(),
 	}
 	s.authTmpls = loadAuthTemplates(webDir)
+	s.siemSend = siem.Send
 	s.routes()
 	s.startWatch() // no-op if watch is disabled or unconfigured
 	s.startUnauthorizedPruneLoop()
