@@ -73,9 +73,29 @@ const Table = (() => {
       ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
+  // Trim the Detail string for the table cell: keep whole pipe-delimited
+  // segments up to a ~60-char budget so the cell always ends on a complete
+  // clause — no mid-word cut, no trailing ellipsis. The full string lives in
+  // the cell's title tooltip and the detail pane. If the lead segment alone
+  // already exceeds the budget, fall back to a word-boundary trim.
+  const _DETAIL_BUDGET = 60;
+  function _trimDetail(s) {
+    if (s.length <= _DETAIL_BUDGET) return s;
+    let out = '';
+    for (const seg of s.split('|').map(x => x.trim()).filter(Boolean)) {
+      const next = out ? out + ' | ' + seg : seg;
+      if (next.length > _DETAIL_BUDGET) break;
+      out = next;
+    }
+    if (out) return out;
+    const head = s.slice(0, _DETAIL_BUDGET);
+    const sp = head.lastIndexOf(' ');
+    return sp > 0 ? head.slice(0, sp) : head;
+  }
+
   function _rowHTML(f, isSel) {
     const detailRaw = f.detail || '';
-    const detail = detailRaw.slice(0, 60) + (detailRaw.length > 60 ? '…' : '');
+    const detail = _trimDetail(detailRaw);
     const sev = f.severity || '';
     const cls = sev + (isSel ? ' selected' : '');
     // TLS-allowlist chip — this finding's JA3/JA4 client fingerprint has been

@@ -41,6 +41,11 @@ relevant, `### Detection changes` in each release entry.
   `window.SCORE_EXPLANATIONS` object changes shape from `{type: string}` to
   `{type: {summary, false_positives, scoring}}` (internal page bootstrap, not
   an `/api/*` surface).
+- **Findings-table Detail cell trims on a clause boundary instead of mid-word.**
+  The cell kept its short ~60-char budget but cut blindly and tacked on a
+  trailing "…"; it now keeps whole pipe-delimited segments up to that budget so
+  it always ends on a complete clause with no ellipsis (full text still in the
+  hover tooltip and the detail pane).
 
 ## [v0.63.0] — 2026-06-08
 
