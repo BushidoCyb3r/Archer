@@ -45,7 +45,8 @@ finding in Archer.
 
 Each forwarded finding is one CEF event: `src`/`dst`/`dpt` (5-tuple),
 `app` (Zeek L7 service), `msg` (the finding's detail), `externalId` (Archer
-finding id), `rt` (event time), and custom strings `ArcherScore`,
-`ArcherSensor`, `ArcherUrl`, `ArcherAnalyst`, `ja3`, `ja4`. Heavier evidence
-(intervals, correlations, sub-scores) stays in Archer, one click away via
-`ArcherUrl`.
+finding id), and custom strings `ArcherScore`, `ArcherSensor`, `ArcherUrl`,
+`ArcherAnalyst`, `ja3`, `ja4`. Heavier evidence (intervals, correlations,
+sub-scores) stays in Archer, one click away via `ArcherUrl`. No CEF `rt` is
+sent — Security Onion's `decode_cef` rejects an epoch-millis `rt` — so
+`@timestamp` is the ingest time (which equals the escalation/forward time).

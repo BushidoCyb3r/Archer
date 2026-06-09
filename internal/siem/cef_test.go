@@ -1,10 +1,8 @@
 package siem
 
 import (
-	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
@@ -38,8 +36,12 @@ func TestFormatCEF_Beacon(t *testing.T) {
 	mustContain(t, line, "dst=8.8.8.8")
 	mustContain(t, line, "dpt=443")
 	mustContain(t, line, "app=ssl")
-	wantRT := time.Date(2026, 6, 8, 4, 11, 0, 0, time.UTC).UnixMilli()
-	mustContain(t, line, "rt="+strconv.FormatInt(wantRT, 10))
+	// rt is intentionally NOT emitted — Security Onion's decode_cef rejects an
+	// epoch-millis rt and drops the whole event; @timestamp falls back to
+	// ingest time. Guard against a regression that re-adds it.
+	if strings.Contains(line, "rt=") {
+		t.Errorf("rt must not be emitted (SO decode_cef rejects epoch-millis rt):\n%s", line)
+	}
 	mustContain(t, line, "cs1Label=ArcherScore cs1=98")
 	mustContain(t, line, "cs2Label=ArcherSensor cs2=node1")
 	mustContain(t, line, `cs3Label=ArcherUrl cs3=https://archer/?finding\=42`)
@@ -72,13 +74,6 @@ func TestFormatCEF_OmitsEmptyAndNonNumericPort(t *testing.T) {
 	}
 	if strings.Contains(line, "src=") || strings.Contains(line, "cs5Label") {
 		t.Errorf("empty fields should be omitted:\n%s", line)
-	}
-}
-
-func TestFormatCEF_BadTimestampOmitsRT(t *testing.T) {
-	f := model.Finding{ID: 9, Type: "X", Score: 50, Timestamp: "not-a-time", Analyst: "x"}
-	if strings.Contains(FormatCEF(f, "v", "u"), "rt=") {
-		t.Error("unparseable timestamp must omit rt")
 	}
 }
 

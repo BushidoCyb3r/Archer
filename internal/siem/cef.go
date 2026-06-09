@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
@@ -17,10 +16,6 @@ import (
 // reachable via the deep-link.
 const maxMsgLen = 800
 
-// tsLayouts are the UTC layouts the analyzer emits Finding.Timestamp in
-// (second- then minute-precision). Tried in order for the CEF rt field.
-var tsLayouts = []string{"2006-01-02 15:04:05", "2006-01-02 15:04"}
-
 // FormatCEF renders one escalated finding as a bare CEF line:
 //
 //	CEF:0|Archer|Archer|<ver>|<type>|<type>|<sev>|<ext>
@@ -28,8 +23,7 @@ var tsLayouts = []string{"2006-01-02 15:04:05", "2006-01-02 15:04"}
 // No syslog (RFC3164) header — the line begins at "CEF:" so Elastic's
 // decode_cef (the Security Onion CEF Fleet integration's input) parses it
 // directly, the same way it parses bare-CEF senders. version is the Archer
-// build version; deepLink is a URL back to the finding. Event time travels in
-// the rt extension (→ @timestamp), so no framing timestamp is needed.
+// build version; deepLink is a URL back to the finding.
 func FormatCEF(f model.Finding, version, deepLink string) string {
 	header := strings.Join([]string{
 		"CEF:0", "Archer", "Archer",
@@ -63,9 +57,11 @@ func buildExtensions(f model.Finding, deepLink string) string {
 	}
 
 	add("externalId", strconv.Itoa(f.ID))
-	if ms, ok := eventTimeMillis(f.Timestamp); ok {
-		add("rt", strconv.FormatInt(ms, 10))
-	}
+	// No rt extension: Security Onion's decode_cef rejects an epoch-millis rt
+	// (the whole event is dropped). Omitting it lets @timestamp fall back to
+	// ingest time — i.e. when the analyst escalated and Archer forwarded —
+	// which is the right time for an escalation alert anyway. The finding's own
+	// timestamps remain in msg/Detail and via the deep-link. Do not re-add rt.
 	add("src", f.SrcIP)
 	add("dst", f.DstIP)
 	if isNumeric(f.DstPort) {
@@ -104,15 +100,6 @@ func cefValueEscape(s string) string {
 	s = strings.ReplaceAll(s, "=", `\=`)
 	s = strings.ReplaceAll(s, "\r", "")
 	return strings.ReplaceAll(s, "\n", `\n`)
-}
-
-func eventTimeMillis(ts string) (int64, bool) {
-	for _, layout := range tsLayouts {
-		if t, err := time.Parse(layout, ts); err == nil {
-			return t.UTC().UnixMilli(), true
-		}
-	}
-	return 0, false
 }
 
 func isNumeric(s string) bool {
