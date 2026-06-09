@@ -30,6 +30,23 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.64.2] — 2026-06-09
+
+### Fixed
+
+- **Campaigns/Hosts sidebar chips now stay live on filter changes.** The counts
+  are served by `/api/findings/counts` (new `campaigns` / `hosts` fields, built
+  with the same rollup rules as the views) and refresh on every filter change
+  like the status chips — so the chips show the correct number immediately
+  instead of a `—` placeholder until you open the view. Replaces the earlier
+  approach that blanked them to `—` to avoid a stale count; no client-side
+  aggregate fetch is needed for the chips.
+
+### Changed
+
+- Documentation and test examples now use placeholder IP addresses instead of
+  environment-specific ones.
+
 ## [v0.64.1] — 2026-06-09
 
 ### Fixed
