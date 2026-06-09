@@ -30,6 +30,15 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A headerless or non-Zeek log no longer parses as a silent zero-record
+  success.** A TSV missing its `#fields` header was misdetected as JSON; every
+  line failed to decode and was skipped, so `ParseLog` returned no error and
+  the analyzer reported a clean scan of a file it read nothing from. The parser
+  now returns an error when a file has data lines but none parse (surfaced as a
+  per-file parser warning), while empty and all-comment files stay clean.
+
 ### Detection changes
 
 - **Domains beginning "fc"/"fd" are no longer misread as private addresses.**

@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -124,8 +125,18 @@ func ParseLog(path string, yield func(rec map[string]any) bool) error {
 		return nil, false
 	}
 
+	// Count data lines seen vs records parsed. A file with data lines that
+	// all fail to parse (a TSV missing its #fields header is misdetected as
+	// JSON and every json.Unmarshal fails, or a non-Zeek file lands in /logs)
+	// otherwise returns nil with zero records — the analyzer then reports a
+	// clean scan of a file it read nothing from, the same trust-bug class the
+	// line-cap and gzip-limit fixes addressed.
+	var dataLines, parsed int
+
 	if firstDataLine != "" {
+		dataLines++
 		if rec, ok := processLine(firstDataLine); ok {
+			parsed++
 			if !yield(rec) {
 				return nil
 			}
@@ -137,15 +148,23 @@ func ParseLog(path string, yield func(rec map[string]any) bool) error {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+		dataLines++
 		rec, ok := processLine(line)
 		if !ok {
 			continue
 		}
+		parsed++
 		if !yield(rec) {
 			return nil
 		}
 	}
-	return sc.Err()
+	if err := sc.Err(); err != nil {
+		return err
+	}
+	if dataLines > 0 && parsed == 0 {
+		return fmt.Errorf("parsed 0 of %d data lines (unrecognized format — missing #fields header or non-Zeek file?)", dataLines)
+	}
+	return nil
 }
 
 func parseTSVLine(line string, fields []string) (map[string]any, bool) {
