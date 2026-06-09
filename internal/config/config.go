@@ -36,6 +36,14 @@ type Config struct {
 	// doesn't reach the scorer; low enough to catch a slow hourly DNS
 	// heartbeat over a multi-day capture.
 	DNSBeaconMinQueries int `json:"dns_beacon_min_queries"`
+	// SIEM forwarding: when SIEMEnabled and SIEMHost is set, each finding an
+	// analyst escalates is also forwarded to an external SIEM as CEF over UDP
+	// syslog (Security Onion's CEF Fleet integration, port 9003 by default).
+	// Non-secret — UDP syslog carries no credential; the SIEM host's firewall
+	// allow-list is the trust boundary, so these are NOT in secretConfigKeys.
+	SIEMEnabled bool   `json:"siem_enabled"`
+	SIEMHost    string `json:"siem_host"`
+	SIEMPort    int    `json:"siem_port"`
 	// CorrelationMinTypes is the minimum number of distinct detector
 	// types on the same (SrcIP, DstIP) pair required to emit a
 	// Correlated Activity roll-up. Default 2 catches the high-value
@@ -209,6 +217,7 @@ func Default() Config {
 		DNSUniqueSubdomainMin: 50,
 		DNSBeaconMinQueries:   20,
 		CorrelationMinTypes:   2,
+		SIEMPort:              9003,
 
 		// Spectral defaults — conservative enough for first-run
 		// safety, tunable per deployment if FP rate dictates.
