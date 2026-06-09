@@ -20,6 +20,8 @@ func TestFormatCEF_Beacon(t *testing.T) {
 		SrcIP: "10.0.0.5", DstIP: "8.8.8.8", DstPort: "443",
 		Service: "ssl", Sensor: "node1", Analyst: "alice",
 		JA3: "abc123", JA4: "t13d",
+		Hostname: "cdn.example.com", URI: "/submit.php",
+		IOCMatch: true, IOCSource: "Feed: URLhaus",
 		Timestamp: "2026-06-08 04:11:00",
 		Detail:    "Connections: 200 | Mean interval: 7214.7s",
 	}
@@ -49,6 +51,25 @@ func TestFormatCEF_Beacon(t *testing.T) {
 	mustContain(t, line, "cs5Label=ja3 cs5=abc123")
 	mustContain(t, line, "cs6Label=ja4 cs6=t13d")
 	mustContain(t, line, "msg=Connections: 200 | Mean interval: 7214.7s")
+	// Enrichment fields (standard CEF keys).
+	mustContain(t, line, "dhost=cdn.example.com")
+	mustContain(t, line, "request=/submit.php")
+	mustContain(t, line, "reason=Feed: URLhaus")
+	mustContain(t, line, "flexString1Label=ATT&CK flexString1=T1071.001") // HTTP Beacon → T1071.001
+	mustContain(t, line, "flexString2Label=ArcherEventTime flexString2=2026-06-08 04:11:00")
+}
+
+func TestFormatCEF_ReasonFromIOC(t *testing.T) {
+	withSrc := FormatCEF(model.Finding{ID: 1, Type: "Beacon", Score: 90, IOCMatch: true, IOCSource: "Operator IOC list", Analyst: "x"}, "v", "u")
+	mustContain(t, withSrc, "reason=Operator IOC list")
+
+	noSrc := FormatCEF(model.Finding{ID: 1, Type: "Beacon", Score: 90, IOCMatch: true, Analyst: "x"}, "v", "u")
+	mustContain(t, noSrc, "reason=IOC/TI match")
+
+	none := FormatCEF(model.Finding{ID: 1, Type: "Beacon", Score: 90, Analyst: "x"}, "v", "u")
+	if strings.Contains(none, "reason=") {
+		t.Errorf("reason must be omitted when no IOC match:\n%s", none)
+	}
 }
 
 func TestFormatCEF_SeverityScaling(t *testing.T) {

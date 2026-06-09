@@ -785,6 +785,21 @@ func siemDeepLink(r *http.Request, id int) string {
 	return fmt.Sprintf("%s://%s/?finding=%d", scheme, r.Host, id)
 }
 
+// iocStatusFor recomputes whether a finding's src/dst matches an IOC source —
+// the operator IOC list, a TI feed, or an intrinsic threat-intel finding type.
+// Mirrors the read-path logic in filterFindings (IOCSource is not persisted).
+func (s *Server) iocStatusFor(f model.Finding) (bool, string) {
+	for _, sm := range s.store.IOCSources() {
+		if sm.Matcher.Matches(f.DstIP) || sm.Matcher.Matches(f.SrcIP) {
+			return true, sm.Source
+		}
+	}
+	if model.IsThreatIntelType(f.Type) {
+		return true, "Threat Intel"
+	}
+	return false, ""
+}
+
 // forwardEscalationToSIEM forwards an escalated finding to a configured SIEM,
 // best-effort. It fires only on the transition into escalated (before.Status
 // guards against re-sending on a redundant escalate). Errors are logged, never
@@ -882,6 +897,10 @@ func (s *Server) handleEscalate(w http.ResponseWriter, r *http.Request) {
 		f, _ := s.store.GetFinding(id)
 		go s.runTIEscalation(f, req.IPs, svcSet)
 	}
+	// IOCMatch/IOCSource are computed at /api/findings read time, not stored,
+	// so the escalate snapshot lacks them — recompute here (same logic the
+	// findings list uses) so the CEF reason field carries the real feed/list.
+	before.IOCMatch, before.IOCSource = s.iocStatusFor(before)
 	// Off the response path (like runTIEscalation above), so a slow or
 	// unreachable SIEM never adds latency to the escalation. Arguments are
 	// evaluated now, before the goroutine reads them.

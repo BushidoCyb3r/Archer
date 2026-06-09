@@ -13,8 +13,9 @@ import (
 
 // maxMsgLen caps the Detail carried in the CEF msg extension so the datagram
 // stays well under the ~1.5 KB UDP fragmentation threshold; the full detail is
-// reachable via the deep-link.
-const maxMsgLen = 800
+// reachable via the deep-link. Kept conservative so the enrichment fields
+// (dhost/request/reason/flexString*) still leave the datagram under ~1.5 KB.
+const maxMsgLen = 600
 
 // FormatCEF renders one escalated finding as a bare CEF line:
 //
@@ -75,7 +76,42 @@ func buildExtensions(f model.Finding, deepLink string) string {
 	cs(4, "ArcherAnalyst", f.Analyst)
 	cs(5, "ja3", f.JA3)
 	cs(6, "ja4", f.JA4)
+
+	// Enrichment via standard CEF keys (map to ECS natively; no cs slot left):
+	add("dhost", f.Hostname) // → destination.domain — the C2 pivot
+	add("request", f.URI)    // → url.original — HTTP-beacon path
+	if f.IOCMatch {          // → event.reason — IOC/TI prioritization signal
+		r := f.IOCSource
+		if r == "" {
+			r = "IOC/TI match"
+		}
+		add("reason", r)
+	}
+	if ids := attackIDs(f.Type); ids != "" {
+		add("flexString1Label", "ATT&CK")
+		add("flexString1", ids)
+	}
+	// Event time as text (not rt): SO's decode_cef rejects an epoch-millis rt,
+	// and a date-typed field risks the same — flexString2 is a plain string.
+	if f.Timestamp != "" {
+		add("flexString2Label", "ArcherEventTime")
+		add("flexString2", f.Timestamp)
+	}
 	return b.String()
+}
+
+// attackIDs returns the comma-joined MITRE ATT&CK technique IDs a finding type
+// maps to (e.g. "T1071,T1071.004"), or "" if the type has no mapping.
+func attackIDs(findingType string) string {
+	techs := model.AttackTechniquesFor(findingType)
+	if len(techs) == 0 {
+		return ""
+	}
+	ids := make([]string, len(techs))
+	for i, t := range techs {
+		ids[i] = t.ID
+	}
+	return strings.Join(ids, ",")
 }
 
 // cefSeverity scales Archer's 0–100 score to CEF's 0–10 (round-half-up).

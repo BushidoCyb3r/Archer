@@ -43,10 +43,22 @@ finding in Archer.
 
 ## Field reference
 
-Each forwarded finding is one CEF event: `src`/`dst`/`dpt` (5-tuple),
-`app` (Zeek L7 service), `msg` (the finding's detail), `externalId` (Archer
-finding id), and custom strings `ArcherScore`, `ArcherSensor`, `ArcherUrl`,
-`ArcherAnalyst`, `ja3`, `ja4`. Heavier evidence (intervals, correlations,
-sub-scores) stays in Archer, one click away via `ArcherUrl`. No CEF `rt` is
-sent — Security Onion's `decode_cef` rejects an epoch-millis `rt` — so
-`@timestamp` is the ingest time (which equals the escalation/forward time).
+Each forwarded finding is one CEF event:
+
+- `src`/`dst`/`dpt` (5-tuple), `app` (Zeek L7 service) → `source.ip` /
+  `destination.ip` / `destination.port` / `network.application`
+- `dhost` (destination hostname/domain) → `destination.domain` — the C2 pivot
+- `request` (HTTP-beacon URI) → `url.original`
+- `reason` (IOC/TI source, e.g. `Feed: URLhaus`) → `event.reason`
+- `msg` (the finding's detail), `externalId` (Archer finding id)
+- `flexString1` = MITRE ATT&CK technique(s) (label `ATT&CK`)
+- `flexString2` = the finding's event time as text (label `ArcherEventTime`)
+- custom strings `ArcherScore`, `ArcherSensor`, `ArcherUrl`, `ArcherAnalyst`,
+  `ja3`, `ja4`
+
+Heavier evidence (intervals, correlations, sub-scores, and the live TI-
+enrichment lookups escalation triggers) stays in Archer, one click away via
+`ArcherUrl`. No CEF `rt` is sent — Security Onion's `decode_cef` rejects an
+epoch-millis `rt` (and a date-typed field risks the same), so the event time
+rides as text in `flexString2` and `@timestamp` is the ingest time (which
+equals the escalation/forward time).
