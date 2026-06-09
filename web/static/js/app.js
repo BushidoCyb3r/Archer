@@ -806,10 +806,19 @@
     set('ioc', fmt(ts.ioc.total));
     set('dismissed', fmt(ts.dismissed.total));
     try {
-      const camps = (typeof Campaigns !== 'undefined' && Campaigns.getCampaigns) ? Campaigns.getCampaigns() : null;
-      const hosts = (typeof Campaigns !== 'undefined' && Campaigns.getHosts) ? Campaigns.getHosts() : null;
-      set('campaigns', camps && camps.length ? camps.length.toLocaleString() : (camps ? '0' : '—'));
-      set('hosts', hosts && hosts.length ? hosts.length.toLocaleString() : (hosts ? '0' : '—'));
+      // Campaigns/Hosts counts come from the aggregate cache, which a filter
+      // change invalidates (_invalidateAggregate sets loaded=false). While the
+      // cache is stale, show a pending dash rather than the previous filter's
+      // count — reading Campaigns.getCampaigns() here would paint the old
+      // (e.g. query-scoped) arrays until the view is next visited. The real
+      // number fills in when the aggregate is rebuilt, which happens lazily on
+      // visit, not eagerly on every query, by design.
+      const aggReady = _aggregateState.loaded
+        && typeof Campaigns !== 'undefined' && Campaigns.getCampaigns;
+      const camps = aggReady ? Campaigns.getCampaigns() : null;
+      const hosts = aggReady ? Campaigns.getHosts() : null;
+      set('campaigns', camps ? camps.length.toLocaleString() : '—');
+      set('hosts', hosts ? hosts.length.toLocaleString() : '—');
     } catch (_) { /* aggregate not built yet */ }
   }
 

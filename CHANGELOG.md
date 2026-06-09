@@ -47,6 +47,19 @@ relevant, `### Detection changes` in each release entry.
   it always ends on a complete clause with no ellipsis (full text still in the
   hover tooltip and the detail pane).
 
+### Fixed
+
+- **Sidebar Campaigns/Hosts count chips no longer linger on the previous
+  filter after Clear.** The status chips (Findings/Acknowledged/Escalated/IOC)
+  refresh immediately on a query change, but the Campaigns and Hosts chips read
+  from the aggregate cache and kept showing the prior query's count until the
+  view was visited — e.g. query `ebay.com` on Campaigns, switch to Findings,
+  click Clear, and the Campaigns chip stayed on the ebay-scoped number. The
+  chips now reset to a pending `—` the moment the aggregate cache is
+  invalidated and fill with the true count when the view is next opened (the
+  roll-up is rebuilt lazily on visit by design, so the dash is the honest
+  interim rather than a stale number).
+
 ## [v0.63.0] — 2026-06-08
 
 ### Added
