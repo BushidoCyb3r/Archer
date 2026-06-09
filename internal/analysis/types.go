@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"net"
+	"strings"
 
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
@@ -53,15 +54,23 @@ type ProgressEvent struct {
 }
 
 // isPrivateIP returns true for RFC-1918 / loopback / link-local addresses.
+// Callers pass DstIP, which for DNS-derived findings holds a domain, not an
+// address — so the IPv6 unique-local (fc00::/7) and loopback checks are gated
+// on the string actually looking like IPv6 (containing ":"). Without that
+// gate the bare "fc"/"fd" prefixes matched domains like fda.gov / fcc.gov and
+// silently dropped them from TI matching and staging.
 func isPrivateIP(ip string) bool {
 	if ip == "" {
 		return false
+	}
+	if strings.Contains(ip, ":") {
+		return ip == "::1" || strings.HasPrefix(ip, "fc") || strings.HasPrefix(ip, "fd")
 	}
 	private := []string{
 		"10.", "192.168.", "172.16.", "172.17.", "172.18.", "172.19.",
 		"172.20.", "172.21.", "172.22.", "172.23.", "172.24.", "172.25.",
 		"172.26.", "172.27.", "172.28.", "172.29.", "172.30.", "172.31.",
-		"127.", "169.254.", "::1", "fc", "fd",
+		"127.", "169.254.",
 	}
 	for _, p := range private {
 		if len(ip) >= len(p) && ip[:len(p)] == p {

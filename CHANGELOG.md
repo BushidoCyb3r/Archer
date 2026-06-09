@@ -32,6 +32,12 @@ relevant, `### Detection changes` in each release entry.
 
 ### Detection changes
 
+- **Domains beginning "fc"/"fd" are no longer misread as private addresses.**
+  `isPrivateIP` matched the IPv6 unique-local prefixes (`fc`/`fd`) as bare
+  string prefixes, so DNS-derived findings for domains like `fda.gov`,
+  `fcc.gov`, or `fdic.gov` were treated as internal and silently dropped from
+  TI matching and multi-stage-beacon staging. The IPv6 unique-local/loopback
+  checks now apply only to strings that look like IPv6 (contain `:`).
 - **TI domain matching is now case-insensitive on HTTP Host headers.** The
   Phase-A/Phase-B HTTP scans in the TI engine kept the Host header in its
   original case while the DNS scan, URLhaus keys, and feed keys are all
