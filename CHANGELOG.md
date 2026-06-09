@@ -30,6 +30,18 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Changed
+
+- **Detail pane "Why flagged" rewritten for analysts, not developers.** Each
+  detection type's explanation is now structured into a plain-English summary
+  (what the finding means and why it's on screen), a "Common false positives"
+  hint, and a collapsible "Scoring detail" disclosure that holds the formulas
+  and reference math. Previously the whole thing was a single wall of
+  formula-first text jammed into one field. The page-bootstrap
+  `window.SCORE_EXPLANATIONS` object changes shape from `{type: string}` to
+  `{type: {summary, false_positives, scoring}}` (internal page bootstrap, not
+  an `/api/*` surface).
+
 ## [v0.63.0] — 2026-06-08
 
 ### Added

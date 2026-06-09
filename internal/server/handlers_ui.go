@@ -48,12 +48,8 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	_ = tmpl.Execute(w, data)
 }
 
-func scoreExplanationsJS() map[string]string {
-	// Import from model package
-	from := map[string]string{}
-	// Re-export the model constants as a plain map for JS bootstrapping
-	for k, v := range scoreExplanationsMap {
-		from[k] = v
-	}
-	return from
+func scoreExplanationsJS() map[string]model.ScoreExplanation {
+	// Re-export the model map for JS bootstrapping. Marshals to
+	// {type: {summary, false_positives, scoring}} consumed by detail.js.
+	return scoreExplanationsMap
 }

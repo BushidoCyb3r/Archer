@@ -1181,6 +1181,39 @@ body.dock-resizing {
   line-height: 1.5;
   font-size: 11px;
 }
+/* "Why flagged" sub-blocks: a false-positive caution and a collapsible
+   scoring-math disclosure, so the plain-English summary leads and the
+   formulas stay one click away rather than jammed into one wall of text. */
+.ds-fp { margin-top: 8px; }
+.ds-fp-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  margin-bottom: 2px;
+}
+.ds-scoring { margin-top: 8px; }
+.ds-scoring > summary {
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  list-style: none;
+  user-select: none;
+}
+.ds-scoring > summary::-webkit-details-marker { display: none; }
+.ds-scoring > summary::before { content: '▸ '; }
+.ds-scoring[open] > summary::before { content: '▾ '; }
+.ds-scoring > summary:hover { color: var(--fg-secondary); }
+.ds-scoring-body {
+  margin-top: 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+  color: var(--fg-dim);
+}
 .ds-flag {
   display: inline-block;
   font-size: 10px;

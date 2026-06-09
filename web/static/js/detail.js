@@ -225,13 +225,25 @@ const Detail = (() => {
     if (flags) sections.push(_section('', flags));
 
     // --- Why flagged ---
-    const explain = EXPLANATIONS[f.type] || '';
-    if (explain) {
-      sections.push(_section('Why flagged', `<div class="ds-explain">${_esc(explain)}</div>`));
+    // EXPLANATIONS[type] is {summary, false_positives, scoring}: lead with the
+    // plain-English summary, surface the false-positive hint, and tuck the
+    // scoring math behind a disclosure so triage isn't buried under formulas.
+    const expl = EXPLANATIONS[f.type];
+    if (expl && expl.summary) {
+      let why = `<div class="ds-explain">${_esc(expl.summary)}</div>`;
+      if (expl.false_positives) {
+        why += `<div class="ds-fp"><div class="ds-fp-label">Common false positives</div>` +
+               `<div class="ds-explain">${_esc(expl.false_positives)}</div></div>`;
+      }
+      if (expl.scoring) {
+        why += `<details class="ds-scoring"><summary>Scoring detail</summary>` +
+               `<div class="ds-explain ds-scoring-body">${_esc(expl.scoring)}</div></details>`;
+      }
+      sections.push(_section('Why flagged', why));
     }
 
     text.innerHTML = sections.join('');
-    rec.textContent = explain ? explain.split('.')[0] : '';
+    rec.textContent = (expl && expl.summary) ? expl.summary.split('. ')[0] : '';
 
     // Action buttons
     const ackBtn      = document.getElementById('ack-btn');

@@ -530,6 +530,15 @@ Duration).** Each is `[0, 1]`. Patterns to recognise:
 See DETECTION_METHODS.md §2.2 for the formulas; this
 playbook tells you what the patterns *mean*.
 
+**Why flagged.** Below the fields, the *Why flagged* block
+states in plain English what this detection type means and
+why it fired, then names the benign shapes that mimic it
+(*Common false positives* — for a beacon, the usual suspects
+are backup clients, update agents, and NTP heartbeats).
+Expand *Scoring detail* when you want the exact formula. It's
+a fast in-pane reminder so you don't have to leave the finding
+to recall what you're looking at.
+
 **Cross-references.** If the same source IP shows up in other
 findings (DNS tunneling, suspicious user-agent, TI hit), or
 the same destination IP appears in another host's beacon —

@@ -507,132 +507,231 @@ type Notification struct {
 	Dismissed bool   `json:"dismissed"`
 }
 
+// ScoreExplanation is the analyst-facing context for a detection type,
+// split so the detail pane can lead with plain-English meaning and tuck the
+// scoring math behind a disclosure. Summary answers "why is this on my
+// screen"; FalsePositives names the benign shapes that mimic it; Scoring
+// holds the formula / reference detail (rendered collapsed).
+type ScoreExplanation struct {
+	Summary        string `json:"summary"`
+	FalsePositives string `json:"false_positives,omitempty"`
+	Scoring        string `json:"scoring,omitempty"`
+}
+
 // ScoreExplanations provides analyst context for each detection type.
-var ScoreExplanations = map[string]string{
-	"Beacon": "Score = ts×0.25 + ds×0.25 + hist×0.25 + dur×0.25 (0–100)\n" +
-		"ts = max(Bowley+MAD on intervals, multimodal log2-bucket peaks, entropy of bucket occupancy, spectral rescue)\n" +
-		"  Spectral rescue: Lomb-Scargle periodogram over reservoir timestamps, runs when ts < SpectralRescueThreshold (default 0.5)\n" +
-		"  Catches jittered C2 (σ/period < 0.45) where the interval distribution defeats statistical scoring\n" +
-		"ds = statistical score on orig byte counts\n" +
-		"hist = histogram regularity (CV + bimodal) over 24 time buckets\n" +
-		"dur = temporal persistence (coverage + consecutive-run consistency)\n" +
-		"CRITICAL ≥ 80 | HIGH < 80\n" +
-		"Detail tags 'Spectral rescue: period≈Xs' when the frequency-domain path won.\n" +
-		"DGA augmentation: +15 score, one-step severity upgrade when the destination Hostname's SLD has Shannon entropy > dga_entropy_threshold (default 3.5) AND bigram log-likelihood < dga_bigram_threshold (default -4.5). Detail tags 'DGA-suspect destination: <host> (SLD=..., entropy=..., bigram=...)'.\n" +
-		"False positives: backup clients, update agents, NTP heartbeats.",
+var ScoreExplanations = map[string]ScoreExplanation{
+	"Beacon": {
+		Summary:        "This source connects to one destination on a strikingly regular timing pattern — the automated check-in rhythm of beaconing malware calling home to a command-and-control server. Archer weighs four independent signals: how regular the timing is, how uniform the payload sizes are, how the connections cluster across the day, and how persistently the pattern holds. A high score means several of them agree.",
+		FalsePositives: "Backup clients, software update agents, and NTP heartbeats all check in on a schedule too — confirm the destination isn't a known-good service before escalating.",
+		Scoring: "Score = ts×0.25 + ds×0.25 + hist×0.25 + dur×0.25 (0–100)\n" +
+			"ts = max(Bowley+MAD on intervals, multimodal log2-bucket peaks, entropy of bucket occupancy, spectral rescue)\n" +
+			"  Spectral rescue: Lomb-Scargle periodogram over reservoir timestamps, runs when ts < SpectralRescueThreshold (default 0.5)\n" +
+			"  Catches jittered C2 (σ/period < 0.45) where the interval distribution defeats statistical scoring\n" +
+			"ds = statistical score on orig byte counts\n" +
+			"hist = histogram regularity (CV + bimodal) over 24 time buckets\n" +
+			"dur = temporal persistence (coverage + consecutive-run consistency)\n" +
+			"CRITICAL ≥ 80 | HIGH < 80\n" +
+			"Detail tags 'Spectral rescue: period≈Xs' when the frequency-domain path won.\n" +
+			"DGA augmentation: +15 score, one-step severity upgrade when the destination SLD has Shannon entropy > dga_entropy_threshold (default 3.5) AND bigram log-likelihood < dga_bigram_threshold (default -4.5).",
+	},
 
-	"Port-Hopping Beacon": "Same scoring as Beacon — this is a Beacon that spreads across many destination ports.\n" +
-		"Relabel (not a re-score): a (sensor, src, dst) pair already qualified as a beacon, then was found to span ≥5 dst ports with no single port carrying ≥50% of connections.\n" +
-		"The port deliberately isn't part of the beacon key, so a hopper is caught as one beacon today; this type just names the evasion shape.\n" +
-		"Detail tags 'Port-hopping: N dst ports [...], no dominant port (max X%)'.\n" +
-		"False positives: clients that legitimately fan out across an ephemeral-port service (some P2P, some RPC frameworks).",
+	"Port-Hopping Beacon": {
+		Summary:        "A beacon — the same regular check-in pattern as a Beacon — that spreads its connections across many destination ports instead of hammering one, a deliberate move to slip past port-based filtering. Same conviction as a Beacon; this label just names the evasion shape.",
+		FalsePositives: "Some peer-to-peer and RPC frameworks legitimately fan out across many ephemeral ports.",
+		Scoring: "Same scoring as Beacon. Relabel (not a re-score): a (sensor, src, dst) pair already qualified as a beacon, then was found to span ≥5 dst ports with no single port carrying ≥50% of connections.\n" +
+			"The port deliberately isn't part of the beacon key, so a hopper is caught as one beacon; this type just names the evasion. Detail tags 'Port-hopping: N dst ports [...], no dominant port (max X%)'.",
+	},
 
-	"HTTP Beacon": "Same multi-dimensional analysis as conn-level but on (src, host, URI path) triples.\n" +
-		"ts+ds+hist+dur components — catches C2 over CDN where many IPs share one domain.\n" +
-		"DGA augmentation applies on the destination Host header: +15 score / severity bump when SLD entropy and bigram log-likelihood both cross their thresholds.\n" +
-		"False positives: telemetry endpoints, analytics beacons, keepalive polls.",
+	"HTTP Beacon": {
+		Summary:        "The same regular check-in pattern as a Beacon, but seen over HTTP and keyed on the host and URL path rather than the IP — so it still catches C2 hiding behind a CDN where many addresses share one domain.",
+		FalsePositives: "Telemetry endpoints, analytics beacons, and keepalive polls also call home on a fixed cadence.",
+		Scoring: "Same four-component (ts+ds+hist+dur) analysis as conn-level Beacon, but on (src, host, URI path) triples.\n" +
+			"DGA augmentation applies on the destination Host header: +15 score / one-step severity bump when SLD entropy and bigram log-likelihood both cross their thresholds.",
+	},
 
-	"Domain Fronting": "Score: 88 (fixed — SSL SNI ≠ HTTP Host header)\n" +
-		"SSL SNI = visible domain at TLS layer (CDN edge)\n" +
-		"HTTP Host = actual destination hidden inside encrypted stream.",
+	"Domain Fronting": {
+		Summary: "The domain shown at the TLS layer (the SNI, what a firewall sees) doesn't match the actual Host the request asks for inside the encrypted stream. That mismatch is domain fronting — riding a trusted CDN's name to reach a hidden destination.",
+		Scoring: "Score: 88 (fixed). SSL SNI = the visible domain at the TLS layer (the CDN edge). HTTP Host = the actual destination hidden inside the encrypted stream.",
+	},
 
-	"Cobalt Strike URI": "Score: 93 (checksum8 match on URI path)\n" +
-		"Algorithm: sum(ord(c) for c in uri_path) % 256\n" +
-		"92 = x86 payload | 93 = x64 payload",
+	"Cobalt Strike URI": {
+		Summary: "The requested URL path carries the arithmetic checksum Cobalt Strike's default profiles use to tag stager requests — a high-confidence signature of a Cobalt Strike beacon fetching its payload.",
+		Scoring: "Score: 93 (checksum8 match on URI path). Algorithm: sum(ord(c) for c in uri_path) % 256. 92 = x86 payload, 93 = x64 payload.",
+	},
 
-	"C2 URI Pattern": "Score: 91 (regex match on known framework default paths)\n" +
-		"Cobalt Strike: /submit.php /ca /dpixel /pixel.gif /ptj /j.ad /updates.rss\n" +
-		"Empire: /news.php /admin/get.php /login/process.php\n" +
-		"Metasploit: 8-char alphanumeric stager paths",
+	"C2 URI Pattern": {
+		Summary: "The URL path matches a default request path shipped by a known C2 framework. Operators who don't customize their malleable profiles leave these tell-tale paths in place.",
+		Scoring: "Score: 91 (regex match on known framework default paths).\n" +
+			"Cobalt Strike: /submit.php /ca /dpixel /pixel.gif /ptj /j.ad /updates.rss\n" +
+			"Empire: /news.php /admin/get.php /login/process.php\n" +
+			"Metasploit: 8-char alphanumeric stager paths",
+	},
 
-	"Malicious JA3": "Score: 95 (known C2 framework TLS ClientHello fingerprint)\n" +
-		"Covers: Cobalt Strike (multiple profiles), Metasploit, Sliver, Brute Ratel.\n" +
-		"Deprecated: ecosystem moving to JA4; sensor must run Zeek JA4+ plugin for JA4 coverage.",
+	"Malicious JA3": {
+		Summary: "This host's TLS handshake fingerprint (JA3) matches one published for a known C2 framework — the client software negotiating the encryption looks like Cobalt Strike, Metasploit, Sliver, or Brute Ratel rather than a normal browser or app.",
+		Scoring: "Score: 95. Covers Cobalt Strike (multiple profiles), Metasploit, Sliver, Brute Ratel.\n" +
+			"JA3 is being superseded by JA4; the sensor must run the Zeek JA4+ plugin for JA4 coverage.",
+	},
 
-	"Malicious JA4": "Score: 95 (known C2 malware TLS ClientHello fingerprint — JA4 format)\n" +
-		"JA4 is the structured successor to JA3 (FoxIO, 2023): prefix encodes TLS version,\n" +
-		"cipher count, extension count, and ALPN — more stable than MD5 JA3.\n" +
-		"Covers: Cobalt Strike v4.9.1 (wininet/winhttp, SNI/no-SNI variants), IcedID loader.\n" +
-		"Requires sensor running the Zeek JA4+ plugin; stock ssl.log only has ja3/ja3s.\n" +
-		"Source: FoxIO public JA4+ database (github.com/FoxIO-LLC/ja4).",
+	"Malicious JA4": {
+		Summary: "This host's TLS handshake fingerprint (JA4, the structured successor to JA3) matches one published for known C2 malware — the connecting software looks like a C2 implant, not a browser.",
+		Scoring: "Score: 95. JA4 (FoxIO, 2023) encodes TLS version, cipher count, extension count, and ALPN — more stable than MD5 JA3.\n" +
+			"Covers Cobalt Strike v4.9.1 (wininet/winhttp, SNI/no-SNI variants) and the IcedID loader. Requires the sensor running the Zeek JA4+ plugin; stock ssl.log only has ja3/ja3s.\n" +
+			"Source: FoxIO public JA4+ database (github.com/FoxIO-LLC/ja4).",
+	},
 
-	"Strobe": "Score = 50 + log10(count)×15, capped at 88\n" +
-		"Triggered when connection count to single dst IP exceeds threshold.",
+	"Strobe": {
+		Summary:        "An unusually high number of connections to a single destination in a short span — too many to be normal interactive traffic. Often scanning, brute-forcing, or a misbehaving client hammering a host.",
+		FalsePositives: "Health checks, monitoring agents, and chatty clients can strobe a service legitimately.",
+		Scoring:        "Score = 50 + log10(count)×15, capped at 88. Triggered when the connection count to a single destination IP exceeds the threshold.",
+	},
 
-	"Data Exfiltration": "Score = 55 + log10(MB_out+1)×12, capped at 92\n" +
-		"Triggered when: outbound bytes > min_MB AND out/in ratio > threshold.",
+	"Data Exfiltration": {
+		Summary:        "A large volume of data left the network to this destination, heavily skewed outbound — the shape of data being staged out rather than normal request/response traffic.",
+		FalsePositives: "Cloud backups, large uploads, and off-site sync jobs move bulk data outbound too.",
+		Scoring:        "Score = 55 + log10(MB_out+1)×12, capped at 92. Triggered when outbound bytes exceed the minimum AND the out/in ratio exceeds the threshold.",
+	},
 
-	"Lateral Movement": "Score: 78 (internal→internal on administrative protocol)\n" +
-		"Both src and dst are RFC-1918. Port in: 445/SMB 3389/RDP 135/WMI 5985-5986/WinRM 22/SSH 23/Telnet 5900/VNC",
+	"Lateral Movement": {
+		Summary:        "One internal host reached another internal host over an administrative protocol (SMB, RDP, WMI, WinRM, SSH, Telnet, VNC). Inside-to-inside admin traffic is how an attacker pivots between machines after gaining a foothold.",
+		FalsePositives: "Legitimate IT administration, patch deployment, and remote support use these same protocols.",
+		Scoring:        "Score: 78. Both source and destination are RFC-1918. Ports: 445/SMB, 3389/RDP, 135/WMI, 5985-5986/WinRM, 22/SSH, 23/Telnet, 5900/VNC.",
+	},
 
-	"Off-Hours Transfer": "Score = 45 + log10(MB+1)×12, capped at 78\n" +
-		"Flags external transfers > min_MB outside business hours (UTC).",
+	"Off-Hours Transfer": {
+		Summary:        "A sizable transfer left the network outside business hours, when little legitimate activity is expected — a common window for quiet data theft.",
+		FalsePositives: "Scheduled overnight backups and batch jobs run off-hours by design.",
+		Scoring:        "Score = 45 + log10(MB+1)×12, capped at 78. Flags external transfers above the minimum size outside business hours (UTC).",
+	},
 
-	"DNS Tunneling": "Per-query: long label, high entropy, or deep nesting per query.\n" +
-		"Tools: iodine, DNScat2, dns2tcp",
+	"DNS Tunneling": {
+		Summary:        "Individual DNS queries here carry the hallmarks of data smuggled inside DNS — abnormally long labels, high randomness, or deep nesting. Tunneling tools hide a covert channel in queries that look like ordinary lookups.",
+		FalsePositives: "Some CDN, anti-virus, and cloud services encode long, random-looking subdomains legitimately.",
+		Scoring:        "Per query: long label, high entropy, or deep nesting. Tools: iodine, DNScat2, dns2tcp.",
+	},
 
-	"DNS Subdomain DGA": ">N unique subdomains under a single apex with high average entropy.\n" +
-		"Shape: DGA/fast-flux C2 rotating subdomains; distinct from per-query tunneling.",
+	"DNS Subdomain DGA": {
+		Summary:        "Many distinct, high-randomness subdomains under one parent domain — the rotating-subdomain pattern of DGA or fast-flux C2. Distinct from per-query tunneling: here it's the volume and randomness of the names, not one query's contents.",
+		FalsePositives: "Large CDNs and some cloud platforms also generate many algorithmic subdomains.",
+		Scoring:        "More than N unique subdomains under a single apex with high average entropy.",
+	},
 
-	"DNS NXDOMAIN Flood": "Score = 45 + log10(count)×15, capped at 85\n" +
-		"High NXDOMAIN rate = DGA malware cycling through generated domains.",
+	"DNS NXDOMAIN Flood": {
+		Summary:        "A burst of DNS lookups that resolved to nothing (NXDOMAIN). Malware using a domain-generation algorithm cycles through many generated names hunting for its live C2, leaving a trail of failed lookups.",
+		FalsePositives: "Misconfigured clients and dead bookmarks also generate NXDOMAINs, though rarely in floods.",
+		Scoring:        "Score = 45 + log10(count)×15, capped at 85. A high NXDOMAIN rate suggests DGA malware cycling through generated domains.",
+	},
 
-	"Suspicious TLD": "Score: 52 (medium confidence supporting indicator)\n" +
-		"Free/abused TLDs: .tk .ml .ga .cf .gq — Freenom free zones.",
+	"Suspicious TLD": {
+		Summary:        "The destination uses a top-level domain heavily abused for free, disposable malware infrastructure. A weak supporting signal on its own, not a conviction.",
+		FalsePositives: "These TLDs host legitimate sites too — treat as one indicator among several.",
+		Scoring:        "Score: 52 (medium-confidence supporting indicator). Free/abused TLDs: .tk .ml .ga .cf .gq (Freenom free zones).",
+	},
 
-	"DoH Bypass": "Score: 62 (TLS to known DoH resolver on 443)\n" +
-		"Malware uses DoH to evade DNS sinkholes/RPZ, hide C2 lookups.",
+	"DoH Bypass": {
+		Summary:        "This host sent encrypted DNS (DNS-over-HTTPS) to a known public DoH resolver. Malware uses DoH to hide its C2 lookups from network DNS monitoring and sinkholes.",
+		FalsePositives: "Modern browsers and some operating systems enable DoH by default — confirm it isn't sanctioned client behavior.",
+		Scoring:        "Score: 62 (TLS to a known DoH resolver on 443).",
+	},
 
-	"Long Connection": "Score = 50 + hours/8, capped at 95 | HIGH >24h | MEDIUM 1-24h\n" +
-		"Persistent TCP/UDP sessions: reverse shells, VPN tunnels, C2 sessions.",
+	"Long Connection": {
+		Summary:        "A single connection stayed open far longer than normal session traffic. Persistent long-held sessions are typical of reverse shells, VPN tunnels, and interactive C2.",
+		FalsePositives: "VPNs, SSH sessions, streaming, and some database connections legitimately stay open for hours.",
+		Scoring:        "Score = 50 + hours/8, capped at 95. HIGH > 24h, MEDIUM 1-24h.",
+	},
 
-	"C2 Port": "Score: 75 (connection to default C2/malware listener ports)\n" +
-		"4444 Metasploit | 4899 Radmin | 6666-6669 IRC | 9001/9030 Tor | 31337 BO",
+	"C2 Port": {
+		Summary:        "The connection targets a port that's the built-in default listener for a known attack tool or malware family — convenient for operators, conspicuous to defenders.",
+		FalsePositives: "These ports can be reused by unrelated services — the port alone is a lead, not proof.",
+		Scoring:        "Score: 75. 4444 Metasploit, 4899 Radmin, 6666-6669 IRC, 9001/9030 Tor, 31337 Back Orifice.",
+	},
 
-	"SSL No-SNI on C2 Port": "Score: 82 (established TLS with no SNI on known C2 port)\n" +
-		"Legitimate HTTPS always includes SNI for virtual hosting.",
+	"SSL No-SNI on C2 Port": {
+		Summary: "An established TLS session with no SNI (no server name) on a known C2 port. Legitimate HTTPS practically always sends SNI for virtual hosting; its absence on a suspect port points to a hand-rolled C2 client.",
+		Scoring: "Score: 82. Legitimate HTTPS always includes SNI for virtual hosting.",
+	},
 
-	"SSL No-SNI": "Score: 35 (LOW — supporting indicator only)\n" +
-		"Established TLS with no SNI on non-standard non-C2 port.",
+	"SSL No-SNI": {
+		Summary:        "An established TLS session with no SNI on an unusual port. A weak supporting indicator on its own — noted, not convicted.",
+		FalsePositives: "Some internal services and direct-IP TLS legitimately omit SNI.",
+		Scoring:        "Score: 35 (LOW — supporting indicator). Established TLS with no SNI on a non-standard, non-C2 port.",
+	},
 
-	"Weak TLS": "Score: 48 (deprecated protocol: SSLv2/SSLv3/TLS1.0/TLS1.1)",
+	"Weak TLS": {
+		Summary:        "The connection negotiated a deprecated, insecure TLS/SSL version — worth knowing as a hygiene gap and a downgrade-attack signal.",
+		FalsePositives: "Legacy devices and old appliances still negotiate these versions.",
+		Scoring:        "Score: 48. Deprecated protocol: SSLv2 / SSLv3 / TLS 1.0 / TLS 1.1.",
+	},
 
-	"Suspicious UA": "Score: 30 (LOW — scripting UAs: python-requests, curl, wget, Go-http-client, PowerShell)",
+	"Suspicious UA": {
+		Summary:        "The HTTP User-Agent is a scripting or automation client (python-requests, curl, wget, Go-http-client, PowerShell) rather than a browser — common for malware tooling, though also for legitimate scripts.",
+		FalsePositives: "Plenty of legitimate automation, monitoring, and API clients send these User-Agents.",
+		Scoring:        "Score: 30 (LOW).",
+	},
 
-	"Suspicious Certificate": "Score: 58 (self-signed, default subject, short validity <48h, or >10 years)",
+	"Suspicious Certificate": {
+		Summary:        "The server's TLS certificate has properties common to throwaway C2 infrastructure — self-signed, a default or placeholder subject, or an implausibly short or long validity window.",
+		FalsePositives: "Internal services, dev environments, and appliances routinely use self-signed or unusual certs.",
+		Scoring:        "Score: 58. Self-signed, default subject, short validity (<48h), or >10 years.",
+	},
 
-	"Suspicious File Download": "Score: 72 (executable or script MIME type / extension in files.log)",
+	"Suspicious File Download": {
+		Summary:        "An executable or script file type crossed the wire (seen in Zeek's files.log) — worth a look as possible payload delivery.",
+		FalsePositives: "Software updates, installers, and legitimate downloads also transfer executables and scripts.",
+		Scoring:        "Score: 72 (executable or script MIME type / extension in files.log).",
+	},
 
-	"Protocol Anomaly": "Score: 65 (HIGH-interest) | 22 (general) from Zeek weird.log",
+	"Protocol Anomaly": {
+		Summary:        "Zeek flagged something structurally wrong or unexpected in this traffic (a 'weird') — a malformed or out-of-spec exchange that can signal tunneling, evasion, or a misbehaving implant.",
+		FalsePositives: "Broken or quirky-but-benign software produces protocol weirds all the time.",
+		Scoring:        "Score: 65 (high-interest weird) or 22 (general), from Zeek weird.log.",
+	},
 
-	"Protocol on Unexpected Port": "Score: 70 (HIGH) | 75 on a known C2 port\n" +
-		"Zeek DPD identified an app-layer protocol (http/ssl/ssh/dns/smtp/ftp) egressing on a port outside its expected set — port-control evasion. Scoped to external destinations.",
+	"Protocol on Unexpected Port": {
+		Summary:        "Zeek's deep packet inspection identified a real application protocol (HTTP, SSL, SSH, DNS, SMTP, FTP) running on a port outside where it belongs — a classic move to tunnel out past port-based egress controls. Scoped to external destinations.",
+		FalsePositives: "Some legitimate services run on non-standard ports by local convention.",
+		Scoring:        "Score: 70 (HIGH), or 75 on a known C2 port.",
+	},
 
-	"TI Hit (IP)":     "Score: 97-99 (CRITICAL) for FeodoTracker / URLhaus | variable for OTX/AbuseIPDB | 90 (HIGH) for MISP/OpenCTI feed IP/CIDR matches.",
-	"TI Hit (Domain)": "Score: 97 (CRITICAL) for URLhaus host matches | 90 (HIGH) for MISP/OpenCTI feed domain matches.",
-	"TI Hit (Hash)":   "Score: 90 (HIGH). md5 / sha1 / sha256 from files.log matched against MISP/OpenCTI hash indicators.",
+	"TI Hit (IP)": {
+		Summary:        "This destination IP appears on a threat-intelligence feed of known-malicious infrastructure — a direct match to curated indicators, high priority.",
+		FalsePositives: "Shared hosting and recycled cloud IPs can leave stale indicators on feeds.",
+		Scoring:        "Score: 97-99 (CRITICAL) for FeodoTracker / URLhaus; variable for OTX / AbuseIPDB; 90 (HIGH) for MISP / OpenCTI feed IP/CIDR matches.",
+	},
+	"TI Hit (Domain)": {
+		Summary:        "This destination domain appears on a threat-intelligence feed of known-malicious hosts.",
+		FalsePositives: "Compromised-then-cleaned domains and shared infrastructure can leave stale feed entries.",
+		Scoring:        "Score: 97 (CRITICAL) for URLhaus host matches; 90 (HIGH) for MISP / OpenCTI feed domain matches.",
+	},
+	"TI Hit (Hash)": {
+		Summary: "A file seen on the wire matches a known-malicious file hash from a threat-intelligence feed.",
+		Scoring: "Score: 90 (HIGH). md5 / sha1 / sha256 from files.log matched against MISP / OpenCTI hash indicators.",
+	},
 
-	"Host Risk Score": "Composite weighted sum, capped at 99\n" +
-		"Beacon +30 | HTTP Beacon +28 | CS URI +40 | C2 URI Pattern +38\n" +
-		"Domain Fronting +32 | Malicious JA3 +40 | Malicious JA4 +40 | TI Hit +35 | Exfiltration +25\n" +
-		"CRITICAL ≥75 | HIGH ≥50 | MEDIUM ≥25",
+	"Host Risk Score": {
+		Summary: "Not a detection on its own — a roll-up of every finding for this host into one risk number, so the most compromised machines surface first. The underlying network findings are what to investigate.",
+		Scoring: "Composite weighted sum, capped at 99.\n" +
+			"Beacon +30 | HTTP Beacon +28 | CS URI +40 | C2 URI Pattern +38\n" +
+			"Domain Fronting +32 | Malicious JA3 +40 | Malicious JA4 +40 | TI Hit +35 | Exfiltration +25\n" +
+			"CRITICAL ≥75 | HIGH ≥50 | MEDIUM ≥25",
+	},
 
-	"Correlated Activity": "Cross-detector roll-up: same (src, dst) pair, ≥N distinct detector types\n" +
-		"N defaults to 2 (correlation_min_types). Catches kill-chain progression:\n" +
-		"Beacon + DNS Tunneling, Suspicious File + TI Hit (Hash), etc.\n" +
-		"Score = max(contributor scores) + 5 per extra distinct type above N, capped 99.\n" +
-		"Contributing findings get a `+N corr` chip linking back to this roll-up.\n" +
-		"Excluded from contribution: Host Risk Score, Correlated Activity (recursion), Zeek Notice, Long Connection.",
+	"Correlated Activity": {
+		Summary: "The same source-destination pair tripped several different detectors — for example beaconing plus DNS tunneling. Multiple independent signals on one pair is far stronger evidence than any single one, and often marks kill-chain progression.",
+		Scoring: "Cross-detector roll-up: same (src, dst) pair, ≥N distinct detector types (N defaults to 2, correlation_min_types).\n" +
+			"Score = max(contributor scores) + 5 per extra distinct type above N, capped at 99. Contributing findings get a '+N corr' chip linking back to this roll-up.\n" +
+			"Excluded from contribution: Host Risk Score, Correlated Activity (recursion), Zeek Notice, Long Connection.",
+	},
 
-	"Zeek Notice": "Score: 92 (attack notices) | 68 (general)\n" +
-		"Zeek policy script detections: Sensitive_Signature, Scan, Attack, Brute.",
+	"Zeek Notice": {
+		Summary: "Zeek's own policy scripts raised a notice on this traffic — a scan, brute-force, attack signature, or sensitive-data hit. Passed through from the sensor as a corroborating detection.",
+		Scoring: "Score: 92 (attack notices) or 68 (general). Zeek policy detections: Sensitive_Signature, Scan, Attack, Brute.",
+	},
 
-	"Multi-Stage Beacon": "Cross-host C2 staging roll-up: ≥2 internal hosts beaconing to the\n" +
-		"same rare external destination, onsets staggered within a window.\n" +
-		"Gate: rare dst (≤ stagingMaxDstSources unique sources) AND ≥2 hosts AND\n" +
-		"onset spread ≤ stagingWindowHours. Score 80/HIGH; 96/CRITICAL when\n" +
-		"corroborated by a lateral hop between participants, a TI hit on the dst,\n" +
-		"or a Malicious JA3/JA4 on the dst. Anchored on patient zero (earliest onset);\n" +
-		"binds the contributing beacons via the correlation chip.\n" +
-		"Complements the Campaigns view (broad fan-in lens) with a high-precision conviction.",
+	"Multi-Stage Beacon": {
+		Summary: "Two or more internal hosts are all beaconing to the same rare external destination, with their check-ins starting at staggered times — the fingerprint of C2 spreading laterally across a network. Anchored on the first host to start (patient zero).",
+		Scoring: "Cross-host staging roll-up. Gate: rare dst (≤ stagingMaxDstSources unique sources) AND ≥2 hosts AND onset spread ≤ stagingWindowHours.\n" +
+			"Score 80/HIGH; 96/CRITICAL when corroborated by a lateral hop between participants, a TI hit on the dst, or a Malicious JA3/JA4 on the dst.\n" +
+			"Binds the contributing beacons via the correlation chip. Complements the Campaigns view (broad fan-in lens) with a high-precision conviction.",
+	},
 }
