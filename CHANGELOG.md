@@ -30,6 +30,8 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.64.0] — 2026-06-09
+
 ### Added
 
 - **SIEM forwarding on escalate.** When a SIEM is configured in Settings
