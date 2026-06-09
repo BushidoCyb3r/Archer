@@ -5208,22 +5208,11 @@
       document.getElementById('graph-export-scope-dlg').close();
     });
 
-    Notifications.init(async notif => {
-      // Dispatch by notification kind. Sensor and feed alarms open
-      // their respective modals; finding alarms run the existing
-      // jump-to-row logic. Empty kind reads as "finding" for
-      // backward compat with notifications persisted before the
-      // kind field existed.
-      const kind = notif.kind || 'finding';
-      if (kind === 'sensor') {
-        if (typeof Sensors !== 'undefined' && Sensors.open) Sensors.open();
-        return;
-      }
-      if (kind === 'feed') {
-        if (typeof Feeds !== 'undefined' && Feeds.open) Feeds.open();
-        return;
-      }
-      const findingId = notif.finding_id;
+  // Jump to a finding by id regardless of the active view/filter: fetch it,
+  // clear filtering, switch to the tab its status belongs to, locate its page
+  // via /api/findings/{id}/position, load that page, select and render it.
+  // Shared by the notification bell and the ?finding= deep-link.
+  async function _jumpToFindingById(findingId) {
       // The finding may be filtered out of _allFindings or live on a
       // different page than the one currently loaded. Fetch it directly
       // so we always know its status (and therefore which tab to land
@@ -5325,6 +5314,25 @@
         // explicitly so the click isn't a mysterious no-op.
         setStatus('Finding is hidden from table view (allowlisted, suppressed, or filter mismatch). Details rendered in dock.');
       }
+  }
+
+    Notifications.init(async notif => {
+      // Dispatch by notification kind. Sensor and feed alarms open
+      // their respective modals; finding alarms run the existing
+      // jump-to-row logic. Empty kind reads as "finding" for
+      // backward compat with notifications persisted before the
+      // kind field existed.
+      const kind = notif.kind || 'finding';
+      if (kind === 'sensor') {
+        if (typeof Sensors !== 'undefined' && Sensors.open) Sensors.open();
+        return;
+      }
+      if (kind === 'feed') {
+        if (typeof Feeds !== 'undefined' && Feeds.open) Feeds.open();
+        return;
+      }
+      const findingId = notif.finding_id;
+      await _jumpToFindingById(findingId);
     });
 
     // Fetch current user for display, note authorship, and role-gating
@@ -5494,6 +5502,13 @@
     // the most recent run. Silent when nothing is new to them.
     _showUnseenModal();
     setStatus('Ready');
+    // Deep-link: ?finding=<id> opens that finding regardless of view — used by
+    // SIEM forward links. Runs after the initial load so the jump lands on
+    // populated state.
+    const _fParam = new URLSearchParams(window.location.search).get('finding');
+    if (_fParam && /^\d+$/.test(_fParam)) {
+      _jumpToFindingById(parseInt(_fParam, 10));
+    }
   }
 
   async function _loadOrgCIDRs() {
