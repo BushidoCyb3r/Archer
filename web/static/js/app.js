@@ -3996,6 +3996,12 @@
     if (sensorStale) sensorStale.value = cfg.sensor_stale_threshold_hours || 2;
     if (feedStale)   feedStale.value   = cfg.feed_stale_threshold_hours   || 24;
     if (rsyncStale)  rsyncStale.value  = cfg.rsync_stale_threshold_hours  || 4;
+    const siemEnabled = document.getElementById('cfg-siem-enabled');
+    if (siemEnabled) siemEnabled.checked = !!cfg.siem_enabled;
+    const siemHost = document.getElementById('cfg-siem-host');
+    if (siemHost) siemHost.value = cfg.siem_host || '';
+    const siemPort = document.getElementById('cfg-siem-port');
+    if (siemPort) siemPort.value = cfg.siem_port || 9003;
     const auditRet = document.getElementById('cfg-audit-retention');
     if (auditRet) auditRet.value = cfg.audit_log_retention_days || 0;
     const specEn = document.getElementById('cfg-spectral-enabled');
@@ -4092,6 +4098,9 @@
       feed_stale_threshold_hours:   parseInt(g('cfg-feed-stale-hours'))   || 24,
       rsync_stale_threshold_hours:  parseInt(g('cfg-rsync-stale-hours'))  || 4,
       audit_log_retention_days:     parseInt(g('cfg-audit-retention'))    || 0,
+      siem_enabled: !!(document.getElementById('cfg-siem-enabled') || {}).checked,
+      siem_host:    g('cfg-siem-host').trim(),
+      siem_port:    parseInt(g('cfg-siem-port'), 10) || 9003,
     };
   }
 

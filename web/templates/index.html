@@ -1371,6 +1371,11 @@
         By default, only the first watch tick of each UTC day runs the full pipeline (Beacon, HTTP analysis, all detectors); subsequent same-day ticks run a cheaper incremental TI/IOC pass. Turn this on to make every tick a full scan instead — uses more CPU per tick but eliminates the "wait until tomorrow" gap on statistical detectors. Useful during active hunts.
       </div>
       <label><input id="cfg-watch-always-full" type="checkbox"> Always run full scan on every watch tick</label>
+      <div style="margin-top:10px;font-weight:600">SIEM forwarding</div>
+      <label><input id="cfg-siem-enabled" type="checkbox"> Forward escalated findings to a SIEM</label>
+      <label>SIEM host (IP)<input class="dlg-input" id="cfg-siem-host" type="text" placeholder="e.g. 10.0.0.20"></label>
+      <label>SIEM port<input class="dlg-input" id="cfg-siem-port" type="number" min="1" max="65535" placeholder="9003"></label>
+      <div style="color:var(--fg-dim);font-size:12px">Forwards escalated findings as CEF over UDP syslog to your SIEM's syslog input.</div>
     </div>
     <div class="settings-group">
       <div class="settings-group-title">Alerting Thresholds</div>
