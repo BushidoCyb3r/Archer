@@ -126,18 +126,33 @@ func (s *Server) runArchive(afterDays int, pruneFindings, dryRun bool, triggered
 			res.BytesArchived += info.Size()
 			return nil
 		}
-		if _, err := os.Stat(dst); err == nil {
-			// Archive already holds this file. The previous run
-			// copied it but failed to delete the source (pre-v0.30.4
-			// permission bug). Remove the stale /logs copy now.
-			if err := os.Remove(path); err != nil {
-				slog.Warn("archive: cleanup stale source failed", "src", path, "err", err)
+		if dstInfo, err := os.Stat(dst); err == nil {
+			// Archive already holds a copy. Two causes: a previous run copied
+			// it but failed to delete the source (the pre-v0.30.4 permission
+			// bug), or a previous run was killed mid-copy (OOM/power loss),
+			// leaving a truncated dst. os.Stat proves existence, not
+			// completeness — only delete the /logs copy when the archived
+			// copy is byte-for-byte the same size, or an interrupted run
+			// would have us remove the intact source against a partial
+			// archive and lose log data permanently. (Archived logs are
+			// rotated and closed, so the source size is stable here.)
+			if dstInfo.Size() == info.Size() {
+				if err := os.Remove(path); err != nil {
+					slog.Warn("archive: cleanup stale source failed", "src", path, "err", err)
+					res.Skipped++
+					return nil
+				}
+				res.FilesArchived++
+				res.BytesArchived += info.Size()
+				return nil
+			}
+			// Truncated archive copy from an interrupted run: drop it and
+			// re-archive from the still-intact source below.
+			if err := os.Remove(dst); err != nil {
+				slog.Warn("archive: remove partial archive copy failed", "dst", dst, "err", err)
 				res.Skipped++
 				return nil
 			}
-			res.FilesArchived++
-			res.BytesArchived += info.Size()
-			return nil
 		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			slog.Warn("archive: mkdir failed", "path", filepath.Dir(dst), "err", err)

@@ -322,8 +322,13 @@ func TestRunArchive_CleansStaleSourceWhenDestExists(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(tmpArchive, "ds"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// The archived copy and the stale source are byte-complete duplicates —
+	// that is what the pre-v0.30.4 bug actually left behind (the copy
+	// succeeded, only the source-delete failed). Same length so the
+	// size-completeness check (LG-3) takes the stale-cleanup branch; distinct
+	// bytes so the "dest not clobbered" assertion below stays meaningful.
 	existing := filepath.Join(tmpArchive, "ds", "conn.log")
-	if err := os.WriteFile(existing, []byte("archive copy"), 0o644); err != nil {
+	if err := os.WriteFile(existing, []byte("ARCHIVED-COPY!!"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -351,7 +356,7 @@ func TestRunArchive_CleansStaleSourceWhenDestExists(t *testing.T) {
 	}
 	// Archive copy must be unchanged — we deleted the source, not the dest.
 	data, _ := os.ReadFile(existing)
-	if string(data) != "archive copy" {
+	if string(data) != "ARCHIVED-COPY!!" {
 		t.Errorf("archive file was clobbered: got %q", string(data))
 	}
 	// Stale source must be gone.

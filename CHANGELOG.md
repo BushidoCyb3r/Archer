@@ -42,6 +42,13 @@ relevant, `### Detection changes` in each release entry.
 
 ### Fixed
 
+- **Archive no longer deletes the only intact log copy after an interrupted
+  run.** If a previous archive pass was killed mid-copy (OOM/power loss) it
+  left a truncated file in the archive; the next run saw the destination exists
+  (`os.Stat`) and deleted the `/logs` source, losing the data permanently. The
+  stale-source cleanup now removes the source only when the archived copy is
+  byte-complete (same size); a truncated copy is dropped and re-archived from
+  the still-intact source.
 - **Watch no longer skips a file appended during a long analysis pass.** The
   "no changes since last analysis" dataset fingerprint was computed after the
   run finished, so a log appended mid-pass got folded into the stored
