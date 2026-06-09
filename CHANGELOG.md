@@ -30,6 +30,16 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Added
+
+- **Persistence-degraded signal.** A findings-write failure (disk full, DB
+  locked) was previously log-only, so in-memory state could silently diverge
+  from disk and analyst status/notes made afterward would vanish on the next
+  restart with no operator signal. The store now records the failure and the
+  server surfaces it both live (an SSE `status` event after each watch pass)
+  and on reload (`persist_error` in `GET /api/analyze/status`); it clears on
+  the next successful save.
+
 ### Fixed
 
 - **Watch no longer skips a file appended during a long analysis pass.** The

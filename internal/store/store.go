@@ -60,6 +60,15 @@ type Store struct {
 	config         config.Config
 	analyzing      bool
 
+	// persistErr holds the message from the most recent findings-save
+	// failure, or "" when the last save succeeded. saveFindings logs
+	// failures, but a log line dies with a container restart; this flag is
+	// read by the server layer (analyze-status endpoint, SSE status event)
+	// so a persistent write failure — disk full, DB locked — is visible to
+	// the operator instead of silently diverging in-memory state from disk.
+	// Guarded by mu.
+	persistErr string
+
 	// fpJA4 / fpJA3 are the latest per-fingerprint TLS prevalence snapshot,
 	// pushed by the server after each full analysis (SetFingerprintPrevalence)
 	// and consulted at read time by FingerprintConcern to colour the beacon
@@ -544,24 +553,38 @@ func (s *Store) saveFindings() {
 	if s.db == nil {
 		return
 	}
+	// Record (or clear) the persistence-degraded flag based on the outcome
+	// of this save. perr stays nil only if the commit succeeds.
+	var perr error
+	defer func() {
+		if perr != nil {
+			s.persistErr = perr.Error()
+		} else {
+			s.persistErr = ""
+		}
+	}()
 	if !s.findingsLoadOK {
 		slog.Warn("store: saveFindings refused — initial load was incomplete; findings not overwritten")
+		perr = fmt.Errorf("initial load incomplete; findings not overwritten")
 		return
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		slog.Error("store: save findings begin", "err", err)
+		perr = fmt.Errorf("begin: %w", err)
 		return
 	}
 	if _, err := tx.Exec(`DELETE FROM findings`); err != nil {
 		tx.Rollback()
 		slog.Error("store: save findings delete", "err", err)
+		perr = fmt.Errorf("delete: %w", err)
 		return
 	}
 	stmt, err := tx.Prepare(`INSERT INTO findings (id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, detected_at, sensor, intervals, ts_data, notes, correlations, ts_score, ds_score, hist_score, dur_score, mean_interval, median_interval, jitter, sample_size, ja3, ja4, top_uris, ts_raw, ts_mm, ts_ent, spectral_rescued, spectral_period, channel, service) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		tx.Rollback()
 		slog.Error("store: save findings prepare", "err", err)
+		perr = fmt.Errorf("prepare: %w", err)
 		return
 	}
 	defer stmt.Close()
@@ -599,12 +622,25 @@ func (s *Store) saveFindings() {
 		); err != nil {
 			tx.Rollback()
 			slog.Error("store: save findings insert", "err", err)
+			perr = fmt.Errorf("insert: %w", err)
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		slog.Error("store: save findings commit", "err", err)
+		perr = fmt.Errorf("commit: %w", err)
 	}
+}
+
+// PersistenceError returns the message from the most recent findings-save
+// failure, or "" if the last save succeeded. The server layer surfaces this
+// (analyze-status endpoint, SSE status event) so a persistent write failure
+// is operator-visible rather than only living in a log line that a container
+// restart discards.
+func (s *Store) PersistenceError() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.persistErr
 }
 
 func (s *Store) GetFindings() []model.Finding {

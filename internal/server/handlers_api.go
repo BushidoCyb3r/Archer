@@ -208,6 +208,11 @@ func (s *Server) handleAnalyzeStatus(w http.ResponseWriter, r *http.Request) {
 		resp["pct"] = pct
 		resp["step"] = step
 	}
+	// Surface a persistent findings-write failure so it's visible on a page
+	// reload, not just in the live SSE status event the watch path emits.
+	if pe := s.store.PersistenceError(); pe != "" {
+		resp["persist_error"] = pe
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }

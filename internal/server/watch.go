@@ -468,6 +468,7 @@ func (s *Server) launchIncrementalAnalysis(files []string) {
 				nData, _ := json.Marshal(n)
 				s.broker.Publish(SSEEvent{Type: "notification", Data: string(nData)})
 			}
+			s.publishPersistDegraded()
 			// Incremental updates the "any run" timestamp only — does NOT
 			// touch the full-run timestamp, so tomorrow's first tick still
 			// triggers a full pass. Uses startedAt for the same reason as
@@ -490,6 +491,21 @@ func (s *Server) launchIncrementalAnalysis(files []string) {
 		})
 		s.broker.Publish(SSEEvent{Type: "done", Data: string(data)})
 	}()
+}
+
+// publishPersistDegraded emits an SSE status event when the store's most
+// recent findings save failed, so the operator sees a persistent write
+// failure (disk full, DB locked) live in the status banner instead of only
+// on the next analyze-status poll. No-op when the last save succeeded.
+func (s *Server) publishPersistDegraded() {
+	pe := s.store.PersistenceError()
+	if pe == "" {
+		return
+	}
+	msg, _ := json.Marshal(map[string]string{
+		"msg": "Persistence degraded — findings may not be saved to disk: " + pe,
+	})
+	s.broker.Publish(SSEEvent{Type: "status", Data: string(msg)})
 }
 
 // preflightMemoryWarning estimates peak analysis memory from total log size
@@ -782,6 +798,7 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool, preStart 
 				nData, _ := json.Marshal(n)
 				s.broker.Publish(SSEEvent{Type: "notification", Data: string(nData)})
 			}
+			s.publishPersistDegraded()
 			s.store.SetLastAnalysisFingerprint(startedFP)
 			// SetLastFullAnalysisTime uses the completion time so the
 			// full-vs-incremental day gate (UTC YearDay comparison) reflects
