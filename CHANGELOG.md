@@ -30,6 +30,18 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Added
+
+- **SIEM forwarding on escalate.** When a SIEM is configured in Settings
+  (`siem_enabled` / `siem_host` / `siem_port`, default port 9003), escalating a
+  finding additionally forwards a compact CEF record over UDP syslog — the
+  5-tuple, score, detector, detail, and a `?finding=<id>` deep-link back to
+  Archer. Best-effort and additive: escalation is unchanged when no SIEM is
+  configured. New non-secret config fields (no credential — UDP syslog's trust
+  boundary is the receiver's firewall). Reuses Security Onion's CEF Fleet
+  integration; see `docs/SECURITY_ONION.md`. A new `?finding=<id>` URL opens a
+  finding directly, regardless of the active view.
+
 ### Changed
 
 - **Detail pane "Why flagged" rewritten for analysts, not developers.** Each
