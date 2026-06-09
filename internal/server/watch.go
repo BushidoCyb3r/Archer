@@ -760,6 +760,14 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool, preStart 
 		// excluded from every subsequent incremental until the next
 		// UTC-day full pass.
 		startedAt := time.Now().UTC()
+		// Fingerprint the fileset before reading it, for the same reason
+		// startedAt is captured before the run. A file appended during a long
+		// pass, if captured in a post-run fingerprint, makes the next full pass
+		// see "no change" and skip — so the appended tail never receives
+		// statistical analysis. Snapshotting pre-run means any mid-run change
+		// leaves the on-disk state differing from the stored fingerprint,
+		// forcing a re-read next pass.
+		startedFP := s.datasetFingerprint(files)
 		findings := az.Analyze(files)
 
 		wasCancelled := az.Ctx().Err() != nil
@@ -774,7 +782,7 @@ func (s *Server) launchAnalysisWithOptions(files []string, force bool, preStart 
 				nData, _ := json.Marshal(n)
 				s.broker.Publish(SSEEvent{Type: "notification", Data: string(nData)})
 			}
-			s.store.SetLastAnalysisFingerprint(s.datasetFingerprint(files))
+			s.store.SetLastAnalysisFingerprint(startedFP)
 			// SetLastFullAnalysisTime uses the completion time so the
 			// full-vs-incremental day gate (UTC YearDay comparison) reflects
 			// when this run actually finished. SetLastAnalysisTime uses

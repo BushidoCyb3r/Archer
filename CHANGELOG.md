@@ -32,6 +32,13 @@ relevant, `### Detection changes` in each release entry.
 
 ### Fixed
 
+- **Watch no longer skips a file appended during a long analysis pass.** The
+  "no changes since last analysis" dataset fingerprint was computed after the
+  run finished, so a log appended mid-pass got folded into the stored
+  fingerprint and the next full pass saw "no change" and skipped it — the
+  appended tail never received statistical (beacon/exfil) analysis until some
+  later on-disk change. The fingerprint is now snapshotted before the run
+  reads the fileset, matching the existing pre-run `startedAt` capture.
 - **A headerless or non-Zeek log no longer parses as a silent zero-record
   success.** A TSV missing its `#fields` header was misdetected as JSON; every
   line failed to decode and was skipped, so `ParseLog` returned no error and
