@@ -32,6 +32,13 @@ relevant, `### Detection changes` in each release entry.
 
 ### Detection changes
 
+- **TI domain matching is now case-insensitive on HTTP Host headers.** The
+  Phase-A/Phase-B HTTP scans in the TI engine kept the Host header in its
+  original case while the DNS scan, URLhaus keys, and feed keys are all
+  lowercased — so a mixed-case `Host: EVIL.com` reaching the engine only via
+  http.log (direct-IP resolution, no dns.log) matched nothing and a confirmed
+  malware-distribution contact produced no TI Hit. Host headers and Source-4
+  finding domains are now lowercased at every winner-set insertion and lookup.
 - **Domain Fronting no longer false-fires on proxied HTTPS.** The detector
   compared the HTTP Host header against the connection's SNI raw; an explicit-
   proxy CONNECT logs the Host with a `:443` suffix (and either side can differ

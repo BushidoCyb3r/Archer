@@ -223,6 +223,11 @@ func (a *Analyzer) checkTI(files []string) {
 			if i := strings.LastIndex(host, ":"); i >= 0 && strings.Count(host, ":") == 1 {
 				host = host[:i]
 			}
+			// Lowercase to match the DNS scan's normalization. dstDomainSet is
+			// the single source of the winner set; a mixed-case Host header left
+			// as-is never matches the lowercased feed/URLhaus keys and desyncs
+			// the winner domains from the Phase-B per-source lookups below.
+			host = strings.ToLower(host)
 			if host == "" {
 				return true
 			}
@@ -247,7 +252,7 @@ func (a *Analyzer) checkTI(files []string) {
 		if isIPAddr(dst) {
 			dstIPSet[dst] = true
 		} else {
-			dstDomainSet[dst] = true
+			dstDomainSet[strings.ToLower(dst)] = true
 		}
 	}
 	a.mu.RUnlock()
@@ -525,6 +530,7 @@ func (a *Analyzer) checkTI(files []string) {
 			if i := strings.LastIndex(host, ":"); i >= 0 && strings.Count(host, ":") == 1 {
 				host = host[:i]
 			}
+			host = strings.ToLower(host) // match Phase-A/DNS normalization so winner lookups hit
 			if host == "" {
 				return true
 			}
@@ -560,6 +566,9 @@ func (a *Analyzer) checkTI(files []string) {
 			continue
 		}
 		isIP := isIPAddr(dst)
+		if !isIP {
+			dst = strings.ToLower(dst) // winnerDomains keys are lowercase
+		}
 		if isIP && !winnerIPs[dst] {
 			continue
 		}
