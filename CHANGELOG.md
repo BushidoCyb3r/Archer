@@ -30,6 +30,26 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.64.1] — 2026-06-09
+
+### Fixed
+
+- **SIEM forwarding now actually ingests in Security Onion.** The forwarded CEF
+  carried an epoch-millis `rt` field, which SO's `decode_cef` rejects — dropping
+  the entire event. `rt` is no longer sent; the finding's event time rides as
+  text in `flexString2` (label `ArcherEventTime`) and `@timestamp` falls back to
+  ingest time, which equals the escalation/forward time.
+
+### Changed
+
+- **Enriched the forwarded SIEM CEF** with five standard-CEF fields that map to
+  ECS natively: destination domain (`dhost` → `destination.domain`, the C2
+  pivot), HTTP-beacon URI (`request` → `url.original`), IOC/TI source
+  (`reason` → `event.reason`, recomputed at forward time so it carries the real
+  feed/list), MITRE ATT&CK technique(s) (`flexString1`), and the event time
+  (`flexString2`). The `msg` cap tightened to 600 chars to keep the datagram
+  under the UDP fragmentation threshold with the new fields.
+
 ## [v0.64.0] — 2026-06-09
 
 ### Added
