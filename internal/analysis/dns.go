@@ -240,9 +240,14 @@ func (a *Analyzer) analyzeDNS(files []string) {
 				}
 			}
 
-			// Subdomain diversity tracking
-			if len(labels) >= 3 {
-				sub := strings.Join(labels[:len(labels)-2], ".")
+			// Subdomain diversity tracking. The subdomain is the query with the
+			// apex (PSL registrable domain) stripped — the label(s) varied under
+			// one registered domain. Using labels[:len-2] assumed a 2-label
+			// eTLD, so a bare-apex query on a multi-part eTLD (a lone
+			// bbc.co.uk recording "bbc") was miscounted as a subdomain and
+			// inflated the diversity gate. A bare-apex query has no subdomain
+			// (TrimSuffix leaves it unchanged) and is skipped.
+			if sub := strings.TrimSuffix(query, "."+apex); sub != query {
 				k := apexKey{sensor, src, apex}
 				if apexMap[k] == nil {
 					apexMap[k] = &apexData{subs: make(map[string]bool), firstTS: ts, port: dnsPort}

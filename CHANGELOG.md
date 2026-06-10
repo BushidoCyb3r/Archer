@@ -30,6 +30,16 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Detection changes
+
+- **DNS Subdomain DGA no longer counts a bare-apex query as a subdomain on
+  multi-part eTLDs.** The diversity counter derived the subdomain as
+  `labels[:len-2]`, assuming a 2-label eTLD — so a lone `bbc.co.uk` query
+  recorded `bbc` as a "subdomain" and inflated the per-`(src, apex)` diversity
+  gate by one (the same 2-label assumption the apex extraction itself was
+  already fixed for). The subdomain is now the query with the PSL registrable
+  domain stripped; a bare-apex query contributes nothing.
+
 ## [v0.65.0] — 2026-06-10
 
 ### Added
