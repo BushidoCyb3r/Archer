@@ -32,6 +32,12 @@ relevant, `### Detection changes` in each release entry.
 
 ### Security
 
+- **Runtime base image bumped from `alpine:3.20` (end-of-life) to `alpine:3.23`.**
+  3.20 reached end-of-life, so the final image's `openssh-server` / `rsync` /
+  `rrsync` / `ca-certificates` — including the sensor-facing sshd on port 2222 —
+  no longer received security patches. 3.23 is current stable (supported to
+  ~2027). Verified by a full image build: the rrsync path resolution, the
+  `quiver:*:` shadow rewrite, and the user/group setup all still hold.
 - **Capped the login and register form bodies.** Both handlers read fields
   via `r.FormValue`, which parses an unbounded body into memory — every other
   request decode is capped, but `FormValue` bypassed that. The bodies are now
