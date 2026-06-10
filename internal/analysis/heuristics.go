@@ -183,6 +183,24 @@ var LateralMovementPorts = map[int]bool{
 	23: true, 5900: true,
 }
 
+// lateralMovementServices maps Zeek DPD service labels for internal admin /
+// lateral-movement protocols to a display name. It is the service-side mirror
+// of LateralMovementPorts: a flow Zeek fingerprints as one of these between two
+// internal hosts is lateral even on a non-standard port (RDP over 443, SSH on
+// 8022) — the evasion the port set alone misses, since every standard lateral
+// port is already in LateralMovementPorts. Augments the port set, never
+// replaces it: WinRM rides `http` and is DPD-blind, so it stays port-only
+// (5985/5986 above), and a blank/unrecognized service falls through to the port
+// check.
+var lateralMovementServices = map[string]string{
+	"ssh":     "SSH",
+	"rdp":     "RDP",
+	"rfb":     "VNC",
+	"telnet":  "Telnet",
+	"smb":     "SMB",
+	"dce_rpc": "WMI/RPC",
+}
+
 // expectedServicePorts maps a Zeek DPD service label to the set of ports that
 // service is normally expected on. It backs the "Protocol on Unexpected Port"
 // detector: Zeek's dynamic protocol detection names the actual L7 protocol

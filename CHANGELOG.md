@@ -30,6 +30,20 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Detection changes
+
+- **Lateral Movement now fires on Zeek's DPD service, not the destination port
+  alone.** An internal→internal flow that Zeek fingerprints as an admin/lateral
+  protocol (`ssh`, `rdp`, `rfb`/VNC, `telnet`, `smb`, `dce_rpc`) on a port
+  outside the lateral-movement port set is now a Lateral Movement finding —
+  catching the evasion case the port view missed (RDP over 443, SSH on 8022).
+  Score and severity are unchanged (78 / High) and the detail names whether the
+  port or the protocol triggered it. The service axis augments the port axis and
+  never replaces it: WinRM rides `http` (DPD-blind, stays port-only on
+  5985/5986), and a blank or unrecognized service falls through to the port
+  check, so no previously-firing finding stops firing. New emissions are
+  surfaced for FP-budget review by `corpus-spotcheck.sh` Check 9.
+
 ## [v0.66.0] — 2026-06-10
 
 ### Fixed

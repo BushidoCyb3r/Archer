@@ -587,6 +587,77 @@ func TestLateralMovementPorts(t *testing.T) {
 	}
 }
 
+// TestLateralMovementByService pins the service-or-port slice: an
+// internal→internal flow Zeek fingerprints as an admin/lateral protocol is
+// Lateral Movement even on a port outside LateralMovementPorts (RDP over 443,
+// SSH on 8022) — the evasion the port set alone misses. Invariants: (1) a
+// lateral DPD service on a non-lateral port fires, with a detail that names the
+// service and flags the port as unexpected; (2) a non-lateral service on the
+// same odd port does not fire (the trigger is the protocol, not just "internal
+// on an odd port"); (3) the service axis is internal-only, like the port axis —
+// internal→external does not fire; (4) a multi-label service still matches when
+// any label is lateral. The port path is covered by TestLateralMovementPorts;
+// here every pair uses a non-lateral port so only the service axis can fire.
+func TestLateralMovementByService(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "conn.log")
+	var b strings.Builder
+	uid := 0
+	base := 1705320000.0 // 2024-01-15 12:00:00 UTC — daytime, not off-hours
+	line := func(src, dst string, port int, service string) {
+		fmt.Fprintf(&b, `{"ts": %.1f, "uid": "C%07d", "id.orig_h": "%s", "id.orig_p": 40000, "id.resp_h": "%s", "id.resp_p": %d, "proto": "tcp", "service": "%s", "duration": 1.2, "orig_bytes": 500, "resp_bytes": 700, "orig_ip_bytes": 540, "resp_ip_bytes": 740, "conn_state": "SF"}`+"\n",
+			base+float64(uid), uid, src, dst, port, service)
+		uid++
+	}
+
+	// (1) RDP fingerprinted on 443 between two internal hosts — must fire.
+	line("192.168.10.1", "192.168.10.2", 443, "rdp")
+	// (4) Multi-label flow where only one label is lateral — must fire on ssh.
+	line("192.168.11.1", "192.168.11.2", 8022, "ssl,ssh")
+	// (2) Negative: a non-lateral service (http) on the same odd port — no fire.
+	line("192.168.12.1", "192.168.12.2", 8443, "http")
+	// (3) Negative: lateral service but internal→external — no fire.
+	line("192.168.13.1", "203.0.113.9", 443, "rdp")
+
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	a := New(config.Default(), "", nil, nil)
+	a.feodoIPs = map[string]bool{}
+	a.urlhausIPs = map[string]bool{}
+	a.urlhausHosts = map[string]bool{}
+	findings := a.Analyze([]string{path})
+
+	lateralByDst := map[string]model.Finding{}
+	for _, f := range findings {
+		if f.Type == "Lateral Movement" {
+			lateralByDst[f.DstIP] = f
+		}
+	}
+
+	rdp, ok := lateralByDst["192.168.10.2"]
+	if !ok {
+		t.Fatalf("RDP on port 443 internal→internal must emit Lateral Movement; got: %v", findingTypes(findings))
+	}
+	if !strings.Contains(rdp.Detail, "RDP") || !strings.Contains(rdp.Detail, "443") || !strings.Contains(rdp.Detail, "outside") {
+		t.Errorf("service-triggered detail must name the protocol, the port, and flag it unexpected; got %q", rdp.Detail)
+	}
+	if rdp.Service != "rdp" {
+		t.Errorf("Lateral Movement.Service = %q; want \"rdp\"", rdp.Service)
+	}
+
+	if _, ok := lateralByDst["192.168.11.2"]; !ok {
+		t.Error("multi-label service \"ssl,ssh\" on an odd port must fire on the ssh label")
+	}
+	if _, ok := lateralByDst["192.168.12.2"]; ok {
+		t.Error("non-lateral service (http) on an odd port must not emit Lateral Movement")
+	}
+	if _, ok := lateralByDst["203.0.113.9"]; ok {
+		t.Error("lateral service to an external dst must not emit Lateral Movement (internal-only)")
+	}
+}
+
 // TestConnFindingsCarryService pins the service-enrichment slice: a
 // conn-derived finding is stamped with the Zeek DPD service of its originating
 // connection(s). Invariant covers both emit paths — the aggregated beacon

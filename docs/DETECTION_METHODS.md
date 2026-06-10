@@ -1118,12 +1118,20 @@ threshold, or finding type changed.
 
 These are pure pattern-match detections — no math, just categorical lookups.
 
-**Lateral Movement.** Both `src` and `dst` are in RFC 1918 space and `dst_port`
-is one of the lateral-movement ports: 445 (SMB), 3389 (RDP), 135 (WMI/RPC),
-5985/5986 (WinRM), 22 (SSH), 23 (Telnet), 5900 (VNC). Score is fixed at 78,
-severity High. Detection is purely port-based, not protocol-aware: a remoting
-service tunneled over a non-standard port (RDP over 443, VNC on 5901) won't
-fire, and a non-remoting service squatting one of these ports will. Deduped per
+**Lateral Movement.** Both `src` and `dst` are in RFC 1918 space and the flow
+matches on either of two axes. **Port axis:** `dst_port` is one of the
+lateral-movement ports — 445 (SMB), 3389 (RDP), 135 (WMI/RPC), 5985/5986
+(WinRM), 22 (SSH), 23 (Telnet), 5900 (VNC). **Service axis:** Zeek's DPD
+fingerprints the flow as an admin/lateral protocol (`ssh`, `rdp`, `rfb`/VNC,
+`telnet`, `smb`, `dce_rpc` — the `lateralMovementServices` table in
+`heuristics.go`) on a port *outside* that port set. Because every standard
+lateral port is already in the port set, the service axis only adds the evasion
+case the port view can't see: a remoting protocol tunneled over a non-standard
+port (RDP over 443, SSH on 8022). Score is fixed at 78, severity High, on
+either axis; the detail names whether the port or the protocol triggered it.
+The service axis augments the port axis, it does not replace it — WinRM rides
+`http` and is DPD-blind, so it stays port-only (5985/5986), and a blank or
+unrecognized service simply falls through to the port check. Deduped per
 `src→dst:port` so a noisy AD environment doesn't drown the analyst.
 
 **C2 Port.** `dst` is public and `dst_port` matches a known-bad port (8443

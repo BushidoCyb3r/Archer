@@ -7,7 +7,7 @@
 # per burst, long silence between bursts) have true spectral periods that
 # are legitimately orders of magnitude above the median inter-arrival.
 #
-# Checks (1-2 validate the spectral gate; 3-8 are census/advisory sweeps over
+# Checks (1-2 validate the spectral gate; 3-9 are census/advisory sweeps over
 # recent findings — there is no check 5, the number was retired):
 #   1. PASS/FAIL — any rescued finding with spectral_period below
 #      median_interval/5 is an artifact that slipped through the gate
@@ -22,6 +22,7 @@
 #   6. ADVISORY — per-channel beacon census.
 #   7. ADVISORY — Protocol on Unexpected Port census.
 #   8. ADVISORY — Multi-Stage Beacon census.
+#   9. ADVISORY — service-triggered Lateral Movement census.
 #
 # What this script CANNOT check: findings where rescue was blocked entirely
 # because the only strong peak was below median/5. Those pairs still emit
@@ -454,4 +455,54 @@ else
       WHERE type = 'Multi-Stage Beacon'
       GROUP BY severity
       ORDER BY avg_score DESC;"
+fi
+
+# ── Check 9: service-triggered Lateral Movement census (advisory) ─────────────
+# Lateral Movement now fires on either axis: a known admin port (the original
+# signal) or Zeek's DPD naming an admin protocol on a port OUTSIDE the lateral
+# port set (RDP over 443, SSH on 8022). The service axis EMITS findings the
+# port-only detector wouldn't, so the question is the FP budget, not lost
+# detection. The recurring failure mode to watch: a benign internal service that
+# Zeek labels as a lateral protocol on a fixed odd port (an SSH jumphost on a
+# non-22 port, an internal RDP gateway on an alt port) recurs as the SAME
+# (service, dst, port) tuple — that is a pair-allowlist candidate, not an
+# intrusion. Service-triggered findings carry "Zeek DPD" in their detail; the
+# port-triggered ones don't, so this isolates the net-new population. Requires
+# migration 0036 (findings.service).
+
+if [ "${SVC_OK:-0}" -eq 0 ]; then
+    echo ""
+    echo "INFO: findings.service not present (pre-0036 schema) — deploy current code,"
+    echo "  re-run a full analysis, and re-run to see the service-lateral census."
+else
+    SVCLAT=$(sqlite3 "$DB" "
+      SELECT COUNT(*) FROM findings
+      WHERE type = 'Lateral Movement' AND detail LIKE '%Zeek DPD%';
+    ")
+    if [ "$SVCLAT" -eq 0 ]; then
+        echo ""
+        echo "INFO: no service-triggered Lateral Movement findings in this corpus"
+        echo "  (all Lateral Movement, if any, came from the port axis)."
+    else
+        echo ""
+        echo "ADVISORY: $SVCLAT service-triggered Lateral Movement finding(s) — an admin"
+        echo "protocol on a port outside the lateral set. A recurring (service, dst, port)"
+        echo "on a known-benign internal host (a jumphost / gateway on an alt port) is a"
+        echo "pair-allowlist candidate, not an intrusion. Eyeball these:"
+        sqlite3 -column -header "$DB" "
+          SELECT service,
+                 dst_port,
+                 COUNT(*)               AS n,
+                 COUNT(DISTINCT dst_ip) AS distinct_dsts,
+                 COUNT(DISTINCT src_ip) AS distinct_srcs
+          FROM findings
+          WHERE type = 'Lateral Movement' AND detail LIKE '%Zeek DPD%'
+          GROUP BY service, dst_port
+          ORDER BY n DESC
+          LIMIT 30;"
+        echo ""
+        echo "Few dsts/srcs on a fixed (service, port) reads as a benign alt-port admin"
+        echo "service (allowlist candidate); many distinct src→dst pairs on one lateral"
+        echo "protocol over an odd port reads as real lateral spread worth chasing."
+    fi
 fi

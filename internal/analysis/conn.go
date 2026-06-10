@@ -529,25 +529,51 @@ func (a *Analyzer) analyzeConn(files []string) {
 				})
 			}
 
-			if isPrivateIP(src) && isPrivateIP(dst) && LateralMovementPorts[dstPort] {
-				// sensor prefix mirrors the strobe/exfil/off-hours
-				// keying — overlapping sensor captures stop firing two
-				// findings for the same (src, dst, port) seen twice.
-				lk := fmt.Sprintf("%s|%s→%s:%d", sensor, src, dst, dstPort)
-				if _, ok := lateralSeen[lk]; !ok {
-					lateralSeen[lk] = struct{}{}
-					a.add(model.Finding{
-						Type:       "Lateral Movement",
-						Severity:   model.SevHigh,
-						Score:      78,
-						SrcIP:      src,
-						DstIP:      dst,
-						DstPort:    fmt.Sprint(dstPort),
-						Service:    service,
-						Detail:     fmt.Sprintf("Internal→Internal on port %d (%s)", dstPort, lateralPortLabel(dstPort)),
-						Timestamp:  fmtTS(ts),
-						SourceFile: path,
-					})
+			if isPrivateIP(src) && isPrivateIP(dst) {
+				// Lateral movement fires on either axis: a known admin port
+				// (the original signal) or Zeek's DPD naming an admin protocol
+				// regardless of port. Because every standard lateral port is
+				// already in LateralMovementPorts, a service match only matters
+				// when the port is *not* a lateral port — i.e. the protocol is
+				// running somewhere unexpected (RDP over 443, SSH on 8022), the
+				// evasion the port set can't see. Port match takes precedence so
+				// the detail keeps the established port-labeled wording.
+				portMatch := LateralMovementPorts[dstPort]
+				svcMatch := ""
+				if !portMatch {
+					for _, label := range splitServices(service) {
+						if _, ok := lateralMovementServices[label]; ok {
+							svcMatch = label
+							break
+						}
+					}
+				}
+				if portMatch || svcMatch != "" {
+					// sensor prefix mirrors the strobe/exfil/off-hours
+					// keying — overlapping sensor captures stop firing two
+					// findings for the same (src, dst, port) seen twice.
+					lk := fmt.Sprintf("%s|%s→%s:%d", sensor, src, dst, dstPort)
+					if _, ok := lateralSeen[lk]; !ok {
+						lateralSeen[lk] = struct{}{}
+						var detail string
+						if portMatch {
+							detail = fmt.Sprintf("Internal→Internal on port %d (%s)", dstPort, lateralPortLabel(dstPort))
+						} else {
+							detail = fmt.Sprintf("Internal→Internal %s (Zeek DPD) on port %d, outside its usual port", lateralMovementServices[svcMatch], dstPort)
+						}
+						a.add(model.Finding{
+							Type:       "Lateral Movement",
+							Severity:   model.SevHigh,
+							Score:      78,
+							SrcIP:      src,
+							DstIP:      dst,
+							DstPort:    fmt.Sprint(dstPort),
+							Service:    service,
+							Detail:     detail,
+							Timestamp:  fmtTS(ts),
+							SourceFile: path,
+						})
+					}
 				}
 			}
 
