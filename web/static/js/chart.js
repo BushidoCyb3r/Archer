@@ -109,6 +109,7 @@ const BeaconChart = (() => {
       text:  _tok('--fg-primary'),
       label: _tok('--fg-secondary'),
       accent:_tok('--accent'),
+      recv:  _tok('--chart-4'),
     };
   }
   let PALETTE = _readPalette();
@@ -571,13 +572,15 @@ const BeaconChart = (() => {
     ctx.fillText('Sent ↑ · Received ↓', 0, 0);
     ctx.restore();
 
-    // Both directions share the accent hue — the axis already encodes
-    // direction. Sent is full-strength fading to a lighter accent at the
-    // axis; received is the same hue at constant lower opacity.
+    // Sent in the accent hue, received in the chart-4 series hue —
+    // distinct directions at a glance. Both fade to a lighter stop at
+    // the zero axis, strongest at their outer edge.
     const grad = ctx.createLinearGradient(0, PAD.top, 0, midY);
     grad.addColorStop(0, PALETTE.bar);
     grad.addColorStop(1, _alphaColor(ctx, PALETTE.bar, 0.35));
-    const recvFill = _alphaColor(ctx, PALETTE.bar, 0.45);
+    const recvFill = ctx.createLinearGradient(0, midY, 0, PAD.top + plotH);
+    recvFill.addColorStop(0, _alphaColor(ctx, PALETTE.recv, 0.35));
+    recvFill.addColorStop(1, PALETTE.recv);
 
     const labelEvery = Math.max(1, Math.ceil(numBuckets / 10));
     buckets.forEach((b, i) => {
@@ -661,7 +664,7 @@ const BeaconChart = (() => {
     ctx.fillRect(legX + 62, 8, 10, 8);
     ctx.fillStyle = PALETTE.text;
     ctx.fillText('sent > recv', legX + 76, 16);
-    ctx.fillStyle = recvFill;
+    ctx.fillStyle = PALETTE.recv;
     ctx.fillRect(legX + 148, 8, 10, 8);
     ctx.fillStyle = PALETTE.text;
     ctx.fillText('received ↓', legX + 162, 16);
