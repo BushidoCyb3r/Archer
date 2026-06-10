@@ -1767,6 +1767,13 @@ func (s *Server) handleNotifications(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(s.store.GetNotifications())
 	case http.MethodPost:
+		// Notifications are store-global, so a viewer dismissing them clears
+		// live CRITICAL / TI / unauthorized-sensor alerts for every analyst.
+		// Dismissal is a write action; viewers get read-only GET above.
+		if u := userFromCtx(r); u.Role == model.RoleViewer {
+			jsonError(w, "forbidden", http.StatusForbidden)
+			return
+		}
 		var req struct {
 			Action string `json:"action"` // "dismiss", "dismiss_all"
 			ID     int    `json:"id"`

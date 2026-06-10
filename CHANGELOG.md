@@ -32,6 +32,11 @@ relevant, `### Detection changes` in each release entry.
 
 ### Security
 
+- **Viewers can no longer dismiss notifications.** Notification dismissal is
+  store-global, so a read-only viewer could clear live CRITICAL / TI /
+  unauthorized-sensor alerts for every analyst. `POST /api/notifications`
+  (dismiss / dismiss_all) now requires a write role; GET stays open so viewers
+  still see the bell.
 - **Bounded the third-party TI lookup reads during escalation.** The
   per-IP responses from OTX / AbuseIPDB / GreyNoise / Censys were read with an
   unbounded `io.ReadAll`; a misbehaving or hostile endpoint could balloon
