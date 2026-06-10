@@ -30,6 +30,18 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Added
+
+- **Beacons now tell the exfil-over-C2 story in their own detail.** When a host
+  beacons to an external destination and also shows an egress/exfil signal to
+  that *same* destination — `Database Protocol Egress`, `Admin Protocol Egress`,
+  `Data Exfiltration`, or `Protocol on Unexpected Port` — the beacon finding's
+  detail is annotated (`Exfil-over-C2 corroboration: same destination also shows
+  …`), so the analyst sees the second axis without pivoting to the Correlated
+  Activity row. Applies to `Beacon`/`HTTP Beacon`/`Port-Hopping Beacon` (DNS
+  Beacon is excluded — its destination is the resolver). Annotation-only: it
+  does not change the beacon's score or severity.
+
 ### Detection changes
 
 - **New `Database Protocol Egress` finding.** An internal host speaking a

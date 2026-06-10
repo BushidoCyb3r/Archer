@@ -628,8 +628,9 @@ if [ "${SVC_OK:-0}" -ne 0 ]; then
           ORDER BY n DESC
           LIMIT 30;"
         echo ""
-        echo "Cross-reference a dst here against the beacon findings: a host that BOTH"
-        echo "beacons to and runs a DB protocol to the same external dst is a strong"
-        echo "exfil-over-C2 story worth escalating."
+        echo "A host that BOTH beacons to and runs a DB protocol to the same external dst"
+        echo "is a strong exfil-over-C2 story worth escalating — the beacon finding's detail"
+        echo "is auto-annotated with that corroboration, but this census surfaces the dsts"
+        echo "directly so you can scan for the pattern."
     fi
 fi

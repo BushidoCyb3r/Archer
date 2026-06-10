@@ -460,6 +460,12 @@ func (a *Analyzer) Analyze(files []string) []model.Finding {
 	// emitted correlation row appears in the finding set, though the
 	// risk-weight table deliberately omits it (it's a roll-up, not a
 	// contributor).
+	// Phase 3.4: enrich beacons with same-destination exfil/egress
+	// corroboration before the generic correlation roll-up runs. This puts the
+	// exfil-over-C2 story directly on the beacon finding (annotation-only); the
+	// pair-level Correlated Activity row below still links the contributors.
+	a.corroborateBeacons()
+
 	a.sendStatus("Correlating multi-detector activity…")
 	a.correlateFindings()
 	a.sendProgress(94, "Correlate")

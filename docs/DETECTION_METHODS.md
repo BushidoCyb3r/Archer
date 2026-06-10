@@ -983,6 +983,26 @@ from imperfect thresholds is a rare HIGH cluster on a rare shared internal-use
 cloud app, never a CRITICAL false-positive storm (corroboration is required for
 CRITICAL). Widen on first real-corpus contact.
 
+### 2.10 Exfil-over-C2 corroboration on the beacon detail
+
+A beacon to a rare external destination is the channel; data leaving the network
+to that *same* destination is the payload. When both fire on one
+`(sensor, src, dst)`, the beacon finding's detail says so directly — appended as
+`Exfil-over-C2 corroboration: same destination also shows <signals>` — so the
+analyst reading the beacon sees the second axis without pivoting. The
+corroborating signals are the conn-derived egress/exfil detectors whose
+destination is the real external endpoint: `Database Protocol Egress`, `Admin
+Protocol Egress`, `Data Exfiltration`, and `Protocol on Unexpected Port`
+(`internal/analysis/beacon_corroborate.go`). It applies to the conn-based beacon
+types (`Beacon`, `HTTP Beacon`, `Port-Hopping Beacon`); `DNS Beacon` is excluded
+because its destination is the resolver, not the C2 endpoint, so a same-dst
+egress would be coincidental. This is **annotation-only** — it enriches the
+story, it does not change the beacon's score or severity (the pair-level lift is
+the `Correlated Activity` roll-up's job, §3-wide; bumping a beacon's rank on
+corroboration is a calibration-gated change held for real-corpus evidence). The
+signal list is sorted so the detail string is stable across re-runs, and detail
+is outside the finding fingerprint, so analyst state on the beacon is preserved.
+
 ---
 
 ## 3. HTTP Beacon
