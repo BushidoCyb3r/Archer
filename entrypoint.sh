@@ -1,5 +1,9 @@
 #!/bin/sh
-set -euo pipefail
+# Runs under Alpine's busybox ash. No pipeline here needs pipefail, and
+# `-o pipefail` is non-POSIX under #!/bin/sh (shellcheck SC3040) — so use the
+# portable strict-mode subset. A future pipeline that must fail loud should
+# add `set -o pipefail` right before it.
+set -eu
 
 # ── sshd bootstrap ────────────────────────────────────────────────────────
 # Host keys live in /etc/ssh/keys (a persistent volume in the docker-compose
