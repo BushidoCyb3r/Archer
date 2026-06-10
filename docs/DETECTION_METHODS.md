@@ -1087,7 +1087,8 @@ edge cases right at the threshold.
 suspicious than the same volume at 13:00, when nobody is watching dashboards.
 
 **Formula.** Determine "off hours" from config. Default window is
-`[OffHoursStart=22, OffHoursEnd=6]`, i.e., 22:00–06:00 UTC. Because the window
+`[OffHoursStart=22, OffHoursEnd=6]`, i.e., 22:00–06:00 interpreted in the
+configured `timezone` (UTC when unset or unparseable). Because the window
 crosses midnight, the comparison logic handles both wrap-around and
 non-wrap-around cases.
 
@@ -2187,7 +2188,7 @@ runtime. Defaults:
 | StrobeMinRatePerSec      | 0.5     | Strobe rate gate (conns/sec)          |
 | ExfilMinBytesMB          | 5.0     | Exfiltration size floor               |
 | ExfilRatioThreshold      | 10.0    | Out/in ratio                          |
-| OffHoursStart / End      | 22 / 6  | Off-hours window (UTC)                |
+| OffHoursStart / End      | 22 / 6  | Off-hours window (configured timezone) |
 | OffHoursMinMB            | 1.0     | Off-Hours Transfer size floor         |
 | DNSTunnelLabelLen        | 40      | DNS tunneling label length            |
 | DNSTunnelEntropy         | 3.5     | DNS tunneling entropy bits            |

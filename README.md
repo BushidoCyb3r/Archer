@@ -97,7 +97,7 @@ Archer runs five parallel analysis phases across all supported log types.
 | **Data Exfiltration** | Large outbound transfer (default: ≥ 5 MB) with a high outbound/inbound ratio (default: ≥ 10:1) | HIGH |
 | **Lateral Movement** | Internal-to-internal traffic on administrative ports: SMB (445), RDP (3389), WMI (135), WinRM (5985/5986), SSH (22), Telnet (23), VNC (5900) | HIGH |
 | **Protocol on Unexpected Port** | Zeek's dynamic protocol detection (DPD) identified an app-layer protocol (`http`, `ssl`, `ssh`, `dns`, `smtp`, `ftp`) egressing to an external host on a port outside that protocol's expected set — `http` on 8443, `ssl` on 4444. Catches port-control evasion a port-only view misses; the DPD service is stamped on the finding and queryable as `service:`. External destinations only; recognized protocols only (an empty DPD service never fires). Score 70, bumped to 75 on a known C2 port. See DETECTION_METHODS §8 | HIGH |
-| **Off-Hours Transfer** | External data transfer outside configured business hours (default: 22:00–06:00 UTC) exceeding the configured threshold | MEDIUM |
+| **Off-Hours Transfer** | External data transfer outside configured business hours (default: 22:00–06:00 in the configured `timezone`, UTC when unset) exceeding the configured threshold | MEDIUM |
 | **Long Connection** | TCP/UDP session duration exceeding the configured minimum (default: 1 hour) — indicative of reverse shells and VPN tunnels | MEDIUM / HIGH / CRITICAL |
 
 ### DNS (`dns.log`)
@@ -797,8 +797,8 @@ All thresholds are configurable at runtime through the **Settings** dialog (admi
 | `strobe_min_rate_per_sec` | `0.5` | Rate gate — minimum average connection rate (conn/s) for a pair to be classified as Strobe. A pair must meet both `strobe_min_connections` and this rate. A 60-second C2 beacon over 30 days generates ~43,200 connections at 0.017/s and is not affected. |
 | `exfil_min_bytes_mb` | `5.0` | Minimum outbound transfer (MB) required for an exfiltration alert |
 | `exfil_ratio_threshold` | `10.0` | Minimum outbound/inbound byte ratio for an exfiltration alert |
-| `off_hours_start` | `22` | Start of off-business hours (24-hour UTC) |
-| `off_hours_end` | `6` | End of off-business hours (24-hour UTC) |
+| `off_hours_start` | `22` | Start of off-business hours (hour-of-day in the configured `timezone`, UTC when unset) |
+| `off_hours_end` | `6` | End of off-business hours (hour-of-day in the configured `timezone`, UTC when unset) |
 | `off_hours_min_mb` | `1.0` | Minimum transfer (MB) outside business hours to trigger an alert |
 | `dns_tunnel_label_len` | `40` | DNS label character length threshold for tunneling detection |
 | `dns_tunnel_entropy` | `3.5` | Shannon entropy threshold for DNS label content |
