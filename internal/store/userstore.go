@@ -297,12 +297,22 @@ func (us *UserStore) DeleteUser(id int) bool {
 // filter both read it — instead of resetting mid-session.
 func (us *UserStore) CreateSession(userID int) string {
 	b := make([]byte, 32)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// A predictable session token is a full auth bypass; fail closed rather
+		// than mint a guessable one. crypto/rand does not fail on a healthy
+		// host, so this is a catastrophic-only path — consistent with the
+		// service-token generator, which also refuses to proceed on rand error.
+		panic("crypto/rand failed generating session token: " + err.Error())
+	}
 	token := hex.EncodeToString(b)
 
+	// boundary stays 0 if the row is missing — an acceptable "everything is
+	// new" fallback for a brand-new user.
 	var boundary int64
-	us.db.QueryRow(`SELECT findings_seen_at FROM users WHERE id = ?`, userID).Scan(&boundary)
-	us.db.Exec(`UPDATE users SET findings_seen_at = ? WHERE id = ?`, time.Now().Unix(), userID)
+	_ = us.db.QueryRow(`SELECT findings_seen_at FROM users WHERE id = ?`, userID).Scan(&boundary)
+	if _, err := us.db.Exec(`UPDATE users SET findings_seen_at = ? WHERE id = ?`, time.Now().Unix(), userID); err != nil {
+		slog.Warn("userstore: update findings_seen_at on session create", "user", userID, "err", err)
+	}
 
 	us.mu.Lock()
 	us.sessions[token] = userSession{UserID: userID, ExpiresAt: time.Now().Add(24 * time.Hour), NewBoundary: boundary}

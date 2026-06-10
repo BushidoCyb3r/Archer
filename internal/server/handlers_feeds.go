@@ -569,7 +569,7 @@ func validateFeedRequest(req feedRequest, requireAPIKey bool) error {
 	if req.QueryFilterJSON != "" {
 		var obj map[string]any
 		if err := json.Unmarshal([]byte(req.QueryFilterJSON), &obj); err != nil {
-			return fmt.Errorf("query_filter_json must be a valid JSON object: %v", err)
+			return fmt.Errorf("query_filter_json must be a valid JSON object: %w", err)
 		}
 	}
 	return nil
@@ -601,7 +601,7 @@ func validateFeedRequest(req feedRequest, requireAPIKey bool) error {
 func rejectInternalFeedURL(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return fmt.Errorf("url parse: %v", err)
+		return fmt.Errorf("url parse: %w", err)
 	}
 	host := u.Hostname()
 	if host == "" {

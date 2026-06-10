@@ -210,7 +210,7 @@ func httpClientWithTLS(skipVerify, allowInternal bool) *http.Client {
 			}
 			addrs, err := net.LookupIP(host)
 			if err != nil {
-				return fmt.Errorf("feed redirect host lookup failed: %v", err)
+				return fmt.Errorf("feed redirect host lookup failed: %w", err)
 			}
 			for _, ip := range addrs {
 				if isInternalAddr(ip) {
