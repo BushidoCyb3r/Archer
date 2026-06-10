@@ -14,12 +14,20 @@ import (
 
 const sessionCookie = "archer_session"
 
+// authFormMaxBytes caps the login/register form body. These handlers read
+// fields via r.FormValue, which otherwise parses an unbounded body into
+// memory — every other request decode in the codebase goes through a capped
+// reader, but FormValue bypasses that. The fields are a handful of short
+// strings; 16 KiB is generous.
+const authFormMaxBytes = 16 << 10
+
 // handleLogin serves GET /login and processes POST /login.
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		s.renderAuth(w, "login.html", map[string]any{"Error": ""})
 	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, authFormMaxBytes)
 		// Normalize the email exactly the way registration does (trim
 		// + lowercase) before authenticating. The SQL lookup uses
 		// COLLATE NOCASE so login works either way today, but the
@@ -90,6 +98,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s.renderAuth(w, "register.html", map[string]any{"Error": "", "FirstName": "", "LastName": "", "Email": ""})
 	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, authFormMaxBytes)
 		srcIP := sourceIP(r)
 		if allowed, shouldAudit := s.rateLimit.allow(srcIP); !allowed {
 			if shouldAudit {

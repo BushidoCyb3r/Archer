@@ -32,6 +32,11 @@ relevant, `### Detection changes` in each release entry.
 
 ### Security
 
+- **Capped the login and register form bodies.** Both handlers read fields
+  via `r.FormValue`, which parses an unbounded body into memory — every other
+  request decode is capped, but `FormValue` bypassed that. The bodies are now
+  wrapped with `http.MaxBytesReader` (16 KiB; the fields are a few short
+  strings).
 - **Logout now records an audit row.** `/logout` is a bare route with no
   user in the request context, so the handler's audit branch (which read
   `userFromCtx`, always the zero user there) never fired — logout events were
