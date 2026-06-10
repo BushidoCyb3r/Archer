@@ -495,10 +495,11 @@ const BeaconChart = (() => {
     ctx.fillText('Inter-arrival interval (top 1% trimmed)', PAD.left + plotW / 2, H - 4);
   }
 
-  // ── Phase 3: Bytes view (legacy) ─────────────────────────────────
-  // Bytes-sent per time bucket. Useful when verifying whether a
-  // beacon also exfils — heartbeat = constant bytes per call;
-  // exfil callbacks = occasional spike.
+  // ── Phase 3: Bytes view ──────────────────────────────────────────
+  // Mirror chart: bytes sent per time bucket above the zero axis,
+  // bytes received below it, on a shared scale. Useful when verifying
+  // whether a beacon also exfils — heartbeat = constant bytes per
+  // call; exfil callbacks = upward spike with no matching download.
   function _drawBytes(ctx, W, H, stats) {
     if (stats.count === 0) {
       _drawEmpty(ctx, W, H, 'No timeline data for this finding');
@@ -519,39 +520,42 @@ const BeaconChart = (() => {
       buckets[idx].respBytes += r[2];
       buckets[idx].count++;
     });
-    const maxBytes = Math.max(...buckets.map(b => b.origBytes), 1);
+    // Shared scale across both directions so the halves are comparable.
+    const maxBytes = Math.max(...buckets.map(b => Math.max(b.origBytes, b.respBytes)), 1);
 
     const PAD = { top: 28, right: 16, bottom: 56, left: 72 };
     const plotW = W - PAD.left - PAD.right;
     const plotH = H - PAD.top  - PAD.bottom;
+    const halfH = plotH / 2;
+    const midY  = PAD.top + halfH;
     const slotW = plotW / numBuckets;
     const barW  = Math.max(Math.floor(slotW * 0.7), 2);
 
     _bytesPlot = { padLeft: PAD.left, plotW, buckets, span };
 
-    const yTicks = 4;
-    for (let i = 0; i <= yTicks; i++) {
-      const y = PAD.top + plotH - (i / yTicks) * plotH;
+    // Symmetric gridlines: zero axis at mid, half/full magnitude each way.
+    [-1, -0.5, 0, 0.5, 1].forEach(f => {
+      const y = midY - f * halfH;
       ctx.strokeStyle = PALETTE.grid;
-      ctx.globalAlpha = 0.6;
+      ctx.globalAlpha = f === 0 ? 1 : 0.6;
       ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + plotW, y); ctx.stroke();
       ctx.globalAlpha = 1;
       ctx.fillStyle = PALETTE.axis;
       ctx.font = `10px ${FONT_MONO}`;
       ctx.textAlign = 'right';
-      ctx.fillText(_fmtBytes((i / yTicks) * maxBytes), PAD.left - 5, y + 3);
-    }
+      ctx.fillText(_fmtBytes(Math.abs(f) * maxBytes), PAD.left - 5, y + 3);
+    });
     ctx.save();
     ctx.fillStyle = PALETTE.label;
     ctx.font = `11px ${FONT_MONO}`;
     ctx.textAlign = 'center';
-    ctx.translate(14, PAD.top + plotH / 2);
+    ctx.translate(14, midY);
     ctx.rotate(-Math.PI / 2);
-    ctx.fillText('Bytes Sent', 0, 0);
+    ctx.fillText('Sent ↑ · Received ↓', 0, 0);
     ctx.restore();
 
-    // Gradient for normal bars, built once before the loop
-    const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + plotH);
+    // Gradient for normal sent bars, fading toward the zero axis.
+    const grad = ctx.createLinearGradient(0, PAD.top, 0, midY);
     grad.addColorStop(0, PALETTE.bar);
     grad.addColorStop(1, PALETTE.bg);
 
@@ -559,27 +563,47 @@ const BeaconChart = (() => {
     buckets.forEach((b, i) => {
       const x  = PAD.left + i * slotW;
       const cx = x + slotW / 2;
-      const barH = (b.origBytes / maxBytes) * plotH * _animT;
-      const barY = PAD.top + plotH - barH;
       const barX = cx - barW / 2;
       if (b.origBytes > 0) {
-        const isSentHi = b.origBytes > b.respBytes;
-        ctx.fillStyle = isSentHi ? PALETTE.barHi : grad;
-        const r = Math.min(2, barW / 2, barH);
+        const sentH = (b.origBytes / maxBytes) * halfH * _animT;
+        const sentY = midY - sentH;
+        ctx.fillStyle = b.origBytes > b.respBytes ? PALETTE.barHi : grad;
+        const r = Math.min(2, barW / 2, sentH);
         ctx.beginPath();
-        ctx.moveTo(barX, barY + barH);
-        ctx.lineTo(barX, barY + r);
-        ctx.arcTo(barX, barY, barX + r, barY, r);
-        ctx.lineTo(barX + barW - r, barY);
-        ctx.arcTo(barX + barW, barY, barX + barW, barY + r, r);
-        ctx.lineTo(barX + barW, barY + barH);
+        ctx.moveTo(barX, midY);
+        ctx.lineTo(barX, sentY + r);
+        ctx.arcTo(barX, sentY, barX + r, sentY, r);
+        ctx.lineTo(barX + barW - r, sentY);
+        ctx.arcTo(barX + barW, sentY, barX + barW, sentY + r, r);
+        ctx.lineTo(barX + barW, midY);
         ctx.closePath();
         ctx.fill();
-        if (barH > 16) {
+        if (sentH > 16) {
           ctx.fillStyle = 'rgba(255,255,255,0.75)';
           ctx.font = `9px ${FONT_MONO}`;
           ctx.textAlign = 'center';
-          ctx.fillText(_fmtBytes(b.origBytes), cx, barY + 10);
+          ctx.fillText(_fmtBytes(b.origBytes), cx, sentY + 10);
+        }
+      }
+      if (b.respBytes > 0) {
+        const recvH = (b.respBytes / maxBytes) * halfH * _animT;
+        const recvBot = midY + recvH;
+        ctx.fillStyle = PALETTE.axis;
+        const r = Math.min(2, barW / 2, recvH);
+        ctx.beginPath();
+        ctx.moveTo(barX, midY);
+        ctx.lineTo(barX, recvBot - r);
+        ctx.arcTo(barX, recvBot, barX + r, recvBot, r);
+        ctx.lineTo(barX + barW - r, recvBot);
+        ctx.arcTo(barX + barW, recvBot, barX + barW, recvBot - r, r);
+        ctx.lineTo(barX + barW, midY);
+        ctx.closePath();
+        ctx.fill();
+        if (recvH > 16) {
+          ctx.fillStyle = 'rgba(255,255,255,0.75)';
+          ctx.font = `9px ${FONT_MONO}`;
+          ctx.textAlign = 'center';
+          ctx.fillText(_fmtBytes(b.respBytes), cx, recvBot - 5);
         }
       }
       if (i % labelEvery === 0) {
@@ -607,16 +631,20 @@ const BeaconChart = (() => {
 
     // Legend
     const legX = PAD.left + 4;
+    ctx.font = `9px ${FONT_MONO}`;
+    ctx.textAlign = 'left';
     ctx.fillStyle = PALETTE.bar;
     ctx.fillRect(legX, 8, 10, 8);
     ctx.fillStyle = PALETTE.text;
-    ctx.font = `9px ${FONT_MONO}`;
-    ctx.textAlign = 'left';
-    ctx.fillText('normal', legX + 14, 16);
+    ctx.fillText('sent', legX + 14, 16);
     ctx.fillStyle = PALETTE.barHi;
-    ctx.fillRect(legX + 70, 8, 10, 8);
+    ctx.fillRect(legX + 52, 8, 10, 8);
     ctx.fillStyle = PALETTE.text;
-    ctx.fillText('sent > recv', legX + 84, 16);
+    ctx.fillText('sent > recv', legX + 66, 16);
+    ctx.fillStyle = PALETTE.axis;
+    ctx.fillRect(legX + 138, 8, 10, 8);
+    ctx.fillStyle = PALETTE.text;
+    ctx.fillText('received', legX + 152, 16);
   }
 
   // ── Tooltip + crosshair ──────────────────────────────────────────
