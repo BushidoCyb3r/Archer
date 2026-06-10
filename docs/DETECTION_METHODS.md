@@ -1699,7 +1699,7 @@ In all three modes, non-TI-Enrichment notes remain in the **Analyst
 Notes** tab and TI cross-annotations route to **TI Results** — the
 partition is `author === "TI Enrichment"` in the notes array.
 
-### 12.8 Notification suppression
+### 12.9 Notification suppression
 
 TI Hit notifications still fire for new hits (any flavor), but `Host Risk
 Score` (the per-host roll-up emitted by Phase 4) is excluded from the bell
@@ -1708,7 +1708,7 @@ network detections that pushed the host's score over the line have
 already generated their own notifications. See section 14 for the
 roll-up's scoring algorithm.
 
-### 12.9 Two-tier watch cadence
+### 12.10 Two-tier watch cadence
 
 Statistical detectors (Beacon, HTTP analysis, DNS NXDOMAIN flood,
 etc.) need the full temporal window of Zeek logs to spot patterns —
@@ -2145,7 +2145,7 @@ The tradeoff is purely between disk space, daily-tick wall-clock, and
 detection floor. There is no algorithmic ceiling — a bigger window always
 catches more.
 
-**See also:** section 12.9 (two-tier watch cadence). Incremental TI ticks
+**See also:** section 12.10 (two-tier watch cadence). Incremental TI ticks
 process only mtime-filtered new files, so hourly TI freshness stays fast
 regardless of how big `/logs` gets — only the once-daily full-pipeline tick
 sees the full retention window.

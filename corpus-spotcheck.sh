@@ -7,7 +7,8 @@
 # per burst, long silence between bursts) have true spectral periods that
 # are legitimately orders of magnitude above the median inter-arrival.
 #
-# Two checks:
+# Checks (1-2 validate the spectral gate; 3-8 are census/advisory sweeps over
+# recent findings — there is no check 5, the number was retired):
 #   1. PASS/FAIL — any rescued finding with spectral_period below
 #      median_interval/5 is an artifact that slipped through the gate
 #      (gate too loose, or a novel artifact shape not covered by the
@@ -16,6 +17,11 @@
 #      in the detail string. These fired on a plausible peak alongside a
 #      rejected shorter-period peak; a human should eyeball whether the
 #      suppressed period looks burst-shaped or beacon-shaped.
+#   3. ADVISORY — fully-blocked rescues over recent runs.
+#   4. ADVISORY — Port-Hopping Beacon census.
+#   6. ADVISORY — per-channel beacon census.
+#   7. ADVISORY — Protocol on Unexpected Port census.
+#   8. ADVISORY — Multi-Stage Beacon census.
 #
 # What this script CANNOT check: findings where rescue was blocked entirely
 # because the only strong peak was below median/5. Those pairs still emit

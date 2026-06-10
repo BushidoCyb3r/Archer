@@ -111,6 +111,25 @@ For minor bumps with breaking changes:
   diff before staging it — every line of change should be explainable
   from the CHANGELOG entry. *(See "Detection-semantics tests" below.)*
 
+## 7. Communicate
+
+For internal-team releases, drop a one-paragraph note in whatever channel
+the team uses. The bullet points: what version, what changed, what (if
+anything) breaks, what to do about it.
+
+A draft template:
+
+> **Archer v0.x.y is out** — [one-line summary]
+>
+> Highlights:
+> - [bullet]
+> - [bullet]
+>
+> Breaking changes: [none, or list]
+>
+> Upgrade: `git pull && ./start.sh up`. *(Or, for sensors: `./quiver-update.sh`
+> on each sensor — pending Phase 2.)*
+
 ## Deprecation policy
 
 How an `/api/*` endpoint, response field, or query parameter is retired
@@ -233,25 +252,6 @@ fixture has to satisfy too many expectations.
 **Math helpers** in `internal/analysis/stats.go` have unit tests in
 `stats_test.go` — pure-function table tests, no fixture machinery. Run
 those alongside the golden test on every detection-touching change.
-
-## 7. Communicate
-
-For internal-team releases, drop a one-paragraph note in whatever channel
-the team uses. The bullet points: what version, what changed, what (if
-anything) breaks, what to do about it.
-
-A draft template:
-
-> **Archer v0.x.y is out** — [one-line summary]
->
-> Highlights:
-> - [bullet]
-> - [bullet]
->
-> Breaking changes: [none, or list]
->
-> Upgrade: `git pull && ./start.sh up`. *(Or, for sensors: `./quiver-update.sh`
-> on each sensor — pending Phase 2.)*
 
 ## Notes
 

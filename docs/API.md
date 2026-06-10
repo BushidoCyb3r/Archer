@@ -7,13 +7,11 @@ shapes. **Pre-1.0:** any field documented here may break between minor
 versions, but a breaking change is announced explicitly in CHANGELOG —
 see *Breaking-change surfaces* and *Deprecation policy* below.
 
-> Phase 6 deliverable. Phase 7 (TI feed integration) shipped in
-> v0.5.0 and added the CRUD endpoints under `/api/feeds/*`; their
-> shapes and roles are documented in `docs/FEEDS.md`. The per-feed
-> manual-fetch endpoint `POST /api/feeds/{id}/refresh` (10-minute
-> hard cap, v0.19.0+) lives alongside the watch-tick pre-full-pass
-> refresh so admins can verify a freshly-configured feed without
-> waiting for the next watch tick.
+> Feed-source management (the `/api/feeds/*` CRUD endpoints) is documented
+> separately in `docs/FEEDS.md`. The per-feed manual-fetch endpoint
+> `POST /api/feeds/{id}/refresh` (10-minute hard cap) lives alongside the
+> watch-tick pre-full-pass refresh so admins can verify a freshly-configured
+> feed without waiting for the next watch tick.
 
 ---
 
