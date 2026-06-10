@@ -17,8 +17,8 @@ const BeaconEvolution = (() => {
     score:    'var(--sev-high)',
     ts:       'var(--accent)',
     ds:       'var(--accent-alt, #6bb6ff)',
-    hist:     '#f0a040',
-    dur:      '#8ec07c',
+    hist:     'var(--chart-3)',
+    dur:      'var(--chart-4)',
     spectral: 'var(--sev-critical, #e06c75)',
   };
 
@@ -55,6 +55,36 @@ const BeaconEvolution = (() => {
       });
   }
 
+  function _tipLines(r) {
+    const lines = [
+      r.day_utc,
+      `Max: ${r.max_score} (peaked ${_fmtTime(r.max_score_at)})`,
+    ];
+    if (r.max_score !== r.last_score) {
+      lines.push(`Last: ${r.last_score} (most recent ${_fmtTime(r.last_score_at)})`);
+    }
+    lines.push(`ts=${(r.ts_score || 0).toFixed(2)}  ds=${(r.ds_score || 0).toFixed(2)}  hist=${(r.hist_score || 0).toFixed(2)}  dur=${(r.dur_score || 0).toFixed(2)}`);
+    if (r.spectral_rescued) {
+      const period = r.spectral_period > 0 ? ` period≈${r.spectral_period.toFixed(1)}s` : '';
+      lines.push(`Spectral rescue${period}`);
+    }
+    return lines;
+  }
+
+  function _evoTip() {
+    let el = document.getElementById('evo-tooltip');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'evo-tooltip';
+      el.className = 'chart-tooltip';
+      el.style.position = 'absolute';
+      el.hidden = true;
+      const dlg = document.getElementById('beacon-evolution-modal');
+      (dlg || document.body).appendChild(el);
+    }
+    return el;
+  }
+
   // _renderInto draws the chart into svgEl. The legend is rendered
   // as SVG elements in a strip below the plot area (viewBox extended
   // by LEG_PAD) so it is included in PNG/JPEG exports automatically.
@@ -63,6 +93,23 @@ const BeaconEvolution = (() => {
     if (!rows || rows.length === 0) {
       _empty(svgEl, 'No history yet — first daily snapshot lands on the next full pass.');
       return;
+    }
+
+    if (!svgEl._evoHover) {
+      svgEl._evoHover = true;
+      svgEl.addEventListener('pointermove', ev => {
+        const pt = ev.target.closest('.data-point');
+        const tip = _evoTip();
+        if (!pt) { tip.hidden = true; return; }
+        const raw = pt.dataset.tip;
+        if (!raw) { tip.hidden = true; return; }
+        tip.innerHTML = raw.split('\n').map(_esc).join('<br>');
+        tip.hidden = false;
+        const dlgRect = document.getElementById('beacon-evolution-modal').getBoundingClientRect();
+        tip.style.left = (ev.clientX - dlgRect.left + 12) + 'px';
+        tip.style.top  = (ev.clientY - dlgRect.top  + 12) + 'px';
+      });
+      svgEl.addEventListener('pointerleave', () => { _evoTip().hidden = true; });
     }
 
     const W = 600, H = 200, LEG_PAD = 24;
@@ -87,32 +134,23 @@ const BeaconEvolution = (() => {
     const histLine  = linePath(rows.map(r => r.hist_score), ySub);
     const durLine   = linePath(rows.map(r => r.dur_score),  ySub);
 
+    const areaPath = n > 1
+      ? `${scoreLine} L ${xOf(n - 1).toFixed(1)} ${H - MB} L ${xOf(0).toFixed(1)} ${H - MB} Z`
+      : '';
+
     const firstDay = rows[0].day_utc;
     const lastDay  = rows[rows.length - 1].day_utc;
 
     const dataPoints = rows.map((r, i) => {
       const cx = xOf(i).toFixed(1);
       const cy = yScore(r.max_score).toFixed(1);
-      const sameMaxLast = r.max_score === r.last_score;
-      const titleLines = [
-        r.day_utc,
-        `Max: ${r.max_score} (peaked ${_fmtTime(r.max_score_at)})`,
-      ];
-      if (!sameMaxLast) {
-        titleLines.push(`Last: ${r.last_score} (most recent ${_fmtTime(r.last_score_at)})`);
-      }
-      titleLines.push(`ts=${(r.ts_score||0).toFixed(2)}  ds=${(r.ds_score||0).toFixed(2)}  hist=${(r.hist_score||0).toFixed(2)}  dur=${(r.dur_score||0).toFixed(2)}`);
-      if (r.spectral_rescued) {
-        const period = r.spectral_period > 0 ? ` period≈${r.spectral_period.toFixed(1)}s` : '';
-        titleLines.push(`Spectral rescue${period}`);
-      }
-      const title = `<title>${_esc(titleLines.join('\n'))}</title>`;
+      const tip = _tipLines(r).join('\n');
       if (r.spectral_rescued) {
         // Diamond marker (square rotated 45°) to distinguish spectral-rescue days.
         const s = 4.5;
-        return `<polygon class="data-point" points="${cx},${(parseFloat(cy)-s).toFixed(1)} ${(parseFloat(cx)+s).toFixed(1)},${cy} ${cx},${(parseFloat(cy)+s).toFixed(1)} ${(parseFloat(cx)-s).toFixed(1)},${cy}" fill="${COLORS.spectral}" stroke="none">${title}</polygon>`;
+        return `<polygon class="data-point" data-tip="${_esc(tip)}" points="${cx},${(parseFloat(cy)-s).toFixed(1)} ${(parseFloat(cx)+s).toFixed(1)},${cy} ${cx},${(parseFloat(cy)+s).toFixed(1)} ${(parseFloat(cx)-s).toFixed(1)},${cy}" fill="${COLORS.spectral}" stroke="none"/>`;
       }
-      return `<circle class="data-point" cx="${cx}" cy="${cy}" r="3.5" fill="${COLORS.score}" stroke="none">${title}</circle>`;
+      return `<circle class="data-point" data-tip="${_esc(tip)}" cx="${cx}" cy="${cy}" r="3.5" fill="${COLORS.score}" stroke="none"/>`;
     }).join('');
 
     // Legend rendered inside the SVG below the plot area. Line swatches
@@ -155,6 +193,7 @@ const BeaconEvolution = (() => {
       <text class="label" x="${ML - 4}" y="${H - MB + 2}"         text-anchor="end">0</text>
       <text class="label" x="${ML}"     y="${H - 6}">${_esc(firstDay)}</text>
       <text class="label" x="${W - MR}" y="${H - 6}" text-anchor="end">${_esc(lastDay)}</text>
+      ${areaPath ? `<path class="score-area" d="${areaPath}" fill="${COLORS.score}" opacity="0.08" stroke="none"/>` : ''}
       <path class="sub-line"   d="${tsLine}"    stroke="${COLORS.ts}"/>
       <path class="sub-line"   d="${dsLine}"    stroke="${COLORS.ds}"/>
       <path class="sub-line"   d="${histLine}"  stroke="${COLORS.hist}"/>
@@ -203,6 +242,8 @@ const BeaconEvolution = (() => {
       ['--fg-dim',       'var(--fg-dim)'],
       ['--border-subtle','var(--border-subtle)'],
       ['--bg-elev-2',    'var(--bg-elev-2)'],
+      ['--chart-3',      'var(--chart-3)'],
+      ['--chart-4',      'var(--chart-4)'],
     ];
     const probe = document.createElement('div');
     probe.style.position = 'absolute';
@@ -240,11 +281,12 @@ const BeaconEvolution = (() => {
 
     // Match the class-based stroke widths and fills via inline
     // style so they survive the off-DOM render.
-    cloned.querySelectorAll('.axis')      .forEach(e => { e.style.stroke = resolved['--border-subtle']; e.style.strokeWidth = '1'; });
-    cloned.querySelectorAll('.gridline')  .forEach(e => { e.style.stroke = resolved['--border-subtle']; e.style.strokeWidth = '1'; e.style.strokeDasharray = '2 4'; e.style.opacity = '0.5'; });
-    cloned.querySelectorAll('.score-line').forEach(e => { e.style.fill = 'none'; e.style.strokeWidth = '2'; });
-    cloned.querySelectorAll('.sub-line')  .forEach(e => { e.style.fill = 'none'; e.style.strokeWidth = '1.2'; e.style.opacity = '0.75'; });
-    cloned.querySelectorAll('.label')     .forEach(e => { e.style.fontSize = '11px'; e.style.fill = resolved['--fg-dim']; e.style.fontFamily = 'monospace'; });
+    cloned.querySelectorAll('.axis')       .forEach(e => { e.style.stroke = resolved['--border-subtle']; e.style.strokeWidth = '1'; });
+    cloned.querySelectorAll('.gridline')   .forEach(e => { e.style.stroke = resolved['--border-subtle']; e.style.strokeWidth = '1'; e.style.strokeDasharray = '2 4'; e.style.opacity = '0.5'; });
+    cloned.querySelectorAll('.score-line') .forEach(e => { e.style.fill = 'none'; e.style.strokeWidth = '2'; });
+    cloned.querySelectorAll('.score-area') .forEach(e => { e.style.opacity = '0.08'; e.style.stroke = 'none'; });
+    cloned.querySelectorAll('.sub-line')   .forEach(e => { e.style.fill = 'none'; e.style.strokeWidth = '1.2'; e.style.opacity = '0.75'; });
+    cloned.querySelectorAll('.label')      .forEach(e => { e.style.fontSize = '11px'; e.style.fill = resolved['--fg-dim']; e.style.fontFamily = 'monospace'; });
 
     const viewBox = cloned.getAttribute('viewBox') || '0 0 600 200';
     const [, , vbW, vbH] = viewBox.split(/\s+/).map(Number);
@@ -306,11 +348,12 @@ const BeaconEvolution = (() => {
   // single dropdown (PNG / JPEG); app.js's _initExportDropdown wires
   // it during boot because that helper lives in app.js's IIFE scope.
   function init() {
+    const dlg = document.getElementById('beacon-evolution-modal');
     const closeBtn = document.getElementById('beacon-evolution-modal-close');
     if (closeBtn) closeBtn.addEventListener('click', () => {
-      const dlg = document.getElementById('beacon-evolution-modal');
       if (dlg && typeof dlg.close === 'function') dlg.close();
     });
+    if (dlg) dlg.addEventListener('close', () => { _evoTip().hidden = true; });
   }
 
   function clear() {

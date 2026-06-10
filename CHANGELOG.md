@@ -34,6 +34,7 @@ relevant, `### Detection changes` in each release entry.
 
 - UI polish: motion/easing design tokens and a global prefers-reduced-motion guard.
 - Beacon chart: hi-DPI rendering, hover tooltips with crosshair, refined typography and bar styling, one-shot draw-in animation.
+- Score evolution chart: theme-token series colors, area fill, instant hover tooltips replacing native titles.
 
 ## [v0.67.0] — 2026-06-10
 
