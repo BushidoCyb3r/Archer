@@ -243,8 +243,8 @@ The most-used surface. Findings are detector outputs, persisted in
 | `GET` | `/api/findings` | any | List with filters + pagination. Returns array of (projected) Finding. Sets `X-Total-Count` and `X-Has-More` response headers. |
 | `GET` | `/api/findings/counts` | any | `{open, ack, esc, dis, ioc, total, campaigns, hosts}` aggregate counts honoring the active filter set (`status` and `ioc_only` are stripped — the counts span all status buckets). `dis` is the dismissed count; `total` excludes dismissed (`len(all) - dis`); `campaigns` / `hosts` are the rollup-view sizes over the non-dismissed set, driving the sidebar chips. Drives the dashboard's info-line counters without forcing a full-set scan from the client. |
 | `GET` | `/api/findings/facets` | any | `{types, sensors}` — distinct values across the filter set. `status`, `ioc_only`, `delta`, `type`, `sensor`, `limit`, `offset` are stripped so the dropdowns reflect every available type/sensor regardless of what's currently selected. Powers the Type and Sensor filter dropdowns. |
-| `GET` | `/api/findings/unseen` | any | Per-session new-findings count: `{count, total, since, seen_count}`. `count` is findings first detected (`detected_at`) after the analyst's session boundary (`since`, the start of their previous login), roll-ups excluded; `total` is the dataset size; `seen_count` is the session's modal high-water. Drives the login / analysis-complete modal — the client pops it only when `count > seen_count`, so a page refresh doesn't re-announce. Same boundary the `delta=true` "New only" filter uses. |
-| `POST` | `/api/findings/modal-ack` | any | Records that the new-findings modal was shown for this session (raises the high-water to the current unseen count, server-recomputed). Suppresses re-pop on refresh until the count climbs higher or a fresh login starts a new session. Returns `{seen_count}`. Leaves the login boundary and "New only" filter untouched. |
+| `GET` | `/api/findings/unseen` | any | Per-session new-findings count: `{count, total, since, seen_count}`. `count` is findings first detected (`detected_at`) after the analyst's session boundary (`since`, the start of their previous login), roll-ups excluded; `total` is the dataset size; `seen_count` is the session's acknowledgment high-water. Drives the count badge on the "New only" button — the client shows it only when `count > seen_count`; an unacknowledged badge survives a page refresh by design. Same boundary the `delta=true` "New only" filter uses. |
+| `POST` | `/api/findings/modal-ack` | any | Acknowledges the new-findings count for this session (raises the high-water to the current unseen count, server-recomputed). Fired when the analyst clicks "New only"; keeps the badge cleared across refreshes until the count climbs higher or a fresh login starts a new session. Returns `{seen_count}`. Leaves the login boundary and "New only" filter untouched. Path name predates the badge — it was the new-findings modal's ack. |
 | `GET` | `/api/findings/{id}` | any | Single finding (full shape including `ts_data`/`intervals`/`notes`). |
 | `PATCH` | `/api/findings/{id}` | analyst+ | Update status / append analyst-attributed note. |
 | `POST` | `/api/findings/{id}/escalate` | analyst+ | Run TI escalation; emits `ti_result` SSE events. **Side effect:** when SIEM forwarding is enabled (`siem_enabled` + `siem_host`), the escalated finding is also forwarded to the SIEM as bare CEF over UDP. |
@@ -310,15 +310,15 @@ The most-used surface. Findings are detector outputs, persisted in
   fingerprint first entered the store. Assigned once on first insert and
   carried forward unchanged on every re-analysis (like the `id`), so it
   survives the hourly watch passes the `is_new` flag does not. Backs the
-  new-findings modal, the "New only" filter, and `is_new_to_me` (migration
+  New-only count badge, the "New only" filter, and `is_new_to_me` (migration
   0029).
 - `is_new_to_me` is a **transient, derived-at-read** bool — `detected_at`
   is after the requesting session's new-findings boundary (the start of the
   analyst's previous login). Computed by both the list and single-finding
   handlers (never persisted), `omitempty`. It is what the table's blue "new"
   dot and the detail pane's "NEW SINCE LAST LOGIN" badge key off, so they
-  agree with the "New only" filter and the modal — all four use the same
-  boundary. Per-viewer: the same finding can be `is_new_to_me` for one
+  agree with the "New only" filter and its count badge — all four use the
+  same boundary. Per-viewer: the same finding can be `is_new_to_me` for one
   analyst and not another.
 - `tls_allowlisted` is a **transient, derived-at-read** bool (`omitempty`) —
   true when the finding's `ja3`/`ja4` client fingerprint has been marked

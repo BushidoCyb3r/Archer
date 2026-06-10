@@ -129,16 +129,18 @@ A new finding's life:
 7. **`done` SSE event fires.** UI re-fetches `/api/findings` and
    re-renders. Watch ticks include `incremental: true` so the UI
    distinguishes them from full passes. The UI then calls
-   `/api/findings/unseen` and pops the new-findings modal only if the
-   logged-in analyst has findings detected since their session's
-   new-findings boundary (anchored at login) — a per-user count that
-   accumulates across passes, not the run's `new_count`, and the same
-   cutoff the `delta` "New only" filter uses. The call runs at login and
-   on each `done`; the modal pops only when the count exceeds the session's
-   `ModalHighWater` (a server-side per-session guard, raised via
-   `POST /api/findings/modal-ack` when shown), so a page refresh — which
-   reuses the session — doesn't re-announce; it re-pops only when the count
-   grows, and resets on a fresh login.
+   `/api/findings/unseen` and shows a count badge on the "New only"
+   button only if the logged-in analyst has findings detected since
+   their session's new-findings boundary (anchored at login) — a
+   per-user count that accumulates across passes, not the run's
+   `new_count`, and the same cutoff the `delta` "New only" filter uses.
+   The call runs at login and on each `done`; the badge shows only when
+   the count exceeds the session's `ModalHighWater` (a server-side
+   per-session guard, raised via `POST /api/findings/modal-ack` when the
+   analyst clicks "New only" — the endpoint name predates the badge), so
+   an acknowledgment survives a page refresh — which reuses the session —
+   while an unacknowledged badge deliberately re-shows; it re-announces
+   when the count grows, and resets on a fresh login.
 8. **Analyst sees the finding, optionally clicks Escalate.** That kicks
    off `runTIEscalation` which fans live TI lookups (VirusTotal, OTX,
    AbuseIPDB, etc.) and streams `ti_result` events as they settle.
