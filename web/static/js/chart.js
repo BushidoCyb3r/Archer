@@ -154,6 +154,21 @@ const BeaconChart = (() => {
     return `${mo}/${dd} ${hh}:${mm}`;
   }
 
+  // Theme tokens are opaque colors; canvas gradients need alpha steps of
+  // the same hue. Round-trips through fillStyle to normalize any token
+  // format to #rrggbb before adding the alpha channel.
+  function _alphaColor(ctx, color, alpha) {
+    ctx.fillStyle = color;
+    const c = ctx.fillStyle;
+    if (c[0] === '#' && c.length === 7) {
+      const r = parseInt(c.slice(1, 3), 16);
+      const g = parseInt(c.slice(3, 5), 16);
+      const b = parseInt(c.slice(5, 7), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+    return c;
+  }
+
   // ── Stats ────────────────────────────────────────────────────────
 
   function _computeStats(tsData) {
@@ -425,10 +440,12 @@ const BeaconChart = (() => {
     ctx.fillText('Connections', 0, 0);
     ctx.restore();
 
-    // Gradient for bars, built once before the loop
+    // Gradient for bars, built once before the loop. Fades within the
+    // accent hue, not toward the background — short bars sampling the
+    // bottom stops must still read as accent-colored.
     const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + plotH);
     grad.addColorStop(0, PALETTE.bar);
-    grad.addColorStop(1, PALETTE.bg);
+    grad.addColorStop(1, _alphaColor(ctx, PALETTE.bar, 0.35));
 
     // Bars
     counts.forEach((c, i) => {
@@ -554,10 +571,13 @@ const BeaconChart = (() => {
     ctx.fillText('Sent ↑ · Received ↓', 0, 0);
     ctx.restore();
 
-    // Gradient for normal sent bars, fading toward the zero axis.
+    // Both directions share the accent hue — the axis already encodes
+    // direction. Sent is full-strength fading to a lighter accent at the
+    // axis; received is the same hue at constant lower opacity.
     const grad = ctx.createLinearGradient(0, PAD.top, 0, midY);
     grad.addColorStop(0, PALETTE.bar);
-    grad.addColorStop(1, PALETTE.bg);
+    grad.addColorStop(1, _alphaColor(ctx, PALETTE.bar, 0.35));
+    const recvFill = _alphaColor(ctx, PALETTE.bar, 0.45);
 
     const labelEvery = Math.max(1, Math.ceil(numBuckets / 10));
     buckets.forEach((b, i) => {
@@ -588,7 +608,7 @@ const BeaconChart = (() => {
       if (b.respBytes > 0) {
         const recvH = (b.respBytes / maxBytes) * halfH * _animT;
         const recvBot = midY + recvH;
-        ctx.fillStyle = PALETTE.axis;
+        ctx.fillStyle = recvFill;
         const r = Math.min(2, barW / 2, recvH);
         ctx.beginPath();
         ctx.moveTo(barX, midY);
@@ -636,15 +656,15 @@ const BeaconChart = (() => {
     ctx.fillStyle = PALETTE.bar;
     ctx.fillRect(legX, 8, 10, 8);
     ctx.fillStyle = PALETTE.text;
-    ctx.fillText('sent', legX + 14, 16);
+    ctx.fillText('sent ↑', legX + 14, 16);
     ctx.fillStyle = PALETTE.barHi;
-    ctx.fillRect(legX + 52, 8, 10, 8);
+    ctx.fillRect(legX + 62, 8, 10, 8);
     ctx.fillStyle = PALETTE.text;
-    ctx.fillText('sent > recv', legX + 66, 16);
-    ctx.fillStyle = PALETTE.axis;
-    ctx.fillRect(legX + 138, 8, 10, 8);
+    ctx.fillText('sent > recv', legX + 76, 16);
+    ctx.fillStyle = recvFill;
+    ctx.fillRect(legX + 148, 8, 10, 8);
     ctx.fillStyle = PALETTE.text;
-    ctx.fillText('received', legX + 152, 16);
+    ctx.fillText('received ↓', legX + 162, 16);
   }
 
   // ── Tooltip + crosshair ──────────────────────────────────────────
