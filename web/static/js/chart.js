@@ -630,8 +630,11 @@ const BeaconChart = (() => {
     const rect = cv.getBoundingClientRect();
     const wrap = cv.parentElement.getBoundingClientRect();
     let left = ev.clientX - wrap.left + 14;
-    const top = ev.clientY - wrap.top + 14;
+    let top = ev.clientY - wrap.top + 14;
     if (ev.clientX - rect.left > rect.width * 0.65) left -= tip.offsetWidth + 28;
+    // Flip above the cursor near the bottom edge so the tooltip never
+    // overflows the dialog body (which would flash a scrollbar).
+    if (ev.clientY - rect.top > rect.height * 0.6) top -= tip.offsetHeight + 28;
     tip.style.left = left + 'px';
     tip.style.top = top + 'px';
   }
