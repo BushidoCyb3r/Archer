@@ -1134,9 +1134,19 @@ The service axis augments the port axis, it does not replace it — WinRM rides
 unrecognized service simply falls through to the port check. Deduped per
 `src→dst:port` so a noisy AD environment doesn't drown the analyst.
 
-**C2 Port.** `dst` is public and `dst_port` matches a known-bad port (8443
-for many implants, 4444/5555 for Metasploit defaults, etc., as listed in the
-`KnownC2Ports` table). Score 75, severity High.
+**C2 Port.** `dst` is public and `dst_port` matches a known-bad port (4444/4445
+for Metasploit defaults, 31337 for Back Orifice, the IRC/Tor/proxy ports, etc.,
+as listed in the `KnownC2Ports` table). Score 75, severity High — but
+cross-checked against Zeek's DPD: when the port is one a benign protocol also
+legitimately uses (`http` on 3128/8008/8888) and DPD confirms that protocol is
+what's actually running, the finding is **downgraded to Medium (score 50) and
+annotated** rather than firing High, since it's most likely the legitimate
+service (a Squid proxy, JupyterLab, a generic web service) and not an implant
+squatting the port. The finding is never dropped — real C2 on these ports still
+surfaces through the beacon, JA3/JA4, and TI paths, which key on behavior rather
+than the port number. A blank DPD result, or a protocol that *isn't* expected on
+the port, leaves the finding at High (and the mismatch case is independently
+caught by Protocol on Unexpected Port, below).
 
 **Protocol on Unexpected Port.** Where C2 Port keys on the *port*, this detector
 keys on the *protocol*. Zeek's dynamic protocol detection (DPD) inspects the

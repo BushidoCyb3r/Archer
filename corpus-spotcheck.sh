@@ -7,7 +7,7 @@
 # per burst, long silence between bursts) have true spectral periods that
 # are legitimately orders of magnitude above the median inter-arrival.
 #
-# Checks (1-2 validate the spectral gate; 3-9 are census/advisory sweeps over
+# Checks (1-2 validate the spectral gate; 3-10 are census/advisory sweeps over
 # recent findings — there is no check 5, the number was retired):
 #   1. PASS/FAIL — any rescued finding with spectral_period below
 #      median_interval/5 is an artifact that slipped through the gate
@@ -23,6 +23,7 @@
 #   7. ADVISORY — Protocol on Unexpected Port census.
 #   8. ADVISORY — Multi-Stage Beacon census.
 #   9. ADVISORY — service-triggered Lateral Movement census.
+#  10. ADVISORY — C2 Port service cross-check census.
 #
 # What this script CANNOT check: findings where rescue was blocked entirely
 # because the only strong peak was below median/5. Those pairs still emit
@@ -504,5 +505,48 @@ else
         echo "Few dsts/srcs on a fixed (service, port) reads as a benign alt-port admin"
         echo "service (allowlist candidate); many distinct src→dst pairs on one lateral"
         echo "protocol over an odd port reads as real lateral spread worth chasing."
+    fi
+fi
+
+# ── Check 10: C2 Port service cross-check census (advisory) ───────────────────
+# C2 Port fires on a known-C2 destination port, then cross-checks Zeek's DPD:
+# when the port is one a benign protocol also uses (http on 3128/8008/8888) and
+# DPD confirms that protocol, the finding is downgraded High→Medium and
+# annotated "likely benign" rather than firing High. This census confirms the
+# cross-check is downgrading the right population: the downgraded findings
+# (detail contains "likely benign") should be recognizable benign services, and
+# the still-High ones should be the genuine known-C2-port hits. If a downgraded
+# row is a real implant speaking its expected protocol on the port, note it —
+# the behavioral paths (beacon/JA3/TI) are the backstop, but it is worth an eye.
+# Requires migration 0036 (findings.service).
+
+if [ "${SVC_OK:-0}" -ne 0 ]; then
+    C2N=$(sqlite3 "$DB" "SELECT COUNT(*) FROM findings WHERE type = 'C2 Port';")
+    if [ "$C2N" -eq 0 ]; then
+        echo ""
+        echo "INFO: no C2 Port findings in this corpus."
+    else
+        DOWNG=$(sqlite3 "$DB" "
+          SELECT COUNT(*) FROM findings
+          WHERE type = 'C2 Port' AND detail LIKE '%likely benign%';
+        ")
+        echo ""
+        echo "ADVISORY: $C2N C2 Port finding(s), $DOWNG downgraded by the DPD cross-check."
+        echo "Downgraded rows should be recognizable benign services on a shared port;"
+        echo "still-High rows are the genuine known-C2-port hits. Eyeball the split:"
+        sqlite3 -column -header "$DB" "
+          SELECT dst_port,
+                 service,
+                 CASE WHEN detail LIKE '%likely benign%'
+                      THEN 'downgraded' ELSE 'high' END AS disposition,
+                 severity,
+                 COUNT(*)               AS n,
+                 COUNT(DISTINCT dst_ip) AS distinct_dsts,
+                 COUNT(DISTINCT src_ip) AS distinct_srcs
+          FROM findings
+          WHERE type = 'C2 Port'
+          GROUP BY dst_port, service, disposition, severity
+          ORDER BY n DESC
+          LIMIT 30;"
     fi
 fi

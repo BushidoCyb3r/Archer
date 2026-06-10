@@ -658,6 +658,80 @@ func TestLateralMovementByService(t *testing.T) {
 	}
 }
 
+// TestC2PortServiceCrossCheck pins the C2-Port service cross-check: a known-C2
+// port that Zeek's DPD confirms is running its legitimate protocol (http on
+// 8888, a port that is both a KnownC2Ports entry and in http's expected set) is
+// downgraded from High to Medium and annotated, while the same port with no DPD
+// result, and a known-C2 port carrying an unexpected protocol, stay High.
+// Invariant: the downgrade fires only on a positive DPD match to the port's
+// expected protocol — never suppresses, only de-emphasizes the port heuristic
+// when the protocol evidence contradicts it. The C2-Port finding is never
+// dropped, so behavior-based paths (beacon/JA3/TI) are unaffected.
+func TestC2PortServiceCrossCheck(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "conn.log")
+	var b strings.Builder
+	uid := 0
+	base := 1705320000.0 // 2024-01-15 12:00:00 UTC — daytime, not off-hours
+	line := func(src, dst string, port int, service string) {
+		fmt.Fprintf(&b, `{"ts": %.1f, "uid": "C%07d", "id.orig_h": "%s", "id.orig_p": 40000, "id.resp_h": "%s", "id.resp_p": %d, "proto": "tcp", "service": "%s", "duration": 0.4, "orig_bytes": 400, "resp_bytes": 800, "orig_ip_bytes": 440, "resp_ip_bytes": 840, "conn_state": "SF"}`+"\n",
+			base+float64(uid), uid, src, dst, port, service)
+		uid++
+	}
+
+	// http on 8888 (KnownC2Ports + http-expected) — downgrade to Medium.
+	line("192.168.1.10", "203.0.113.10", 8888, "http")
+	// 4444 (Metasploit) with no DPD result — stays High.
+	line("192.168.1.11", "203.0.113.11", 4444, "")
+	// ssl on 8888 — ssl is NOT expected on 8888, so the cross-check does not
+	// apply: stays High (and Protocol on Unexpected Port fires separately).
+	line("192.168.1.12", "203.0.113.12", 8888, "ssl")
+
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	a := New(config.Default(), "", nil, nil)
+	a.feodoIPs = map[string]bool{}
+	a.urlhausIPs = map[string]bool{}
+	a.urlhausHosts = map[string]bool{}
+	findings := a.Analyze([]string{path})
+
+	c2ByDst := map[string]model.Finding{}
+	for _, f := range findings {
+		if f.Type == "C2 Port" {
+			c2ByDst[f.DstIP] = f
+		}
+	}
+
+	benign, ok := c2ByDst["203.0.113.10"]
+	if !ok {
+		t.Fatalf("http on 8888 must still emit a C2 Port finding (downgraded, not dropped); got: %v", findingTypes(findings))
+	}
+	if benign.Severity != model.SevMedium || benign.Score != 50 {
+		t.Errorf("http on 8888: got %s/%d, want Medium/50 (DPD confirms the expected protocol)", benign.Severity, benign.Score)
+	}
+	if !strings.Contains(benign.Detail, "likely benign") {
+		t.Errorf("downgraded C2 Port detail must annotate the DPD evidence; got %q", benign.Detail)
+	}
+
+	noSvc, ok := c2ByDst["203.0.113.11"]
+	if !ok {
+		t.Fatalf("4444 with no service must emit a C2 Port finding")
+	}
+	if noSvc.Severity != model.SevHigh || noSvc.Score != 75 {
+		t.Errorf("4444 no-DPD: got %s/%d, want High/75 (no contradicting evidence)", noSvc.Severity, noSvc.Score)
+	}
+
+	mismatch, ok := c2ByDst["203.0.113.12"]
+	if !ok {
+		t.Fatalf("ssl on 8888 must emit a C2 Port finding")
+	}
+	if mismatch.Severity != model.SevHigh || mismatch.Score != 75 {
+		t.Errorf("ssl-on-8888 (unexpected protocol): got %s/%d, want High/75 (cross-check must not downgrade a mismatch)", mismatch.Severity, mismatch.Score)
+	}
+}
+
 // TestConnFindingsCarryService pins the service-enrichment slice: a
 // conn-derived finding is stamped with the Zeek DPD service of its originating
 // connection(s). Invariant covers both emit paths — the aggregated beacon

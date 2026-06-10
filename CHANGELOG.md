@@ -32,6 +32,15 @@ relevant, `### Detection changes` in each release entry.
 
 ### Detection changes
 
+- **C2 Port now cross-checks Zeek's DPD service before firing High.** When a
+  known-C2 port is one a benign protocol also legitimately uses
+  (`http` on 3128/8008/8888) and DPD confirms that protocol is what's running,
+  the C2 Port finding is downgraded from High to Medium (score 75 → 50) and
+  annotated as likely-benign, instead of firing High on what is almost always a
+  Squid proxy / JupyterLab / generic web service. The finding is never dropped —
+  real C2 on these ports still surfaces via the beacon, JA3/JA4, and TI paths —
+  and a blank or unexpected-for-the-port service keeps it at High. Downgraded
+  findings are surfaced for review by `corpus-spotcheck.sh` Check 10.
 - **Lateral Movement now fires on Zeek's DPD service, not the destination port
   alone.** An internal→internal flow that Zeek fingerprints as an admin/lateral
   protocol (`ssh`, `rdp`, `rfb`/VNC, `telnet`, `smb`, `dce_rpc`) on a port

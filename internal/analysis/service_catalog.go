@@ -112,6 +112,23 @@ func serviceCategoryOf(label string) serviceCategory {
 	return svcOther
 }
 
+// serviceExpectedOnPort reports whether Zeek's DPD identified a protocol on a
+// port where that protocol legitimately runs (per expectedServicePorts) — the
+// positive signal that a flow is the benign protocol the port is known for. It
+// cross-checks the port-only heuristics: a known-C2 port carrying its expected
+// protocol (http on 8888/8008/3128) is most likely that service, not an
+// implant. Multi-label fields match if any label is expected on the port;
+// false for a blank or unrecognized service, or a recognized service on an
+// unexpected port (that mismatch is the Protocol on Unexpected Port signal).
+func serviceExpectedOnPort(raw string, port int) bool {
+	for _, label := range splitServices(raw) {
+		if ports, known := expectedServicePorts[label]; known && ports[port] {
+			return true
+		}
+	}
+	return false
+}
+
 // serviceCategories returns the distinct categories present in a raw service
 // field (which may carry several labels), in first-seen order. It is nil for
 // an unfingerprinted flow; svcOther appears only when a recognized label is

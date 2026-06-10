@@ -582,15 +582,30 @@ func (a *Analyzer) analyzeConn(files []string) {
 					ck := fmt.Sprintf("%s|%s→%s:%d", sensor, src, dst, dstPort)
 					if _, ok2 := c2Seen[ck]; !ok2 {
 						c2Seen[ck] = struct{}{}
+						sev := model.SevHigh
+						score := 75
+						detail := fmt.Sprintf("Port %d — %s", dstPort, label)
+						// Service cross-check: a known-C2 port that Zeek's DPD
+						// confirms is running its legitimate protocol (http on
+						// 8888/8008/3128) is most likely that benign service, not
+						// an implant squatting the port. Downgrade and annotate
+						// rather than firing High — real C2 on these ports still
+						// surfaces via the beacon, JA3/JA4, and TI paths, which key
+						// on behavior, not the port number.
+						if serviceExpectedOnPort(service, dstPort) {
+							sev = model.SevMedium
+							score = 50
+							detail += fmt.Sprintf(" — but Zeek DPD identifies %q, expected on this port; likely benign", service)
+						}
 						a.add(model.Finding{
 							Type:       "C2 Port",
-							Severity:   model.SevHigh,
-							Score:      75,
+							Severity:   sev,
+							Score:      score,
 							SrcIP:      src,
 							DstIP:      dst,
 							DstPort:    fmt.Sprint(dstPort),
 							Service:    service,
-							Detail:     fmt.Sprintf("Port %d — %s", dstPort, label),
+							Detail:     detail,
 							Timestamp:  fmtTS(ts),
 							SourceFile: path,
 						})
