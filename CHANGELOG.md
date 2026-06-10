@@ -28,7 +28,7 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
-## [Unreleased]
+## [v0.68.0] — 2026-06-10
 
 ### Changed
 
@@ -8736,6 +8736,7 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
+[v0.68.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.67.0...v0.68.0
 [v0.67.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.66.0...v0.67.0
 [v0.66.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.65.0...v0.66.0
 [v0.65.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.64.2...v0.65.0
