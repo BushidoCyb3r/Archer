@@ -41,6 +41,11 @@ const (
 	listBodyMaxBytes     = 4 << 20   // PUT /allowlist, /ioc-list — room for ~150K entries
 	suppressBodyMaxBytes = 8 << 10   // POST /suppressions — tiny payload
 	configBodyMaxBytes   = 16 << 10  // PUT /config — fixed-shape struct
+
+	// maxTIEscalationResponse caps each third-party TI lookup response read
+	// during escalation. Per-IP JSON responses are small; this bounds memory
+	// against a misbehaving or hostile endpoint.
+	maxTIEscalationResponse = 8 << 20 // 8 MiB
 )
 
 // sensorFromPath returns the first path component under logsDir, which is
@@ -961,7 +966,11 @@ func (s *Server) runTIEscalation(f model.Finding, ips []string, svcs map[string]
 		if err != nil {
 			return nil, false
 		}
-		body, _ := io.ReadAll(resp.Body)
+		// Bound the read: these are per-IP TI lookups against third-party
+		// services (OTX, AbuseIPDB, GreyNoise, Censys). An unbounded ReadAll
+		// lets a misbehaving or hostile endpoint balloon memory during
+		// escalation. Matches the LimitReader discipline the feed fetchers use.
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxTIEscalationResponse))
 		resp.Body.Close()
 		return body, true
 	}

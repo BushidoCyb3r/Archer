@@ -30,6 +30,14 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Security
+
+- **Bounded the third-party TI lookup reads during escalation.** The
+  per-IP responses from OTX / AbuseIPDB / GreyNoise / Censys were read with an
+  unbounded `io.ReadAll`; a misbehaving or hostile endpoint could balloon
+  memory mid-escalation. Reads are now capped (8 MiB) with `io.LimitReader`,
+  matching the feed fetchers.
+
 ### Added
 
 - **Persistence-degraded signal.** A findings-write failure (disk full, DB
