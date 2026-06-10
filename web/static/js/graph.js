@@ -41,6 +41,24 @@ const Graph = (() => {
     return (SEV_RANK[a] ?? -1) >= (SEV_RANK[b] ?? -1) ? a : b;
   }
 
+  function _isInternalIP(ip) {
+    if (!ip) return false;
+    const low = String(ip).toLowerCase();
+    if (low === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd')) return true;
+    const m = low.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!m) return false;
+    const a = +m[1], b = +m[2];
+    if (a === 10 || a === 127) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+    return false;
+  }
+
+  function _nodeLabel(ip, count) {
+    return count >= 10 ? ip + ' · ' + count : ip;
+  }
+
   // Build Cytoscape elements from a list of findings. Returns
   // {nodes:[], edges:[], stats:{...}}.
   function _buildElements(findings) {
@@ -72,16 +90,28 @@ const Graph = (() => {
       }
     });
 
+    let haloId = null, haloRank = -1;
+    nodes.forEach(n => {
+      if (_isInternalIP(n.ip)) return;
+      const r = SEV_RANK[n.severity] ?? -1;
+      if (r > haloRank) { haloRank = r; haloId = n.ip; }
+    });
+
     const cyNodes = [];
     nodes.forEach(n => {
-      cyNodes.push({
+      const el = {
         data: {
           id: n.ip,
-          label: n.ip,
+          label: _nodeLabel(n.ip, n.count),
           severity: n.severity,
           count: n.count,
+          internal: _isInternalIP(n.ip) ? 1 : 0,
         },
-      });
+      };
+      if (n.ip === haloId && haloRank >= SEV_RANK.HIGH) {
+        el.classes = haloRank === SEV_RANK.CRITICAL ? 'halo-crit' : 'halo-high';
+      }
+      cyNodes.push(el);
     });
     const cyEdges = [];
     let edgeId = 0;
@@ -124,6 +154,11 @@ const Graph = (() => {
         selector: 'node',
         style: {
           'background-color': accent,
+          'background-opacity': 0.3,
+          'border-width': 2,
+          'border-color': accent,
+          'shape': 'ellipse',
+          'min-zoomed-font-size': 8,
           'label': 'data(label)',
           'color': _tok('--fg-primary'),
           'font-size': '10px',
@@ -135,20 +170,23 @@ const Graph = (() => {
           'text-background-opacity': 0.7,
           'text-background-padding': '2px',
           'text-background-shape': 'roundrectangle',
-          'border-width': 1,
-          'border-color': _tok('--border-strong'),
           'width': 'mapData(count, 1, 50, 22, 60)',
           'height': 'mapData(count, 1, 50, 22, 60)',
         },
       },
-      { selector: 'node[severity="CRITICAL"]', style: { 'background-color': crit } },
-      { selector: 'node[severity="HIGH"]',     style: { 'background-color': high } },
-      { selector: 'node[severity="MEDIUM"]',   style: { 'background-color': med } },
-      { selector: 'node[severity="LOW"]',      style: { 'background-color': low } },
+      { selector: 'node[severity="CRITICAL"]', style: { 'background-color': crit, 'border-color': crit } },
+      { selector: 'node[severity="HIGH"]',     style: { 'background-color': high, 'border-color': high } },
+      { selector: 'node[severity="MEDIUM"]',   style: { 'background-color': med, 'border-color': med } },
+      { selector: 'node[severity="LOW"]',      style: { 'background-color': low, 'border-color': low } },
+      { selector: 'node[internal = 1]', style: { 'shape': 'round-rectangle' } },
       { selector: 'node:selected', style: {
         'border-color': _tok('--accent-hover'),
         'border-width': 3,
       }},
+      { selector: '.halo-crit', style: { 'underlay-color': crit, 'underlay-opacity': 0.12, 'underlay-padding': 12 } },
+      { selector: '.halo-high', style: { 'underlay-color': high, 'underlay-opacity': 0.12, 'underlay-padding': 12 } },
+      { selector: '.dimmed',  style: { 'opacity': 0.15, 'text-opacity': 0.1 } },
+      { selector: '.hovered', style: { 'min-zoomed-font-size': 0 } },
       {
         selector: 'edge',
         style: {
@@ -157,7 +195,8 @@ const Graph = (() => {
           'target-arrow-color': _tok('--fg-faint'),
           'target-arrow-shape': 'triangle',
           'curve-style': 'bezier',
-          'opacity': 0.6,
+          'line-cap': 'round',
+          'opacity': 0.5,
           'arrow-scale': 0.8,
         },
       },
@@ -169,8 +208,9 @@ const Graph = (() => {
   }
 
   // Cytoscape's bundled `cose` layout produces decent force-directed results
-  // with no extra dependencies. animate:false avoids a layout animation that
-  // wastes CPU on big graphs and looks dizzying.
+  // with no extra dependencies. Positions are computed synchronously;
+  // animate:'end' animates only the final placement into view. Reduced-motion
+  // keeps animate:false entirely.
   const LAYOUT = {
     name: 'cose',
     animate: false,
@@ -181,6 +221,16 @@ const Graph = (() => {
     padding: 30,
   };
 
+  function _reducedMotion() {
+    return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  function _layoutOpts() {
+    return Object.assign({}, LAYOUT, _reducedMotion()
+      ? {}
+      : { animate: 'end', animationDuration: 400, animationEasing: 'ease-out' });
+  }
+
   function _renderGraph(elements) {
     const container = document.getElementById('graph-canvas');
     if (!container) return;
@@ -189,7 +239,7 @@ const Graph = (() => {
       container,
       elements: [...elements.nodes, ...elements.edges],
       style: _buildStyle(),
-      layout: LAYOUT,
+      layout: _layoutOpts(),
       wheelSensitivity: 0.2,
       minZoom: 0.1,
       maxZoom: 4,
@@ -199,6 +249,17 @@ const Graph = (() => {
     });
     _cy.on('tap', 'edge', evt => {
       if (_onEdgeClick) _onEdgeClick(evt.target.data('source'), evt.target.data('target'));
+    });
+    _cy.on('mouseover', 'node', evt => {
+      _cy.batch(() => {
+        evt.target.addClass('hovered');
+        _cy.elements().difference(evt.target.closedNeighborhood()).addClass('dimmed');
+      });
+    });
+    _cy.on('mouseout', 'node', () => {
+      _cy.batch(() => {
+        _cy.elements().removeClass('dimmed hovered');
+      });
     });
     document.getElementById('graph-info').textContent =
       `${elements.stats.nodes} nodes · ${elements.stats.edges} edges · ${elements.stats.findings} findings`;
@@ -245,11 +306,11 @@ const Graph = (() => {
     });
     const fitBtn = document.getElementById('graph-fit');
     if (fitBtn) fitBtn.addEventListener('click', () => {
-      if (_cy) _cy.fit(undefined, 30);
+      if (_cy) _cy.animate({ fit: { padding: 30 } }, { duration: _reducedMotion() ? 0 : 400, easing: 'ease-out' });
     });
     const relayoutBtn = document.getElementById('graph-relayout');
     if (relayoutBtn) relayoutBtn.addEventListener('click', () => {
-      if (_cy) _cy.layout(LAYOUT).run();
+      if (_cy) _cy.layout(_layoutOpts()).run();
     });
     // Re-skin a live graph without relayout if the theme changes while open.
     window.addEventListener('archer:themechange', () => {
