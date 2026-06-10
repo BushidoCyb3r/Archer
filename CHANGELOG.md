@@ -30,34 +30,7 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
-### Security
-
-- **Runtime base image bumped from `alpine:3.20` (end-of-life) to `alpine:3.23`.**
-  3.20 reached end-of-life, so the final image's `openssh-server` / `rsync` /
-  `rrsync` / `ca-certificates` — including the sensor-facing sshd on port 2222 —
-  no longer received security patches. 3.23 is current stable (supported to
-  ~2027). Verified by a full image build: the rrsync path resolution, the
-  `quiver:*:` shadow rewrite, and the user/group setup all still hold.
-- **Capped the login and register form bodies.** Both handlers read fields
-  via `r.FormValue`, which parses an unbounded body into memory — every other
-  request decode is capped, but `FormValue` bypassed that. The bodies are now
-  wrapped with `http.MaxBytesReader` (16 KiB; the fields are a few short
-  strings).
-- **Logout now records an audit row.** `/logout` is a bare route with no
-  user in the request context, so the handler's audit branch (which read
-  `userFromCtx`, always the zero user there) never fired — logout events were
-  absent from the audit trail. The handler now resolves the logging-out user
-  from the session cookie before clearing it.
-- **Viewers can no longer dismiss notifications.** Notification dismissal is
-  store-global, so a read-only viewer could clear live CRITICAL / TI /
-  unauthorized-sensor alerts for every analyst. `POST /api/notifications`
-  (dismiss / dismiss_all) now requires a write role; GET stays open so viewers
-  still see the bell.
-- **Bounded the third-party TI lookup reads during escalation.** The
-  per-IP responses from OTX / AbuseIPDB / GreyNoise / Censys were read with an
-  unbounded `io.ReadAll`; a misbehaving or hostile endpoint could balloon
-  memory mid-escalation. Reads are now capped (8 MiB) with `io.LimitReader`,
-  matching the feed fetchers.
+## [v0.65.0] — 2026-06-10
 
 ### Added
 
@@ -102,6 +75,35 @@ relevant, `### Detection changes` in each release entry.
   the analyzer reported a clean scan of a file it read nothing from. The parser
   now returns an error when a file has data lines but none parse (surfaced as a
   per-file parser warning), while empty and all-comment files stay clean.
+
+### Security
+
+- **Runtime base image bumped from `alpine:3.20` (end-of-life) to `alpine:3.23`.**
+  3.20 reached end-of-life, so the final image's `openssh-server` / `rsync` /
+  `rrsync` / `ca-certificates` — including the sensor-facing sshd on port 2222 —
+  no longer received security patches. 3.23 is current stable (supported to
+  ~2027). Verified by a full image build: the rrsync path resolution, the
+  `quiver:*:` shadow rewrite, and the user/group setup all still hold.
+- **Capped the login and register form bodies.** Both handlers read fields
+  via `r.FormValue`, which parses an unbounded body into memory — every other
+  request decode is capped, but `FormValue` bypassed that. The bodies are now
+  wrapped with `http.MaxBytesReader` (16 KiB; the fields are a few short
+  strings).
+- **Logout now records an audit row.** `/logout` is a bare route with no
+  user in the request context, so the handler's audit branch (which read
+  `userFromCtx`, always the zero user there) never fired — logout events were
+  absent from the audit trail. The handler now resolves the logging-out user
+  from the session cookie before clearing it.
+- **Viewers can no longer dismiss notifications.** Notification dismissal is
+  store-global, so a read-only viewer could clear live CRITICAL / TI /
+  unauthorized-sensor alerts for every analyst. `POST /api/notifications`
+  (dismiss / dismiss_all) now requires a write role; GET stays open so viewers
+  still see the bell.
+- **Bounded the third-party TI lookup reads during escalation.** The
+  per-IP responses from OTX / AbuseIPDB / GreyNoise / Censys were read with an
+  unbounded `io.ReadAll`; a misbehaving or hostile endpoint could balloon
+  memory mid-escalation. Reads are now capped (8 MiB) with `io.LimitReader`,
+  matching the feed fetchers.
 
 ### Detection changes
 
@@ -8644,6 +8646,7 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
+[v0.65.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.64.2...v0.65.0
 [v0.47.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.46.0...v0.47.0
 [v0.41.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.40.0...v0.41.0
 [v0.40.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.39.0...v0.40.0
