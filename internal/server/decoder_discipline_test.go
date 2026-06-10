@@ -8,27 +8,41 @@ import (
 	"testing"
 )
 
-// TestNoRawJSONDecoderOnRequestBody enforces the discipline NEW-35,
-// NEW-40, NEW-50, NEW-58, and NEW-61 collectively established:
-// every request-body decode must go through decodeJSONBody (which
-// applies a size cap, returns 413 on cap-trip, and never echoes
-// raw decoder error text back to the caller). Pre-fix, the
-// codebase had ad-hoc json.NewDecoder(r.Body).Decode(...) chains
-// scattered across handlers; a typo in one of them (size cap
-// forgotten, error response inconsistent) silently fragmented the
-// discipline and made it impossible to audit by reading the
-// CHANGELOG alone.
+// TestNoRawJSONDecoderOnRequestBody enforces the bounded-decode
+// discipline NEW-35, NEW-40, NEW-50, NEW-58, and NEW-61 collectively
+// established: no request-body decode may read an UNBOUNDED body. The
+// failure mode it guards against is an `json.NewDecoder(r.Body)` chain
+// with no size cap, which lets a caller stream an arbitrarily large
+// body into memory. Pre-fix such chains were scattered across handlers;
+// a typo dropping the cap silently fragmented the discipline.
 //
-// One narrow exception is allowed:
-//   - handlers_quiver.go's checkin path needs the RAW request body
-//     for HMAC verification before JSON decode, so it does
-//     read+cap+decode as a manual two-step. That manual chain
-//     carries its own MaxBytesReader and 413 handling — verified
-//     by a separate test (TestQuiverCheckin_BodyCapReturns413).
+// Two bounded forms are accepted, both safe:
+//   - decodeJSONBody(w, r, &dst, cap) — the PREFERRED path. Adds a
+//     413 on cap-trip, DisallowUnknownFields, a trailing-content
+//     check, and a generic (non-echoing) error. New handlers should
+//     use this.
+//   - a manual `json.NewDecoder(http.MaxBytesReader(w, r.Body, cap))`
+//     where the handler needs error handling decodeJSONBody can't give:
+//     the sensors-modal handlers fold the decode error into their
+//     `req.ID == 0` validation, and the archive-run / optional-body
+//     handlers (handlers_api.go) deliberately tolerate a decode error
+//     (zero-value req = "real run, not dry") and must not have an error
+//     response written for them. The MaxBytesReader sits directly in the
+//     decode expression, so these are bounded by construction.
 //
-// Same shape as TestEscConsistency_AcrossSPAModules (NEW-30): the
-// rule is the test, not a docstring that drifts as new handlers
-// are added.
+// One body-not-decoded exception:
+//   - handlers_quiver.go's checkin path needs the RAW request body for
+//     HMAC verification before JSON decode, so it does read+cap+decode
+//     as a manual two-step. That chain carries its own MaxBytesReader
+//     and 413 handling — verified by TestQuiverCheckin_BodyCapReturns413.
+//
+// Same shape as TestEscConsistency_AcrossSPAModules (NEW-30): the rule
+// is the test. What it matches is the bare `json.NewDecoder(r.Body)`
+// form (the unbounded failure mode, and also decodeJSONBody's own
+// internal decode, which sets r.Body = MaxBytesReader on the prior line);
+// every such match must have MaxBytesReader in its window. The
+// wrapped-argument form `json.NewDecoder(http.MaxBytesReader(...))` is
+// bounded by construction and intentionally outside the match set.
 func TestNoRawJSONDecoderOnRequestBody(t *testing.T) {
 	pattern := regexp.MustCompile(`json\.NewDecoder\(\s*r\.Body\s*\)`)
 	files, err := filepath.Glob("*.go")
