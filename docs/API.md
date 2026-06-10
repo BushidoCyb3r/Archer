@@ -243,13 +243,13 @@ The most-used surface. Findings are detector outputs, persisted in
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
 | `GET` | `/api/findings` | any | List with filters + pagination. Returns array of (projected) Finding. Sets `X-Total-Count` and `X-Has-More` response headers. |
-| `GET` | `/api/findings/counts` | any | `{open, ack, esc, ioc, total}` aggregate counts honoring the active filter set (`status` and `ioc_only` are stripped — the counts span all status buckets). Drives the dashboard's info-line counters without forcing a full-set scan from the client. |
+| `GET` | `/api/findings/counts` | any | `{open, ack, esc, dis, ioc, total, campaigns, hosts}` aggregate counts honoring the active filter set (`status` and `ioc_only` are stripped — the counts span all status buckets). `dis` is the dismissed count; `total` excludes dismissed (`len(all) - dis`); `campaigns` / `hosts` are the rollup-view sizes over the non-dismissed set, driving the sidebar chips. Drives the dashboard's info-line counters without forcing a full-set scan from the client. |
 | `GET` | `/api/findings/facets` | any | `{types, sensors}` — distinct values across the filter set. `status`, `ioc_only`, `delta`, `type`, `sensor`, `limit`, `offset` are stripped so the dropdowns reflect every available type/sensor regardless of what's currently selected. Powers the Type and Sensor filter dropdowns. |
 | `GET` | `/api/findings/unseen` | any | Per-session new-findings count: `{count, total, since, seen_count}`. `count` is findings first detected (`detected_at`) after the analyst's session boundary (`since`, the start of their previous login), roll-ups excluded; `total` is the dataset size; `seen_count` is the session's modal high-water. Drives the login / analysis-complete modal — the client pops it only when `count > seen_count`, so a page refresh doesn't re-announce. Same boundary the `delta=true` "New only" filter uses. |
 | `POST` | `/api/findings/modal-ack` | any | Records that the new-findings modal was shown for this session (raises the high-water to the current unseen count, server-recomputed). Suppresses re-pop on refresh until the count climbs higher or a fresh login starts a new session. Returns `{seen_count}`. Leaves the login boundary and "New only" filter untouched. |
 | `GET` | `/api/findings/{id}` | any | Single finding (full shape including `ts_data`/`intervals`/`notes`). |
 | `PATCH` | `/api/findings/{id}` | analyst+ | Update status / append analyst-attributed note. |
-| `POST` | `/api/findings/{id}/escalate` | analyst+ | Run TI escalation; emits `ti_result` SSE events. |
+| `POST` | `/api/findings/{id}/escalate` | analyst+ | Run TI escalation; emits `ti_result` SSE events. **Side effect:** when SIEM forwarding is enabled (`siem_enabled` + `siem_host`), the escalated finding is also forwarded to the SIEM as bare CEF over UDP. |
 | `POST` | `/api/findings/{id}/notes` | analyst+ | Append a note to the finding. |
 | `GET` | `/api/findings/{id}/raw` | any | Raw-log pivot — the Zeek lines that produced this finding. |
 | `GET` | `/api/findings/{id}/position` | any | Absolute zero-indexed position of finding `{id}` within `/api/findings` under the same filter + sort query parameters. Returns `{found: bool, offset: N, total: M}` (200) or `{found: false, total: M}` (404) when the finding does not match. The bell-notification **Jump** action uses this to navigate to the page containing the target finding regardless of the analyst's current pagination offset. |
@@ -567,7 +567,7 @@ Beacon / HTTP Beacon.
 | `PUT` | `/api/config` | admin | Replaces the config. Send the full struct (partial updates not supported). Admin GET returns real secrets, so the admin Settings dialog round-trips them unchanged. |
 
 Config field names are documented in `internal/config/config.go`'s
-struct tags. The four most operator-touched fields:
+struct tags. The most operator-touched fields:
 
 | Field | Purpose |
 |-------|---------|
@@ -575,6 +575,7 @@ struct tags. The four most operator-touched fields:
 | `off_hours_start` / `off_hours_end` | Hour-of-day bounds for off-hours detection, interpreted in `timezone`. |
 | `watch_enabled`, `watch_time`, `watch_interval_hours` | See `/api/watch` for the dedicated endpoint that wraps these. |
 | `archive_enabled`, `archive_after_days` | Log archive policy. |
+| `siem_enabled`, `siem_host`, `siem_port` | SIEM forwarding. When `siem_enabled` and `siem_host` are set, each escalated finding is also forwarded to the SIEM as bare CEF over UDP (default port `9003`). Non-secret. See the escalate endpoint's side effect. |
 | `sensor_stale_threshold_hours` | How long a sensor must be silent (no HMAC checkin) before the heartbeat alarm fires. Default `2`. |
 | `feed_stale_threshold_hours` | How long since a feed's last successful fetch before the feed-health alarm fires. Default `24`. |
 | `rsync_stale_threshold_hours` | How long the gap between `last_seen_at` and `last_log_mtime` must be before the rsync-dead alarm fires. Default `4`. |
@@ -591,6 +592,8 @@ preserve insertion order, support `# comment` lines.
 | `PUT` | `/api/allowlist` | analyst+ | Bare JSON array body `["1.2.3.4", ...]`. Replaces the full list. |
 | `GET` | `/api/ioc` | any | Same shape and exact/CIDR/wildcard matching as the allowlist (bare string array). |
 | `PUT` | `/api/ioc` | analyst+ | Same shape (bare string array). |
+| `GET` | `/api/ioc?kind=fp` | any | The JA3/JA4 fingerprint IOC list. Returns `{"builtin":[{"kind":"ja3\|ja4","fingerprint":"<hash>","label":"<name>"}, …], "operator":["<hash>", …]}` — the always-active built-in C2 set plus the operator additions, so the UI can compose one textarea. |
+| `PUT` | `/api/ioc?kind=fp` | analyst+ | Replace the operator fingerprint list. Body is a bare string array of fingerprints; built-in fingerprints in the body are dropped (never double-stored) and the remainder is lowercased, de-commented, and deduped server-side. |
 | `POST` | `/api/ioc-fingerprint` | analyst+ | Add a JA3/JA4 fingerprint to the operator IOC list (`ioc_fp_list`), so it flags as `Malicious JA3/JA4` on the next analysis. Body: `{"fingerprint":"<hash>"}` — JA3 vs JA4 is classified by shape server-side. A built-in known-bad fingerprint is a no-op success. This is the TLS-wall and detail-pane "Mark malicious" surface. |
 | `GET` | `/api/suppressions` | any | Returns an array of `{target, expiry, detail}` objects. |
 | `POST` | `/api/suppressions` | analyst+ | Add a suppression. Body: `{"target":"<ip/domain/regex>","days":N,"detail":"<reason>"}`. `days` must be in `(0, 365]`. |
