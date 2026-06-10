@@ -590,7 +590,11 @@ const BeaconChart = (() => {
       if (b.origBytes > 0) {
         const sentH = (b.origBytes / maxBytes) * halfH * _animT;
         const sentY = midY - sentH;
-        ctx.fillStyle = b.origBytes > b.respBytes ? PALETTE.barHi : grad;
+        // Upload-dominant flag: 2x, not merely sent > recv — header and
+        // keepalive jitter tips near-balanced buckets either way, and the
+        // mirror already shows the margin. Red is reserved for buckets
+        // where outbound volume clearly leads.
+        ctx.fillStyle = b.origBytes > 2 * b.respBytes ? PALETTE.barHi : grad;
         const r = Math.min(2, barW / 2, sentH);
         ctx.beginPath();
         ctx.moveTo(barX, midY);
@@ -663,7 +667,7 @@ const BeaconChart = (() => {
     ctx.fillStyle = PALETTE.barHi;
     ctx.fillRect(legX + 62, 8, 10, 8);
     ctx.fillStyle = PALETTE.text;
-    ctx.fillText('sent > recv', legX + 76, 16);
+    ctx.fillText('upload-heavy', legX + 76, 16);
     ctx.fillStyle = PALETTE.recv;
     ctx.fillRect(legX + 148, 8, 10, 8);
     ctx.fillStyle = PALETTE.text;
