@@ -14,6 +14,7 @@ const Table = (() => {
   let _selected = null;
   let _onSelect    = null;
   let _onCtx       = null;
+  let _enterTimer  = 0;
 
   // Row height is pinned in archer.css (#findings-tbody > tr:not([aria-hidden])
   // { height: 32px }). Using a constant here — and a CSS rule there — keeps
@@ -241,9 +242,26 @@ const Table = (() => {
     const wrap  = tbody && tbody.closest('.table-wrap');
     // Default: reset scroll on load — fresh data should land the analyst
     // at the top. opts.preserveScroll skips that reset, used by the
-    // append/Load-more path so analysts stay where they were reading.
-    if (wrap && !(opts && opts.preserveScroll)) wrap.scrollTop = 0;
+    // in-place reload path so analysts stay where they were reading.
+    if (wrap && !(opts && opts.preserveScroll)) {
+      wrap.scrollTop = 0;
+      const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (tbody && !reduced) {
+        tbody.classList.add('rows-enter');
+        clearTimeout(_enterTimer);
+        _enterTimer = setTimeout(() => tbody.classList.remove('rows-enter'), 700);
+      }
+    }
     _render();
+  }
+
+  function flash(id) {
+    const tr = document.querySelector('#findings-tbody tr[data-id="' + id + '"]');
+    if (!tr) return;
+    tr.classList.remove('flash-new');
+    void tr.offsetWidth;
+    tr.classList.add('flash-new');
+    tr.addEventListener('animationend', () => tr.classList.remove('flash-new'), { once: true });
   }
 
   function update(finding) {
@@ -313,5 +331,5 @@ const Table = (() => {
     });
   }
 
-  return { init, load, update, jumpTo, getSelected };
+  return { init, load, update, jumpTo, getSelected, flash };
 })();

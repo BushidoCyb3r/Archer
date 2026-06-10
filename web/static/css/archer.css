@@ -441,7 +441,6 @@ button, input, select, textarea {
   font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.01em;
-  transition: background .12s, border-color .12s, color .12s;
   white-space: nowrap;
 }
 .sb-btn:hover { background: var(--accent-hover); }
@@ -466,6 +465,20 @@ button, input, select, textarea {
 .sb-btn-pause:hover { background: var(--bg-elev-3); color: var(--fg-primary); }
 .sb-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .sb-btn.full { flex: none; width: calc(100% - 28px); margin: 0 14px 4px; display: block; }
+.sb-btn, .action-btn, .dlg-btn {
+  transition: background var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
+}
+.sb-btn:active:not(:disabled),
+.action-btn:active:not(:disabled),
+.dlg-btn:active:not(:disabled) { transform: scale(0.97); }
+.sb-btn:focus-visible, .action-btn:focus-visible, .dlg-btn:focus-visible, .view-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.sb-btn:not(.dim):not(:disabled):hover { box-shadow: 0 0 0 3px var(--accent-soft); }
 
 .logs-tree {
   flex: 0 0 auto;
@@ -670,14 +683,16 @@ button, input, select, textarea {
   letter-spacing: 0.01em;
   border-radius: var(--radius-sm);
   text-align: left;
-  transition: background .12s, color .12s, border-color .12s;
+  transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 }
 .view-btn:hover { background: var(--bg-elev-2); color: var(--fg-primary); }
+@keyframes tab-pop { from { transform: scale(0.96); } to { transform: none; } }
 .view-btn.active {
   background: var(--accent);
   color: var(--on-accent);
   font-weight: 600;
   border-left-color: var(--accent);
+  animation: tab-pop var(--dur-fast) var(--ease-out);
 }
 .view-btn.active:hover { background: var(--accent-hover); color: var(--on-accent); }
 .view-count {
@@ -994,6 +1009,35 @@ tr.selected.MEDIUM   { box-shadow: inset 3px 0 0 var(--sev-medium),   inset 0 0 
 tr.selected.LOW      { box-shadow: inset 3px 0 0 var(--sev-low),      inset 0 0 0 1px var(--accent-soft); }
 tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 0 1px var(--accent-soft); }
 
+@keyframes row-enter {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: none; }
+}
+#findings-tbody.rows-enter > tr:not([aria-hidden]) {
+  animation: row-enter var(--dur-med) var(--ease-out) backwards;
+}
+#findings-tbody.rows-enter > tr:nth-child(2)  { animation-delay: 30ms; }
+#findings-tbody.rows-enter > tr:nth-child(3)  { animation-delay: 60ms; }
+#findings-tbody.rows-enter > tr:nth-child(4)  { animation-delay: 90ms; }
+#findings-tbody.rows-enter > tr:nth-child(5)  { animation-delay: 120ms; }
+#findings-tbody.rows-enter > tr:nth-child(6)  { animation-delay: 150ms; }
+#findings-tbody.rows-enter > tr:nth-child(7)  { animation-delay: 180ms; }
+#findings-tbody.rows-enter > tr:nth-child(8)  { animation-delay: 210ms; }
+#findings-tbody.rows-enter > tr:nth-child(9)  { animation-delay: 240ms; }
+#findings-tbody.rows-enter > tr:nth-child(10) { animation-delay: 270ms; }
+#findings-tbody.rows-enter > tr:nth-child(11) { animation-delay: 300ms; }
+#findings-tbody.rows-enter > tr:nth-child(12) { animation-delay: 330ms; }
+#findings-tbody.rows-enter > tr:nth-child(13) { animation-delay: 360ms; }
+#findings-tbody.rows-enter > tr:nth-child(14) { animation-delay: 390ms; }
+#findings-tbody.rows-enter > tr:nth-child(15) { animation-delay: 420ms; }
+#findings-tbody.rows-enter > tr:nth-child(n+16) { animation: none; }
+
+@keyframes flash-new {
+  0%   { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+  100% { background: transparent; box-shadow: none; }
+}
+#findings-tbody tr.flash-new { animation: flash-new 1.2s ease-out both; }
+
 /* ============================================================================
    Detail pane
 ============================================================================ */
@@ -1260,7 +1304,6 @@ body.dock-resizing {
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  transition: background .12s, color .12s, border-color .12s;
 }
 .action-btn:hover:not(:disabled) {
   background: var(--bg-elev-3);
@@ -1761,6 +1804,16 @@ dialog::backdrop {
   backdrop-filter: blur(2px);
 }
 
+/* Drag positions via inline left/top (dialog.js); a grab during the 250ms
+   entrance drags a slightly scaled rect — accepted. */
+@keyframes dlg-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+dialog[open] { animation: dlg-in var(--dur-med) var(--ease-out); }
+@keyframes backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+dialog[open]::backdrop { animation: backdrop-in var(--dur-med) ease; }
+
 /* ============================================================================
    Graph dialog (Cytoscape.js)
 ============================================================================ */
@@ -2014,7 +2067,6 @@ dialog::backdrop {
   font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.01em;
-  transition: background .12s, color .12s, border-color .12s;
 }
 .dlg-btn.primary { background: var(--accent); color: var(--on-accent); }
 .dlg-btn.primary:hover { background: var(--accent-hover); }

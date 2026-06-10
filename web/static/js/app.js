@@ -412,6 +412,25 @@
     } catch (_) { return false; }
   }
 
+  function _tickValue(from, to, p) {
+    return Math.round(from + (to - from) * Math.max(0, Math.min(1, p)));
+  }
+
+  function _animateCount(el, to) {
+    if (!el) return;
+    const raw = el.textContent.replace(/[^\d-]/g, '');
+    const from = parseInt(raw, 10);
+    const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (isNaN(from) || from === to || reduced) { el.textContent = Number(to).toLocaleString(); return; }
+    const t0 = performance.now(), DUR = 240;
+    const step = now => {
+      const p = Math.min(1, (now - t0) / DUR);
+      el.textContent = Number(_tickValue(from, to, 1 - Math.pow(1 - p, 2))).toLocaleString();
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
   function api(url, opts = {}) {
     return fetch(url, opts).then(r => {
       if (!r.ok) {
@@ -814,23 +833,32 @@
   // Campaigns and Hosts read from the aggregate cache once it's loaded
   // (dash until then, since those counts aren't in the counts endpoint).
   function _updateViewBadges() {
-    const set = (id, val) => {
+    const set = (id, n) => {
       const el = document.getElementById('view-count-' + id);
-      if (el) el.textContent = val;
+      if (!el) return;
+      if (n === null || n === undefined || !_countsLoaded) { el.textContent = '—'; return; }
+      _animateCount(el, Number(n) || 0);
     };
     const ts = _tabState;
-    const fmt = n => _countsLoaded ? Number(n || 0).toLocaleString() : '—';
-    set('findings', fmt(ts.findings.total));
-    set('ack', fmt(ts.ack.total));
-    set('esc', fmt(ts.esc.total));
-    set('ioc', fmt(ts.ioc.total));
-    set('dismissed', fmt(ts.dismissed.total));
+    set('findings', ts.findings.total);
+    set('ack', ts.ack.total);
+    set('esc', ts.esc.total);
+    set('ioc', ts.ioc.total);
+    set('dismissed', ts.dismissed.total);
     // Campaigns/Hosts chips are server-driven (same /api/findings/counts call
     // as the status chips), so they stay live on every filter change without
     // building the lazy client aggregate. "—" only until the first counts
     // response arrives.
-    set('campaigns', _viewBadgeCounts.campaigns == null ? '—' : Number(_viewBadgeCounts.campaigns).toLocaleString());
-    set('hosts', _viewBadgeCounts.hosts == null ? '—' : Number(_viewBadgeCounts.hosts).toLocaleString());
+    const campsEl = document.getElementById('view-count-campaigns');
+    const hostsEl = document.getElementById('view-count-hosts');
+    if (campsEl) {
+      if (_viewBadgeCounts.campaigns == null) campsEl.textContent = '—';
+      else _animateCount(campsEl, Number(_viewBadgeCounts.campaigns));
+    }
+    if (hostsEl) {
+      if (_viewBadgeCounts.hosts == null) hostsEl.textContent = '—';
+      else _animateCount(hostsEl, Number(_viewBadgeCounts.hosts));
+    }
   }
 
   // Fetch IOC list into _iocSet; re-applies tab filter if IOC tab is active.
@@ -5199,6 +5227,7 @@
           _selectedFinding = f;
           Detail.render(f);
           Table.jumpTo(f.id);
+          Table.flash(f.id);
         }
       },
     });
@@ -5315,6 +5344,7 @@
       Detail.render(target);
       if (positionFound) {
         Table.jumpTo(findingId);
+        Table.flash(findingId);
       } else {
         // The notification's row is filtered out of every listing
         // (typical cause: src or dst was added to the allowlist or
