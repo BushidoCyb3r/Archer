@@ -37,7 +37,9 @@
       width: 100%;
       max-width: 400px;
       box-shadow: var(--shadow-lg);
+      animation: card-in 0.35s var(--ease-out) backwards;
     }
+    @keyframes card-in { from { opacity: 0; transform: translateY(8px); } }
 
     .brand {
       text-align: center;
@@ -96,7 +98,8 @@
     input[type="email"]:focus,
     input[type="password"]:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 2px var(--accent-soft);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+      outline: none;
     }
     input::placeholder { color: var(--fg-muted); opacity: 1; }
 
@@ -139,6 +142,15 @@
     }
     .footer a { color: var(--accent); text-decoration: none; font-weight: 500; }
     .footer a:hover { color: var(--accent-hover); text-decoration: underline; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
   </style>
 </head>
 <body>

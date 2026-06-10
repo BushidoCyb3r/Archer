@@ -1136,7 +1136,7 @@ body.dock-resizing {
   font-size: 13px;
   font-weight: 600;
   color: var(--fg-muted);
-  letter-spacing: 0.12em;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   flex: 1;
   min-width: 0;
@@ -1230,22 +1230,23 @@ body.dock-resizing {
 }
 .ds-section + .ds-section {
   border-top: 1px solid var(--border-subtle);
-  padding-top: 8px;
+  padding-top: 14px;
 }
 .ds-section-title {
+  font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: .06em;
   text-transform: uppercase;
-  color: var(--fg-dim);
-  margin-bottom: 4px;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  margin: 0 0 6px;
 }
 .ds-row {
   display: flex;
   gap: 6px;
   min-height: 18px;
 }
-.ds-row + .ds-row { margin-top: 1px; }
+.ds-row + .ds-row { margin-top: 4px; }
 .ds-key {
   flex-shrink: 0;
   width: 128px;
@@ -1894,7 +1895,7 @@ dialog[open]::backdrop { animation: backdrop-in var(--dur-med) ease; }
 #graph-loading.visible { display: flex; }
 
 .dlg-header {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.02em;
   padding: 14px 22px 12px;

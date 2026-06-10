@@ -38,6 +38,7 @@ relevant, `### Detection changes` in each release entry.
 - Campaign graph: severity halo-ring nodes, internal/external shape encoding, finding-count badges, hover neighborhood focus, animated fit/relayout.
 - Shell motion: staggered row entrance, new-finding flash, animated count chips, dialog/button/tab transitions.
 - Loading states: skeleton rows on cold loads, busy-state buttons on network actions, smoother analyze progress bar.
+- Detail pane hierarchy, uniform dialog chrome, login/register entrance and focus polish.
 
 ## [v0.67.0] — 2026-06-10
 
