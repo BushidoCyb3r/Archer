@@ -32,6 +32,11 @@ relevant, `### Detection changes` in each release entry.
 
 ### Security
 
+- **Logout now records an audit row.** `/logout` is a bare route with no
+  user in the request context, so the handler's audit branch (which read
+  `userFromCtx`, always the zero user there) never fired — logout events were
+  absent from the audit trail. The handler now resolves the logging-out user
+  from the session cookie before clearing it.
 - **Viewers can no longer dismiss notifications.** Notification dismissal is
   store-global, so a read-only viewer could clear live CRITICAL / TI /
   unauthorized-sensor alerts for every analyst. `POST /api/notifications`

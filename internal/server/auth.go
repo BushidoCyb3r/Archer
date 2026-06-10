@@ -210,11 +210,17 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 // without inferring end-times from the absence of subsequent
 // activity.
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	// Snapshot the user before the cookie is cleared so the audit
-	// row captures who logged out.
-	u := userFromCtx(r)
+	// /logout is a bare route (no requireAuth), so the request context carries
+	// no user — resolve who is logging out from the session cookie before the
+	// session is deleted. Pre-fix this read userFromCtx, which is always the
+	// zero User here, so the `u.ID != 0` audit branch below never fired and
+	// logout events were silently absent from the trail.
+	var u model.User
 	c, err := r.Cookie(sessionCookie)
 	if err == nil {
+		if su, ok := s.users.GetSession(c.Value); ok {
+			u = su
+		}
 		s.users.DeleteSession(c.Value)
 	}
 	// All security-relevant attributes (Secure, HttpOnly, SameSite)
