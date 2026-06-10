@@ -25,6 +25,7 @@ const Table = (() => {
   const COL_COUNT = 11;    // matches thead column count for spacer colspan
   let _lastStart = -1;     // remember last window so we can skip no-op renders
   let _lastEnd   = -1;
+  let _skeleton  = false;  // true while shimmer rows are displayed; suppresses empty-state clear
 
   const SEV_ORDER = {CRITICAL:0, HIGH:1, MEDIUM:2, LOW:3, INFO:4};
 
@@ -137,6 +138,7 @@ const Table = (() => {
 
     const total = _sorted.length;
     if (total === 0) {
+      if (_skeleton) return;
       tbody.innerHTML = '';
       _lastStart = _lastEnd = -1;
       return;
@@ -237,6 +239,7 @@ const Table = (() => {
   }
 
   function load(findings, opts) {
+    _skeleton = false;
     _findings = findings || [];
     const tbody = document.getElementById('findings-tbody');
     const wrap  = tbody && tbody.closest('.table-wrap');
@@ -272,6 +275,21 @@ const Table = (() => {
   }
 
   function getSelected() { return _selected; }
+
+  function showSkeleton(n) {
+    const tbody = document.getElementById('findings-tbody');
+    if (!tbody) return;
+    _findings = [];
+    _sorted = [];
+    _skeleton = true;
+    _lastStart = _lastEnd = -1;
+    const parts = [];
+    for (let i = 0; i < (n || 10); i++) {
+      parts.push('<tr class="skel-row" aria-hidden="true"><td colspan="' + COL_COUNT +
+        '"><span class="skel-bar" style="width:' + (55 + ((i * 17) % 40)) + '%"></span></td></tr>');
+    }
+    tbody.innerHTML = parts.join('');
+  }
 
   function jumpTo(id) {
     const idx = _sorted.findIndex(f => f.id === id);
@@ -331,5 +349,5 @@ const Table = (() => {
     });
   }
 
-  return { init, load, update, jumpTo, getSelected, flash };
+  return { init, load, update, jumpTo, getSelected, flash, showSkeleton };
 })();

@@ -480,6 +480,25 @@ button, input, select, textarea {
 }
 .sb-btn:not(.dim):not(:disabled):hover { box-shadow: 0 0 0 3px var(--accent-soft); }
 
+.busy { position: relative; pointer-events: none; padding-right: 26px; }
+.busy::after {
+  content: "";
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin-top: -6px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: busy-spin 0.7s linear infinite;
+}
+@keyframes busy-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .busy::after { animation: none; border-top-color: currentColor; opacity: 0.4; }
+}
+
 .logs-tree {
   flex: 0 0 auto;
   overflow-y: auto;
@@ -504,9 +523,13 @@ button, input, select, textarea {
 #progress-bar::-webkit-progress-value {
   background: linear-gradient(90deg, var(--accent), var(--accent-hover));
   border-radius: 2px;
-  transition: width .25s;
+  transition: width var(--dur-med) var(--ease-out);
 }
-#progress-bar::-moz-progress-bar { background: var(--accent); border-radius: 2px; }
+#progress-bar::-moz-progress-bar {
+  background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+  border-radius: 2px;
+  transition: width var(--dur-med) var(--ease-out);
+}
 
 .ti-label {
   font-size: 14px;
@@ -1037,6 +1060,23 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
   100% { background: transparent; box-shadow: none; }
 }
 #findings-tbody tr.flash-new { animation: flash-new 1.2s ease-out both; }
+
+.skel-row td { padding: 9px 10px; border-bottom: 1px solid var(--border-subtle); }
+.skel-bar {
+  display: block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--bg-elev-2) 25%, var(--bg-elev-3) 45%, var(--bg-elev-2) 65%);
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.2s linear infinite;
+}
+@keyframes skel-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skel-bar { animation: none; }
+}
 
 /* ============================================================================
    Detail pane

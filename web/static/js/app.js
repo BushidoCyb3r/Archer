@@ -394,6 +394,14 @@
     return _legacyCopy(text);
   }
 
+  function _busyWhile(btn, p) {
+    if (!btn) return Promise.resolve(p);
+    btn.classList.add('busy');
+    btn.disabled = true;
+    const done = () => { btn.classList.remove('busy'); btn.disabled = false; };
+    return Promise.resolve(p).then(v => { done(); return v; }, e => { done(); throw e; });
+  }
+
   function _legacyCopy(text) {
     try {
       const ta = document.createElement('textarea');
@@ -475,6 +483,10 @@
       ts.offset = Math.max(0, opts.gotoOffset);
     } else {
       ts.offset = 0;
+    }
+
+    if (_isFindingsTab(_tabMode) && !ts.loaded && !opts.preserveScroll) {
+      Table.showSkeleton();
     }
 
     const merged = Object.assign({}, params, {
@@ -2875,7 +2887,7 @@
       _escDlg.showModal();
 
       // Attach confirm handler — replace each time to capture current finding
-      document.getElementById('esc-dlg-confirm').onclick = async () => {
+      document.getElementById('esc-dlg-confirm').onclick = async function() {
         const note = _escNote.value.trim();
         const ips = [];
         if (f.dst_ip && _checked('esc-ip-dst'))  ips.push(f.dst_ip);
@@ -3503,40 +3515,43 @@
       dlg.showModal();
     });
     document.getElementById('settings-cancel').addEventListener('click', () => dlg.close());
-    document.getElementById('settings-save').addEventListener('click', async () => {
-      try {
-        const payload = _collectSettings();
-        await api('/api/config', {
-          method: 'PUT',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(payload),
-        });
-        await api('/api/archive', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(_collectArchive()),
-        });
-        // Refresh the in-memory org CIDR list and rebuild the Hosts panel so
-        // the new filter is reflected without a page reload. Honor the
-        // active per-tab pagination so this re-render doesn't dump
-        // every row into the DOM.
-        _orgCIDRs = Array.isArray(payload.org_internal_cidrs) ? payload.org_internal_cidrs : [];
-        Campaigns.build(_allFindings, {
-          campaignsOffset: _aggTabState.campaigns.offset,
-          campaignsLimit:  _pageSize,
-          hostsOffset:     _aggTabState.hosts.offset,
-          hostsLimit:      _pageSize,
-        });
-        _aggTabState.campaigns.total = Campaigns.getCampaigns().length;
-        _aggTabState.hosts.total     = Campaigns.getHosts().length;
-        _clampAggOffset(_aggTabState.campaigns);
-        _clampAggOffset(_aggTabState.hosts);
-        _updatePaginationFooter();
-        setStatus('Settings saved');
-      } catch (e) {
-        setStatus('Error: ' + e);
-      }
-      dlg.close();
+    document.getElementById('settings-save').addEventListener('click', function() {
+      _busyWhile(this, (async () => {
+        try {
+          const payload = _collectSettings();
+          await api('/api/config', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+          });
+          await api('/api/archive', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(_collectArchive()),
+          });
+          // Refresh the in-memory org CIDR list and rebuild the Hosts panel so
+          // the new filter is reflected without a page reload. Honor the
+          // active per-tab pagination so this re-render doesn't dump
+          // every row into the DOM.
+          _orgCIDRs = Array.isArray(payload.org_internal_cidrs) ? payload.org_internal_cidrs : [];
+          Campaigns.build(_allFindings, {
+            campaignsOffset: _aggTabState.campaigns.offset,
+            campaignsLimit:  _pageSize,
+            hostsOffset:     _aggTabState.hosts.offset,
+            hostsLimit:      _pageSize,
+          });
+          _aggTabState.campaigns.total = Campaigns.getCampaigns().length;
+          _aggTabState.hosts.total     = Campaigns.getHosts().length;
+          _clampAggOffset(_aggTabState.campaigns);
+          _clampAggOffset(_aggTabState.hosts);
+          _updatePaginationFooter();
+          setStatus('Settings saved');
+        } catch (e) {
+          setStatus('Error: ' + e);
+        } finally {
+          dlg.close();
+        }
+      })());
     });
 
     // DB backup: anchor click against /api/admin/backup so the browser
