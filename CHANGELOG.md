@@ -30,6 +30,15 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Watch fires at the right wall-clock time across DST transitions.** The
+  next-occurrence calculation rolled to the next day with `Add(24h)`, which is
+  an hour off on the spring-forward / fall-back day (that day isn't 24 hours
+  long) — a 03:00 daily watch would fire at 04:00 the day after the change. The
+  daily and interval schedules now reconstruct the wall-clock slot with
+  calendar arithmetic, which resolves DST correctly.
+
 ### Detection changes
 
 - **DNS Subdomain DGA no longer counts a bare-apex query as a subdomain on

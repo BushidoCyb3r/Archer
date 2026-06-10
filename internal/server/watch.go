@@ -153,12 +153,20 @@ func nextOccurrence(hhmm string, loc *time.Location) (time.Time, error) {
 	if !parseHHMM(hhmm, &h, &m) {
 		return time.Time{}, fmt.Errorf("invalid watch time %q", hhmm)
 	}
-	now := time.Now().In(loc)
+	return nextDailyFrom(time.Now().In(loc), h, m, loc), nil
+}
+
+// nextDailyFrom is the testable core of nextOccurrence: the next wall-clock
+// HH:MM at or after now, in loc. Rolling to tomorrow uses calendar arithmetic
+// (time.Date with day+1) rather than Add(24h) so the run stays at the chosen
+// wall-clock time across DST transitions — a flat 24h add lands an hour off on
+// the spring-forward / fall-back day because that day isn't 24 hours long.
+func nextDailyFrom(now time.Time, h, m int, loc *time.Location) time.Time {
 	next := time.Date(now.Year(), now.Month(), now.Day(), h, m, 0, 0, loc)
 	if !next.After(now) {
-		next = next.Add(24 * time.Hour)
+		next = time.Date(now.Year(), now.Month(), now.Day()+1, h, m, 0, 0, loc)
 	}
-	return next, nil
+	return next
 }
 
 // nextOccurrenceInterval returns the next scheduled tick. interval==0 (or
@@ -184,8 +192,13 @@ func nextOccurrenceInterval(hhmm string, interval int, loc *time.Location) (time
 	// E.g. interval=4, HH=10 → anchor=2, so runs are 02, 06, 10, 14, 18, 22.
 	anchor := h % interval
 	candidate := time.Date(now.Year(), now.Month(), now.Day(), anchor, m, 0, 0, loc)
+	// Advance by reconstructing the wall-clock slot via time.Date (which
+	// normalizes hour overflow into the next day and resolves DST) rather than
+	// Add(interval*hour), so the anchored slots stay on their wall-clock hours
+	// across a DST transition instead of drifting an hour.
 	for !candidate.After(now) {
-		candidate = candidate.Add(time.Duration(interval) * time.Hour)
+		anchor += interval
+		candidate = time.Date(now.Year(), now.Month(), now.Day(), anchor, m, 0, 0, loc)
 	}
 	return candidate, nil
 }
