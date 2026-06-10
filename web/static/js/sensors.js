@@ -348,9 +348,15 @@ const Sensors = (() => {
 
   function _copyToken() {
     const ta = document.getElementById('sensors-token-oneliner');
-    ta.select();
-    try { document.execCommand('copy'); } catch (e) {}
-    if (typeof setStatus === 'function') setStatus('Install command copied');
+    const done = () => { if (typeof setStatus === 'function') setStatus('Install command copied'); };
+    const fallback = () => { ta.select(); try { document.execCommand('copy'); done(); } catch (e) {} };
+    // Prefer the async Clipboard API (available in Archer's TLS-only secure
+    // context); fall back to execCommand for a non-secure dev context.
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(ta.value).then(done).catch(fallback);
+    } else {
+      fallback();
+    }
   }
 
   async function _doDisenroll(id, name) {

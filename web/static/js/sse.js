@@ -4,6 +4,11 @@
 const SSE = (() => {
   let _es = null;
   const _handlers = {};
+  // Reconnect backoff: start at 1s, double to a 30s cap, reset on a clean
+  // open. A fixed-interval retry hammered a down server every 2s per open tab.
+  const _retryBaseMs = 1000;
+  const _retryMaxMs = 30000;
+  let _retryMs = _retryBaseMs;
 
   function on(type, fn) {
     if (!_handlers[type]) _handlers[type] = [];
@@ -27,13 +32,14 @@ const SSE = (() => {
     _es = new EventSource('/events');
     _attachListeners(_es);
 
-    _es.onopen  = () => _emit('open', {});
+    _es.onopen  = () => { _retryMs = _retryBaseMs; _emit('open', {}); };
     _es.onerror = () => {
       _emit('error', {});
       const old = _es;
       _es = null;
       old.close();
-      setTimeout(connect, 2000);
+      setTimeout(connect, _retryMs);
+      _retryMs = Math.min(_retryMs * 2, _retryMaxMs);
     };
   }
 
