@@ -15,7 +15,7 @@ already know how attackers tune their beacons in 2026 — that's
 covered below.
 
 The current edition focuses on the **Beacon** detection family
-(Archer's headline detection — see CLAUDE.md). The same shape
+(Archer's headline detection — see DETECTION_METHODS.md §2). The same shape
 applies to other detector families; per-family triage sections
 for HTTP Beacon, Suspicious Certificate, DNS Tunneling, Data
 Exfiltration, Off-Hours Transfer, and Long Connection will land

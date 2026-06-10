@@ -234,7 +234,7 @@ Run through this before exposing Archer to a multi-user team.
 ### Releases with `### Breaking` notes in CHANGELOG
 
 Read the release notes first. The known breaking-change categories
-(per CLAUDE.md) are:
+(see the Versioning preamble in CHANGELOG.md) are:
 
 - **HTTP/SSE API contract** — external scripts may need updates.
 - **DB schema** — migrations apply automatically; no manual step.
