@@ -485,7 +485,8 @@
       ts.offset = 0;
     }
 
-    if (_isFindingsTab(_tabMode) && !ts.loaded && !opts.preserveScroll) {
+    if (_isFindingsTab(_tabMode) && !ts.loaded && !opts.preserveScroll &&
+        !document.querySelector('#findings-tbody tr[data-id]')) {
       Table.showSkeleton();
     }
 
@@ -494,13 +495,20 @@
       offset: String(paginated ? ts.offset : 0),
     });
     const qs = new URLSearchParams(merged).toString();
-    const r = await fetch('/api/findings' + (qs ? '?' + qs : ''));
+    let r;
+    try {
+      r = await fetch('/api/findings' + (qs ? '?' + qs : ''));
+    } catch (e) {
+      Table.clearSkeleton();
+      throw e;
+    }
     if (!r.ok) {
       // A bad query (unknown field, malformed syntax, unknown finding type)
       // is the only 400 this endpoint returns. Surface it as a red toast and
-      // keep the prior results on screen rather than throwing an unhandled
-      // rejection that leaves the analyst with no feedback.
-      if (await _surfaceQueryError(r)) return;
+      // keep the prior results on screen. On a cold view (no rows yet) that
+      // means an empty table; on a loaded view the prior rows stay visible.
+      if (await _surfaceQueryError(r)) { Table.clearSkeleton(); return; }
+      Table.clearSkeleton();
       throw (r.statusText);
     }
     hideQueryError();
@@ -2887,7 +2895,7 @@
       _escDlg.showModal();
 
       // Attach confirm handler — replace each time to capture current finding
-      document.getElementById('esc-dlg-confirm').onclick = async function() {
+      document.getElementById('esc-dlg-confirm').onclick = async () => {
         const note = _escNote.value.trim();
         const ips = [];
         if (f.dst_ip && _checked('esc-ip-dst'))  ips.push(f.dst_ip);

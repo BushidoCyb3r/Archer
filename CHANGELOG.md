@@ -37,7 +37,7 @@ relevant, `### Detection changes` in each release entry.
 - Score evolution chart: theme-token series colors, area fill, instant hover tooltips replacing native titles.
 - Campaign graph: severity halo-ring nodes, internal/external shape encoding, finding-count badges, hover neighborhood focus, animated fit/relayout.
 - Shell motion: staggered row entrance, new-finding flash, animated count chips, dialog/button/tab transitions.
-- Loading states: skeleton rows on cold loads, busy-state buttons on network actions, smoother analyze progress bar.
+- Loading states: skeleton rows on cold loads, a busy state on settings save, smoother analyze progress bar.
 - Detail pane hierarchy, uniform dialog chrome, login/register entrance and focus polish.
 
 ## [v0.67.0] — 2026-06-10

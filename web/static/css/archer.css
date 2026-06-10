@@ -1059,7 +1059,7 @@ tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 
   0%   { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
   100% { background: transparent; box-shadow: none; }
 }
-#findings-tbody tr.flash-new { animation: flash-new 1.2s ease-out both; }
+#findings-tbody tr.flash-new { animation: flash-new 1.2s var(--ease-out) both; }
 
 .skel-row td { padding: 9px 10px; border-bottom: 1px solid var(--border-subtle); }
 .skel-bar {
@@ -1853,7 +1853,7 @@ dialog::backdrop {
 }
 dialog[open] { animation: dlg-in var(--dur-med) var(--ease-out); }
 @keyframes backdrop-in { from { opacity: 0; } to { opacity: 1; } }
-dialog[open]::backdrop { animation: backdrop-in var(--dur-med) ease; }
+dialog[open]::backdrop { animation: backdrop-in var(--dur-med) var(--ease-out); }
 
 /* ============================================================================
    Graph dialog (Cytoscape.js)

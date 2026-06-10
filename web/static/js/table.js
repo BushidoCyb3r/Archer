@@ -291,6 +291,14 @@ const Table = (() => {
     tbody.innerHTML = parts.join('');
   }
 
+  function clearSkeleton() {
+    if (!_skeleton) return;
+    const tbody = document.getElementById('findings-tbody');
+    _skeleton = false;
+    if (tbody) tbody.innerHTML = '';
+    _lastStart = _lastEnd = -1;
+  }
+
   function jumpTo(id) {
     const idx = _sorted.findIndex(f => f.id === id);
     if (idx < 0) return;
@@ -349,5 +357,5 @@ const Table = (() => {
     });
   }
 
-  return { init, load, update, jumpTo, getSelected, flash, showSkeleton };
+  return { init, load, update, jumpTo, getSelected, flash, showSkeleton, clearSkeleton };
 })();
