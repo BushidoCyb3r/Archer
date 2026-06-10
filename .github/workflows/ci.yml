@@ -1,14 +1,16 @@
 name: ci
 
 # Pre-merge gate for the main branch. Runs on every push to main and on
-# every pull request targeting main. Three independent jobs:
+# every pull request targeting main. Jobs:
 #
-#   - lint:   gofmt + go vet, fast feedback on formatting / static issues
-#   - test:   go test -race, exercises the full unit + handler suite
-#   - build:  CGO_ENABLED=0 go build, plus a docker build smoke check
+#   - lint:     gofmt + go vet, fast feedback on formatting / static issues
+#   - test:     go test -race, exercises the full unit + handler suite
+#   - vuln:     govulncheck, reachability-based vulnerability scan
+#   - js-test:  node --test over the dependency-free SPA test harness
+#   - build:    CGO_ENABLED=0 go build, plus a docker build smoke check
 #
-# Each job uses the Go version pinned in go.mod (currently 1.25) so the
-# CI compiler matches what `./start.sh` produces locally.
+# Each Go job uses the version pinned in go.mod (currently 1.25) so the CI
+# compiler matches what `./start.sh` produces locally.
 
 on:
   push:
@@ -105,6 +107,22 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
           "$(go env GOPATH)/bin/govulncheck" ./...
+
+  js-test:
+    name: js unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Run JS tests
+        # The SPA has no build step and no npm dependencies; the test harness
+        # is dependency-free too — Node's built-in runner (node:test +
+        # node:assert + vm) loading the browser IIFE modules directly. Uses
+        # the runner's preinstalled Node (>=18 for the built-in test runner),
+        # so no setup-node action and no extra pinned dependency. See
+        # web/test/load.js for how modules are loaded without a build.
+        run: node --test web/test/*.test.js
 
   build:
     name: build (binary + docker)
