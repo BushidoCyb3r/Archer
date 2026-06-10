@@ -30,6 +30,10 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Changed
+
+- UI polish: motion/easing design tokens and a global prefers-reduced-motion guard.
+
 ## [v0.67.0] — 2026-06-10
 
 ### Added

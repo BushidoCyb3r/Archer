@@ -2795,3 +2795,16 @@ a.attack-chip:hover { background: var(--accent-glow); }
    Auth pages (login / register) — inherit base typography automatically.
    No extra rules needed; the templates pick up the body font + colors.
 ============================================================================ */
+
+/* ── Motion off-switch ──────────────────────────────────────────────────────
+   Single global guard for everything the polish pass animates. JS-driven
+   animation (canvas draw-in, count tickers, cytoscape animated fit) is
+   expected to check matchMedia('(prefers-reduced-motion: reduce)') itself. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

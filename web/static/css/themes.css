@@ -65,6 +65,16 @@
   --radius:         5px;
   --radius-lg:      8px;
 
+  /* Motion (theme-independent) */
+  --dur-fast:       120ms;
+  --dur-med:        250ms;
+  --dur-slow:       400ms;
+  --ease-out:       cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Chart series (skins may override; defaults read on all dark/light bases) */
+  --chart-3:        #f0a040;
+  --chart-4:        #8ec07c;
+
   /* Shadows (dark-skin default; light skins override these in their block) */
   --shadow-sm:      0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md:      0 4px 12px rgba(0, 0, 0, 0.5);
