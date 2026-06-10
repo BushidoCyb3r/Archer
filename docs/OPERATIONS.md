@@ -160,6 +160,12 @@ Run through this before exposing Archer to a multi-user team.
       `feed_create` / `feed_update` audit rows so a later
       reviewer can prove who opted which feed in — keep the
       audit log under retention to preserve that trail.
+- [ ] If SIEM forwarding is enabled (Settings → SIEM, or the
+      `siem_enabled` / `siem_host` / `siem_port` config keys),
+      allow UDP egress from the Archer host to `<siem_host>:<siem_port>`
+      (default port 9003). Forwarding is best-effort bare CEF over
+      UDP, so a blocked path fails silently — there is no delivery
+      error surfaced to the analyst who escalated.
 
 ### Secrets
 

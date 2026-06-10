@@ -1,7 +1,7 @@
 # QUICKSTART_OPS — Archer deployment TL;DR
 
 > Triage doc for the deploying engineer. The full operator runbook
-> is `OPERATIONS.md` (~600 lines). This is the 5-minute version:
+> is `OPERATIONS.md` (~1,000 lines). This is the 5-minute version:
 > what to run, what to test, what to know before you put it in
 > front of analysts.
 >
@@ -33,7 +33,7 @@
 # 1-4: clone + start
 git clone https://github.com/BushidoCyb3r/Archer.git
 cd Archer
-./start.sh                                      # builds image, derives CPU/RAM, brings up the stack
+sudo ./start.sh                                 # builds image, derives CPU/RAM, brings up the stack
 docker compose ps                               # confirm 'archer' is Up
 
 # 5-7: first login
@@ -49,14 +49,18 @@ docker compose ps                               # confirm 'archer' is Up
 ```
 
 After this you have a working Archer. The **Analyze** button lands in
-the top toolbar once Zeek logs start arriving in `/logs/<sensor>/`.
+the left sidebar once Zeek logs start arriving in `/logs/<sensor>/`.
 
 ---
 
 ## Restore (5 commands)
 
-If you're recovering on a fresh host from a database backup +
-TLS-material backup:
+For an in-place restore on the same host, prefer the `restore.sh`
+script (confirmed swap of a snapshot into `archer-data`; clears stale
+WAL/SHM; leaves `/data/tls/` and the other volumes untouched so sensor
+pinning survives) — see OPERATIONS.md → Backup and restore. The manual
+flow below is for **fresh-host** recovery, where you also have to carry
+the TLS material across:
 
 ```sh
 # 1-2: stop and wipe the data volume on the new host
@@ -128,7 +132,7 @@ symptom→first-step table.
 
 ## Where the full doc lives
 
-- **OPERATIONS.md** (~600 lines) — threat model, hardening
+- **OPERATIONS.md** (~1,000 lines) — threat model, hardening
   checklist, upgrade procedure, full backup/restore procedure,
   sensor lifecycle, user offboarding, audit log schema, TLS
   rotation, scope decisions.
@@ -139,7 +143,7 @@ symptom→first-step table.
   escalation criteria. Read this with your analyst hat on.
 - **docs/ARCHITECTURE.md** — internals, dataflow, store schema.
 - **docs/DETECTION_METHODS.md** — analyst-facing description of
-  the 12 detector families. The math behind each finding type.
+  the detector families. The math behind each finding type.
 - **docs/QUIVER.md** — Quiver sensor protocol and operations.
 
 Bookmark OPERATIONS.md for the questions that come up after the
