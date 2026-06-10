@@ -476,6 +476,20 @@
     const page = await r.json();
     ts.total   = parseInt(r.headers.get('X-Total-Count') || '0', 10) || 0;
     ts.findings = Array.isArray(page) ? page : [];
+
+    // If a curate/dismiss action emptied the current page but rows remain
+    // (e.g. dismissing the only finding on the last page), the server returns
+    // an empty page for an offset past the end and the footer renders an
+    // impossible "N–N+0" range. Snap to the last populated page and refetch
+    // once. Mirrors _clampAggOffset for the aggregate tabs; guarded against
+    // re-looping with opts._clamped.
+    if (paginated && !opts._clamped && ts.findings.length === 0 && ts.total > 0 && ts.offset > 0) {
+      const lastPageOffset = Math.max(0, Math.floor((ts.total - 1) / _pageSize) * _pageSize);
+      if (lastPageOffset < ts.offset) {
+        return loadFindings(params, Object.assign({}, opts, { gotoOffset: lastPageOffset, _clamped: true }));
+      }
+    }
+
     ts.loaded = true;
 
     _allFindings = ts.findings;

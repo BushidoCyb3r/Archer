@@ -65,6 +65,11 @@ relevant, `### Detection changes` in each release entry.
 
 ### Fixed
 
+- **Dismissing the last finding on the last page no longer strands you on a
+  blank page.** A curate/dismiss action that emptied the current page left the
+  analyst on an empty page with an impossible "N–N+0" footer (findings tabs
+  didn't clamp the offset the way the aggregate tabs already do). The findings
+  loader now snaps to the last populated page and refetches.
 - **Findings sort is now a stable total order.** The descending comparator
   returned `!less`, which for tied keys (Score is the default sort and heavily
   tied) reported both `a<b` and `b<a` — not a strict weak ordering, so tie
