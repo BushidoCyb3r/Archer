@@ -12,6 +12,7 @@ import "testing"
 //   - Hostname/URI enter the key ONLY for "HTTP Beacon";
 //   - Channel enters the key for ANY type when non-empty (the per-channel
 //     beacon discriminator), and is absent when empty.
+//
 // If this test fails, the change to Fingerprint() was deliberate — update the
 // expectations AND add a `### Breaking` CHANGELOG entry per RELEASING.md.
 func TestFingerprint_KeyComposition(t *testing.T) {
