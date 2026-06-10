@@ -1865,12 +1865,11 @@
   // after a list-mutating action (allowlist/IOC/suppress, dismiss, status
   // change) without losing the analyst's place: same tab, same page, same
   // scroll position. The curated rows drop out and the rest shift up.
-  // opts.counts also refreshes the per-status totals — a status change moves
-  // a finding between tabs, so the info line and sidebar badges need
-  // reconciling; curate-in-place actions leave the status untouched and skip
-  // it.
-  async function _reloadFindingsInPlace(opts) {
-    const refreshCounts = !!(opts && opts.counts);
+  // Always refreshes the per-status totals: _invalidateAllTabs wipes them
+  // and clears _countsLoaded, so any path that skipped the refetch left the
+  // sidebar count pills on their "—" placeholder until the next tab switch
+  // (and curation changes the totals anyway — allowlisted rows drop out).
+  async function _reloadFindingsInPlace() {
     if (_isAggregateTab(_tabMode)) {
       // Capture the aggregate page offset + scroll before _invalidateAllTabs
       // (which calls _invalidateAggregate) zeroes them, then restore both
@@ -1880,7 +1879,7 @@
       const sc = _aggScrollEl();
       const keepScroll = sc ? sc.scrollTop : 0;
       _invalidateAllTabs();
-      if (refreshCounts) _loadCounts();
+      _loadCounts();
       _aggTabState[key].offset = keepOffset;
       await _ensureAggregate();
       if (sc) sc.scrollTop = keepScroll;
@@ -1889,7 +1888,7 @@
       // offset — otherwise the reload always lands on page 1.
       const keepOffset = _curTab().offset;
       _invalidateAllTabs();
-      if (refreshCounts) _loadCounts();
+      _loadCounts();
       await loadFindings(_currentFilterParams(), { gotoOffset: keepOffset, preserveScroll: true });
     }
   }
@@ -2709,7 +2708,7 @@
       // un-dismiss it leaves the Dismissed tab. Either way the
       // tab needs to refetch so totals + visible rows reconcile —
       // in place, holding the analyst's page and scroll position.
-      await _reloadFindingsInPlace({ counts: true });
+      await _reloadFindingsInPlace();
     } catch (e) { setStatus('Error: ' + e); }
   }
 
@@ -2752,7 +2751,7 @@
         ok++;
       } catch (_) { fail++; }
     }
-    await _reloadFindingsInPlace({ counts: true });
+    await _reloadFindingsInPlace();
     if (fail === 0) setStatus(`Dismissed ${ok} finding${ok === 1 ? '' : 's'} in campaign`);
     else            setStatus(`Dismissed ${ok}, failed ${fail} — re-try to clear remaining`);
   }
@@ -2847,7 +2846,7 @@
         // place so it leaves the current view immediately and the per-status
         // counts reconcile — holding the analyst's page and scroll position —
         // rather than lingering with a check mark until a refresh.
-        await _reloadFindingsInPlace({ counts: true });
+        await _reloadFindingsInPlace();
       } catch (e) { setStatus('Error: ' + e); }
     });
 
@@ -2925,7 +2924,7 @@
           // the Escalated tab immediately, mirroring Ack — reload in place so
           // it leaves the current view and the counts reconcile, holding the
           // analyst's page and scroll position.
-          await _reloadFindingsInPlace({ counts: true });
+          await _reloadFindingsInPlace();
           setStatus(ips.length > 0 ? 'Escalated — TI lookup running in background' : 'Escalated');
         } catch (e) { setStatus('Error: ' + e); }
       };
@@ -4702,6 +4701,7 @@
       // paint stale pre-filter rows before the new fetch lands.
       if (_isAggregateTab(_tabMode)) {
         _invalidateAllTabs();
+        _loadCounts();
         _activateView('findings');
         return;
       }
