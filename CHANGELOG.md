@@ -65,6 +65,12 @@ relevant, `### Detection changes` in each release entry.
 
 ### Fixed
 
+- **Findings sort is now a stable total order.** The descending comparator
+  returned `!less`, which for tied keys (Score is the default sort and heavily
+  tied) reported both `a<b` and `b<a` — not a strict weak ordering, so tie
+  order was undefined and could differ between the findings list and the
+  position lookup, landing the notification "Jump" on the wrong page. Ties now
+  break on finding ID.
 - **Archive no longer deletes the only intact log copy after an interrupted
   run.** If a previous archive pass was killed mid-copy (OOM/power loss) it
   left a truncated file in the archive; the next run saw the destination exists

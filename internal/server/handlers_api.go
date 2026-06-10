@@ -340,24 +340,35 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 // rules used by /api/findings. Shared with the position lookup so the
 // "where is finding X" answer matches the ordering of the listing.
 func sortFindings(findings []model.Finding, sortCol, sortDir string) {
+	// keyLess reports a<b on the chosen column and whether the keys are equal.
+	keyLess := func(a, b model.Finding) (less, equal bool) {
+		switch sortCol {
+		case "severity":
+			oa, ob := severityOrder(a.Severity), severityOrder(b.Severity)
+			return oa < ob, oa == ob
+		case "type":
+			return a.Type < b.Type, a.Type == b.Type
+		case "src_ip":
+			return a.SrcIP < b.SrcIP, a.SrcIP == b.SrcIP
+		case "dst_ip":
+			return a.DstIP < b.DstIP, a.DstIP == b.DstIP
+		case "timestamp":
+			return a.Timestamp < b.Timestamp, a.Timestamp == b.Timestamp
+		default: // "score" and any unknown column
+			return a.Score < b.Score, a.Score == b.Score
+		}
+	}
 	sort.Slice(findings, func(i, j int) bool {
 		a, b := findings[i], findings[j]
-		var less bool
-		switch sortCol {
-		case "score":
-			less = a.Score < b.Score
-		case "severity":
-			less = severityOrder(a.Severity) < severityOrder(b.Severity)
-		case "type":
-			less = a.Type < b.Type
-		case "src_ip":
-			less = a.SrcIP < b.SrcIP
-		case "dst_ip":
-			less = a.DstIP < b.DstIP
-		case "timestamp":
-			less = a.Timestamp < b.Timestamp
-		default:
-			less = a.Score < b.Score
+		less, equal := keyLess(a, b)
+		if equal {
+			// Tied keys get a deterministic tiebreak (ID ascending, both
+			// directions). Without it the descending branch returned `!less`,
+			// which reports a<b AND b<a for equal keys — not a strict weak
+			// ordering, so tie order was undefined and could differ between
+			// the listing and position endpoints, breaking Jump's landing
+			// page. Score is the default sort and heavily tied.
+			return a.ID < b.ID
 		}
 		if sortDir == "asc" {
 			return less
