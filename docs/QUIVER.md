@@ -326,9 +326,9 @@ When you bump from v`N` to v`N+1`:
 
 This means a sensor in the field has at least one minor-version cycle to be reinstalled before it loses connectivity.
 
-### Backwards compatibility for pre-versioning sensors
+### Pre-versioning sensors
 
-Sensors enrolled before protocol versioning landed (Archer < v0.2.0) don't send a `protocol_version` field. The server treats a missing field as `1` for one minor cycle so existing fleets keep enrolling and checking in during the upgrade window. Once every fielded sensor has run the new install one-liner (or pushed at least one checkin from an updated `quiver.sh`), the server can flip missing-field handling to a hard error in a future minor.
+Sensors enrolled before protocol versioning landed (Archer < v0.2.0) don't send a `protocol_version` field. A missing field resolves to v1, which is **not** in the supported set, so those enrollments and checkins are rejected with the structured `protocol_unsupported` error — there is no grace window. (v1 was dropped at v0.12.0 NEW-16 when the per-sensor HMAC checkin-secret was introduced; a v1 sensor has no checkin secret, so it cannot authenticate regardless.) The fix is the same as for any unsupported sensor: re-run the install one-liner against the current server to re-enroll on v2.
 
 ### Error surfaces
 
