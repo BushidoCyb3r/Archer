@@ -658,6 +658,81 @@ func TestLateralMovementByService(t *testing.T) {
 	}
 }
 
+// TestAdminProtocolEgress pins the admin-egress detector: an internal host
+// speaking an interactive remoting protocol (SSH/RDP/VNC/Telnet) to a public
+// destination is Admin Protocol Egress, keyed on Zeek's DPD service so it fires
+// on any port. Invariants: (1) telnet/rdp/vnc egress is High (score 72); (2)
+// ssh egress is Medium (score 50) — common enough to allowlist, not suppress;
+// (3) the detector is internal→external — internal→internal (Lateral Movement's
+// job) and a non-remoting service to a public dst both produce no admin-egress
+// finding; (4) it matches the protocol regardless of port (RDP on 443 fires).
+func TestAdminProtocolEgress(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "conn.log")
+	var b strings.Builder
+	uid := 0
+	base := 1705320000.0 // 2024-01-15 12:00:00 UTC — daytime, not off-hours
+	line := func(src, dst string, port int, service string) {
+		fmt.Fprintf(&b, `{"ts": %.1f, "uid": "C%07d", "id.orig_h": "%s", "id.orig_p": 40000, "id.resp_h": "%s", "id.resp_p": %d, "proto": "tcp", "service": "%s", "duration": 1.0, "orig_bytes": 500, "resp_bytes": 700, "orig_ip_bytes": 540, "resp_ip_bytes": 740, "conn_state": "SF"}`+"\n",
+			base+float64(uid), uid, src, dst, port, service)
+		uid++
+	}
+
+	// (1) RDP to the internet on a non-standard port — High, fires on any port.
+	line("192.168.1.10", "203.0.113.10", 443, "rdp")
+	// (2) SSH to the internet on 22 — Medium.
+	line("192.168.1.11", "203.0.113.11", 22, "ssh")
+	// (3) Negative: SSH internal→internal — Lateral Movement's domain, not egress.
+	line("192.168.1.12", "192.168.1.13", 22, "ssh")
+	// (3) Negative: a non-remoting service (ssl) to a public dst — no egress finding.
+	line("192.168.1.14", "203.0.113.14", 443, "ssl")
+
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	a := New(config.Default(), "", nil, nil)
+	a.feodoIPs = map[string]bool{}
+	a.urlhausIPs = map[string]bool{}
+	a.urlhausHosts = map[string]bool{}
+	findings := a.Analyze([]string{path})
+
+	egressByDst := map[string]model.Finding{}
+	for _, f := range findings {
+		if f.Type == "Admin Protocol Egress" {
+			egressByDst[f.DstIP] = f
+		}
+	}
+
+	rdp, ok := egressByDst["203.0.113.10"]
+	if !ok {
+		t.Fatalf("RDP to a public dst must emit Admin Protocol Egress on any port; got: %v", findingTypes(findings))
+	}
+	if rdp.Severity != model.SevHigh || rdp.Score != 72 {
+		t.Errorf("RDP egress: got %s/%d, want High/72", rdp.Severity, rdp.Score)
+	}
+
+	ssh, ok := egressByDst["203.0.113.11"]
+	if !ok {
+		t.Fatalf("SSH to a public dst must emit Admin Protocol Egress")
+	}
+	if ssh.Severity != model.SevMedium || ssh.Score != 50 {
+		t.Errorf("SSH egress: got %s/%d, want Medium/50 (common, allowlistable)", ssh.Severity, ssh.Score)
+	}
+
+	for _, f := range findings {
+		if f.Type != "Admin Protocol Egress" {
+			continue
+		}
+		if f.DstIP == "192.168.1.13" {
+			t.Error("internal→internal SSH must not emit Admin Protocol Egress (that is Lateral Movement)")
+		}
+		if f.DstIP == "203.0.113.14" {
+			t.Error("a non-remoting service to a public dst must not emit Admin Protocol Egress")
+		}
+	}
+}
+
 // TestC2PortServiceCrossCheck pins the C2-Port service cross-check: a known-C2
 // port that Zeek's DPD confirms is running its legitimate protocol (http on
 // 8888, a port that is both a KnownC2Ports entry and in http's expected set) is

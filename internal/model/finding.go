@@ -380,6 +380,7 @@ var knownFindingTypes = map[string]bool{
 	"DNS Tunneling": true, "DNS NXDOMAIN Flood": true, "DNS Subdomain DGA": true,
 	"Protocol Anomaly": true, "C2 Port": true, "C2 URI Pattern": true,
 	"Protocol on Unexpected Port": true,
+	"Admin Protocol Egress":       true,
 	"Cobalt Strike URI":           true, "Domain Fronting": true, "DoH Bypass": true,
 	"Malicious JA3": true, "Malicious JA4": true, "Weak TLS": true,
 	"SSL No-SNI": true, "SSL No-SNI on C2 Port": true,
@@ -691,6 +692,12 @@ var ScoreExplanations = map[string]ScoreExplanation{
 		Summary:        "Zeek's deep packet inspection identified a real application protocol (HTTP, SSL, SSH, DNS, SMTP, FTP) running on a port outside where it belongs — a classic move to tunnel out past port-based egress controls. Scoped to external destinations.",
 		FalsePositives: "Some legitimate services run on non-standard ports by local convention.",
 		Scoring:        "Score: 70 (HIGH), or 75 on a known C2 port.",
+	},
+
+	"Admin Protocol Egress": {
+		Summary:        "An internal host spoke an interactive remote-administration protocol (SSH, RDP, VNC, Telnet) to a public destination. Remote admin reaching out to the internet is rarely legitimate and is a common reverse-shell, exposed-RDP, or hands-on-keyboard egress signature. Keys on Zeek's DPD service, so it catches the protocol on any port.",
+		FalsePositives: "SSH egress is common for legitimate cloud administration and git-over-ssh, so it surfaces at Medium — allowlist known destinations. Telnet/RDP/VNC outbound is far rarer and fires High.",
+		Scoring:        "Score: 72 (HIGH) for Telnet/RDP/VNC; 50 (MEDIUM) for SSH. Internal source to a public destination.",
 	},
 
 	"TI Hit (IP)": {

@@ -353,6 +353,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 	lateralSeen := make(map[string]struct{})
 	c2Seen := make(map[string]struct{})
 	svcPortSeen := make(map[string]struct{})
+	adminEgressSeen := make(map[string]struct{})
 
 	// First non-empty Zeek DPD service per (sensor,src,dst) pair, stamped
 	// onto the conn-derived findings for triage/enrichment. The aggregated
@@ -640,6 +641,47 @@ func (a *Analyzer) analyzeConn(files []string) {
 							Timestamp:  fmtTS(ts),
 							SourceFile: path,
 						})
+					}
+				}
+
+				// Admin Protocol Egress: an interactive remoting protocol
+				// (SSH/RDP/VNC/Telnet) from an internal host to a public
+				// destination — remote administration reaching the internet,
+				// rarely legitimate outbound and a common reverse-shell /
+				// exposed-RDP signature. Keys on Zeek's DPD service, so it
+				// catches the protocol on any port (unlike the port-based lateral
+				// detector, which is internal→internal). telnet/rdp/vnc egress is
+				// High; ssh egress is common (cloud admin, git-over-ssh) and
+				// surfaces at Medium for allowlisting.
+				if isPrivateIP(src) {
+					for _, lbl := range splitServices(service) {
+						name, ok := adminEgressServices[lbl]
+						if !ok {
+							continue
+						}
+						ak := fmt.Sprintf("%s|%s→%s:%d|%s", sensor, src, dst, dstPort, lbl)
+						if _, seen := adminEgressSeen[ak]; !seen {
+							adminEgressSeen[ak] = struct{}{}
+							sev := model.SevHigh
+							score := 72
+							if lbl == "ssh" {
+								sev = model.SevMedium
+								score = 50
+							}
+							a.add(model.Finding{
+								Type:       "Admin Protocol Egress",
+								Severity:   sev,
+								Score:      score,
+								SrcIP:      src,
+								DstIP:      dst,
+								DstPort:    fmt.Sprint(dstPort),
+								Service:    service,
+								Detail:     fmt.Sprintf("%s (Zeek DPD) from internal host to public destination on port %d — remote admin reaching the internet", name, dstPort),
+								Timestamp:  fmtTS(ts),
+								SourceFile: path,
+							})
+						}
+						break
 					}
 				}
 			}

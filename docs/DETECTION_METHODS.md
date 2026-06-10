@@ -1114,7 +1114,7 @@ threshold, or finding type changed.
 
 ---
 
-## 8. Lateral Movement, C2 Port, and Protocol on Unexpected Port
+## 8. Lateral Movement, C2 Port, Protocol on Unexpected Port, and Admin Protocol Egress
 
 These are pure pattern-match detections — no math, just categorical lookups.
 
@@ -1180,6 +1180,24 @@ Unexpected Port` finding (e.g. `ssl` on 4444): they're distinct, corroborating
 signals — one says "this port is a known C2 default," the other "DPD confirms a
 real protocol running where it shouldn't" — and both contribute to the host's
 risk roll-up.
+
+**Admin Protocol Egress.** Where Lateral Movement watches *internal→internal*
+admin traffic, this watches the same protocol family heading the other way:
+*internal→external*. An internal host that speaks an interactive
+remote-administration protocol — `ssh`, `rdp`, `rfb` (VNC), or `telnet`, the
+`adminEgressServices` table in `heuristics.go` — to a public destination is
+remote admin reaching the internet. That's rarely legitimate outbound and is a
+common reverse-shell, exposed-RDP, and hands-on-keyboard egress signature. Like
+the other service-aware conn detectors it keys on Zeek's DPD service, so it
+catches the protocol on *any* port (RDP tunneled out over 443 fires just the
+same). Severity is tiered by how suspicious the protocol is outbound: `telnet` /
+`rdp` / `rfb` egress is **High (score 72)**; `ssh` egress is **Medium (score
+50)**, because legitimate outbound SSH is common (cloud administration,
+git-over-ssh) — surfaced for awareness and allowlisting (pair-allowlist the
+known destinations) rather than treated as a conviction. The DPD service is
+stamped on the finding and queryable as `service:rdp`, etc. WinRM rides `http`
+and is DPD-blind, so it isn't covered here — that's the documented coverage gap
+of keying on DPD.
 
 ---
 

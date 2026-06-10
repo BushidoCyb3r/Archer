@@ -32,6 +32,17 @@ relevant, `### Detection changes` in each release entry.
 
 ### Detection changes
 
+- **New `Admin Protocol Egress` finding.** An internal host that speaks an
+  interactive remote-administration protocol (SSH, RDP, VNC, Telnet) to a public
+  destination — remote admin reaching the internet, a common reverse-shell /
+  exposed-RDP / hands-on-keyboard egress signature. Keys on Zeek's DPD service,
+  so it fires on any port (RDP tunneled over 443 fires the same). Severity is
+  tiered: Telnet/RDP/VNC egress is High (score 72); SSH egress is Medium (score
+  50), since legitimate outbound SSH is common (cloud admin, git-over-ssh) — for
+  awareness and pair-allowlisting, not conviction. Complements Lateral Movement
+  (internal→internal) on the egress side. Mapped to ATT&CK T1021; HRS weight 20;
+  raw-log pivot to `conn`; surfaced in `corpus-spotcheck.sh` Check 11. WinRM
+  rides `http` and is DPD-blind, so it isn't covered.
 - **C2 Port now cross-checks Zeek's DPD service before firing High.** When a
   known-C2 port is one a benign protocol also legitimately uses
   (`http` on 3128/8008/8888) and DPD confirms that protocol is what's running,

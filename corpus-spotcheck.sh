@@ -7,7 +7,7 @@
 # per burst, long silence between bursts) have true spectral periods that
 # are legitimately orders of magnitude above the median inter-arrival.
 #
-# Checks (1-2 validate the spectral gate; 3-10 are census/advisory sweeps over
+# Checks (1-2 validate the spectral gate; 3-11 are census/advisory sweeps over
 # recent findings — there is no check 5, the number was retired):
 #   1. PASS/FAIL — any rescued finding with spectral_period below
 #      median_interval/5 is an artifact that slipped through the gate
@@ -24,6 +24,7 @@
 #   8. ADVISORY — Multi-Stage Beacon census.
 #   9. ADVISORY — service-triggered Lateral Movement census.
 #  10. ADVISORY — C2 Port service cross-check census.
+#  11. ADVISORY — Admin Protocol Egress census.
 #
 # What this script CANNOT check: findings where rescue was blocked entirely
 # because the only strong peak was below median/5. Those pairs still emit
@@ -548,5 +549,45 @@ if [ "${SVC_OK:-0}" -ne 0 ]; then
           GROUP BY dst_port, service, disposition, severity
           ORDER BY n DESC
           LIMIT 30;"
+    fi
+fi
+
+# ── Check 11: Admin Protocol Egress census (advisory) ────────────────────────
+# An internal host speaking an interactive remoting protocol (ssh/rdp/rfb/
+# telnet) to a public destination (internal/analysis/conn.go). This EMITS a
+# finding that wouldn't otherwise exist, so the question is the FP budget. SSH
+# egress is the expected high-volume population (cloud admin, git-over-ssh) and
+# is scored Medium for exactly that reason — a recurring (service, dst) on a
+# known-good cloud/host is a pair-allowlist candidate, not a finding. Telnet/RDP/
+# VNC egress is High and far rarer; any of those to the internet deserves a look.
+# This census splits the population by protocol and severity so the SSH noise is
+# separable from the high-signal remote-control egress. Requires migration 0036.
+
+if [ "${SVC_OK:-0}" -ne 0 ]; then
+    AEN=$(sqlite3 "$DB" "SELECT COUNT(*) FROM findings WHERE type = 'Admin Protocol Egress';")
+    if [ "$AEN" -eq 0 ]; then
+        echo ""
+        echo "INFO: no Admin Protocol Egress findings in this corpus."
+    else
+        echo ""
+        echo "ADVISORY: $AEN Admin Protocol Egress finding(s). SSH egress (Medium) to a"
+        echo "known cloud/host is a pair-allowlist candidate; Telnet/RDP/VNC egress (High)"
+        echo "to the internet is high-signal — eyeball the split:"
+        sqlite3 -column -header "$DB" "
+          SELECT service,
+                 severity,
+                 dst_port,
+                 COUNT(*)               AS n,
+                 COUNT(DISTINCT dst_ip) AS distinct_dsts,
+                 COUNT(DISTINCT src_ip) AS distinct_srcs
+          FROM findings
+          WHERE type = 'Admin Protocol Egress'
+          GROUP BY service, severity, dst_port
+          ORDER BY n DESC
+          LIMIT 30;"
+        echo ""
+        echo "Few src→dst on a fixed (service, dst) reads as a sanctioned admin path"
+        echo "(allowlist candidate); many internal sources fanning to one external dst on"
+        echo "a remoting protocol reads as a compromised-host or exposed-service pattern."
     fi
 fi

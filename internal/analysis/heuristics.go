@@ -201,6 +201,22 @@ var lateralMovementServices = map[string]string{
 	"dce_rpc": "WMI/RPC",
 }
 
+// adminEgressServices are the interactive remoting DPD labels (the svcRemoting
+// category) whose value is a display name, used by the Admin Protocol Egress
+// detector: an internal host speaking one of these to a public destination is
+// remote administration reaching the internet, which is rarely legitimate
+// outbound and a common reverse-shell / exposed-RDP signature. Keyed on the DPD
+// service so it catches the protocol on any port. Severity is assigned at emit
+// time — telnet/rdp/vnc to the internet is strong signal, while ssh egress is
+// common enough (cloud admin, git-over-ssh) that it surfaces at Medium for
+// allowlisting rather than High.
+var adminEgressServices = map[string]string{
+	"telnet": "Telnet",
+	"rdp":    "RDP",
+	"rfb":    "VNC",
+	"ssh":    "SSH",
+}
+
 // expectedServicePorts maps a Zeek DPD service label to the set of ports that
 // service is normally expected on. It backs the "Protocol on Unexpected Port"
 // detector: Zeek's dynamic protocol detection names the actual L7 protocol

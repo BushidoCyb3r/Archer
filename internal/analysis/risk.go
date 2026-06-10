@@ -55,6 +55,7 @@ var riskWeights = map[string]int{
 	"Weak TLS":                    10,
 	"C2 Port":                     22,
 	"Protocol on Unexpected Port": 25, // DPD-confirmed protocol/port mismatch on egress — stronger than a bare C2-port match
+	"Admin Protocol Egress":       20, // interactive remote-admin protocol reaching the public internet
 	"Protocol Anomaly":            8,
 }
 
