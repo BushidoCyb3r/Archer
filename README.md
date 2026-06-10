@@ -200,6 +200,7 @@ archer/
 │   │   ├── notice.go           # Zeek notices passthrough with score
 │   │   ├── ti.go               # Two-phase TI scan — Phase A dst-only sets per file, Phase B targeted collection
 │   │   ├── correlate.go        # Cross-detector correlation roll-up — Correlated Activity (v0.15.0)
+│   │   ├── stage.go            # Multi-Stage Beacon — cross-host C2 staging, ≥2 hosts → one rare dst (v0.63.0)
 │   │   ├── spectral.go         # Lomb-Scargle periodogram beacon rescue (v0.15.0); see docs/SPECTRAL_TUNING.md
 │   │   ├── dga.go              # DGA hostname augmentation (Shannon entropy + English-bigram log-likelihood)
 │   │   ├── feedprovider.go     # Indicator-cache snapshot consumed by phase 0 prefetch
@@ -237,6 +238,11 @@ archer/
 │   │   ├── handlers_audit_log.go # GET /api/audit-log (cursor-paginated)
 │   │   ├── handlers_backup.go  # /api/admin/backup — VACUUM INTO snapshot stream
 │   │   ├── handlers_beacon_history.go # /api/findings/{id}/history → SVG evolution chart data
+│   │   ├── handlers_attack.go  # /api/attack-coverage — MITRE ATT&CK coverage over current findings
+│   │   ├── detector_activity.go # /api/detector-activity — per-type new-detection counts (capture-regression signal)
+│   │   ├── fingerprints.go     # /api/fingerprints — ranked TLS-fingerprint inventory (the TLS wall)
+│   │   ├── fingerprint_allowlist.go # /api/fingerprint-allowlist — mark a JA3/JA4 benign
+│   │   ├── ioc_fingerprints.go # /api/ioc?kind=fp + /api/ioc-fingerprint — operator JA3/JA4 IOC list
 │   │   ├── findings_filter.go  # Shared query-param filter for list + exports; runs the Lucene q= query (internal/query)
 │   │   ├── findings_raw.go     # Raw-log pivot — finds source records for a finding
 │   │   ├── exports_xlsx.go     # XLSX export path
@@ -266,7 +272,7 @@ archer/
 │       ├── beacon_history.go   # beacon_history table (UPSERT) for the 30-day evolution chart
 │       ├── userstore.go        # User accounts, sessions
 │       ├── migrate.go          # Forward-only migration runner; tracks schema_migrations
-│       └── migrations/         # NNNN_*.sql migrations (0001 → 0035)
+│       └── migrations/         # NNNN_*.sql migrations (0001 → 0036)
 └── web/
     ├── templates/
     │   ├── index.html          # Single-page application shell
@@ -288,6 +294,8 @@ archer/
             ├── feeds.js        # Feeds modal — MISP/OpenCTI feed config + status
             ├── rowmenu.js      # Shared kebab (⋮) popover for Feeds + Sensors row actions (v0.19.0)
             ├── audit_log.js    # Audit log table
+            ├── attack.js       # ATT&CK Coverage modal (techniques grouped by tactic)
+            ├── fingerprints.js # TLS Fingerprints wall — JA3/JA4 inventory + mark-benign
             ├── graph.js        # In-app campaign graph (Cytoscape wrapper)
             ├── cytoscape.min.js # Vendored Cytoscape.js (MIT, lazy-loaded)
             ├── dialog.js       # DlgManager — drag-by-header for every <dialog>
@@ -1104,7 +1112,7 @@ All API endpoints require authentication. Role requirements are noted where appl
 |---|---|---|---|
 | `GET` | `/api/me` | Any | Current user profile |
 | `POST` | `/api/me/password` | Any | Change own password (re-verifies current password) |
-| `GET` | `/api/users` | Admin | List all users |
+| `GET` | `/api/users` | Any | List users. Admins get every user; a non-admin gets only their own one-entry record. |
 | `POST` | `/api/users` | Admin | Create user |
 | `PATCH` | `/api/users/{id}` | Admin | Update user role/status, or reset the user's password |
 | `DELETE` | `/api/users/{id}` | Admin | Delete user |
@@ -1131,13 +1139,15 @@ All API endpoints require authentication. Role requirements are noted where appl
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/api/findings` | Any | List findings (projected — `ts_data` / `intervals` / `notes` stripped). Query params: `q` (the Lucene-style query language — the primary filter surface, ANDed on top of the others; a bad query returns `400` with a JSON `{error}` body rather than matching all/none — malformed syntax, an unknown field, or an exact `type:` value that isn't a real finding type are all rejected — see [docs/ANALYST_PLAYBOOK.md](docs/ANALYST_PLAYBOOK.md#querying-the-findings-table) for the grammar), `search`, `type` (exact, or the pseudo-value `beacons` for the whole beacon family), `severity`, `min_score`, `delta`, `src_ip` (IP or CIDR), `dst_ip` (IP or CIDR), `dst_port`, `sensor`, `from`, `to` (both accept `YYYY-MM-DD HH:MM:SS` UTC or RFC3339), `status` (`open` / `acknowledged` / `escalated`), `ioc_only` (`true`), `spectral_only` (`true`), `ts_min`/`ts_max` · `ds_min`/`ds_max` · `hist_min`/`hist_max` · `dur_min`/`dur_max` (inclusive beacon sub-axis bounds — any one implicitly scopes to beacons), `ja3` (exact JA3 fingerprint match — powers TLS Pivot for JA3-only sensors), `ja4` (exact JA4 fingerprint match — powers TLS Pivot for JA4+ sensors), `sort`, `dir`, `limit` (default 1000, max 50000), `offset` (default 0). Sets `X-Total-Count` and `X-Has-More` response headers (and `Access-Control-Expose-Headers` so JS can read them in CORS contexts). The per-tab page-nav buttons drive this. |
+| `GET` | `/api/findings` | Any | List findings (projected — `ts_data` / `intervals` / `notes` stripped). Query params: `q` (the Lucene-style query language — the primary filter surface, ANDed on top of the others; a bad query returns `400` with a JSON `{error}` body rather than matching all/none — malformed syntax, an unknown field, or an exact `type:` value that isn't a real finding type are all rejected — see [docs/ANALYST_PLAYBOOK.md](docs/ANALYST_PLAYBOOK.md#querying-the-findings-table) for the grammar), `search`, `type` (exact, or the pseudo-value `beacons` for the whole beacon family), `severity`, `min_score`, `delta`, `src_ip` (IP or CIDR), `dst_ip` (IP or CIDR), `dst_port`, `sensor`, `from`, `to` (both accept `YYYY-MM-DD HH:MM:SS` UTC or RFC3339), `status` (`open` / `acknowledged` / `escalated` / `dismissed`), `include_dismissed` (`true` — fold dismissed findings into an otherwise-unscoped result; no effect when `status` is set explicitly), `ioc_only` (`true`), `spectral_only` (`true`), `ts_min`/`ts_max` · `ds_min`/`ds_max` · `hist_min`/`hist_max` · `dur_min`/`dur_max` (inclusive beacon sub-axis bounds — any one implicitly scopes to beacons), `ja3` (exact JA3 fingerprint match — powers TLS Pivot for JA3-only sensors), `ja4` (exact JA4 fingerprint match — powers TLS Pivot for JA4+ sensors), `sort`, `dir`, `limit` (default 1000, max 50000), `offset` (default 0). Sets `X-Total-Count` and `X-Has-More` response headers (and `Access-Control-Expose-Headers` so JS can read them in CORS contexts). The per-tab page-nav buttons drive this. |
 | `GET` | `/api/findings/counts` | Any | `{open, ack, esc, ioc, total}` aggregate counts honoring the active filter set (`status` / `ioc_only` are stripped — the counts span all status buckets). Drives the dashboard's info-line counters without forcing a full-set scan from the client. |
 | `GET` | `/api/findings/facets` | Any | `{types, sensors}` — distinct values across the filter set. `status`, `ioc_only`, `delta`, `type`, `sensor`, `limit`, `offset` are stripped so the dropdowns reflect every available value regardless of what's currently selected. Powers the Type and Sensor filter dropdowns. |
 | `GET` | `/api/findings/unseen` | Any | Per-session new-findings count `{count, total, since, seen_count}` — findings detected since the analyst's login boundary (roll-ups excluded), plus the session's modal high-water. Same cutoff as the `delta` "New only" filter. Drives the new-findings alert (pops only when `count > seen_count`). |
 | `POST` | `/api/findings/modal-ack` | Any | Record that the new-findings alert was shown this session, so a page refresh doesn't re-pop it. Raises the session modal high-water to the current unseen count. |
 | `GET` | `/api/findings/{id}` | Any | Single finding detail (full shape including `ts_data` / `intervals` / `notes`). |
 | `GET` | `/api/findings/{id}/raw` | Any | Raw-log pivot. Returns source Zeek records matching the finding's (src, dst) pair. Query params: `limit` (default 500, max 5000), `window_hours` (default 6; `0` means no time filter — scan every matching file) |
+| `GET` | `/api/findings/{id}/position` | Any | Absolute page offset of the finding under a given filter/sort, so the bell-notification **Jump** can load the page containing it. Accepts the same query params as `GET /api/findings`. |
+| `GET` | `/api/findings/{id}/history` | Any | 30-day beacon-evolution series for the finding's (src, dst) pair, powering the SVG evolution chart in the detail pane. |
 | `PATCH` | `/api/findings/{id}` | Analyst+ | Update status: `{"status":"acknowledged"\|"escalated","analyst":"...","note":"..."}` |
 | `POST` | `/api/findings/{id}/escalate` | Analyst+ | Escalate + run TI lookups: `{"note":"...","ips":["..."],"services":["vt","crowdsec","otx","abuseipdb","greynoise","censys"]}`. Each lookup's outcome is streamed as a `ti_result` SSE event; once all settle, a single consolidated TI Enrichment note is appended to the finding. |
 | `POST` | `/api/findings/{id}/notes` | Analyst+ | Add note: `{"text":"..."}` |
@@ -1153,6 +1163,8 @@ All API endpoints require authentication. Role requirements are noted where appl
 |---|---|---|---|
 | `GET` | `/api/export/json` | Any | Download filtered findings as JSON. Accepts every query param supported by `GET /api/findings`. The per-finding chart data (`ts_data`, `intervals`) is stripped from the output — it's only used by the in-UI beacon chart and bloats the file ~10–20×. Pass `?include_lists=true` to bundle the current allowlist and IOC list in the output (needed only for `/api/import` round-trips). |
 | `GET` | `/api/export/csv` | Any | Download filtered findings as CSV. Accepts every query param supported by `GET /api/findings`. With `type=beacons` the export is beacon-scoped and **appends** ten triage columns (`ts_score`…`sample_size`, `ja3`, `ja4`) after the historical 13 — appended-not-inserted, so a column-index consumer of the default schema is unaffected. The `top_uris` footprint is JSON-export-only (a nested list doesn't fit a flat CSV cell). |
+| `GET` | `/api/export/xlsx` | Any | Download filtered findings as an XLSX workbook (Findings sheet plus Campaigns and Hosts roll-up sheets). Accepts every query param supported by `GET /api/findings`. Formula-injection-neutralized like the CSV path. |
+| `POST` | `/api/import` | Admin | Restore findings from a `/api/export/json` dump (admin-only — it writes findings and, with `include_lists`, the allowlist/IOC list). Imported findings are validated (type/severity/score/timestamp) and restored as non-new so they don't ring the bell. |
 
 ### Archive
 
@@ -1310,7 +1322,7 @@ See [docs/QUIVER.md](docs/QUIVER.md) for the full Quiver protocol description.
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| `GET` | `/events` | Any | SSE stream. Event types: `progress` `{"pct":N,"step":"..."}`, `status` `{"msg":"..."}`, `done` `{"count":N,"new_count":N,"cancelled":bool}`, `notification` (`Notification` row — `kind` field is `finding`/`sensor`/`feed`; empty reads as `finding`), `ti_result` `{"finding_id":N,"source":"...","detail":"...","hit":bool}`, `ti_done` `{"finding_id":N,"hits":N}`, `unauthorized_attempt` (full unauthorized-attempt row when an unknown sensor name checks in), `sensor_enrolled` (full sensor row when a fresh enrollment completes — drives the in-flight enrollment dialog's confirmation tick and the parent Sensors table refresh), `watch.heartbeat` `{}` (unconditional 60s tick — UI flips a top-bar dot red after 180s without one) |
+| `GET` | `/events` | Any | SSE stream. Event types: `progress` `{"pct":N,"step":"..."}`, `status` `{"msg":"..."}`, `done` `{"count":N,"new_count":N,"cancelled":bool}`, `notification` (`Notification` row — `kind` field is `finding`/`sensor`/`feed`; empty reads as `finding`), `ti_result` `{"finding_id":N,"source":"...","detail":"...","hit":bool}`, `ti_done` `{"finding_id":N,"hits":N}`, `unauthorized_attempt` (full unauthorized-attempt row when an unknown sensor name checks in), `sensor_enrolled` (full sensor row when a fresh enrollment completes — drives the in-flight enrollment dialog's confirmation tick and the parent Sensors table refresh), `watch.heartbeat` `{}` (unconditional 60s tick — UI flips a top-bar dot red after 180s without one), `resync_required` `{}` (SSE buffer overflowed for a slow client — the UI refetches source-of-truth endpoints rather than trusting its now-gapped event stream) |
 
 ---
 
