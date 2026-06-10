@@ -56,6 +56,7 @@ var riskWeights = map[string]int{
 	"C2 Port":                     22,
 	"Protocol on Unexpected Port": 25, // DPD-confirmed protocol/port mismatch on egress — stronger than a bare C2-port match
 	"Admin Protocol Egress":       20, // interactive remote-admin protocol reaching the public internet
+	"Database Protocol Egress":    22, // cleartext DB protocol crossing to the internet — exfil/exposure channel
 	"Protocol Anomaly":            8,
 }
 

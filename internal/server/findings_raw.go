@@ -45,6 +45,7 @@ var logTypesForFinding = map[string][]string{
 	"C2 Port":                     {"conn"},
 	"Protocol on Unexpected Port": {"conn", "http", "ssl"},
 	"Admin Protocol Egress":       {"conn"},
+	"Database Protocol Egress":    {"conn"},
 	"Off-Hours Transfer":          {"conn"},
 	"HTTP Beacon":                 {"http"},
 	"Suspicious UA":               {"http"},

@@ -1114,7 +1114,7 @@ threshold, or finding type changed.
 
 ---
 
-## 8. Lateral Movement, C2 Port, Protocol on Unexpected Port, and Admin Protocol Egress
+## 8. Lateral Movement, C2 Port, Protocol on Unexpected Port, Admin Protocol Egress, and Database Protocol Egress
 
 These are pure pattern-match detections — no math, just categorical lookups.
 
@@ -1198,6 +1198,21 @@ known destinations) rather than treated as a conviction. The DPD service is
 stamped on the finding and queryable as `service:rdp`, etc. WinRM rides `http`
 and is DPD-blind, so it isn't covered here — that's the documented coverage gap
 of keying on DPD.
+
+**Database Protocol Egress.** The same internal→external shape, for the database
+protocol family: an internal host speaking a cleartext database wire protocol —
+`mysql`, `postgresql`, `mongodb`, or `redis` (the `svcDatabase` category in the
+service catalog) — to a public destination. A bare database protocol crossing to
+the internet is almost never legitimate: it means DB credentials and data are
+moving in cleartext over the public network, or an exposed/abused database, or
+exfiltration over a database channel. The detector keys on the catalog category
+rather than a second hardcoded list, so it tracks the catalog as new DB labels
+are added. **High (score 72).** There's a built-in false-positive floor: a
+managed cloud database (RDS, Atlas, Redis Cloud) is normally reached over TLS,
+which Zeek labels `ssl` — so DPD only stamps the bare `mysql`/`postgresql`/etc.
+label on the *cleartext* flow, which is exactly the case worth flagging. A known
+cloud-DB endpoint that genuinely accepts cleartext is the one benign pattern to
+pair-allowlist.
 
 ---
 

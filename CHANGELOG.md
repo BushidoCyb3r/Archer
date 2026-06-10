@@ -32,6 +32,15 @@ relevant, `### Detection changes` in each release entry.
 
 ### Detection changes
 
+- **New `Database Protocol Egress` finding.** An internal host speaking a
+  cleartext database wire protocol (MySQL, PostgreSQL, MongoDB, Redis) to a
+  public destination — DB credentials/data crossing to the internet in
+  cleartext, an exposed/abused database, or exfil over a DB channel. High (score
+  72). Keys on the service catalog's `svcDatabase` category (not a second list),
+  so it tracks the catalog. Built-in FP floor: managed cloud DBs ride TLS and
+  surface as `ssl`, so DPD only labels the bare DB protocol on cleartext flows —
+  the case worth flagging. Mapped to ATT&CK T1048; HRS weight 22; raw-log pivot
+  to `conn`; surfaced in `corpus-spotcheck.sh` Check 12.
 - **New `Admin Protocol Egress` finding.** An internal host that speaks an
   interactive remote-administration protocol (SSH, RDP, VNC, Telnet) to a public
   destination — remote admin reaching the internet, a common reverse-shell /

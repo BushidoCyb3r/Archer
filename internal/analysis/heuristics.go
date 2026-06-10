@@ -217,6 +217,21 @@ var adminEgressServices = map[string]string{
 	"ssh":    "SSH",
 }
 
+// dbProtocolDisplay maps database DPD labels (the svcDatabase category) to a
+// display name for the Database Protocol Egress detector. The detector keys on
+// the catalog category, not this map, so a new svcDatabase label still fires
+// (falling back to its raw label for display) — this just prettifies the common
+// ones. DPD only stamps these labels on the *cleartext* wire protocol; a
+// TLS-wrapped managed-cloud-DB connection surfaces as `ssl` and is out of scope,
+// which is why an internal host showing a bare DB protocol to a public dst is
+// the alarming case worth flagging (cleartext DB creds/data over the internet).
+var dbProtocolDisplay = map[string]string{
+	"mysql":      "MySQL",
+	"postgresql": "PostgreSQL",
+	"mongodb":    "MongoDB",
+	"redis":      "Redis",
+}
+
 // expectedServicePorts maps a Zeek DPD service label to the set of ports that
 // service is normally expected on. It backs the "Protocol on Unexpected Port"
 // detector: Zeek's dynamic protocol detection names the actual L7 protocol

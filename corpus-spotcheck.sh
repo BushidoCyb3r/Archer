@@ -7,7 +7,7 @@
 # per burst, long silence between bursts) have true spectral periods that
 # are legitimately orders of magnitude above the median inter-arrival.
 #
-# Checks (1-2 validate the spectral gate; 3-11 are census/advisory sweeps over
+# Checks (1-2 validate the spectral gate; 3-12 are census/advisory sweeps over
 # recent findings — there is no check 5, the number was retired):
 #   1. PASS/FAIL — any rescued finding with spectral_period below
 #      median_interval/5 is an artifact that slipped through the gate
@@ -25,6 +25,7 @@
 #   9. ADVISORY — service-triggered Lateral Movement census.
 #  10. ADVISORY — C2 Port service cross-check census.
 #  11. ADVISORY — Admin Protocol Egress census.
+#  12. ADVISORY — Database Protocol Egress census.
 #
 # What this script CANNOT check: findings where rescue was blocked entirely
 # because the only strong peak was below median/5. Those pairs still emit
@@ -589,5 +590,46 @@ if [ "${SVC_OK:-0}" -ne 0 ]; then
         echo "Few src→dst on a fixed (service, dst) reads as a sanctioned admin path"
         echo "(allowlist candidate); many internal sources fanning to one external dst on"
         echo "a remoting protocol reads as a compromised-host or exposed-service pattern."
+    fi
+fi
+
+# ── Check 12: Database Protocol Egress census (advisory) ──────────────────────
+# An internal host speaking a cleartext DB wire protocol (mysql/postgresql/
+# mongodb/redis) to a public destination (internal/analysis/conn.go). EMITS a
+# finding that wouldn't otherwise exist, so the question is the FP budget — but
+# the budget is small by construction: managed cloud DBs ride TLS (Zeek labels
+# them `ssl`, out of scope), so this only fires on the cleartext flow. The one
+# benign population to expect is an app connecting cleartext to a known cloud-DB
+# endpoint — a recurring (service, dst) that is a pair-allowlist candidate.
+# Anything else (a DB protocol to a non-DB-provider public IP) is a real
+# exposure/exfil lead. Cross-reference with beacons to the same dst — a host that
+# both beacons to and runs a DB protocol to one external dst is a strong exfil-
+# over-C2 story. Requires migration 0036.
+
+if [ "${SVC_OK:-0}" -ne 0 ]; then
+    DBN=$(sqlite3 "$DB" "SELECT COUNT(*) FROM findings WHERE type = 'Database Protocol Egress';")
+    if [ "$DBN" -eq 0 ]; then
+        echo ""
+        echo "INFO: no Database Protocol Egress findings in this corpus."
+    else
+        echo ""
+        echo "ADVISORY: $DBN Database Protocol Egress finding(s). A recurring (service, dst)"
+        echo "that is a known cloud-DB endpoint is a pair-allowlist candidate; a DB protocol"
+        echo "to any other public IP is a real exposure/exfil lead. Eyeball these:"
+        sqlite3 -column -header "$DB" "
+          SELECT service,
+                 dst_ip,
+                 dst_port,
+                 COUNT(*)               AS n,
+                 COUNT(DISTINCT src_ip) AS distinct_srcs
+          FROM findings
+          WHERE type = 'Database Protocol Egress'
+          GROUP BY service, dst_ip, dst_port
+          ORDER BY n DESC
+          LIMIT 30;"
+        echo ""
+        echo "Cross-reference a dst here against the beacon findings: a host that BOTH"
+        echo "beacons to and runs a DB protocol to the same external dst is a strong"
+        echo "exfil-over-C2 story worth escalating."
     fi
 fi

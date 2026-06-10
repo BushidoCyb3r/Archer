@@ -381,6 +381,7 @@ var knownFindingTypes = map[string]bool{
 	"Protocol Anomaly": true, "C2 Port": true, "C2 URI Pattern": true,
 	"Protocol on Unexpected Port": true,
 	"Admin Protocol Egress":       true,
+	"Database Protocol Egress":    true,
 	"Cobalt Strike URI":           true, "Domain Fronting": true, "DoH Bypass": true,
 	"Malicious JA3": true, "Malicious JA4": true, "Weak TLS": true,
 	"SSL No-SNI": true, "SSL No-SNI on C2 Port": true,
@@ -698,6 +699,12 @@ var ScoreExplanations = map[string]ScoreExplanation{
 		Summary:        "An internal host spoke an interactive remote-administration protocol (SSH, RDP, VNC, Telnet) to a public destination. Remote admin reaching out to the internet is rarely legitimate and is a common reverse-shell, exposed-RDP, or hands-on-keyboard egress signature. Keys on Zeek's DPD service, so it catches the protocol on any port.",
 		FalsePositives: "SSH egress is common for legitimate cloud administration and git-over-ssh, so it surfaces at Medium — allowlist known destinations. Telnet/RDP/VNC outbound is far rarer and fires High.",
 		Scoring:        "Score: 72 (HIGH) for Telnet/RDP/VNC; 50 (MEDIUM) for SSH. Internal source to a public destination.",
+	},
+
+	"Database Protocol Egress": {
+		Summary:        "An internal host spoke a cleartext database wire protocol (MySQL, PostgreSQL, MongoDB, Redis) to a public destination. A bare database protocol crossing to the internet is almost never legitimate — it means database credentials and data are exposed in cleartext over the public network, an exposed or abused database, or exfiltration over a database channel.",
+		FalsePositives: "An application connecting to a managed cloud database normally does so over TLS, which Zeek labels `ssl` (out of scope here) — so a recurring destination that is a known cloud-DB endpoint accepting cleartext is the main benign case to pair-allowlist.",
+		Scoring:        "Score: 72 (HIGH). Internal source to a public destination, keyed on the DPD database service (cleartext only).",
 	},
 
 	"TI Hit (IP)": {

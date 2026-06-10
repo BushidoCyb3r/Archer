@@ -354,6 +354,7 @@ func (a *Analyzer) analyzeConn(files []string) {
 	c2Seen := make(map[string]struct{})
 	svcPortSeen := make(map[string]struct{})
 	adminEgressSeen := make(map[string]struct{})
+	dbEgressSeen := make(map[string]struct{})
 
 	// First non-empty Zeek DPD service per (sensor,src,dst) pair, stamped
 	// onto the conn-derived findings for triage/enrichment. The aggregated
@@ -677,6 +678,44 @@ func (a *Analyzer) analyzeConn(files []string) {
 								DstPort:    fmt.Sprint(dstPort),
 								Service:    service,
 								Detail:     fmt.Sprintf("%s (Zeek DPD) from internal host to public destination on port %d — remote admin reaching the internet", name, dstPort),
+								Timestamp:  fmtTS(ts),
+								SourceFile: path,
+							})
+						}
+						break
+					}
+				}
+
+				// Database Protocol Egress: an internal host speaking a cleartext
+				// database wire protocol (MySQL/PostgreSQL/MongoDB/Redis) to a
+				// public destination. There is essentially no legitimate reason
+				// for a bare DB protocol to cross to the internet — managed-cloud
+				// DBs ride TLS and surface as `ssl`, so DPD only labels these on
+				// the cleartext flow, making this the alarming case: DB
+				// credentials/data exposed over the internet, an exposed/abused
+				// DB, or exfil over a DB channel. Keyed on the catalog's
+				// svcDatabase category so it tracks the catalog, not a second list.
+				if isPrivateIP(src) {
+					for _, lbl := range splitServices(service) {
+						if serviceCategoryOf(lbl) != svcDatabase {
+							continue
+						}
+						dk := fmt.Sprintf("%s|%s→%s:%d|%s", sensor, src, dst, dstPort, lbl)
+						if _, seen := dbEgressSeen[dk]; !seen {
+							dbEgressSeen[dk] = struct{}{}
+							name := dbProtocolDisplay[lbl]
+							if name == "" {
+								name = lbl
+							}
+							a.add(model.Finding{
+								Type:       "Database Protocol Egress",
+								Severity:   model.SevHigh,
+								Score:      72,
+								SrcIP:      src,
+								DstIP:      dst,
+								DstPort:    fmt.Sprint(dstPort),
+								Service:    service,
+								Detail:     fmt.Sprintf("%s (Zeek DPD) from internal host to public destination on port %d — cleartext database protocol crossing to the internet", name, dstPort),
 								Timestamp:  fmtTS(ts),
 								SourceFile: path,
 							})

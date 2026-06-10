@@ -76,6 +76,7 @@ var attackByType = map[string][]AttackTechnique{
 	"C2 URI Pattern":              {tWebProto},
 	"Protocol on Unexpected Port": {tOddPort},
 	"Admin Protocol Egress":       {tRemoteSvc},
+	"Database Protocol Egress":    {tExfilAlt},
 	"Cobalt Strike URI":           {tWebProto},
 	"Domain Fronting":             {tFronting},
 	"DoH Bypass":                  {tDNSProto, tTunneling},

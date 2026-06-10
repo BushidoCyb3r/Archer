@@ -658,6 +658,74 @@ func TestLateralMovementByService(t *testing.T) {
 	}
 }
 
+// TestDatabaseProtocolEgress pins the DB-egress detector: an internal host
+// speaking a cleartext database wire protocol (the svcDatabase catalog category)
+// to a public destination is Database Protocol Egress, High. Invariants: (1) a
+// DB protocol to a public dst fires High on any port; (2) the detector is
+// internal→external — a DB protocol internal→internal (normal app↔DB traffic)
+// does not fire; (3) it keys on the catalog category, so a non-DB service to a
+// public dst produces nothing here. Membership is the svcDatabase category, the
+// catalog API from the service-catalog slice — so this also guards that wiring.
+func TestDatabaseProtocolEgress(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "conn.log")
+	var b strings.Builder
+	uid := 0
+	base := 1705320000.0 // 2024-01-15 12:00:00 UTC — daytime, not off-hours
+	line := func(src, dst string, port int, service string) {
+		fmt.Fprintf(&b, `{"ts": %.1f, "uid": "C%07d", "id.orig_h": "%s", "id.orig_p": 40000, "id.resp_h": "%s", "id.resp_p": %d, "proto": "tcp", "service": "%s", "duration": 1.0, "orig_bytes": 500, "resp_bytes": 700, "orig_ip_bytes": 540, "resp_ip_bytes": 740, "conn_state": "SF"}`+"\n",
+			base+float64(uid), uid, src, dst, port, service)
+		uid++
+	}
+
+	// (1) PostgreSQL to the internet on a non-standard port — High, any port.
+	line("192.168.1.10", "203.0.113.10", 6000, "postgresql")
+	// (2) Negative: MySQL internal→internal (normal app↔DB) — does not fire.
+	line("192.168.1.11", "192.168.1.12", 3306, "mysql")
+	// (3) Negative: a non-DB service (ssl) to a public dst — no DB-egress finding.
+	line("192.168.1.13", "203.0.113.13", 443, "ssl")
+
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	a := New(config.Default(), "", nil, nil)
+	a.feodoIPs = map[string]bool{}
+	a.urlhausIPs = map[string]bool{}
+	a.urlhausHosts = map[string]bool{}
+	findings := a.Analyze([]string{path})
+
+	dbByDst := map[string]model.Finding{}
+	for _, f := range findings {
+		if f.Type == "Database Protocol Egress" {
+			dbByDst[f.DstIP] = f
+		}
+	}
+
+	pg, ok := dbByDst["203.0.113.10"]
+	if !ok {
+		t.Fatalf("PostgreSQL to a public dst must emit Database Protocol Egress on any port; got: %v", findingTypes(findings))
+	}
+	if pg.Severity != model.SevHigh || pg.Score != 72 {
+		t.Errorf("DB egress: got %s/%d, want High/72", pg.Severity, pg.Score)
+	}
+	if pg.Service != "postgresql" {
+		t.Errorf("Database Protocol Egress.Service = %q; want \"postgresql\"", pg.Service)
+	}
+
+	for _, f := range findings {
+		if f.Type != "Database Protocol Egress" {
+			continue
+		}
+		if f.DstIP == "192.168.1.12" {
+			t.Error("internal→internal DB traffic must not emit Database Protocol Egress")
+		}
+		if f.DstIP == "203.0.113.13" {
+			t.Error("a non-DB service to a public dst must not emit Database Protocol Egress")
+		}
+	}
+}
+
 // TestAdminProtocolEgress pins the admin-egress detector: an internal host
 // speaking an interactive remoting protocol (SSH/RDP/VNC/Telnet) to a public
 // destination is Admin Protocol Egress, keyed on Zeek's DPD service so it fires
