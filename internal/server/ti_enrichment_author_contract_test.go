@@ -10,7 +10,7 @@ import (
 // TestTIEnrichmentAuthor_Contract asserts that the literal string
 // "TI Enrichment" — used as the note Author when TI cross-annotation
 // or TI Hit detail enrichment writes a note onto a finding — appears
-// in every emitter site (ti_crossnote.go, handlers_api.go) and the
+// in every emitter site (ti_crossnote.go, handlers_escalate.go) and the
 // SPA consumer (detail.js). The SPA's dock split partitions notes by
 // exact author match: notes authored by "TI Enrichment" surface in
 // the TI Results tab; everything else goes to Notes.
@@ -28,7 +28,7 @@ func TestTIEnrichmentAuthor_Contract(t *testing.T) {
 
 	emitters := []string{
 		"ti_crossnote.go",
-		"handlers_api.go",
+		"handlers_escalate.go",
 	}
 	for _, path := range emitters {
 		body, err := os.ReadFile(path)

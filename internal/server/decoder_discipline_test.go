@@ -25,7 +25,7 @@ import (
 //     where the handler needs error handling decodeJSONBody can't give:
 //     the sensors-modal handlers fold the decode error into their
 //     `req.ID == 0` validation, and the archive-run / optional-body
-//     handlers (handlers_api.go) deliberately tolerate a decode error
+//     handlers (handlers_watch_archive.go) deliberately tolerate a decode error
 //     (zero-value req = "real run, not dry") and must not have an error
 //     response written for them. The MaxBytesReader sits directly in the
 //     decode expression, so these are bounded by construction.
@@ -52,19 +52,6 @@ func TestNoRawJSONDecoderOnRequestBody(t *testing.T) {
 	if len(files) == 0 {
 		t.Fatal("no Go files found in package directory")
 	}
-
-	// Allowed: archive-run keeps the raw json.NewDecoder pattern
-	// because the call-site silently tolerates decode errors
-	// (req stays at zero values, which is the "real run, not
-	// dry" semantic). decodeJSONBody can't be used there because
-	// it writes a response on error, which would conflict with
-	// the 200 the handler writes below. The MaxBytesReader wrap
-	// on the same line bounds the body, so the size-cap
-	// discipline is still applied — just without the helper.
-	allowList := map[string]bool{
-		"handlers_api.go": false, // checked separately below — must use MaxBytesReader
-	}
-	_ = allowList
 
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
