@@ -1,3 +1,15 @@
+// Package store is Archer's persistence layer. The Store holds the canonical
+// application state in memory (the findings slice plus its id→index map,
+// allowlist/IOC/suppression lists, config, watch state) and uses SQLite purely
+// as the durability tier — reads serve from memory, writes fan out to both.
+// The central invariant lives in SetFindings: it is a fingerprint-merge, not a
+// replace, so a re-analysis preserves analyst work (Status/Analyst/Notes/
+// StatusTS) on fingerprint-matched findings and carries their IDs forward,
+// assigning new IDs strictly above the existing max, while Score/Severity/
+// Detail/Timestamp are refreshed from the new run. SQLite runs in WAL mode on a
+// single shared connection; saveFindings rewrites the findings table inside one
+// transaction and records a persistence-degraded flag (PersistenceError) on
+// failure so a write error is operator-visible rather than silent.
 package store
 
 import (

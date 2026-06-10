@@ -1,3 +1,13 @@
+// Package analysis is Archer's detection engine. Analyze runs a fixed phased
+// pipeline over a set of Zeek log files: phase 0 prefetches threat-intel feeds,
+// phase 1 runs the per-log-type detectors in a memory-bounded worker pool
+// (conn/dns/ssl/x509/files/weird/notice), phase 2 runs HTTP analysis (which
+// depends on the SNI index ssl populates), phase 3 runs URL+TI matching and the
+// cross-host correlation/staging passes, and phase 4 rolls findings up into
+// per-host risk scores. Detectors never touch storage or HTTP — they emit
+// model.Finding values through a.add and surface progress/status over channels,
+// so the package is driven entirely through Analyze / AnalyzeTIOnly plus the
+// injected feed/findings providers.
 package analysis
 
 import (
