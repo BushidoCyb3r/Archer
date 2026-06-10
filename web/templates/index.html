@@ -303,7 +303,7 @@
 
     <!-- Delta bar -->
     <div id="delta-bar">
-      <button class="delta-btn" id="delta-btn" title="Findings first detected since you last logged in">New only</button>
+      <button class="delta-btn" id="delta-btn" title="Findings first detected since you last logged in">New only<span id="delta-badge" class="badge hidden">0</span></button>
       <button class="delta-btn active" id="show-all-btn">Show all</button>
     </div>
 
@@ -999,15 +999,6 @@
   </div>
 </dialog>
 
-<dialog id="analysis-alert-dlg">
-  <div class="dlg-header">Analysis Complete</div>
-  <div class="dlg-body" style="text-align:center;padding:24px 32px">
-    <div id="analysis-alert-msg" style="font-size:16px;line-height:1.6;white-space:pre-wrap"></div>
-  </div>
-  <div class="dlg-footer" style="justify-content:center">
-    <button class="dlg-btn primary" id="analysis-alert-ok">OK</button>
-  </div>
-</dialog>
 
 <dialog id="suppress-dialog">
   <div class="dlg-header">Suppress Finding</div>

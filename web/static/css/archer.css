@@ -177,6 +177,9 @@ button, input, select, textarea {
   box-shadow: 0 0 0 2px var(--bg-elev-1);
 }
 .badge.hidden { display: none; }
+/* delta-badge sits inline inside the flex delta-btn; reset the bell's
+   absolute-offset margins so it flows naturally at the button's right edge. */
+#delta-badge { margin-left: 0; margin-top: 0; }
 
 /* Top-bar buttons (Settings, Sensors, Feeds, Users, Audit) */
 #settings-btn,
@@ -2164,7 +2167,6 @@ dialog[open]::backdrop { animation: backdrop-in var(--dur-med) var(--ease-out); 
 }
 
 /* Per-dialog default widths */
-#analysis-alert-dlg           { width: 460px; }
 #escalate-dialog              { width: 420px; }
 #note-dialog                  { width: 440px; }
 #suppress-dialog              { width: 380px; }

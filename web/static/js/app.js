@@ -1900,6 +1900,11 @@
       _deltaMode = true;
       document.getElementById('delta-btn').classList.add('active');
       document.getElementById('show-all-btn').classList.remove('active');
+      // Analyst is looking at new findings — record the high-water and hide
+      // the badge. The badge returns only when count climbs above seen_count.
+      fetch('/api/findings/modal-ack', { method: 'POST' }).catch(() => {});
+      const b = document.getElementById('delta-badge');
+      if (b) b.classList.add('hidden');
       _invalidateAllTabs();
       _loadCounts();
       loadFindings(_currentFilterParams());
@@ -2207,30 +2212,39 @@
     });
   }
 
-  // _showUnseenModal queries the per-session "new since you last looked"
-  // count and pops the new-findings modal only when there are unseen findings
-  // the modal hasn't already shown THIS SESSION. The "already shown" guard is
-  // the server-side per-session high-water (seen_count) — not a JS variable —
-  // so a page refresh (which reuses the session) doesn't re-announce the same
-  // findings. It re-pops only when the count climbs above seen_count (new
-  // findings arrived) or a fresh login starts a new session. The login
-  // boundary is the same cutoff the "New only" table filter uses, so the two
-  // agree and closing the modal doesn't empty the New view.
-  async function _showUnseenModal() {
+  // _shouldBadgeUnseen: true when there are unseen findings the analyst
+  // hasn't been told about this session. count is the server's unseen total;
+  // seen is the per-session high-water set by modal-ack. Returns false when
+  // count is at or below the high-water (already acknowledged) or when count
+  // is zero. Extracted for testability.
+  function _shouldBadgeUnseen(count, seen) {
+    return count > 0 && count > seen;
+  }
+
+  // _refreshUnseenBadge queries the per-session "new since you last looked"
+  // count and shows or updates a count badge on the "New only" button when
+  // there are unseen findings the analyst hasn't acknowledged this session.
+  // The guard is the server-side per-session high-water (seen_count) — not a
+  // JS variable — so an acknowledgment survives a page refresh. The badge
+  // re-appears only when count climbs above seen_count (genuinely new
+  // findings) or a fresh login starts a new session. The login boundary is the
+  // same cutoff the "New only" filter uses, so the badge and the filter agree.
+  async function _refreshUnseenBadge() {
     try {
       const r = await fetch('/api/findings/unseen', { cache: 'no-store' });
       if (!r.ok) return;
       const d = await r.json();
       const count = d.count || 0;
-      const total = d.total || 0;
       const seen  = d.seen_count || 0;
-      if (count <= 0 || count <= seen) return;
-      const msg = `${count} new finding${count !== 1 ? 's' : ''} since you last checked\n${total} total`;
-      document.getElementById('analysis-alert-msg').textContent = msg;
-      document.getElementById('analysis-alert-dlg').showModal();
-      // Record the pop server-side so a refresh of this session won't repeat it.
-      fetch('/api/findings/modal-ack', { method: 'POST' }).catch(() => {});
-    } catch (_) { /* best-effort — modal is informational */ }
+      const badge = document.getElementById('delta-badge');
+      if (!badge) return;
+      if (_shouldBadgeUnseen(count, seen)) {
+        badge.textContent = count > 99 ? '99+' : count;
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+    } catch (_) { /* best-effort — badge is informational */ }
   }
 
   // ── SSE ────────────────────────────────────────────────────────────────────
@@ -2285,16 +2299,13 @@
         .then(data => { if (Array.isArray(data)) data.filter(n => !n.dismissed).forEach(n => Notifications.add(n)); })
         .catch(() => {});
       setTimeout(() => { bar.value = 0; bar.style.display = 'none'; btn.style.display = ''; }, 2000);
-      // Route the modal through the per-user "unseen" endpoint rather than
-      // this run's evt.new_count. evt.new_count is the global per-run is_new
-      // flag, which resets every watch tick — an analyst sitting on the page
-      // across hourly passes would only ever see the latest run's new
-      // findings. _showUnseenModal counts everything detected since *this
-      // analyst* last acknowledged, so it accumulates correctly, and it stays
-      // silent when nothing is new to them (the status line already confirms
-      // the run completed).
+      // Refresh the badge via the per-user "unseen" endpoint rather than
+      // this run's evt.new_count. evt.new_count resets every watch tick —
+      // an analyst sitting on the page across hourly passes would only see
+      // the latest run's count. _refreshUnseenBadge accumulates correctly
+      // and stays silent when nothing is new to them.
       if (!evt.cancelled) {
-        _showUnseenModal();
+        _refreshUnseenBadge();
       }
     });
 
@@ -2402,13 +2413,6 @@
     });
 
     SSE.connect();
-
-    document.getElementById('analysis-alert-ok').addEventListener('click', () => {
-      // Just close. The new-findings boundary is anchored at login, not at
-      // dismiss, so the "New only" filter still surfaces these findings for
-      // review after the modal is closed; it re-anchors on next login.
-      document.getElementById('analysis-alert-dlg').close();
-    });
   }
 
   // ── Note modal ─────────────────────────────────────────────────────────────
@@ -5561,10 +5565,10 @@
       .catch(() => setStatus('Ready — click Import then Analyze'));
     _loadCounts();
     _loadFacets();
-    // Login-time new-findings prompt: show what's accumulated since this
-    // analyst last acknowledged, across every watch pass since — not just
-    // the most recent run. Silent when nothing is new to them.
-    _showUnseenModal();
+    // Login-time badge: show what's accumulated since this analyst last
+    // acknowledged, across every watch pass since — not just the most
+    // recent run. Silent when nothing is new to them.
+    _refreshUnseenBadge();
     setStatus('Ready');
     // Deep-link: ?finding=<id> opens that finding regardless of view — used by
     // SIEM forward links. Runs after the initial load so the jump lands on
