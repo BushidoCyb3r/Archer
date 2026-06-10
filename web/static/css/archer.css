@@ -2518,12 +2518,29 @@ a.attack-chip:hover { background: var(--accent-glow); }
 #chart-canvas {
   background: var(--bg-elev-1);
   border-radius: var(--radius);
-  /* Canvas is a fixed 720px wide; the dialog body is wider. Centre
-     it inside its container so the chart sits visually balanced
-     instead of left-aligned with a gap on the right. */
+  /* Fluid width; the backing store is sized to the logical 720x340 space in JS. */
   display: block;
   margin: 0 auto;
+  width: 100%;
+  height: auto;
 }
+.chart-canvas-wrap { position: relative; }
+.chart-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--bg-elev-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 6px 9px;
+  font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--fg-primary);
+  white-space: nowrap;
+  z-index: 5;
+}
+.chart-tooltip .tt-dim { color: var(--fg-muted); }
 .chart-views { display: flex; align-items: center; gap: 6px; padding: 0 22px 10px; flex-wrap: wrap; }
 .chart-view-btn {
   background: transparent;

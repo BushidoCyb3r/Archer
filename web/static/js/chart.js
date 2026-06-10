@@ -36,7 +36,60 @@ const BeaconChart = (() => {
   // Last-rendered Timeline plot geometry. Captured during _drawTimeline
   // so the brush handlers can map canvas X coordinates back to data
   // timestamps without re-running the stats pipeline.
-  let _timelinePlot = null; // { padLeft, plotW, tMin, tMax }
+  let _timelinePlot = null; // { padLeft, plotW, tMin, tMax, buckets }
+
+  let _intervalsPlot = null;
+  let _bytesPlot = null;
+
+  // Logical drawing space. The backing store is scaled by devicePixelRatio
+  // (capped at 2) in _setupCanvas; every draw routine keeps working in
+  // 720x340 logical units via the canvas transform.
+  const LOGICAL_W = 720, LOGICAL_H = 340;
+  const FONT_MONO = 'ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace';
+
+  function _setupCanvas(cv) {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const bw = Math.round(LOGICAL_W * dpr), bh = Math.round(LOGICAL_H * dpr);
+    if (cv.width !== bw || cv.height !== bh) {
+      cv.width = bw;
+      cv.height = bh;
+    }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return ctx;
+  }
+
+  function _bucketAt(x, padLeft, plotW, numBuckets) {
+    const i = Math.floor((x - padLeft) / (plotW / numBuckets));
+    return i >= 0 && i < numBuckets ? i : -1;
+  }
+
+  function _xTickCount(plotW) {
+    return Math.max(3, Math.min(8, Math.floor(plotW / 90)));
+  }
+
+  let _animT = 1;
+  let _animRaf = 0;
+
+  function _reducedMotion() {
+    return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  function _startAnim() {
+    cancelAnimationFrame(_animRaf);
+    if (_reducedMotion()) { _animT = 1; _render(); return; }
+    const t0 = performance.now(), DUR = 300;
+    _animT = 0;
+    const step = now => {
+      const p = Math.min(1, (now - t0) / DUR);
+      _animT = 1 - Math.pow(1 - p, 3);
+      _render();
+      if (p < 1) _animRaf = requestAnimationFrame(step);
+    };
+    _animRaf = requestAnimationFrame(step);
+  }
+
+  let _crosshairX = null;
 
   // Canvas can't read CSS vars, so the palette is resolved from the active
   // skin's tokens each render (refreshed at the top of _render and on
@@ -156,7 +209,7 @@ const BeaconChart = (() => {
 
   function _drawEmpty(ctx, W, H, msg) {
     ctx.fillStyle = PALETTE.axis;
-    ctx.font = '13px Helvetica';
+    ctx.font = `13px ${FONT_MONO}`;
     ctx.textAlign = 'center';
     ctx.fillText(msg, W / 2, H / 2);
   }
@@ -191,7 +244,6 @@ const BeaconChart = (() => {
       }
     }
     const span = Math.max(tMax - tMin, 1);
-    _timelinePlot = { padLeft: PAD.left, plotW, tMin, tMax };
 
     const ptsX = sorted.map(r => PAD.left + ((r[0] - tMin) / span) * plotW);
 
@@ -202,28 +254,37 @@ const BeaconChart = (() => {
       if (i >= 0 && i < plotW) buckets[i]++;
     });
     const maxDensity = Math.max(...buckets, 1);
+    const midY = PAD.top + plotH / 2;
+    const tickHalf = plotH * 0.42;
+
+    _timelinePlot = { padLeft: PAD.left, plotW, tMin, tMax, buckets };
 
     // Y-axis label
     ctx.save();
     ctx.fillStyle = PALETTE.label;
-    ctx.font = '10px Helvetica';
+    ctx.font = `11px ${FONT_MONO}`;
     ctx.textAlign = 'center';
     ctx.translate(14, PAD.top + plotH / 2);
     ctx.rotate(-Math.PI / 2);
     ctx.fillText('Connections', 0, 0);
     ctx.restore();
 
-    // Faint horizontal guideline at the midline so empty stretches still
-    // give the eye an anchor
+    // Soft band behind tick area gives the eye an anchor in sparse stretches
+    ctx.globalAlpha = 0.04;
+    ctx.fillStyle = PALETTE.accent;
+    ctx.fillRect(PAD.left, midY - tickHalf, plotW, tickHalf * 2);
+    ctx.globalAlpha = 1;
+
+    // Faint horizontal guideline at the midline
     ctx.strokeStyle = PALETTE.grid;
+    ctx.globalAlpha = 0.6;
     ctx.lineWidth = 1;
-    const midY = PAD.top + plotH / 2;
     ctx.beginPath();
     ctx.moveTo(PAD.left, midY); ctx.lineTo(PAD.left + plotW, midY);
     ctx.stroke();
+    ctx.globalAlpha = 1;
 
     // Ticks
-    const tickHalf = plotH * 0.42;
     ctx.lineCap = 'round';
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = PALETTE.bar;
@@ -232,7 +293,7 @@ const BeaconChart = (() => {
       const density = buckets[idx];
       // Alpha climbs with density up to a soft cap so dense regions stay
       // visible but sparse ticks aren't washed out
-      const alpha = Math.min(0.95, 0.35 + 0.65 * Math.min(1, density / Math.max(2, maxDensity / 4)));
+      const alpha = Math.min(0.95, 0.35 + 0.65 * Math.min(1, density / Math.max(2, maxDensity / 4))) * _animT;
       ctx.globalAlpha = alpha;
       ctx.beginPath();
       ctx.moveTo(x, midY - tickHalf);
@@ -253,28 +314,39 @@ const BeaconChart = (() => {
     ctx.lineTo(PAD.left, PAD.top + plotH);
     ctx.stroke();
 
-    // X tick labels: 6 evenly spaced
-    const xTicks = 6;
+    // X tick labels: scaled to plot width, rendered horizontally
+    const xTicks = _xTickCount(plotW);
     ctx.fillStyle = PALETTE.label;
-    ctx.font = '9px Helvetica';
+    ctx.font = `10px ${FONT_MONO}`;
     ctx.textAlign = 'center';
     for (let i = 0; i <= xTicks; i++) {
       const t = tMin + (i / xTicks) * span;
       const x = PAD.left + (i / xTicks) * plotW;
-      ctx.save();
-      ctx.translate(x, PAD.top + plotH + 10);
-      ctx.rotate(Math.PI / 6);
-      ctx.textAlign = 'left';
-      ctx.fillText(_timeLabel(t, span), 0, 0);
-      ctx.restore();
+      ctx.fillText(_timeLabel(t, span), x, PAD.top + plotH + 16);
     }
     ctx.fillStyle = PALETTE.label;
-    ctx.font = '10px Helvetica';
+    ctx.font = `11px ${FONT_MONO}`;
     ctx.textAlign = 'center';
     const axisLabel = _xRange
       ? `Time (UTC) — zoomed: ${sorted.length} of ${stats.count} connections`
       : 'Time (UTC)';
     ctx.fillText(axisLabel, PAD.left + plotW / 2, H - 4);
+
+    // Crosshair on hover
+    if (_crosshairX !== null) {
+      ctx.save();
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = PALETTE.text;
+      ctx.globalAlpha = 0.35;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(_crosshairX, PAD.top);
+      ctx.lineTo(_crosshairX, PAD.top + plotH);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
 
     // Brush selection rectangle, drawn last so it sits on top of ticks.
     if (_brushing) {
@@ -328,43 +400,55 @@ const BeaconChart = (() => {
     const slotW = plotW / numBuckets;
     const barW  = Math.max(Math.floor(slotW * 0.78), 2);
 
+    _intervalsPlot = { padLeft: PAD.left, plotW, lo, range, numBuckets, counts, total: trimmed.length };
+
     // Y gridlines + labels (counts)
     const yTicks = 4;
     ctx.lineWidth = 1;
     for (let i = 0; i <= yTicks; i++) {
       const y = PAD.top + plotH - (i / yTicks) * plotH;
       ctx.strokeStyle = PALETTE.grid;
+      ctx.globalAlpha = 0.6;
       ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + plotW, y); ctx.stroke();
+      ctx.globalAlpha = 1;
       ctx.fillStyle = PALETTE.axis;
-      ctx.font = '9px Helvetica';
+      ctx.font = `10px ${FONT_MONO}`;
       ctx.textAlign = 'right';
       ctx.fillText(Math.round((i / yTicks) * maxCount).toLocaleString(), PAD.left - 5, y + 3);
     }
     ctx.save();
     ctx.fillStyle = PALETTE.label;
-    ctx.font = '10px Helvetica';
+    ctx.font = `11px ${FONT_MONO}`;
     ctx.textAlign = 'center';
     ctx.translate(14, PAD.top + plotH / 2);
     ctx.rotate(-Math.PI / 2);
     ctx.fillText('Connections', 0, 0);
     ctx.restore();
 
+    // Gradient for bars, built once before the loop
+    const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + plotH);
+    grad.addColorStop(0, PALETTE.bar);
+    grad.addColorStop(1, PALETTE.bg);
+
     // Bars
     counts.forEach((c, i) => {
       const x  = PAD.left + i * slotW;
       const cx = x + slotW / 2;
-      const barH = (c / maxCount) * plotH;
+      const barH = (c / maxCount) * plotH * _animT;
       const barY = PAD.top + plotH - barH;
       const barX = cx - barW / 2;
-      if (i % 2 === 0) {
-        ctx.globalAlpha = 0.03;
-        ctx.fillStyle = PALETTE.label;
-        ctx.fillRect(x, PAD.top, slotW, plotH);
-        ctx.globalAlpha = 1;
-      }
       if (c > 0) {
-        ctx.fillStyle = PALETTE.bar;
-        ctx.fillRect(barX, barY, barW, barH);
+        ctx.fillStyle = grad;
+        const r = Math.min(2, barW / 2, barH);
+        ctx.beginPath();
+        ctx.moveTo(barX, barY + barH);
+        ctx.lineTo(barX, barY + r);
+        ctx.arcTo(barX, barY, barX + r, barY, r);
+        ctx.lineTo(barX + barW - r, barY);
+        ctx.arcTo(barX + barW, barY, barX + barW, barY + r, r);
+        ctx.lineTo(barX + barW, barY + barH);
+        ctx.closePath();
+        ctx.fill();
       }
     });
 
@@ -379,7 +463,7 @@ const BeaconChart = (() => {
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.fillStyle = PALETTE.accent;
-      ctx.font = '9px Helvetica';
+      ctx.font = `10px ${FONT_MONO}`;
       ctx.textAlign = 'left';
       ctx.fillText(`mean ${_fmtInterval(stats.mean)}`, mx + 4, PAD.top + 10);
     }
@@ -395,22 +479,18 @@ const BeaconChart = (() => {
     ctx.lineTo(PAD.left, PAD.top + plotH);
     ctx.stroke();
 
-    // X tick labels: 6 evenly spaced, formatted as intervals
-    const xTicks = 6;
+    // X tick labels: scaled to plot width, rendered horizontally
+    const xTicks = _xTickCount(plotW);
     ctx.fillStyle = PALETTE.label;
-    ctx.font = '9px Helvetica';
+    ctx.font = `10px ${FONT_MONO}`;
+    ctx.textAlign = 'center';
     for (let i = 0; i <= xTicks; i++) {
       const v = lo + (i / xTicks) * range;
       const x = PAD.left + (i / xTicks) * plotW;
-      ctx.save();
-      ctx.translate(x, PAD.top + plotH + 10);
-      ctx.rotate(Math.PI / 6);
-      ctx.textAlign = 'left';
-      ctx.fillText(_fmtInterval(v), 0, 0);
-      ctx.restore();
+      ctx.fillText(_fmtInterval(v), x, PAD.top + plotH + 16);
     }
     ctx.fillStyle = PALETTE.label;
-    ctx.font = '10px Helvetica';
+    ctx.font = `11px ${FONT_MONO}`;
     ctx.textAlign = 'center';
     ctx.fillText('Inter-arrival interval (top 1% trimmed)', PAD.left + plotW / 2, H - 4);
   }
@@ -447,57 +527,66 @@ const BeaconChart = (() => {
     const slotW = plotW / numBuckets;
     const barW  = Math.max(Math.floor(slotW * 0.7), 2);
 
+    _bytesPlot = { padLeft: PAD.left, plotW, buckets, span };
+
     const yTicks = 4;
     for (let i = 0; i <= yTicks; i++) {
       const y = PAD.top + plotH - (i / yTicks) * plotH;
       ctx.strokeStyle = PALETTE.grid;
+      ctx.globalAlpha = 0.6;
       ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + plotW, y); ctx.stroke();
+      ctx.globalAlpha = 1;
       ctx.fillStyle = PALETTE.axis;
-      ctx.font = '9px Helvetica';
+      ctx.font = `10px ${FONT_MONO}`;
       ctx.textAlign = 'right';
       ctx.fillText(_fmtBytes((i / yTicks) * maxBytes), PAD.left - 5, y + 3);
     }
     ctx.save();
     ctx.fillStyle = PALETTE.label;
-    ctx.font = '10px Helvetica';
+    ctx.font = `11px ${FONT_MONO}`;
     ctx.textAlign = 'center';
     ctx.translate(14, PAD.top + plotH / 2);
     ctx.rotate(-Math.PI / 2);
     ctx.fillText('Bytes Sent', 0, 0);
     ctx.restore();
 
+    // Gradient for normal bars, built once before the loop
+    const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + plotH);
+    grad.addColorStop(0, PALETTE.bar);
+    grad.addColorStop(1, PALETTE.bg);
+
     const labelEvery = Math.max(1, Math.ceil(numBuckets / 10));
     buckets.forEach((b, i) => {
       const x  = PAD.left + i * slotW;
       const cx = x + slotW / 2;
-      const barH = (b.origBytes / maxBytes) * plotH;
+      const barH = (b.origBytes / maxBytes) * plotH * _animT;
       const barY = PAD.top + plotH - barH;
       const barX = cx - barW / 2;
-      if (i % 2 === 0) {
-        ctx.globalAlpha = 0.03;
-        ctx.fillStyle = PALETTE.label;
-        ctx.fillRect(x, PAD.top, slotW, plotH);
-        ctx.globalAlpha = 1;
-      }
       if (b.origBytes > 0) {
-        ctx.fillStyle = b.origBytes > b.respBytes ? PALETTE.barHi : PALETTE.bar;
-        ctx.fillRect(barX, barY, barW, barH);
+        const isSentHi = b.origBytes > b.respBytes;
+        ctx.fillStyle = isSentHi ? PALETTE.barHi : grad;
+        const r = Math.min(2, barW / 2, barH);
+        ctx.beginPath();
+        ctx.moveTo(barX, barY + barH);
+        ctx.lineTo(barX, barY + r);
+        ctx.arcTo(barX, barY, barX + r, barY, r);
+        ctx.lineTo(barX + barW - r, barY);
+        ctx.arcTo(barX + barW, barY, barX + barW, barY + r, r);
+        ctx.lineTo(barX + barW, barY + barH);
+        ctx.closePath();
+        ctx.fill();
         if (barH > 16) {
           ctx.fillStyle = 'rgba(255,255,255,0.75)';
-          ctx.font = '8px Helvetica';
+          ctx.font = `9px ${FONT_MONO}`;
           ctx.textAlign = 'center';
           ctx.fillText(_fmtBytes(b.origBytes), cx, barY + 10);
         }
       }
       if (i % labelEvery === 0) {
         ctx.fillStyle = PALETTE.label;
-        ctx.font = '8px Helvetica';
-        ctx.save();
-        ctx.translate(cx, PAD.top + plotH + 10);
-        ctx.rotate(Math.PI / 6);
-        ctx.textAlign = 'left';
-        ctx.fillText(_timeLabel(b.tStart, span), 0, 0);
-        ctx.restore();
+        ctx.font = `9px ${FONT_MONO}`;
+        ctx.textAlign = 'center';
+        ctx.fillText(_timeLabel(b.tStart, span), cx, PAD.top + plotH + 16);
       }
     });
 
@@ -512,7 +601,7 @@ const BeaconChart = (() => {
     ctx.stroke();
 
     ctx.fillStyle = PALETTE.label;
-    ctx.font = '10px Helvetica';
+    ctx.font = `11px ${FONT_MONO}`;
     ctx.textAlign = 'center';
     ctx.fillText('Time (UTC)', PAD.left + plotW / 2, H - 4);
 
@@ -521,7 +610,7 @@ const BeaconChart = (() => {
     ctx.fillStyle = PALETTE.bar;
     ctx.fillRect(legX, 8, 10, 8);
     ctx.fillStyle = PALETTE.text;
-    ctx.font = '9px Helvetica';
+    ctx.font = `9px ${FONT_MONO}`;
     ctx.textAlign = 'left';
     ctx.fillText('normal', legX + 14, 16);
     ctx.fillStyle = PALETTE.barHi;
@@ -530,13 +619,77 @@ const BeaconChart = (() => {
     ctx.fillText('sent > recv', legX + 84, 16);
   }
 
+  // ── Tooltip + crosshair ──────────────────────────────────────────
+
+  function _showTooltip(ev, html) {
+    const tip = document.getElementById('chart-tooltip');
+    const cv = document.getElementById('chart-canvas');
+    if (!tip || !cv) return;
+    tip.innerHTML = html;
+    tip.hidden = false;
+    const rect = cv.getBoundingClientRect();
+    const wrap = cv.parentElement.getBoundingClientRect();
+    let left = ev.clientX - wrap.left + 14;
+    const top = ev.clientY - wrap.top + 14;
+    if (ev.clientX - rect.left > rect.width * 0.65) left -= tip.offsetWidth + 28;
+    tip.style.left = left + 'px';
+    tip.style.top = top + 'px';
+  }
+
+  function _hideTooltip() {
+    const tip = document.getElementById('chart-tooltip');
+    if (tip) tip.hidden = true;
+    if (_crosshairX !== null) { _crosshairX = null; if (_viewMode === 'timeline') _render(); }
+  }
+
+  function _onHoverMove(ev) {
+    if (_brushing) { _hideTooltip(); return; }
+    const x = _canvasX(ev);
+    let html = '';
+    if (_viewMode === 'intervals' && _intervalsPlot) {
+      const p = _intervalsPlot;
+      const i = _bucketAt(x, p.padLeft, p.plotW, p.numBuckets);
+      if (i >= 0) {
+        const b0 = p.lo + (i / p.numBuckets) * p.range;
+        const b1 = p.lo + ((i + 1) / p.numBuckets) * p.range;
+        const c = p.counts[i];
+        const share = p.total ? Math.round((c / p.total) * 100) : 0;
+        html = `<span class="tt-dim">${_fmtInterval(b0)} – ${_fmtInterval(b1)}</span><br>` +
+               `<strong>${c.toLocaleString()}</strong> connections · ${share}%`;
+      }
+    } else if (_viewMode === 'bytes' && _bytesPlot) {
+      const p = _bytesPlot;
+      const i = _bucketAt(x, p.padLeft, p.plotW, p.buckets.length);
+      if (i >= 0) {
+        const b = p.buckets[i];
+        html = `<span class="tt-dim">${_timeLabel(b.tStart, p.span)}</span><br>` +
+               `sent <strong>${_fmtBytes(b.origBytes)}</strong> · recv ${_fmtBytes(b.respBytes)}<br>` +
+               `<span class="tt-dim">${b.count} connections</span>`;
+      }
+    } else if (_viewMode === 'timeline' && _timelinePlot && _timelinePlot.buckets) {
+      const p = _timelinePlot;
+      const i = Math.floor(x - p.padLeft);
+      if (i >= 0 && i < p.plotW) {
+        const t = p.tMin + (i / p.plotW) * (p.tMax - p.tMin);
+        html = `<span class="tt-dim">${_timeLabel(t, p.tMax - p.tMin)}</span><br>` +
+               `<strong>${p.buckets[i]}</strong> in this column`;
+        _crosshairX = x;
+      }
+    }
+    if (!html) { _hideTooltip(); return; }
+    _showTooltip(ev, html);
+    if (_viewMode === 'timeline') _render();
+  }
+
   // ── Render ───────────────────────────────────────────────────────
 
   function _render() {
     PALETTE = _readPalette();
     const cv  = document.getElementById('chart-canvas');
-    const ctx = cv.getContext('2d');
-    const W = cv.width, H = cv.height;
+    const ctx = _setupCanvas(cv);
+    const W = LOGICAL_W, H = LOGICAL_H;
+    _intervalsPlot = null;
+    _bytesPlot = null;
     _clearCanvas(ctx, W, H);
     const tsData = (_finding && _finding.ts_data) || [];
     const stats = _computeStats(tsData);
@@ -564,7 +717,8 @@ const BeaconChart = (() => {
     });
     _updateZoomUI();
     dialog.showModal();
-    _render();
+    _hideTooltip();
+    _startAnim();
   }
 
   // ── Export ───────────────────────────────────────────────────────
@@ -617,8 +771,7 @@ const BeaconChart = (() => {
   function _canvasX(ev) {
     const cv = document.getElementById('chart-canvas');
     const rect = cv.getBoundingClientRect();
-    // Canvas can be CSS-scaled relative to its drawing-buffer width
-    const scale = cv.width / rect.width;
+    const scale = LOGICAL_W / rect.width;
     return (ev.clientX - rect.left) * scale;
   }
 
@@ -680,12 +833,14 @@ const BeaconChart = (() => {
         document.querySelectorAll('.chart-view-btn').forEach(b =>
           b.classList.toggle('active', b === btn));
         _updateZoomUI();
-        if (_finding) _render();
+        _hideTooltip();
+        if (_finding) _startAnim();
       });
     });
     document.getElementById('chart-close').addEventListener('click', () => {
       document.getElementById('chart-dialog').close();
     });
+    document.getElementById('chart-dialog').addEventListener('close', () => cancelAnimationFrame(_animRaf));
     const resetBtn = document.getElementById('chart-reset-zoom');
     if (resetBtn) resetBtn.addEventListener('click', _resetZoom);
 
@@ -693,6 +848,8 @@ const BeaconChart = (() => {
     if (cv) {
       cv.addEventListener('mousedown', _onMouseDown);
       cv.addEventListener('contextmenu', _onContextMenu);
+      cv.addEventListener('mousemove', _onHoverMove);
+      cv.addEventListener('mouseleave', _hideTooltip);
       // Mouse-up and move bind to window so dragging off the canvas
       // still completes the brush cleanly.
       window.addEventListener('mousemove', _onMouseMove);
