@@ -14,7 +14,6 @@ const Table = (() => {
   let _selected = null;
   let _onSelect    = null;
   let _onCtx       = null;
-  let _enterTimer  = 0;
 
   // Row height is pinned in archer.css (#findings-tbody > tr:not([aria-hidden])
   // { height: 32px }). Using a constant here — and a CSS rule there — keeps
@@ -246,15 +245,7 @@ const Table = (() => {
     // Default: reset scroll on load — fresh data should land the analyst
     // at the top. opts.preserveScroll skips that reset, used by the
     // in-place reload path so analysts stay where they were reading.
-    if (wrap && !(opts && opts.preserveScroll)) {
-      wrap.scrollTop = 0;
-      const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if (tbody && !reduced) {
-        tbody.classList.add('rows-enter');
-        clearTimeout(_enterTimer);
-        _enterTimer = setTimeout(() => tbody.classList.remove('rows-enter'), 700);
-      }
-    }
+    if (wrap && !(opts && opts.preserveScroll)) wrap.scrollTop = 0;
     _render();
   }
 

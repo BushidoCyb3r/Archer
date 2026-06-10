@@ -1035,29 +1035,6 @@ tr.selected.MEDIUM   { box-shadow: inset 3px 0 0 var(--sev-medium),   inset 0 0 
 tr.selected.LOW      { box-shadow: inset 3px 0 0 var(--sev-low),      inset 0 0 0 1px var(--accent-soft); }
 tr.selected.IOC_HIT  { box-shadow: inset 3px 0 0 var(--ioc),          inset 0 0 0 1px var(--accent-soft); }
 
-@keyframes row-enter {
-  from { opacity: 0; transform: translateY(5px); }
-  to   { opacity: 1; transform: none; }
-}
-#findings-tbody.rows-enter > tr:not([aria-hidden]) {
-  animation: row-enter var(--dur-med) var(--ease-out) backwards;
-}
-#findings-tbody.rows-enter > tr:nth-child(2)  { animation-delay: 30ms; }
-#findings-tbody.rows-enter > tr:nth-child(3)  { animation-delay: 60ms; }
-#findings-tbody.rows-enter > tr:nth-child(4)  { animation-delay: 90ms; }
-#findings-tbody.rows-enter > tr:nth-child(5)  { animation-delay: 120ms; }
-#findings-tbody.rows-enter > tr:nth-child(6)  { animation-delay: 150ms; }
-#findings-tbody.rows-enter > tr:nth-child(7)  { animation-delay: 180ms; }
-#findings-tbody.rows-enter > tr:nth-child(8)  { animation-delay: 210ms; }
-#findings-tbody.rows-enter > tr:nth-child(9)  { animation-delay: 240ms; }
-#findings-tbody.rows-enter > tr:nth-child(10) { animation-delay: 270ms; }
-#findings-tbody.rows-enter > tr:nth-child(11) { animation-delay: 300ms; }
-#findings-tbody.rows-enter > tr:nth-child(12) { animation-delay: 330ms; }
-#findings-tbody.rows-enter > tr:nth-child(13) { animation-delay: 360ms; }
-#findings-tbody.rows-enter > tr:nth-child(14) { animation-delay: 390ms; }
-#findings-tbody.rows-enter > tr:nth-child(15) { animation-delay: 420ms; }
-#findings-tbody.rows-enter > tr:nth-child(n+16) { animation: none; }
-
 @keyframes flash-new {
   0%   { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
   100% { background: transparent; box-shadow: none; }
