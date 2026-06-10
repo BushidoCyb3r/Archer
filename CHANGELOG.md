@@ -4332,8 +4332,8 @@ that contract on the no-historical-twin shape only.
 
 Both regressions ship with invariant-shaped tests that exercise
 multiple input shapes against the same code path (per the
-[memory note](../../../.claude/projects/-root-Archer/memory/feedback_test_invariant_not_failure_case.md)),
-not just the narrow failure case the auditor described.
+project's invariant-testing discipline), not just the narrow
+failure case the auditor described.
 
 ### Fixed
 
@@ -4394,10 +4394,11 @@ fresh-ID translation case but missed the historical-contributor
 path — a real bug that surfaced in steady-state operation,
 silently dropping every cross-run correlation reference.
 
-The discipline lesson lives [in
-memory](../../../.claude/projects/-root-Archer/memory/feedback_test_invariant_not_failure_case.md)
-so the next fix that ships with a passing test against the
-narrow case gets caught at write time.
+The discipline lesson — write the regression test against the
+end-to-end invariant, not the narrow failure case — is part of
+the project's standing testing convention so the next fix that
+ships with a passing test against the narrow case gets caught at
+write time.
 
 ### Fixed
 
