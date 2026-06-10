@@ -93,6 +93,22 @@ func (a *fakeAdapter) Fetch(ctx context.Context, since int64) (FetchResult, erro
 	return FetchResult{Indicators: append([]Indicator(nil), a.indicators...)}, nil
 }
 
+// waitFor polls cond until it returns true or a generous deadline elapses,
+// failing the test on timeout. Mirrors the poll-until-deadline pattern in
+// internal/server/prune_test.go — preferred over a fixed time.Sleep, which
+// either flakes under load (too short) or wastes wall-clock (too long).
+func waitFor(t *testing.T, cond func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for: %s", msg)
+}
+
 func TestWorker_RunsOneFetchPerFeedOnStart(t *testing.T) {
 	store := newFakeStore(Feed{
 		ID: 1, SourceType: SourceMISP, Name: "test", URL: "x", APIKey: "k",
@@ -138,24 +154,38 @@ func TestWorker_RunsOneFetchPerFeedOnStart(t *testing.T) {
 }
 
 func TestWorker_SkipsDisabledFeeds(t *testing.T) {
-	store := newFakeStore(Feed{
-		ID: 1, SourceType: SourceMISP, Name: "test", URL: "x", APIKey: "k",
-		Enabled: false,
+	store := newFakeStore(
+		Feed{ID: 1, SourceType: SourceMISP, Name: "disabled", URL: "x", APIKey: "k", Enabled: false},
+		Feed{ID: 2, SourceType: SourceMISP, Name: "enabled", URL: "x", APIKey: "k", IndicatorAgingDays: 30, Enabled: true},
+	)
+	disabled := &fakeAdapter{indicators: []Indicator{{Indicator: "d", Type: IndicatorIP}}}
+	enabled := &fakeAdapter{indicators: []Indicator{{Indicator: "e", Type: IndicatorIP}}}
+	w := NewWorker(store, func(f Feed) (Adapter, error) {
+		if f.ID == 1 {
+			return disabled, nil
+		}
+		return enabled, nil
 	})
-	adapter := &fakeAdapter{indicators: []Indicator{{Indicator: "x", Type: IndicatorIP}}}
-	w := NewWorker(store, func(f Feed) (Adapter, error) { return adapter, nil })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go w.Run(ctx)
 
-	// Hold for 200ms — enough for any erroneous tick to fire.
-	time.Sleep(200 * time.Millisecond)
+	// Deterministic signal that the worker completed a full reconcile pass over
+	// the feed list: the ENABLED feed got fetched. A reconcile iterates the
+	// whole list in one pass, so once the enabled feed has been fetched the
+	// disabled feed has been evaluated-and-skipped in that same pass — no fixed
+	// sleep needed to "wait for a tick that shouldn't happen".
+	waitFor(t, func() bool {
+		enabled.mu.Lock()
+		defer enabled.mu.Unlock()
+		return enabled.calls >= 1
+	}, "enabled sibling feed never fetched")
 	cancel()
 
-	adapter.mu.Lock()
-	calls := adapter.calls
-	adapter.mu.Unlock()
+	disabled.mu.Lock()
+	calls := disabled.calls
+	disabled.mu.Unlock()
 	if calls != 0 {
 		t.Errorf("disabled feed should not fetch; got %d calls", calls)
 	}
@@ -218,31 +248,35 @@ func TestWorker_StopsLoopWhenFeedDisabled(t *testing.T) {
 	defer cancel()
 	go w.Run(ctx)
 
-	// Wait for first tick.
-	time.Sleep(100 * time.Millisecond)
+	// Poll until the first tick lands (deterministic) — proves the loop is
+	// alive before we disable the feed.
+	waitFor(t, func() bool {
+		adapter.mu.Lock()
+		defer adapter.mu.Unlock()
+		return adapter.calls >= 1
+	}, "first tick never fired")
+
+	// Disable the feed, then let any in-flight reconcile (which may have
+	// snapshotted the feed list before the flip) settle.
 	store.mu.Lock()
-	startCalls := adapter.calls
 	store.feeds[0].Enabled = false
 	store.mu.Unlock()
+	time.Sleep(2 * w.reconcileInterval)
 
-	// Wait through a reconcile cycle plus a beat.
-	time.Sleep(200 * time.Millisecond)
-	cancel()
-
-	store.mu.Lock()
-	endCalls := adapter.calls
-	store.mu.Unlock()
-
-	// adapter.calls is touched without the store mutex; lock it
-	// directly to read the final value safely.
 	adapter.mu.Lock()
-	endCalls = adapter.calls
+	afterDisable := adapter.calls
 	adapter.mu.Unlock()
 
-	// We can't assert exact equality (a race-window tick is possible),
-	// but the loop must have stopped — endCalls should be small,
-	// roughly close to startCalls.
-	if endCalls > startCalls+1 {
-		t.Errorf("loop did not stop after disable: startCalls=%d endCalls=%d", startCalls, endCalls)
+	// Over a multi-interval window the count must stay stable: a loop still
+	// fetching the (now-disabled) feed every 50ms would add ~6 calls.
+	time.Sleep(6 * w.reconcileInterval)
+	cancel()
+
+	adapter.mu.Lock()
+	endCalls := adapter.calls
+	adapter.mu.Unlock()
+
+	if endCalls != afterDisable {
+		t.Errorf("feed kept fetching after disable: afterDisable=%d endCalls=%d", afterDisable, endCalls)
 	}
 }
