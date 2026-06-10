@@ -182,56 +182,6 @@ func TestStatisticalScore(t *testing.T) {
 	})
 }
 
-func TestComputeHistogram(t *testing.T) {
-	t.Run("empty_window_returns_zeroes", func(t *testing.T) {
-		freq, freqCount := computeHistogram([]float64{1, 2, 3}, 5, 5, 24)
-		if len(freqCount) != 0 {
-			t.Errorf("freqCount = %v, want empty", freqCount)
-		}
-		for i, v := range freq {
-			if v != 0 {
-				t.Errorf("freq[%d] = %d, want 0", i, v)
-			}
-		}
-	})
-
-	t.Run("uniform_partitioning", func(t *testing.T) {
-		// 24 timestamps, one per bucket, exactly aligned.
-		ts := make([]float64, 24)
-		for i := range ts {
-			ts[i] = float64(i) + 0.5
-		}
-		freq, freqCount := computeHistogram(ts, 0, 24, 24)
-		if len(freqCount) != 24 {
-			t.Errorf("freqCount size = %d, want 24", len(freqCount))
-		}
-		for i, v := range freq {
-			if v != 1 {
-				t.Errorf("freq[%d] = %d, want 1", i, v)
-			}
-		}
-	})
-
-	t.Run("clamps_to_last_bucket", func(t *testing.T) {
-		// Timestamp at the boundary should map to last bucket, not over.
-		freq, _ := computeHistogram([]float64{10}, 0, 10, 24)
-		if freq[23] != 1 {
-			t.Errorf("boundary timestamp not clamped: freq = %v", freq)
-		}
-	})
-
-	t.Run("all_same_bucket", func(t *testing.T) {
-		// Cluster all timestamps into bucket 0.
-		freq, freqCount := computeHistogram([]float64{0.1, 0.2, 0.3}, 0, 24, 24)
-		if freq[0] != 3 {
-			t.Errorf("freq[0] = %d, want 3", freq[0])
-		}
-		if freqCount[0] != 3 || len(freqCount) != 1 {
-			t.Errorf("freqCount = %v, want {0:3}", freqCount)
-		}
-	})
-}
-
 func TestCvScore(t *testing.T) {
 	tests := []struct {
 		name string
@@ -296,63 +246,6 @@ func TestBimodalScore(t *testing.T) {
 		got := bimodalScore(fc, 24, 0.5)
 		if got != 0 {
 			t.Errorf("bimodal single-peak = %v, want 0", got)
-		}
-	})
-}
-
-func TestHistScoreRegularity(t *testing.T) {
-	t.Run("regular_pattern_high_score", func(t *testing.T) {
-		// Evenly spaced timestamps should produce a high regularity score.
-		ts := make([]float64, 240)
-		for i := range ts {
-			ts[i] = float64(i) * 60 // every 60s for 4 hours
-		}
-		score, totalBars := histScoreRegularity(ts, 0, ts[len(ts)-1])
-		if totalBars < 1 {
-			t.Errorf("totalBars = %d, want >= 1", totalBars)
-		}
-		if score < 0 || score > 1 {
-			t.Errorf("histScoreRegularity score = %v, want in [0,1]", score)
-		}
-	})
-
-	t.Run("zero_window_zero_score", func(t *testing.T) {
-		score, totalBars := histScoreRegularity([]float64{1, 2, 3}, 5, 5)
-		if score != 0 || totalBars != 0 {
-			t.Errorf("histScoreRegularity empty-window = (%v,%d), want (0,0)", score, totalBars)
-		}
-	})
-}
-
-func TestDurationScore(t *testing.T) {
-	t.Run("too_few_bars_zero", func(t *testing.T) {
-		ts := []float64{0, 1, 2}
-		got := durationScore(ts, 0, 100, 24)
-		if got != 0 {
-			t.Errorf("too-few-bars durationScore = %v, want 0", got)
-		}
-	})
-
-	t.Run("full_coverage_high_score", func(t *testing.T) {
-		// Spread across full 24 buckets → coverage and consistency both ~1.
-		ts := make([]float64, 24)
-		for i := range ts {
-			ts[i] = float64(i)
-		}
-		got := durationScore(ts, 0, 24, 12)
-		if got < 0.9 {
-			t.Errorf("full-coverage durationScore = %v, want >= 0.9", got)
-		}
-	})
-
-	t.Run("clamp_to_unit", func(t *testing.T) {
-		ts := make([]float64, 24)
-		for i := range ts {
-			ts[i] = float64(i)
-		}
-		got := durationScore(ts, 0, 24, 1)
-		if got < 0 || got > 1 {
-			t.Errorf("durationScore = %v out of [0,1]", got)
 		}
 	})
 }

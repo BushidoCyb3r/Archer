@@ -106,33 +106,6 @@ func statisticalScore(xs []float64, defaultMadScore float64) float64 {
 	return math.Round(combined*1000) / 1000
 }
 
-// computeHistogram partitions timestamps into nBuckets equal-width bins.
-// Returns a slice of bucket counts and a map[bucket_index]count for non-zero buckets.
-func computeHistogram(timestamps []float64, datasetMin, datasetMax float64, nBuckets int) ([]int, map[int]int) {
-	freq := make([]int, nBuckets)
-	if datasetMax <= datasetMin {
-		return freq, map[int]int{}
-	}
-	span := datasetMax - datasetMin
-	for _, ts := range timestamps {
-		idx := int((ts - datasetMin) / span * float64(nBuckets))
-		if idx >= nBuckets {
-			idx = nBuckets - 1
-		}
-		if idx < 0 {
-			idx = 0
-		}
-		freq[idx]++
-	}
-	freqCount := make(map[int]int)
-	for i, v := range freq {
-		if v > 0 {
-			freqCount[i] = v
-		}
-	}
-	return freq, freqCount
-}
-
 // cvScore scores how uniformly populated the histogram buckets are.
 // Uses population std dev (not sample).
 func cvScore(connHist []int) float64 {
@@ -196,75 +169,6 @@ func bimodalScore(freqCount map[int]int, totalBars int, modeSensitivity float64)
 		return 0
 	}
 	return float64(highCount) / float64(totalBars)
-}
-
-// histScoreRegularity computes the histogram-based regularity score over 24 buckets.
-// Returns (score 0-1, totalBars).
-func histScoreRegularity(timestamps []float64, datasetMin, datasetMax float64) (float64, int) {
-	const nBuckets = 24
-	connHist, freqCount := computeHistogram(timestamps, datasetMin, datasetMax, nBuckets)
-	totalBars := len(freqCount)
-
-	cv := cvScore(connHist)
-	bm := bimodalScore(freqCount, totalBars, 0.05)
-	score := cv
-	if bm > score {
-		score = bm
-	}
-	return score, totalBars
-}
-
-// durationScore measures temporal persistence of a connection pattern.
-// Returns the higher of coverage score and consecutive-bucket score.
-func durationScore(timestamps []float64, datasetMin, datasetMax float64, minBars int) float64 {
-	const nBuckets = 24
-	_, freqCount := computeHistogram(timestamps, datasetMin, datasetMax, nBuckets)
-	totalBars := len(freqCount)
-	if totalBars < minBars {
-		return 0
-	}
-
-	// Coverage: fraction of dataset window covered
-	if len(timestamps) == 0 {
-		return 0
-	}
-	first := timestamps[0]
-	last := timestamps[len(timestamps)-1]
-	for _, ts := range timestamps {
-		if ts < first {
-			first = ts
-		}
-		if ts > last {
-			last = ts
-		}
-	}
-	coverage := 0.0
-	if datasetMax > datasetMin {
-		coverage = (last - first) / (datasetMax - datasetMin)
-	}
-
-	// Consecutive bucket run
-	longestRun := 0
-	currentRun := 0
-	for i := 0; i < nBuckets; i++ {
-		if freqCount[i] > 0 {
-			currentRun++
-			if currentRun > longestRun {
-				longestRun = currentRun
-			}
-		} else {
-			currentRun = 0
-		}
-	}
-	consistency := float64(longestRun) / 12.0
-	if consistency > 1 {
-		consistency = 1
-	}
-
-	if coverage > consistency {
-		return coverage
-	}
-	return consistency
 }
 
 // intervalMultimodalScore augments the timing-axis regularity score
