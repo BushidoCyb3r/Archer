@@ -28,15 +28,49 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
-## [Unreleased]
+## [v0.69.0] — 2026-06-11
 
 ### Added
 
 - **Hide FP Benign toggle** — a chip next to Show Dismissed that hides findings whose JA3/JA4 client fingerprint is marked benign on the TLS Fingerprints wall, by composing `benign:false` into the server query (so counts, pagination, aggregates, and exports all follow the on-screen view). A view filter, not a triage state: hidden findings still exist, score, and feed Host Risk; unmark the fingerprint and they reappear. Per-browser preference, persisted like Show Dismissed. Toggling reloads in place — same page, same scroll position.
 
+- **`outratio:` query field** — the outbound/inbound payload-byte ratio over a
+  pair's observation window, numeric comparisons and ranges (`outratio:>=2`,
+  `outratio:[2 TO 10]`). The whole-window analogue of the beacon chart's red
+  upload-heavy Bytes-mirror buckets (which flag sent > 2× received per bucket),
+  queryable instead of only visible per-finding in the chart. Backed by new
+  per-pair byte totals the conn analyzers stamp on `Beacon`, `Port-Hopping
+  Beacon`, and `Data Exfiltration` findings; unstamped findings (including
+  per-channel beacon sub-findings, where a pair-level sum would misattribute
+  the blend's volume) match no `outratio:` predicate, the same structural-zero
+  scoping as the beacon sub-scores. An all-upload pair (zero bytes received)
+  matches every lower bound. Listed in the **+ more ▾** field chip.
+
 ### Changed
 
 - The TLS-allowlist chip on findings rows now reads `FP Benign` (was `fp benign`), matching the new toggle's label.
+
+### Fixed
+
+- The detail-pane action buttons got their colors back. The severity-neutral
+  retheme (which made the low/info severity stops neutral in every skin)
+  silently drained the buttons that pointed at those tokens: Acknowledge lost
+  its green and Beacon Chart its blue. Acknowledge now uses a new `--ok`
+  confirm/success token (green in cobalt, a cohesive equivalent in every other
+  skin — GitHub green in gh-dark, kelp in spongebob, relish in hotdog, …) and
+  Beacon Chart shares the accent with Score Chart. Escalate (red), Dismiss
+  (neutral), PCAP Filter / Source Records / TLS Pivot, and Suppress (orange)
+  are unchanged. The PCAP-filter "Copied" toast is now a solid `--ok` green —
+  the success counterpart of the red bad-query toast — and stays neutral when
+  the clipboard write fails and the filter is only displayed for manual copy.
+
+### Breaking
+
+- **DB schema (migration 0037):** new `orig_bytes` / `resp_bytes` INTEGER
+  columns on `findings` (`DEFAULT 0`) persisting the per-pair sent/received
+  payload-byte totals behind the `outratio:` query field. Applied automatically
+  on first boot of this version; pre-0037 rows read back as 0 and match no
+  `outratio:` predicate until the next full analysis re-stamps them.
 
 ## [v0.68.1] — 2026-06-10
 
@@ -8753,6 +8787,7 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
+[v0.69.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.68.1...v0.69.0
 [v0.68.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.68.0...v0.68.1
 [v0.68.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.67.0...v0.68.0
 [v0.67.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.66.0...v0.67.0
