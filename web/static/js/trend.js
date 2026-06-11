@@ -236,16 +236,29 @@ const Trend = (() => {
       ctx.fillText(_days[i].slice(5), xAt(i), H - PAD.bottom + 6);
     }
 
-    // Series lines
+    // Series lines — cardinal-spline smoothing so day-to-day steps read as
+    // a trend rather than a sawtooth. Control points are clamped to the
+    // plot's y range so a curve can't dip below the zero axis (or overshoot
+    // the top) next to a sharp spike.
     const drawPoints = n <= 60;
+    const K = 0.22; // curvature: 1/6 ≈ Catmull-Rom; higher = rounder
+    const yLo = PAD.top, yHi = PAD.top + plotH;
+    const clampY = v => Math.max(yLo, Math.min(yHi, v));
     _visibleSeries().forEach(s => {
       const color = _colorOf(s.key);
       ctx.strokeStyle = color;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      for (let i = i0; i <= i1; i++) {
-        const x = xAt(i), y = yAt(s.counts[i]);
-        if (i === i0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      const pts = [];
+      for (let i = i0; i <= i1; i++) pts.push({ x: xAt(i), y: yAt(s.counts[i]) });
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let j = 1; j < pts.length; j++) {
+        const p0 = pts[j - 1], p1 = pts[j];
+        const pm = pts[j - 2] || p0, pn = pts[j + 1] || p1;
+        ctx.bezierCurveTo(
+          p0.x + (p1.x - pm.x) * K, clampY(p0.y + (p1.y - pm.y) * K),
+          p1.x - (pn.x - p0.x) * K, clampY(p1.y - (pn.y - p0.y) * K),
+          p1.x, p1.y);
       }
       ctx.stroke();
       if (drawPoints || n === 1) {
