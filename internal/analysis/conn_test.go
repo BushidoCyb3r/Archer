@@ -126,6 +126,49 @@ func TestBeaconEmitsStructuredTriageFields(t *testing.T) {
 	if b.Jitter < 0 || b.Jitter != b.Jitter { // NaN-safe
 		t.Errorf("Jitter = %v; want finite and >= 0", b.Jitter)
 	}
+	// Migration-0037 byte totals: a beacon moved data outbound by
+	// construction, so OrigBytes must be positive — a zero here means the
+	// emit site stopped stamping them and outratio: silently stops matching.
+	if b.OrigBytes <= 0 {
+		t.Errorf("OrigBytes = %d; want > 0", b.OrigBytes)
+	}
+	if b.RespBytes < 0 {
+		t.Errorf("RespBytes = %d; want >= 0", b.RespBytes)
+	}
+}
+
+// TestExfilEmitsByteTotals is the Data Exfiltration half of the migration-0037
+// producer invariant: the detector already sums per-pair orig/resp bytes to
+// compute its ratio gate, and the emitted finding must carry those sums so the
+// outratio: query field can re-derive the same ratio the Detail line prints.
+func TestExfilEmitsByteTotals(t *testing.T) {
+	cfg := config.Default()
+	a := New(cfg, "", nil, nil)
+	a.feodoIPs = map[string]bool{}
+	a.urlhausIPs = map[string]bool{}
+	a.urlhausHosts = map[string]bool{}
+	findings := a.Analyze([]string{"testdata/zeek/exfil/conn.log"})
+
+	var ex *model.Finding
+	for i := range findings {
+		if findings[i].Type == "Data Exfiltration" {
+			ex = &findings[i]
+			break
+		}
+	}
+	if ex == nil {
+		t.Fatalf("expected a Data Exfiltration finding from exfil fixture, got types: %v", findingTypes(findings))
+	}
+	if ex.OrigBytes <= 0 {
+		t.Fatalf("OrigBytes = %d; want > 0", ex.OrigBytes)
+	}
+	// The finding only exists because the out/in ratio cleared the configured
+	// threshold, so the stamped totals must reproduce a clearing ratio too.
+	if ex.RespBytes > 0 {
+		if ratio := float64(ex.OrigBytes) / float64(ex.RespBytes); ratio < cfg.ExfilRatioThreshold {
+			t.Errorf("stamped ratio %.2f below the %.1f threshold that gated the finding", ratio, cfg.ExfilRatioThreshold)
+		}
+	}
 }
 
 // TestAuxKeyCapSparesBeaconPath is the mission-critical regression for the

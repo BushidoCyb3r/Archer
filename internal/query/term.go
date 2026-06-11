@@ -2,6 +2,7 @@ package query
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -43,6 +44,7 @@ var knownFields = map[string]bool{
 	"conns": true, "meanint": true, "medint": true, "jitter": true,
 	"uri": true, "note": true, "analyst": true, "dir": true, "detected": true,
 	"channel": true, "benign": true, "service": true, "attack": true,
+	"outratio": true,
 }
 
 // serviceQueryAliases maps the common protocol name an analyst types to Zeek's
@@ -284,6 +286,23 @@ func (t term) eval(f model.Finding, opLoc *time.Location) bool {
 			return false
 		}
 		return numericMatch(beaconMetric(f, t.field), t)
+	case "outratio":
+		// Outbound/inbound payload-byte ratio over the pair's observation
+		// window — the query-language version of the beacon chart's
+		// upload-heavy flag (which paints a Bytes-mirror bucket red at
+		// sent > 2× received; outratio:>=2 is the whole-window analogue).
+		// Scoped to findings stamped with byte totals (conn-derived Beacon /
+		// Port-Hopping Beacon / Data Exfiltration); everything else has a
+		// structural 0 and matches no outratio predicate, same shape as the
+		// beacon sub-scores. All-upload pairs (resp 0) evaluate as +Inf so
+		// every lower-bound predicate matches them.
+		if f.OrigBytes <= 0 && f.RespBytes <= 0 {
+			return false
+		}
+		if f.RespBytes == 0 {
+			return numericMatch(math.Inf(1), t)
+		}
+		return numericMatch(float64(f.OrigBytes)/float64(f.RespBytes), t)
 	case "ioc":
 		return boolMatch(f.IOCMatch, t.value)
 	case "spectral":

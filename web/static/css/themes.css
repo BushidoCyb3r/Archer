@@ -52,6 +52,14 @@
   --sev-info:       #7d8ca0;
   --ioc:            #c084fc;
 
+  /* Confirm / success — NOT a severity. Green (or each skin's cohesive
+     equivalent) for affirmative actions: the Acknowledge button text and
+     the success toast (PCAP filter copied). Severity low/info stay neutral
+     by design, so anything that should read "good" points here instead.
+     --on-ok is the text colour on a solid --ok surface (the toast). */
+  --ok:             #34d399;
+  --on-ok:          #06231a;
+
   /* Row interaction */
   --row-hover:      rgba(96, 165, 250, 0.05);
   --row-selected:   rgba(79, 140, 255, 0.12);
@@ -129,6 +137,9 @@
   --sev-info:       #8a8f93;
   --ioc:            #c9a0ff;
 
+  --ok:             #86d96a;
+  --on-ok:          #0c1a0a;
+
   --row-hover:      rgba(134, 217, 106, 0.06);
   --row-selected:   rgba(134, 217, 106, 0.12);
 
@@ -167,6 +178,9 @@
   --sev-low:        #768390;
   --sev-info:       #687482;
   --ioc:            #b083f0;
+
+  --ok:             #57ab5a;
+  --on-ok:          #0a2b14;
 
   --row-hover:      rgba(83, 155, 245, 0.06);
   --row-selected:   rgba(83, 155, 245, 0.12);
@@ -209,6 +223,9 @@
   --sev-info:       #6b7480;
   --ioc:            #6b4fa3;
 
+  --ok:             #1a7f37;
+  --on-ok:          #ffffff;
+
   --row-hover:      rgba(44, 82, 130, 0.05);
   --row-selected:   rgba(44, 82, 130, 0.10);
 
@@ -249,6 +266,9 @@
   --sev-low:        #6d8aa0;
   --sev-info:       #7d8ca0;
   --ioc:            #c084fc;
+
+  --ok:             #3ddc97;
+  --on-ok:          #04140d;
 
   --row-hover:      rgba(255, 255, 255, 0.04);
   --row-selected:   rgba(91, 147, 255, 0.12);
@@ -292,6 +312,9 @@
   --sev-low:        #6b5e45;
   --sev-info:       #7e7156;
   --ioc:            #e85aa0;
+
+  --ok:             #1f8a3a;
+  --on-ok:          #ffffff;
 
   --row-hover:      rgba(0, 167, 196, 0.10);
   --row-selected:   rgba(0, 167, 196, 0.18);
@@ -338,6 +361,9 @@
   --sev-info:       #8f9ec4;
   --ioc:            #ff71ce;
 
+  --ok:             #05ffa1;
+  --on-ok:          #102a20;
+
   --row-hover:      rgba(45, 226, 230, 0.06);
   --row-selected:   rgba(255, 113, 206, 0.14);
 
@@ -378,6 +404,9 @@
   --sev-info:       #d6bcbc;
   --ioc:            #36e0ff;
 
+  --ok:             #aef25c;
+  --on-ok:          #1d3000;
+
   --row-hover:      rgba(255, 224, 0, 0.10);
   --row-selected:   rgba(255, 224, 0, 0.20);
 
@@ -415,6 +444,9 @@
   --sev-low:        #9a8a6a;
   --sev-info:       #8a8f80;
   --ioc:            #ff5cf0;
+
+  --ok:             #00ff41;
+  --on-ok:          #001a05;
 
   --row-hover:      rgba(0, 255, 65, 0.06);
   --row-selected:   rgba(0, 255, 65, 0.14);
@@ -455,6 +487,9 @@
   --sev-low:        #7a5e72;
   --sev-info:       #806a80;
   --ioc:            #7b2cbf;
+
+  --ok:             #0f8a52;
+  --on-ok:          #ffffff;
 
   --row-hover:      rgba(255, 20, 147, 0.06);
   --row-selected:   rgba(255, 20, 147, 0.12);
@@ -497,6 +532,9 @@
   --sev-low:        #8a93c0;
   --sev-info:       #9aa0c8;
   --ioc:            #5ce1e6;
+
+  --ok:             #41f29b;
+  --on-ok:          #03200f;
 
   --row-hover:      rgba(255, 95, 176, 0.07);
   --row-selected:   rgba(255, 95, 176, 0.16);

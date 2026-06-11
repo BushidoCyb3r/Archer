@@ -111,11 +111,17 @@ type chanRec struct {
 }
 
 type beaconState struct {
-	lastTs     float64
-	ivs        []float64
-	ivsSeen    int
-	byteVals   []float64
-	byteSeen   int
+	lastTs   float64
+	ivs      []float64
+	ivsSeen  int
+	byteVals []float64
+	byteSeen int
+	// origSum / respSum are the pair's total sent / received payload bytes
+	// across every contributing connection (accumulated in addPort, which
+	// both the replay and live paths call exactly once per record). Stamped
+	// on the emitted finding to back the outratio: query field.
+	origSum    float64
+	respSum    float64
 	tsData     [][3]float64
 	tsSeen     int
 	hourMap    map[int]int // absolute hour index → count
@@ -171,6 +177,8 @@ func (st *beaconState) addChanRec(uid string, ts, origB float64) {
 }
 
 func (st *beaconState) addPort(port int, origB, respB, ts float64) {
+	st.origSum += origB
+	st.respSum += respB
 	if st.portStats == nil {
 		st.portStats = make(map[int]*portStat)
 	}
@@ -1072,6 +1080,8 @@ func (a *Analyzer) analyzeConn(files []string) {
 			TSRaw:           tsRaw,
 			TSMultimodal:    tsMM,
 			TSEntropy:       tsEnt,
+			OrigBytes:       int64(st.origSum),
+			RespBytes:       int64(st.respSum),
 		})
 	}
 
@@ -1139,6 +1149,8 @@ func (a *Analyzer) analyzeConn(files []string) {
 			Service:   pairService[pairKey{ek.sensor, ek.src, ek.dst}],
 			Detail:    fmt.Sprintf("Outbound: %.2f MB | Ratio out/in: %.1f (threshold: %.1f)", mb, ratio, a.cfg.ExfilRatioThreshold),
 			Timestamp: fmtTS(exfilFirst[ek]),
+			OrigBytes: int64(origB),
+			RespBytes: int64(respB),
 		})
 	}
 

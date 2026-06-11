@@ -242,10 +242,15 @@ CREATE TABLE findings (
                                                   -- ("ja3:<hash>"); empty on the blend. Enters
                                                   -- Fingerprint() so a split channel keeps its own
                                                   -- identity + analyst state.
-    service          TEXT    NOT NULL DEFAULT ''  -- migration 0036: Zeek DPD protocol on a "Protocol
+    service          TEXT    NOT NULL DEFAULT '', -- migration 0036: Zeek DPD protocol on a "Protocol
                                                   -- on Unexpected Port" finding; backs the service:
                                                   -- query field. Empty on every other type. NOT in
                                                   -- Fingerprint() — a descriptive attribute.
+    orig_bytes       INTEGER NOT NULL DEFAULT 0,  -- migration 0037: per-pair sent/received payload
+    resp_bytes       INTEGER NOT NULL DEFAULT 0   -- byte totals on conn-derived Beacon / Port-Hopping
+                                                  -- Beacon / Data Exfiltration findings; back the
+                                                  -- outratio: query field. Zero elsewhere; NOT in
+                                                  -- Fingerprint().
 );
 
 CREATE TABLE beacon_history (

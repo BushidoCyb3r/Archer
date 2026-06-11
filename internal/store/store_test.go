@@ -570,6 +570,91 @@ func TestSetFindings_ServicePersistsAcrossReload(t *testing.T) {
 	}
 }
 
+// TestSetFindings_ByteTotalsPersistAcrossReload codifies the migration-0037
+// columns. The conn analyzers stamp per-pair orig/resp byte totals onto
+// Beacon / Data Exfiltration findings and the `outratio:` query field reads
+// them back server-side — so both values MUST survive a restart and
+// SetFindings's carry-forward for a finding that didn't re-fire. Without the
+// columns they'd zero on either path and outratio: would silently stop
+// matching the carried-forward population.
+func TestSetFindings_ByteTotalsPersistAcrossReload(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	db1, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db1.SetMaxOpenConns(1)
+	if err := RunMigrations(db1); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s1 := New(config.Default())
+	s1.InitDB(db1)
+	s1.SetFindings([]model.Finding{
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "203.0.113.5",
+			DstPort: "443", Score: 80, Severity: model.SevHigh,
+			Timestamp: "2026-06-11 09:00:00", OrigBytes: 3_000_000, RespBytes: 250_000},
+	})
+	_ = db1.Close()
+
+	assertBytes := func(stage string, f model.Finding) {
+		t.Helper()
+		if f.OrigBytes != 3_000_000 || f.RespBytes != 250_000 {
+			t.Errorf("%s: OrigBytes/RespBytes = %d/%d; want 3000000/250000", stage, f.OrigBytes, f.RespBytes)
+		}
+	}
+
+	// (1) Restart survival.
+	db2, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("reopen db: %v", err)
+	}
+	db2.SetMaxOpenConns(1)
+	s2 := New(config.Default())
+	s2.InitDB(db2)
+	if len(s2.findings) != 1 {
+		t.Fatalf("reload: %d findings, want 1", len(s2.findings))
+	}
+	assertBytes("after reload", s2.findings[0])
+
+	// (2) Carry-forward survival: a later SetFindings that doesn't re-emit
+	// the finding must preserve the totals and re-persist them.
+	s2.SetFindings([]model.Finding{
+		{ID: 99, Type: "DNS Tunneling", SrcIP: "10.0.0.2", DstIP: "9.9.9.9", DstPort: "53",
+			Score: 60, Severity: model.SevMedium, Timestamp: "2026-06-11 10:00:00"},
+	})
+	var carried *model.Finding
+	for i := range s2.findings {
+		if s2.findings[i].Type == "Beacon" {
+			carried = &s2.findings[i]
+		}
+	}
+	if carried == nil {
+		t.Fatal("carry-forward: Beacon finding was not preserved")
+	}
+	assertBytes("after carry-forward", *carried)
+	_ = db2.Close()
+
+	// (3) Reload once more to prove the carry-forward re-persisted the columns.
+	db3, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("reopen db3: %v", err)
+	}
+	db3.SetMaxOpenConns(1)
+	defer db3.Close()
+	s3 := New(config.Default())
+	s3.InitDB(db3)
+	var reloaded *model.Finding
+	for i := range s3.findings {
+		if s3.findings[i].Type == "Beacon" {
+			reloaded = &s3.findings[i]
+		}
+	}
+	if reloaded == nil {
+		t.Fatal("after carry-forward reload: Beacon finding missing")
+	}
+	assertBytes("after carry-forward reload", *reloaded)
+}
+
 // TestSetFindings_TimingLayersPersistAcrossReload codifies the
 // migration-0034 closure. The per-layer timing attribution (ts_raw /
 // ts_mm / ts_ent / spectral_rescued / spectral_period) is computed at

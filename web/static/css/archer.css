@@ -1332,10 +1332,15 @@ body.dock-resizing {
   border-color: var(--border-strong);
 }
 .action-btn:disabled { opacity: 0.35; cursor: default; }
-.action-btn.ack:not(:disabled)     { color: var(--sev-low); }
+/* Status actions wear their consequence (--ok / critical / neutral), the two
+   chart pivots share the accent, Suppress warns in high-orange. Ack and the
+   charts point at --ok / --accent — NOT the severity ramp, whose low/info
+   stops are deliberately neutral in every skin (pointing Ack at --sev-low is
+   the regression that drained these buttons when low went neutral). */
+.action-btn.ack:not(:disabled)     { color: var(--ok); }
 .action-btn.esc:not(:disabled)     { color: var(--sev-critical); }
 .action-btn.dismiss:not(:disabled) { color: var(--fg-dim); }
-.action-btn.chart:not(:disabled)     { color: var(--sev-info); }
+.action-btn.chart:not(:disabled)     { color: var(--accent); }
 .action-btn.score-evo:not(:disabled) { color: var(--accent); }
 .action-btn.pcap:not(:disabled)    { color: var(--sev-low); }
 .action-btn.supp:not(:disabled)    { color: var(--sev-high); }
@@ -2854,6 +2859,16 @@ a.attack-chip:hover { background: var(--accent-glow); }
   border: 1px solid var(--border) !important;
   color: var(--sev-low) !important;
   box-shadow: var(--shadow-lg) !important;
+}
+/* Success variant — solid --ok, the green counterpart of the query toast's
+   solid red. showToast(msg, ms, 'ok') applies it (PCAP filter copied). The
+   !important mirrors the base rules above: both fight the element's inline
+   styles, not each other. */
+#pcap-toast.toast-ok {
+  background: var(--ok) !important;
+  border-color: rgba(0, 0, 0, 0.25) !important;
+  color: var(--on-ok) !important;
+  font-weight: 600;
 }
 
 /* Red query-error toast — slides down from the top edge when the findings

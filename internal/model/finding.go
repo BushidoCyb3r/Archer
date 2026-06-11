@@ -127,6 +127,16 @@ type Finding struct {
 	MedianInterval float64 `json:"median_interval,omitempty"`
 	Jitter         float64 `json:"jitter,omitempty"`
 	SampleSize     int     `json:"sample_size,omitempty"`
+	// OrigBytes / RespBytes are the pair's total sent / received payload
+	// bytes summed over the observation window. Stamped on conn-derived
+	// pair findings (Beacon, Port-Hopping Beacon, Data Exfiltration) and
+	// zero elsewhere — including per-channel beacon sub-findings, where a
+	// pair-level sum would misattribute the blend's volume to one channel.
+	// Backs the `outratio:` query field (orig/resp); a finding with both
+	// zero matches no outratio predicate. Persisted (migration 0037) for
+	// the same restart-survival reason as the 0018 triage fields.
+	OrigBytes int64 `json:"orig_bytes,omitempty"`
+	RespBytes int64 `json:"resp_bytes,omitempty"`
 	// JA3 / JA4 are the TLS client fingerprints of the connection that
 	// seeded a conn-level Beacon finding, lifted from the sslUIDIndex
 	// at emit time (the same index lookup that already resolves the SNI

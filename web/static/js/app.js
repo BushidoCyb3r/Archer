@@ -380,9 +380,14 @@
     document.getElementById('status-msg').textContent = msg;
   }
 
-  function showToast(msg, duration = 2500) {
+  // kind 'ok' renders the solid-green success variant (the counterpart of the
+  // red query toast); the default is the neutral info look. The class is
+  // re-derived every call so a success toast can't leave the next neutral
+  // toast green.
+  function showToast(msg, duration = 2500, kind = '') {
     const t = document.getElementById('pcap-toast');
     t.textContent = msg;
+    t.classList.toggle('toast-ok', kind === 'ok');
     t.style.display = 'block';
     clearTimeout(t._timer);
     t._timer = setTimeout(() => t.style.display = 'none', duration);
@@ -3151,7 +3156,9 @@
     let filter = `host ${f.src_ip} and host ${f.dst_ip}`;
     if (f.dst_port) filter += ` and tcp port ${f.dst_port}`;
     const ok = copyToClipboard(filter);
-    showToast((ok ? 'Copied: ' : 'Filter: ') + filter);
+    // Green only when the clipboard write succeeded — the fallback path just
+    // displays the filter for manual copy, which isn't a success state.
+    showToast((ok ? 'Copied: ' : 'Filter: ') + filter, 2500, ok ? 'ok' : '');
   }
 
   // ── Suppress dialog ────────────────────────────────────────────────────────

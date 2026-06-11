@@ -204,6 +204,57 @@ func TestBoolFields(t *testing.T) {
 	}
 }
 
+// TestOutratioField pins the outratio: semantics: orig/resp payload-byte
+// ratio for findings stamped with byte totals, structural-zero scoping for
+// everything else (a bare upper bound like outratio:<1 must not surface
+// findings that simply carry no byte data), and +Inf for all-upload pairs
+// (resp 0) so every lower-bound predicate matches them.
+func TestOutratioField(t *testing.T) {
+	f := beacon()
+	f.OrigBytes, f.RespBytes = 3000, 1000 // ratio 3.0
+	tests := []struct {
+		q    string
+		want bool
+	}{
+		{"outratio:>=2", true},
+		{"outratio:>3", false},
+		{"outratio:>=3", true},
+		{"outratio:<1", false},
+		{"outratio:3", true}, // bare value == equality
+		{"outratio:[2 TO 4]", true},
+		{"outratio:[4 TO 9]", false},
+	}
+	for _, tc := range tests {
+		if got := matches(t, tc.q, f); got != tc.want {
+			t.Errorf("%q = %v, want %v", tc.q, got, tc.want)
+		}
+	}
+
+	// Download-heavy pair still carries data: ratio is a real (small) number.
+	f.OrigBytes, f.RespBytes = 100, 1000
+	if !matches(t, "outratio:<1", f) {
+		t.Error("download-heavy stamped finding should match outratio:<1")
+	}
+
+	// All-upload pair (resp 0): +Inf, so any lower bound matches and no
+	// upper bound or range does.
+	f.OrigBytes, f.RespBytes = 5000, 0
+	if !matches(t, "outratio:>=1000000", f) {
+		t.Error("all-upload pair should match any lower bound (+Inf)")
+	}
+	if matches(t, "outratio:<=1000000", f) {
+		t.Error("all-upload pair should match no upper bound (+Inf)")
+	}
+
+	// Unstamped finding (both zero) matches no outratio predicate at all.
+	f.OrigBytes, f.RespBytes = 0, 0
+	for _, q := range []string{"outratio:>=0", "outratio:<1", "outratio:0"} {
+		if matches(t, q, f) {
+			t.Errorf("unstamped finding should not match %q", q)
+		}
+	}
+}
+
 // TestHideBenignComposition pins the server-side contract of the SPA's
 // "Hide FP Benign" toggle (_composeHideBenign in app.js): the toggle ANDs
 // `benign:false` onto the analyst's query, parenthesizing it first. The
