@@ -1062,8 +1062,10 @@
     <div class="al-tab-panel" data-alpanel="relationships">
       <div style="color:var(--fg-dim);font-size:11px;margin-bottom:8px">
         Tuple-scoped view filters — a known-good source → destination : port
-        pair. Remove a rule and its findings reappear on the next refresh; they were
-        never deleted. Add a rule by right-clicking a finding → "Allow this Relationship".
+        relationship. Either side can be an IP or a CIDR range (edit the prefilled
+        IP to e.g. 10.0.0.0/24 to cover the whole LAN in one rule). Remove a rule
+        and its findings reappear on the next refresh; they were never deleted.
+        Add a rule by right-clicking a finding → "Allow this Relationship".
       </div>
       <div id="pair-allow-list" style="min-height:60px"></div>
     </div>
@@ -1240,14 +1242,17 @@
   <div class="dlg-header">Allow this Relationship</div>
   <div class="dlg-body">
     <div style="color:var(--fg-dim);font-size:11px;margin-bottom:10px">
-      Hides findings on this exact source → destination : port
-      from the table and the alert bell. Pure view filter — removing the
-      rule later brings the findings straight back, no re-analysis.
+      Hides findings on this source → destination : port from the table and
+      the alert bell. Either side can be a single IP or a CIDR range — e.g.
+      source <code>10.0.0.0/24</code> → destination <code>10.0.0.53</code> port 53
+      allowlists the whole LAN's resolver relationship in one rule. Pure view
+      filter — removing the rule later brings the findings straight back, no
+      re-analysis.
     </div>
-    <label>Source</label>
-    <input class="dlg-input" id="pa-src" type="text" style="width:100%">
-    <label>Destination</label>
-    <input class="dlg-input" id="pa-dst" type="text" style="width:100%">
+    <label>Source (IP or CIDR)</label>
+    <input class="dlg-input" id="pa-src" type="text" style="width:100%" placeholder="10.0.0.12 or 10.0.0.0/24">
+    <label>Destination (IP or CIDR)</label>
+    <input class="dlg-input" id="pa-dst" type="text" style="width:100%" placeholder="10.0.0.53 or 192.0.2.0/24">
     <label>Port</label>
     <input class="dlg-input" id="pa-port" type="text" style="width:120px">
     <label>Scope</label>

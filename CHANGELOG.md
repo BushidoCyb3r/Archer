@@ -28,6 +28,40 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **CIDR ranges in relationship allowlist rules** — a pair-allow rule's
+  source and destination each accept a single IP or a CIDR range (IPv4 or
+  IPv6), so `10.0.0.0/24 → 10.0.0.53 : 53` allowlists an entire LAN's
+  resolver relationship in one rule instead of one rule per device. Exact
+  rules keep resolving through the hash index; ranged rules are scanned
+  after an index miss (the ruleset is operator-curated and tiny). Port,
+  finding-type, and sensor scoping semantics are unchanged. The API
+  validates each side as IP-or-CIDR on create (`400` otherwise); a
+  malformed CIDR reaching the store some other way is dropped as inert at
+  index rebuild, never a silent match-everything. The Allow this
+  Relationship dialog and the Relationships tab document the syntax.
+
+- **DNS context annotation on port-53 beacons** — a conn-level `Beacon` to
+  destination port 53 now says which of its three possible truths it is,
+  joined against the dns.log resolver index: `active resolver for this
+  source (N queries, M domains)` for real resolver chatter (a pair-allow
+  candidate), or `no DNS queries observed on this pair — port-53 transport
+  without DNS semantics` — the raw-socket-C2-on-53 evasion tell (softened
+  to a coverage-gap note when Zeek's DPD recognized dns but dns.log has
+  nothing for the pair). Sensors that ship no dns.log get no claim either
+  way. Annotation-only: no score or severity change.
+  (docs/DETECTION_METHODS.md §2.11.)
+
+- **Resolved-IP bridge on DNS Beacon findings** — a `DNS Beacon`'s
+  destination is the queried apex (the channel identity for DNS C2), so
+  its detail now carries `Resolved: <ip, …>` — the A/AAAA answers seen for
+  that apex in dns.log (IPs only, CNAMEs filtered, capped at 8) — giving
+  the analyst the pivot from the FQDN to conn traffic and TI on the
+  addresses behind it.
+
 ## [v0.70.0] — 2026-06-11
 
 ### Added

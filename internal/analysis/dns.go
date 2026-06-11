@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"sort"
 	"strings"
 
@@ -55,6 +56,29 @@ func apexFromQuery(query string) string {
 	return strings.Join(labels[len(labels)-2:], ".")
 }
 
+// resolverKey / resolverStat index dns.log query volume by the transport
+// pair that carried it — which internal source asked which resolver, how
+// often, across how many registrable domains. Consumed by
+// annotateDNSContext to tell a port-53 conn beacon's two stories apart
+// (resolver chatter vs. port-53 transport with no DNS semantics).
+type resolverKey struct{ sensor, src, resolver string }
+
+type resolverStat struct {
+	queries int
+	apexes  map[string]bool
+	// apexOverflow marks the distinct-apex set hitting resolverApexCap —
+	// the count renders as "512+" rather than holding an unbounded set
+	// for a busy host.
+	apexOverflow bool
+}
+
+// resolverApexCap bounds the per-pair distinct-apex set; dnsAnswerCap
+// bounds the per-apex resolved-IP set carried into a DNS Beacon's Detail.
+const (
+	resolverApexCap = 512
+	dnsAnswerCap    = 8
+)
+
 func (a *Analyzer) analyzeDNS(files []string) {
 	type apexKey struct{ sensor, src, apex string }
 	type apexData struct {
@@ -88,6 +112,9 @@ func (a *Analyzer) analyzeDNS(files []string) {
 
 	apexMap := make(map[apexKey]*apexData)
 	beaconApex := make(map[apexKey]*dnsBeaconState)
+	resolverIdx := make(map[resolverKey]*resolverStat)
+	sensorSeen := make(map[string]bool)
+	ansMap := make(map[apexKey]map[string]bool)
 	// Per-sensor capture windows — mirrors conn.go's localWindows so the
 	// hist/dur axes score how much of that sensor's capture a beacon
 	// spanned, not the merged window across all sensors.
@@ -106,6 +133,12 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			query := strings.TrimRight(strings.ToLower(parser.GetStr(rec, "query")), ".")
 			rcode := parser.GetStr(rec, "rcode_name")
 			ts := parser.GetFloat(rec, "ts")
+
+			// Coverage flag, set before any validation: the "no DNS
+			// semantics" annotation must stay silent for a sensor whose
+			// dns.log simply isn't shipped, and even a malformed record
+			// proves the log exists.
+			sensorSeen[sensor] = true
 
 			if src == "" || query == "" {
 				return true
@@ -156,6 +189,49 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			dnsPort := "53"
 			if p := parser.GetInt(rec, "id.resp_p"); p > 0 {
 				dnsPort = fmt.Sprint(p)
+			}
+
+			// Resolver-pair volume — which resolver carried this source's
+			// queries. Keyed by transport dst so annotateDNSContext can
+			// join it against a conn beacon's (sensor, src, dst).
+			if resolver := parser.GetStr(rec, "id.resp_h"); resolver != "" {
+				rk := resolverKey{sensor, src, resolver}
+				rs := resolverIdx[rk]
+				if rs == nil {
+					rs = &resolverStat{apexes: make(map[string]bool)}
+					resolverIdx[rk] = rs
+				}
+				rs.queries++
+				if !rs.apexes[apex] {
+					if len(rs.apexes) < resolverApexCap {
+						rs.apexes[apex] = true
+					} else {
+						rs.apexOverflow = true
+					}
+				}
+			}
+
+			// Resolved-IP collection for the DNS Beacon detail. Answers can
+			// hold CNAMEs and TXT payloads alongside addresses — keep only
+			// parseable IPs.
+			if rcode != "NXDOMAIN" {
+				if ans := parser.GetStrs(rec, "answers"); len(ans) > 0 {
+					ak := apexKey{sensor, src, apex}
+					m := ansMap[ak]
+					for _, aRec := range ans {
+						aRec = strings.TrimSpace(aRec)
+						if net.ParseIP(aRec) == nil {
+							continue
+						}
+						if m == nil {
+							m = make(map[string]bool)
+							ansMap[ak] = m
+						}
+						if len(m) < dnsAnswerCap {
+							m[aRec] = true
+						}
+					}
+				}
 			}
 
 			// DNS-cadence beacon accumulation (§2g). Every query to a
@@ -498,6 +574,20 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			}
 		}
 
+		// Resolved-IP bridge: the finding's DstIP is the apex (the channel
+		// identity for DNS C2), so surface the addresses behind it for the
+		// conn/TI pivot. Sorted for a deterministic Detail across re-runs;
+		// absent entirely for answer-less channels (TXT-only C2, NOERROR
+		// with empty answers).
+		if ips := ansMap[k]; len(ips) > 0 {
+			list := make([]string, 0, len(ips))
+			for ip := range ips {
+				list = append(list, ip)
+			}
+			sort.Strings(list)
+			detail += " | Resolved: " + strings.Join(list, ", ")
+		}
+
 		tsData := make([][3]float64, len(bs.tsData))
 		copy(tsData, bs.tsData)
 		sort.Slice(tsData, func(i, j int) bool { return tsData[i][0] < tsData[j][0] })
@@ -538,4 +628,9 @@ func (a *Analyzer) analyzeDNS(files []string) {
 		slog.Info("spectral rescues fully blocked", "analyzer", "dns", "count", spectralBlockedCount)
 		a.spectralBlocked.Add(int64(spectralBlockedCount))
 	}
+
+	// Publish the resolver index for annotateDNSContext (phase 3.45).
+	// Single writer; readers run after the phase-1 barrier.
+	a.dnsResolverIdx = resolverIdx
+	a.dnsSensorSeen = sensorSeen
 }

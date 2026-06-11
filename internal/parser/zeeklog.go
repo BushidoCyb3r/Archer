@@ -207,6 +207,32 @@ func GetStr(rec map[string]any, key string) string {
 	}
 }
 
+// GetStrs extracts a Zeek vector field as a string slice. TSV logs encode
+// vectors as a comma-joined string; JSON logs as a real array. Missing,
+// "-", and "(empty)" all yield nil.
+func GetStrs(rec map[string]any, key string) []string {
+	v, ok := rec[key]
+	if !ok {
+		return nil
+	}
+	switch s := v.(type) {
+	case string:
+		if s == "" || s == "-" || s == "(empty)" {
+			return nil
+		}
+		return strings.Split(s, ",")
+	case []any:
+		out := make([]string, 0, len(s))
+		for _, e := range s {
+			if str, ok := e.(string); ok && str != "" && str != "-" {
+				out = append(out, str)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
 // GetFloat extracts a float64 from a record.
 func GetFloat(rec map[string]any, key string) float64 {
 	v, ok := rec[key]

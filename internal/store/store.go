@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"sort"
 	"strings"
@@ -65,6 +66,7 @@ type Store struct {
 	suppressions   map[string]SuppressionEntry
 	pairAllow      []model.PairAllowEntry
 	pairAllowIdx   map[string][]pairAllowRule // src\x00dst\x00port -> rules; sensor="" and ftype="" are wildcards
+	pairAllowCIDR  []pairAllowCIDRRule        // ranged rules (src and/or dst is a CIDR); scanned after the exact index misses
 	fpAllow        []model.FingerprintAllowEntry
 	fpAllowIdx     map[string]bool // kind\x00fingerprint -> allowlisted (benign TLS fingerprint)
 	notifications  []model.Notification
@@ -1685,33 +1687,109 @@ func (s *Store) IsSuppressed(ip string) bool {
 // is (src,dst,port); sensor and ftype each act as wildcards when empty.
 type pairAllowRule struct{ sensor, ftype string }
 
+// pairAllowCIDRRule is a ranged rule: at least one of Src/Dst was written
+// as a CIDR, so the exact (src,dst,port) hash key can't represent it. A
+// nil net means that side is an exact-IP string compare (same semantics
+// as the exact index); port/sensor/ftype behave exactly as there too.
+// The ruleset is operator-curated and tiny, so a linear scan after the
+// exact-index miss costs nothing on the hot path.
+type pairAllowCIDRRule struct {
+	srcNet              *net.IPNet
+	dstNet              *net.IPNet
+	src, dst            string
+	port, sensor, ftype string
+}
+
+func (r pairAllowCIDRRule) matches(src, dst, port, ftype, sensor string) bool {
+	if r.port != port {
+		return false
+	}
+	if r.sensor != "" && r.sensor != sensor {
+		return false
+	}
+	if r.ftype != "" && r.ftype != ftype {
+		return false
+	}
+	if r.srcNet != nil {
+		ip := net.ParseIP(src)
+		if ip == nil || !r.srcNet.Contains(ip) {
+			return false
+		}
+	} else if r.src != src {
+		return false
+	}
+	if r.dstNet != nil {
+		ip := net.ParseIP(dst)
+		if ip == nil || !r.dstNet.Contains(ip) {
+			return false
+		}
+	} else if r.dst != dst {
+		return false
+	}
+	return true
+}
+
 func pairAllowKey(src, dst, port string) string {
 	return src + "\x00" + dst + "\x00" + port
 }
 
 // rebuildPairAllowIdxLocked recomputes the (src,dst,port) → rule slice
-// index from the rule slice. Caller serialises access (write lock, or
-// startup before goroutines start).
+// index and the ranged-rule slice from the rule list. Both are replaced
+// wholesale, never edited in place — FilterSnapshot relies on that
+// copy-on-write contract. Caller serialises access (write lock, or
+// startup before goroutines start). A ranged rule whose CIDR fails to
+// parse is dropped here (the API validates on create, so only a
+// hand-edited DB row can produce one) — better an inert rule than one
+// that silently hides nothing while looking active, and the manager UI
+// still lists it for the operator to fix or delete.
 func (s *Store) rebuildPairAllowIdxLocked() {
 	idx := make(map[string][]pairAllowRule, len(s.pairAllow))
+	var ranged []pairAllowCIDRRule
 	for _, e := range s.pairAllow {
+		if strings.Contains(e.Src, "/") || strings.Contains(e.Dst, "/") {
+			r := pairAllowCIDRRule{src: e.Src, dst: e.Dst, port: e.Port, sensor: e.Sensor, ftype: e.FindingType}
+			ok := true
+			if strings.Contains(e.Src, "/") {
+				if _, ipnet, err := net.ParseCIDR(e.Src); err == nil {
+					r.srcNet = ipnet
+				} else {
+					ok = false
+				}
+			}
+			if strings.Contains(e.Dst, "/") {
+				if _, ipnet, err := net.ParseCIDR(e.Dst); err == nil {
+					r.dstNet = ipnet
+				} else {
+					ok = false
+				}
+			}
+			if ok {
+				ranged = append(ranged, r)
+			} else {
+				slog.Warn("pair-allow rule has an unparseable CIDR; rule inert", "src", e.Src, "dst", e.Dst, "id", e.ID)
+			}
+			continue
+		}
 		k := pairAllowKey(e.Src, e.Dst, e.Port)
 		idx[k] = append(idx[k], pairAllowRule{e.Sensor, e.FindingType})
 	}
 	s.pairAllowIdx = idx
+	s.pairAllowCIDR = ranged
 }
 
 // isPairAllowedLocked reports whether a pair rule hides a finding with
 // this (src,dst,port,type,sensor). An empty rule FindingType matches
 // every type on the tuple; an empty rule Sensor matches every sensor.
+// Exact rules resolve via the hash index; ranged (CIDR) rules scan.
 // Caller holds s.mu (read or write).
 func (s *Store) isPairAllowedLocked(src, dst, port, ftype, sensor string) bool {
-	rules, ok := s.pairAllowIdx[pairAllowKey(src, dst, port)]
-	if !ok {
-		return false
-	}
-	for _, r := range rules {
+	for _, r := range s.pairAllowIdx[pairAllowKey(src, dst, port)] {
 		if (r.sensor == "" || r.sensor == sensor) && (r.ftype == "" || r.ftype == ftype) {
+			return true
+		}
+	}
+	for _, r := range s.pairAllowCIDR {
+		if r.matches(src, dst, port, ftype, sensor) {
 			return true
 		}
 	}
@@ -1736,9 +1814,10 @@ func (s *Store) IsPairAllowed(src, dst, port, ftype, sensor string) bool {
 // same eventual consistency the per-row locking already had (a row could
 // be tested against a suppression removed microseconds later).
 type FilterSnapshot struct {
-	suppressions map[string]time.Time
-	pairAllowIdx map[string][]pairAllowRule
-	now          time.Time
+	suppressions  map[string]time.Time
+	pairAllowIdx  map[string][]pairAllowRule
+	pairAllowCIDR []pairAllowCIDRRule
+	now           time.Time
 }
 
 // NewFilterSnapshot freezes the current suppression/pair-allow state. The
@@ -1754,9 +1833,10 @@ func (s *Store) NewFilterSnapshot() FilterSnapshot {
 		sup[k] = v.Expiry
 	}
 	return FilterSnapshot{
-		suppressions: sup,
-		pairAllowIdx: s.pairAllowIdx,
-		now:          time.Now(),
+		suppressions:  sup,
+		pairAllowIdx:  s.pairAllowIdx,
+		pairAllowCIDR: s.pairAllowCIDR,
+		now:           time.Now(),
 	}
 }
 
@@ -1772,12 +1852,13 @@ func (fs FilterSnapshot) IsSuppressed(ip string) bool {
 
 // IsPairAllowed mirrors Store.isPairAllowedLocked against the frozen index.
 func (fs FilterSnapshot) IsPairAllowed(src, dst, port, ftype, sensor string) bool {
-	rules, ok := fs.pairAllowIdx[pairAllowKey(src, dst, port)]
-	if !ok {
-		return false
-	}
-	for _, r := range rules {
+	for _, r := range fs.pairAllowIdx[pairAllowKey(src, dst, port)] {
 		if (r.sensor == "" || r.sensor == sensor) && (r.ftype == "" || r.ftype == ftype) {
+			return true
+		}
+	}
+	for _, r := range fs.pairAllowCIDR {
+		if r.matches(src, dst, port, ftype, sensor) {
 			return true
 		}
 	}

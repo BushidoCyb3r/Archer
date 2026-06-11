@@ -98,10 +98,18 @@ type Analyzer struct {
 	// and is blind to siblings that scored below the beacon emit floor). Built
 	// in analyzeSSL (phase 1), read in enrichBeaconSNI (phase 2.5) after the
 	// wg1 barrier, so no lock is needed on the read.
-	fpJA4     map[string]*fpStat
-	fpJA3     map[string]*fpStat
-	parseErrs []parseErr
-	tiErrs    []tiErr
+	fpJA4 map[string]*fpStat
+	fpJA3 map[string]*fpStat
+
+	// dnsResolverIdx holds per-(sensor, src, resolver-IP) dns.log query
+	// volume; dnsSensorSeen marks sensors with any dns.log records at all.
+	// Built single-writer in analyzeDNS (phase 1), read in
+	// annotateDNSContext (phase 3.45) after the wg1 barrier — same
+	// no-lock-on-read contract as fpJA3/fpJA4.
+	dnsResolverIdx map[resolverKey]*resolverStat
+	dnsSensorSeen  map[string]bool
+	parseErrs      []parseErr
+	tiErrs         []tiErr
 
 	// Pre-fetched threat intel feeds (populated during phase 0)
 	feodoIPs     map[string]bool
@@ -465,6 +473,11 @@ func (a *Analyzer) Analyze(files []string) []model.Finding {
 	// exfil-over-C2 story directly on the beacon finding (annotation-only); the
 	// pair-level Correlated Activity row below still links the contributors.
 	a.corroborateBeacons()
+
+	// Phase 3.45: settle each port-53 conn beacon's ambiguity against the
+	// dns.log resolver index — resolver chatter vs. port-53 transport with
+	// no DNS semantics. Annotation-only, like corroborateBeacons above.
+	a.annotateDNSContext()
 
 	a.sendStatus("Correlating multi-detector activity…")
 	a.correlateFindings()

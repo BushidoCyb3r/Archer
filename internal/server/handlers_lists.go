@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -240,6 +241,20 @@ func (s *Server) handlePairAllowlist(w http.ResponseWriter, r *http.Request) {
 		if req.Src == "" || req.Dst == "" {
 			jsonError(w, "src and dst are required", http.StatusBadRequest)
 			return
+		}
+		// Each side is an IP or a CIDR. Validated here so the store's
+		// index rebuild never has to cope with a malformed rule (a bad
+		// CIDR there is dropped as inert — see rebuildPairAllowIdxLocked).
+		for _, side := range []struct{ name, v string }{{"src", req.Src}, {"dst", req.Dst}} {
+			if strings.Contains(side.v, "/") {
+				if _, _, err := net.ParseCIDR(side.v); err != nil {
+					jsonError(w, side.name+" is not a valid CIDR: "+side.v, http.StatusBadRequest)
+					return
+				}
+			} else if net.ParseIP(side.v) == nil {
+				jsonError(w, side.name+" is not a valid IP or CIDR: "+side.v, http.StatusBadRequest)
+				return
+			}
 		}
 		id, err := s.store.AddPairAllow(model.PairAllowEntry{
 			Src:         req.Src,

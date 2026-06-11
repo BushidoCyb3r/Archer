@@ -1003,6 +1003,39 @@ corroboration is a calibration-gated change held for real-corpus evidence). The
 signal list is sorted so the detail string is stable across re-runs, and detail
 is outside the finding fingerprint, so analyst state on the beacon is preserved.
 
+### 2.11 DNS context on port-53 beacons
+
+A conn-level `Beacon` on destination port 53 has three possible truths:
+cadence to a resolver the host legitimately uses, DNS C2 riding through
+that resolver (which the `DNS Beacon` detector scores per queried domain,
+§9.6), or raw-socket C2 squatting on 53 because that port egresses
+everywhere. The dns.log resolver index built during DNS analysis tells the
+first apart from the last, and the annotation pass
+(`internal/analysis/dns_context.go`, phase 3.45) writes the answer onto the
+beacon's detail:
+
+- **Pair carried real queries** → `DNS context: active resolver for this
+  source (N queries, M domains) — per-domain cadence is scored by DNS
+  Beacon.` Resolver chatter; a pair-allow candidate.
+- **Pair carried none** → `DNS context: no DNS queries observed on this
+  pair — port-53 transport without DNS semantics.` The evasion tell worth
+  a close look. When Zeek's DPD labelled the flow `dns` but dns.log has
+  nothing for the pair, the message softens to a possible dns.log coverage
+  gap instead — the honest read.
+- **Sensor ships no dns.log at all** → no annotation either way; "no DNS
+  queries observed" would be a false claim when the log simply isn't
+  collected.
+
+Like §2.10 this is **annotation-only** — no score or severity change;
+whether the no-DNS-semantics case deserves a boost is a calibration-gated
+decision held for real-corpus evidence.
+
+`DNS Beacon` findings get the inverse bridge: because their destination is
+the queried apex (the channel identity), the detail carries
+`Resolved: <ip, …>` — the A/AAAA answers seen for that apex in dns.log
+(IPs only, CNAMEs filtered, capped at 8) — so the analyst can pivot from
+the FQDN to conn traffic and TI on the addresses behind it.
+
 ---
 
 ## 3. HTTP Beacon
