@@ -46,8 +46,11 @@ relevant, `### Detection changes` in each release entry.
   writes the zoomed window into the query box as a single `ts:[from TO to]`
   token (the chip-style one-token-per-field upsert) and runs it; right-click
   or **Reset zoom** restores the full span. Collapse state and chosen lens
-  persist per browser. Hand-drawn theme-aware canvas (re-skins on theme
-  change), no chart library — air-gap-safe like the rest of the SPA.
+  persist per browser. Lines render as a cardinal spline (control points
+  clamped to the plot's y range, so a curve never dips below the zero axis
+  beside a spike); hover/zoom hit-test against the true data points.
+  Hand-drawn theme-aware canvas (re-skins on theme change), no chart
+  library — air-gap-safe like the rest of the SPA.
 
 - **`GET /api/findings/trend`** — the data behind the chart:
   `{days, series, severity_series}` with a contiguous zero-filled day axis
@@ -60,9 +63,13 @@ relevant, `### Detection changes` in each release entry.
 
 ### Changed
 
-- The query-history caret (`▾` on the query box) and the trend panel's
-  collapse caret are sized 28 px so they read as the controls they are; the
-  query box's left padding grew to match.
+- Every expand/collapse caret now speaks one visual language: a borderless
+  `▾` at 28 px. Covers the query-history toggle on the query box (its left
+  padding grew to match), the trend panel's collapse control, the details
+  pane's collapse button (previously a small bordered `⌄`; the rotate-when-
+  collapsed behavior is unchanged), and the Logs pill's dropdown caret
+  (split into its own element so the larger glyph doesn't change the pill's
+  height next to Run/Clear).
 
 ## [v0.69.0] — 2026-06-11
 
