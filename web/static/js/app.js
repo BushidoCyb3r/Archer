@@ -597,6 +597,11 @@
     // current paginated page.
     Table.load(networkOnly, opts);
     updateInfoLine();
+    // The trend chart shares the table's filter scope, so any render of a
+    // findings-type tab refreshes it (and re-shows it after an aggregate
+    // view hid it). Aggregate views hide it in _ensureAggregate.
+    Trend.setVisible(true);
+    Trend.refresh(_currentFilterQS());
   }
 
   // _ensureAggregate fetches every finding within the current time
@@ -607,6 +612,7 @@
   // build() renders the current page slice for both tables, and the
   // first/back/next/last buttons drive _renderAggregatePage to advance.
   async function _ensureAggregate() {
+    Trend.setVisible(false); // per-day trend is a findings-list lens, not an aggregate one
     const mode = _tabMode; // 'campaigns' | 'hosts' | 'dismissed-campaigns'
     if (!_aggregateState.loaded || _aggregateState.mode !== mode) {
       const params = _currentFilterParams();
@@ -5293,6 +5299,17 @@
       });
     };
     Campaigns.init((e, pseudo) => showMenu(e, pseudo), _isOrgIP, onHostClick, onCampaignClick);
+
+    // Zoom-then-apply on the trend chart writes the selected date range into
+    // the query box as a single ts range token and runs it — the same
+    // one-token-per-field upsert the chips use, so re-applying a different
+    // zoom replaces the previous range instead of stacking tokens.
+    Trend.init({
+      onApplyRange: (fromDay, toDay) => {
+        _setQueryToken('ts', '[' + fromDay + ' TO ' + toDay + ']');
+        applyFilter();
+      },
+    });
 
     // Clicking a graph node looks up the first finding involving that IP and
     // jumps the table to it — so the graph doubles as a navigation surface.

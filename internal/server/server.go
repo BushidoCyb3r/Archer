@@ -321,6 +321,7 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/attack-coverage", any(s.handleAttackCoverage))
 	s.mux.Handle("/api/findings/counts", any(s.handleFindingsCounts))
 	s.mux.Handle("/api/findings/facets", any(s.handleFindingsFacets))
+	s.mux.Handle("/api/findings/trend", any(s.handleFindingsTrend)) // per-day per-family counts for the trend chart
 	// Per-user "new since you last looked" count for the modal — the same
 	// boundary the "New only" delta filter uses. Exact path registered
 	// before the "/api/findings/" prefix so it isn't swallowed by the {id}

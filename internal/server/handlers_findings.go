@@ -376,6 +376,171 @@ func (s *Server) handleFindingsFacets(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// trendFamilies is the fixed series order for /api/findings/trend. The
+// roll-up from ~30 finding types to seven families keeps the chart legend
+// readable; the mapping lives in trendFamilyOf.
+var trendFamilies = []struct{ Key, Label string }{
+	{"beaconing", "Beaconing"},
+	{"ti", "Threat Intel"},
+	{"exfil", "Exfil"},
+	{"dns", "DNS"},
+	{"lateral", "Lateral"},
+	{"tls", "TLS/Cert"},
+	{"other", "Other"},
+}
+
+// trendFamilyOf maps a finding type to its trend-chart family key. Every
+// non-roll-up analyzer type maps somewhere; unknown/future types land in
+// "other" rather than vanishing from the chart.
+func trendFamilyOf(t string) string {
+	if model.IsThreatIntelType(t) {
+		return "ti"
+	}
+	switch t {
+	case "Beacon", "DNS Beacon", "HTTP Beacon", "Strobe":
+		return "beaconing"
+	case "Malicious JA3", "Malicious JA4":
+		return "ti"
+	case "Data Exfiltration", "Off-Hours Transfer", "Database Protocol Egress", "Admin Protocol Egress":
+		return "exfil"
+	case "DNS Tunneling", "DNS NXDOMAIN Flood", "DNS Subdomain DGA":
+		return "dns"
+	case "Lateral Movement":
+		return "lateral"
+	case "Weak TLS", "SSL No-SNI", "SSL No-SNI on C2 Port", "Suspicious Certificate", "DoH Bypass", "Domain Fronting":
+		return "tls"
+	}
+	return "other"
+}
+
+// trendSeverities is the fixed series order for the trend chart's severity
+// lens — same shape as trendFamilies, keyed by model.Severity values.
+var trendSeverities = []struct {
+	Sev   model.Severity
+	Key   string
+	Label string
+}{
+	{model.SevCritical, "critical", "Critical"},
+	{model.SevHigh, "high", "High"},
+	{model.SevMedium, "medium", "Medium"},
+	{model.SevLow, "low", "Low"},
+	{model.SevInfo, "info", "Info"},
+}
+
+// handleFindingsTrend returns per-UTC-day finding counts, grouped two ways
+// over the same zero-filled day axis: by detection family (`series`) and by
+// severity tier (`severity_series`) — the chart's two lenses, computed in
+// one pass so they can never disagree. It honors the exact filter surface
+// of /api/findings (including status and delta) so the chart always agrees
+// with the table below it. Groups with no findings in range are omitted.
+// Roll-up types are excluded — they're derived from the per-record
+// detections already counted, and would double-count.
+func (s *Server) handleFindingsTrend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	q := r.URL.Query()
+	q.Del("limit")
+	q.Del("offset")
+	q.Del("sort")
+	q.Del("dir")
+
+	all, err := s.filterFindings(s.store.GetFindings(), q, newBoundaryFromCtx(r))
+	if err != nil {
+		jsonError(w, "invalid query: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// byDay[day][familyKey] and sevByDay[day][severityKey]. Day is the UTC
+	// date prefix of the finding's event timestamp
+	// ("2006-01-02 15:04:05[ UTC]").
+	byDay := make(map[string]map[string]int)
+	sevByDay := make(map[string]map[model.Severity]int)
+	var minDay, maxDay string
+	for _, f := range all {
+		if model.IsRollupType(f.Type) || len(f.Timestamp) < 10 {
+			continue
+		}
+		day := f.Timestamp[:10]
+		if _, err := time.Parse("2006-01-02", day); err != nil {
+			continue
+		}
+		if minDay == "" || day < minDay {
+			minDay = day
+		}
+		if day > maxDay {
+			maxDay = day
+		}
+		m := byDay[day]
+		if m == nil {
+			m = make(map[string]int)
+			byDay[day] = m
+		}
+		m[trendFamilyOf(f.Type)]++
+		sm := sevByDay[day]
+		if sm == nil {
+			sm = make(map[model.Severity]int)
+			sevByDay[day] = sm
+		}
+		sm[f.Severity]++
+	}
+
+	type trendSeries struct {
+		Key    string `json:"key"`
+		Label  string `json:"label"`
+		Counts []int  `json:"counts"`
+	}
+	days := []string{}
+	series := []trendSeries{}
+	sevSeries := []trendSeries{}
+	if minDay != "" {
+		start, _ := time.Parse("2006-01-02", minDay)
+		end, _ := time.Parse("2006-01-02", maxDay)
+		// A single corrupt-but-parseable timestamp (a stray epoch-zero or
+		// far-future Zeek ts) would otherwise zero-fill decades of days.
+		const maxTrendDays = 3660
+		if end.Sub(start) > maxTrendDays*24*time.Hour {
+			start = end.AddDate(0, 0, -(maxTrendDays - 1))
+		}
+		for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+			days = append(days, d.Format("2006-01-02"))
+		}
+		for _, fam := range trendFamilies {
+			counts := make([]int, len(days))
+			total := 0
+			for i, day := range days {
+				c := byDay[day][fam.Key]
+				counts[i] = c
+				total += c
+			}
+			if total > 0 {
+				series = append(series, trendSeries{Key: fam.Key, Label: fam.Label, Counts: counts})
+			}
+		}
+		for _, tier := range trendSeverities {
+			counts := make([]int, len(days))
+			total := 0
+			for i, day := range days {
+				c := sevByDay[day][tier.Sev]
+				counts[i] = c
+				total += c
+			}
+			if total > 0 {
+				sevSeries = append(sevSeries, trendSeries{Key: tier.Key, Label: tier.Label, Counts: counts})
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"days":            days,
+		"series":          series,
+		"severity_series": sevSeries,
+	})
+}
+
 func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/findings/")
 	parts := strings.SplitN(rest, "/", 2)

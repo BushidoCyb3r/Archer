@@ -303,6 +303,29 @@
       </div>
     </div>
 
+    <!-- Trend chart — findings per day by detection family, same filter
+         scope as the table. Hidden on the Campaigns/Hosts aggregate views. -->
+    <section id="trend-panel">
+      <div id="trend-header">
+        <button id="trend-collapse-btn" type="button" aria-expanded="true" title="Collapse or expand the trend chart">▾</button>
+        <span id="trend-title">Findings over time</span>
+        <span id="trend-mode">
+          <button id="trend-mode-family" type="button" class="active" title="One line per detection family">Families</button>
+          <button id="trend-mode-severity" type="button" title="One line per severity tier">Severity</button>
+        </span>
+        <span id="trend-zoom-controls" class="hidden">
+          <span id="trend-zoom-range"></span>
+          <button id="trend-apply-btn" type="button" title="Filter the findings table to the zoomed date range (writes a ts: token into the query)">Apply as filter</button>
+          <button id="trend-reset-btn" type="button">Reset zoom</button>
+        </span>
+        <span id="trend-legend"></span>
+      </div>
+      <div id="trend-body">
+        <canvas id="trend-canvas" role="img" aria-label="Line chart of findings per day by detection family. Drag to zoom a date range."></canvas>
+        <div id="trend-tip" class="hidden"></div>
+      </div>
+    </section>
+
     <!-- Delta bar -->
     <div id="delta-bar">
       <button class="delta-btn" id="delta-btn" title="Findings first detected since you last logged in">New only<span id="delta-badge" class="badge hidden">0</span></button>
@@ -1543,6 +1566,7 @@
 <script src="/static/js/dialog.js"></script>
 <script src="/static/js/rowmenu.js"></script>
 <script src="/static/js/graph.js"></script>
+<script src="/static/js/trend.js"></script>
 <script src="/static/js/sensors.js"></script>
 <script src="/static/js/fingerprints.js"></script>
 <script src="/static/js/attack.js"></script>

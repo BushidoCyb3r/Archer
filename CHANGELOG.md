@@ -28,6 +28,42 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [v0.70.0] — 2026-06-11
+
+### Added
+
+- **Findings trend chart** — a collapsible full-width panel between the query
+  bar and the findings table charts per-UTC-day finding counts over the whole
+  log period. Two lenses on the same day axis, switched by a
+  **Families | Severity** toggle in the panel header: one line per detection
+  family (Beaconing, Threat Intel, Exfil, DNS, Lateral, TLS/Cert, Other) or
+  one line per severity tier (coloured straight from the severity tokens).
+  The chart follows the active query/tab/filters exactly — it fetches with
+  the same server-side filter surface as the table, refreshed on every list
+  reload — so the two can never disagree; it hides on the Campaigns/Hosts
+  aggregate views. Legend chips toggle lines, hovering reads exact per-day
+  counts, and dragging the canvas zooms an x range: **Apply as filter**
+  writes the zoomed window into the query box as a single `ts:[from TO to]`
+  token (the chip-style one-token-per-field upsert) and runs it; right-click
+  or **Reset zoom** restores the full span. Collapse state and chosen lens
+  persist per browser. Hand-drawn theme-aware canvas (re-skins on theme
+  change), no chart library — air-gap-safe like the rest of the SPA.
+
+- **`GET /api/findings/trend`** — the data behind the chart:
+  `{days, series, severity_series}` with a contiguous zero-filled day axis
+  (bucketed on the event `timestamp` date prefix), both groupings computed
+  in one pass over the filtered set. Empty groups are omitted; roll-up
+  types (Host Risk Score, Correlated Activity, Multi-Stage Beacon) are
+  excluded — they re-count detections already on the axis. Accepts the
+  same query params as `/api/findings`; `limit`/`offset`/`sort`/`dir` are
+  ignored.
+
+### Changed
+
+- The query-history caret (`▾` on the query box) and the trend panel's
+  collapse caret are sized 28 px so they read as the controls they are; the
+  query box's left padding grew to match.
+
 ## [v0.69.0] — 2026-06-11
 
 ### Added
