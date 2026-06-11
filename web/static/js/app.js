@@ -2041,16 +2041,17 @@
   }
 
   // _setLogsPill summarizes the staged logs onto the query-bar pill:
-  // sensor count and total size, or "none" when nothing is staged.
+  // sensor count and total size, or "none" when nothing is staged. Writes
+  // the label span only — the ▾ caret is a separate sized element.
   function _setLogsPill(sensors) {
-    const btn = document.getElementById('logs-preview-btn');
-    if (!btn) return;
+    const label = document.getElementById('logs-preview-label');
+    if (!label) return;
     if (!sensors || sensors.length === 0) {
-      btn.textContent = 'Logs: none ▾';
+      label.textContent = 'Logs: none';
       return;
     }
     const total = sensors.reduce((sum, s) => sum + (s.total_size_bytes || 0), 0);
-    btn.textContent = `Logs: ${sensors.length} · ${_humanBytes(total)} ▾`;
+    label.textContent = `Logs: ${sensors.length} · ${_humanBytes(total)}`;
   }
 
   function _humanBytes(n) {

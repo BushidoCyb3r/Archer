@@ -190,7 +190,7 @@
         <button class="filter-btn dim" id="reset-filter-btn" title="Clear the query">Clear</button>
         <span class="filter-spacer"></span>
         <div class="logs-dropdown">
-          <button class="filter-btn dim" id="logs-preview-btn" title="Preview the logs currently staged for analysis">Logs: — ▾</button>
+          <button class="filter-btn dim" id="logs-preview-btn" title="Preview the logs currently staged for analysis"><span id="logs-preview-label">Logs: —</span><span class="menu-caret">▾</span></button>
           <div class="logs-menu hidden" id="logs-menu">
             <div id="logs-dir-hint">Scanning <em id="logs-dir-path">/logs</em></div>
             <div id="logs-tree" class="logs-tree"></div>
@@ -454,7 +454,7 @@
       <div id="dock-resize-handle" role="separator" aria-orientation="horizontal" aria-label="Resize details pane" title="Drag to resize"></div>
       <div id="dock-header-bar">
         <div id="detail-header">Select a finding</div>
-        <button id="dock-collapse-btn" type="button" title="Collapse details pane" aria-label="Collapse details pane" aria-expanded="true">⌄</button>
+        <button id="dock-collapse-btn" type="button" title="Collapse details pane" aria-label="Collapse details pane" aria-expanded="true">▾</button>
       </div>
       <div id="dock-tabs" role="tablist">
         <button class="dock-tab-btn active" type="button" role="tab" data-dock-tab="detail" aria-selected="true">Detail</button>

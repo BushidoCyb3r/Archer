@@ -1270,23 +1270,19 @@ body.dock-resizing {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Same borderless 28px ▾ caret as the trend-panel collapse and the
+   query-history toggle — one visual language for every expand/collapse. */
 #dock-collapse-btn {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--fg-secondary);
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-sm);
+  background: none;
+  border: none;
+  color: var(--fg-muted);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 28px;
   line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  transition: color .12s, border-color .12s, transform .12s;
+  padding: 0 2px;
+  transition: color .12s, transform .12s;
 }
-#dock-collapse-btn:hover { color: var(--fg-primary); border-color: var(--border-strong); }
+#dock-collapse-btn:hover { color: var(--fg-primary); }
 
 #dock-tabs {
   display: flex;
@@ -1737,6 +1733,12 @@ body.dock-resizing {
    tree as a popover. The pill carries the count/size summary; the popover
    reuses the .logs-tree rendering that formerly lived in the sidebar. */
 .logs-dropdown { position: relative; display: inline-block; }
+/* The Logs pill's ▾ matches the 28px caret language (trend / query-history /
+   dock). line-height pins the caret's line box to the label's so the larger
+   glyph doesn't grow the button beyond its filter-btn siblings. */
+#logs-preview-btn { display: inline-flex; align-items: center; gap: 7px; }
+#logs-preview-btn .menu-caret { font-size: 28px; line-height: 16px; }
+
 .logs-menu {
   position: absolute;
   top: calc(100% + 4px);
