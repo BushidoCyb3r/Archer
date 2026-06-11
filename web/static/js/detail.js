@@ -86,7 +86,7 @@ const Detail = (() => {
     if (!_canWrite) return '';
     const k = _esc(kind), v = _esc(fp);
     return `<div class="ds-row"><span class="ds-key"></span><span class="ds-val">` +
-      `<button class="dlg-btn secondary ds-fp-btn ds-fp-benign" type="button" data-kind="${k}" data-fp="${v}" title="Mark this fingerprint benign — drops it off the TLS wall and tags findings carrying it with the 'fp benign' chip">Benign</button> ` +
+      `<button class="dlg-btn secondary ds-fp-btn ds-fp-benign" type="button" data-kind="${k}" data-fp="${v}" title="Mark this fingerprint benign — drops it off the TLS wall and tags findings carrying it with the 'FP Benign' chip">Benign</button> ` +
       `<button class="dlg-btn secondary ds-fp-btn ds-fp-malicious" type="button" data-kind="${k}" data-fp="${v}" title="Add this fingerprint to the IOC list — it flags as Malicious JA3/JA4 on the next analysis">Malicious</button>` +
       `</span></div>`;
   }

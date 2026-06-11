@@ -377,7 +377,7 @@ before trusting the result.
 | `ioc` | IOC-list match | `ioc:true` / `ioc:false`. |
 | `spectral` | Spectral-rescued beacon | `spectral:true` surfaces beacons rescued by the periodogram. |
 | `channel` | Per-channel beacon split | `channel:true` surfaces promoted per-channel beacons (a clean TLS channel split out of a noisier blended beacon to the same dst, §2.8 in DETECTION_METHODS); `channel:false` excludes them. Find a specific channel with `ja3:<hash>`. |
-| `benign` | Fingerprint marked benign | `benign:true` matches findings whose JA3/JA4 client fingerprint you've marked benign on the TLS Fingerprints wall; `benign:false` excludes them. E.g. `type:Beacon AND benign:false` hides beacons over already-triaged fingerprints. |
+| `benign` | Fingerprint marked benign | `benign:true` matches findings whose JA3/JA4 client fingerprint you've marked benign on the TLS Fingerprints wall; `benign:false` excludes them. E.g. `type:Beacon AND benign:false` hides beacons over already-triaged fingerprints. The **Hide FP Benign** chip (next to Show Dismissed) applies `benign:false` to every view without typing it. |
 | `attack` | MITRE ATT&CK technique | Matches the technique(s) the finding type maps to, by ID, tactic, or name (substring/wildcard, case-insensitive). `attack:T1071` matches the base technique **and** its sub-techniques (so it catches HTTP/DNS Beacons too); `attack:T1071.004` is exact; `attack:"command and control"` filters by tactic. The same map drives the detail-pane ATT&CK chips and the **ATT&CK** Coverage modal. TI hits, roll-ups, and Zeek notices carry no technique, so they match no `attack:` predicate. |
 | `tscore` / `dscore` / `hist` / `dur` | Beacon sub-scores (Timing / Data size / Histogram / Persistence) | Numeric — comparisons and ranges. **Any** sub-score predicate implicitly scopes to the beacon family, so a bare `dur:<=0.3` won't drag in non-beacons whose sub-scores are a structural 0. |
 | `conns` / `meanint` / `medint` / `jitter` | Beacon timing/volume metrics — observation count (`conns`, aka connections/requests), mean and median inter-arrival interval in **seconds**, and `jitter` (coefficient of variation = stddev/mean, the raw ratio — `0.42`, not `42%`) | Numeric — comparisons and ranges (`conns:<=10000`, `meanint:<=10`, `jitter:<0.5`, `conns:=1542`). `conns` is a whole-number count (use whole numbers for exact `=`); the interval/jitter fields are true floats so decimals match (`jitter:=0.42`). Beacon-scoped like the sub-scores: a structural 0 on every non-beacon, so a bare upper bound won't drag them in. Aliases: `connections`, `mean_interval`, `median_interval`. |
@@ -1288,7 +1288,7 @@ cross-host JA3/JA4 keeps re-surfacing on the wall and you've
 confirmed it — a corporate EDR agent, a niche SDK, an internal
 scanner — click **Mark benign** on its row. The fingerprint
 drops off the wall into a collapsed **Benign** section, and any
-finding carrying that JA3/JA4 is tagged with a muted `fp benign`
+finding carrying that JA3/JA4 is tagged with a muted `FP Benign`
 chip in the table.
 
 You don't have to go to the wall to do this. The JA3/JA4 rows in
@@ -1296,7 +1296,7 @@ a finding's **Detail** pane carry the same **Benign** / **Malicious**
 buttons, so you can triage a fingerprint straight from a beacon you're
 looking at — including a low-concern fingerprint the wall hides (a
 common shape, or a single-host JA3). Same effect either way: Benign
-allowlists it (the `fp benign` chip then lands on every finding
+allowlists it (the `FP Benign` chip then lands on every finding
 carrying it, the CRITICAL beacon included), Malicious adds it to the
 JA3/JA4 IOC list so it flags as `Malicious JA3/JA4` on the next
 analysis.

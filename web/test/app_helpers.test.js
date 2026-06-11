@@ -28,3 +28,20 @@ test('_tickValue interpolates with exact endpoints and no overshoot', () => {
     assert.ok(v >= 0 && v <= 100, `no overshoot at p=${p}`);
   }
 });
+
+// _composeHideBenign builds the query the Hide FP Benign toggle sends. The
+// parenthesization is the load-bearing part: an OR query ANDed without parens
+// would rebind (`a OR b AND benign:false` leaves the `a` arm unfiltered).
+// The Go-side TestHideBenignComposition (internal/query/eval_test.go) pins
+// that the composed shape parses and evaluates correctly server-side.
+test('_composeHideBenign wraps the user query and ANDs benign:false', () => {
+  const f = extractFn('app.js', '_composeHideBenign');
+  assert.strictEqual(f('', false), '', 'toggle off, empty query untouched');
+  assert.strictEqual(f('type:beacon', false), 'type:beacon', 'toggle off, query untouched');
+  assert.strictEqual(f('', true), 'benign:false', 'toggle on, empty query gets the bare token');
+  assert.strictEqual(f('type:beacon', true), '(type:beacon) AND benign:false');
+  assert.strictEqual(
+    f('severity:critical OR score:>=90', true),
+    '(severity:critical OR score:>=90) AND benign:false',
+    'OR queries must be parenthesized so AND does not rebind');
+});

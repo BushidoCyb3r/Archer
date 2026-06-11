@@ -204,6 +204,45 @@ func TestBoolFields(t *testing.T) {
 	}
 }
 
+// TestHideBenignComposition pins the server-side contract of the SPA's
+// "Hide FP Benign" toggle (_composeHideBenign in app.js): the toggle ANDs
+// `benign:false` onto the analyst's query, parenthesizing it first. The
+// composed string must parse, must exclude allowlisted-fingerprint findings
+// regardless of the inner query, and the parens must be load-bearing for OR
+// queries (without them AND binds tighter and the left OR arm leaks through).
+func TestHideBenignComposition(t *testing.T) {
+	compose := func(q string) string {
+		if q == "" {
+			return "benign:false"
+		}
+		return "(" + q + ") AND benign:false"
+	}
+	f := beacon() // type Beacon, severity critical, score 98
+	queries := []string{
+		"",
+		"type:beacon",
+		"severity:critical OR score:>=90", // both arms true for f
+		"NOT dst:rfc1918",
+	}
+	for _, q := range queries {
+		composed := compose(q)
+		f.TLSAllowlisted = false
+		if !matches(t, composed, f) {
+			t.Errorf("%q should match a non-allowlisted finding the inner query matches", composed)
+		}
+		f.TLSAllowlisted = true
+		if matches(t, composed, f) {
+			t.Errorf("%q should exclude an allowlisted-fingerprint finding", composed)
+		}
+	}
+	// The unparenthesized form is exactly the bug the wrapping prevents.
+	f.TLSAllowlisted = true
+	leaky := "severity:critical OR score:>=90 AND benign:false"
+	if !matches(t, leaky, f) {
+		t.Errorf("%q should leak the allowlisted finding through the left OR arm (precedence pin)", leaky)
+	}
+}
+
 // TestNewFieldRemoved pins the v0.54.0 removal of the new: query field: it
 // duplicated the "New only" delta filter, so it's gone from the grammar and
 // must now be rejected as an unknown field rather than silently matching.

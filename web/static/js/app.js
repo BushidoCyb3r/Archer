@@ -96,6 +96,12 @@
   // Persisted in localStorage so the analyst's preference survives
   // reload — same pattern the dock collapse state uses.
   let _showDismissed = false;
+  // Hide FP Benign toggle state. When true, findings whose JA3/JA4 client
+  // fingerprint is marked benign on the TLS Fingerprints wall are excluded
+  // from every view by ANDing `benign:false` into the server query. A view
+  // filter, not a triage state — the findings still exist, score, and feed
+  // Host Risk. Persisted in localStorage like Show Dismissed.
+  let _hideBenign = false;
   // _dismissedSubTab tracks which sub-view of the Dismissed tab is
   // active: 'findings' (flat list of dismissed findings) or
   // 'campaigns' (campaigns rolled up over only dismissed findings).
@@ -179,6 +185,41 @@
       const next = !_showDismissed;
       try { localStorage.setItem('archer:show-dismissed', String(next)); } catch (_) {}
       _applyShowDismissed(next);
+    });
+  }
+
+  // _composeHideBenign ANDs `benign:false` onto the analyst's query when the
+  // Hide FP Benign toggle is on. The user query is parenthesized first so an
+  // OR expression keeps its meaning (`a OR b` must become `(a OR b) AND
+  // benign:false`, not `a OR (b AND benign:false)`).
+  function _composeHideBenign(q, hide) {
+    if (!hide) return q;
+    return q ? '(' + q + ') AND benign:false' : 'benign:false';
+  }
+  function _applyHideBenign(on) {
+    _hideBenign = !!on;
+    const tog = document.getElementById('hide-benign-btn');
+    if (tog) {
+      tog.classList.toggle('chip-on', on);
+      tog.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+  }
+  function _initHideBenignToggle() {
+    try {
+      _applyHideBenign(localStorage.getItem('archer:hide-benign') === 'true');
+    } catch (_) {
+      _applyHideBenign(false);
+    }
+    const tog = document.getElementById('hide-benign-btn');
+    if (!tog) return;
+    tog.addEventListener('click', () => {
+      const next = !_hideBenign;
+      try { localStorage.setItem('archer:hide-benign', String(next)); } catch (_) {}
+      _applyHideBenign(next);
+      // In-place reload, not the delta-style reset-to-top: the analyst flips
+      // this mid-review, so hold the page and scroll position. The benign rows
+      // drop out (or return) and the rest shift.
+      _reloadFindingsInPlace();
     });
   }
 
@@ -1239,7 +1280,8 @@
     // The whole filter expression now lives in the query box. The server
     // ANDs `q` on top of the view scoping below; an empty box means "no
     // user filter" and only the view scoping applies.
-    const q = ((document.getElementById('filter-query') || {}).value || '').trim();
+    const q = _composeHideBenign(
+      ((document.getElementById('filter-query') || {}).value || '').trim(), _hideBenign);
     if (q) params.q = q;
 
     // View-aware status filter, mirrored server-side. Without this, the
@@ -1846,7 +1888,7 @@
 
   // Re-fetch the current view in place after a server-state change that affects
   // a read-time-stamped findings field — the TLS-fingerprint benign mark (the
-  // "fp benign" chip) or an IOC-list edit (the "ioc" chip / ioc_match). Those
+  // "FP Benign" chip) or an IOC-list edit (the "ioc" chip / ioc_match). Those
   // are stamped server-side at /api/findings read time, so the cached rows are
   // stale until we refetch. Stays on the current page (gotoOffset) and
   // invalidates the other tabs so a benign:/ioc: filtered view re-derives lazily.
@@ -5460,7 +5502,7 @@
       // Per-fingerprint Benign / Malicious actions in the finding detail pane,
       // so an analyst can triage a JA3/JA4 straight from a finding — including
       // a low-concern fingerprint the TLS wall hides. Same endpoints the wall
-      // uses, so a benign mark yields the same `fp benign` chip on next refresh.
+      // uses, so a benign mark yields the same `FP Benign` chip on next refresh.
       if (typeof Detail !== 'undefined' && Detail.init) {
         Detail.init({
           canWrite: u.role !== 'viewer',
@@ -5470,7 +5512,7 @@
               body: JSON.stringify({ kind, fingerprint: fp, note: '' }),
             })
               .then(() => {
-                showToast('Marked benign — findings carrying this fingerprint now show the “fp benign” chip', 4500);
+                showToast('Marked benign — findings carrying this fingerprint now show the “FP Benign” chip', 4500);
                 _reloadFindingsInPlace();
               })
               .catch(err => showToast('Could not mark benign: ' + err, 4500));
@@ -5517,6 +5559,7 @@
     _initExportDropdown('chart-export-btn', 'chart-export-menu', BeaconChart.exportImage);
     initViews();
     _initShowDismissedToggle();
+    _initHideBenignToggle();
     _initDismissedSubTabs();
     _initDockTabs();
     _initDockCollapse();

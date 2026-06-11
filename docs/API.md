@@ -323,7 +323,7 @@ The most-used surface. Findings are detector outputs, persisted in
 - `tls_allowlisted` is a **transient, derived-at-read** bool (`omitempty`) —
   true when the finding's `ja3`/`ja4` client fingerprint has been marked
   benign via `/api/fingerprint-allowlist`. A hint only: it drives the table's
-  `fp benign` chip; the finding is **not** hidden or dismissed (unlike the
+  `FP Benign` chip; the finding is **not** hidden or dismissed (unlike the
   pair/IP allowlist, which filter the row out). Clears as soon as the benign
   mark is removed.
 - `status` is `""` (open), `acknowledged`, `escalated`, or `dismissed`.

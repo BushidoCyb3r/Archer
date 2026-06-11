@@ -18,7 +18,7 @@ const Fingerprints = (() => {
   let _canWrite = true;
   // Set when a benign mark/unmark mutates the allowlist while the modal is open.
   // The findings table behind the modal caches each row's tls_allowlisted at
-  // fetch time, so the "fp benign" chip is stale until it re-fetches; we fire
+  // fetch time, so the "FP Benign" chip is stale until it re-fetches; we fire
   // _onChange on close (once, if dirty) to let app.js reload the table in place.
   let _dirty = false;
   // Last-fetched data + the active search term, so filtering re-renders from

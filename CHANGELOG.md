@@ -28,6 +28,16 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Hide FP Benign toggle** — a chip next to Show Dismissed that hides findings whose JA3/JA4 client fingerprint is marked benign on the TLS Fingerprints wall, by composing `benign:false` into the server query (so counts, pagination, aggregates, and exports all follow the on-screen view). A view filter, not a triage state: hidden findings still exist, score, and feed Host Risk; unmark the fingerprint and they reappear. Per-browser preference, persisted like Show Dismissed. Toggling reloads in place — same page, same scroll position.
+
+### Changed
+
+- The TLS-allowlist chip on findings rows now reads `FP Benign` (was `fp benign`), matching the new toggle's label.
+
 ## [v0.68.1] — 2026-06-10
 
 ### Fixed
@@ -501,7 +511,7 @@ formula-injection hardening accumulated since v0.60.0.
 ### Fixed
 
 - Marking a TLS fingerprint **benign** now refreshes the findings table so the
-  `fp benign` chip appears immediately, instead of only after a manual page
+  `FP Benign` chip appears immediately, instead of only after a manual page
   reload. The table caches each row's allowlist state at fetch time, so the
   chip was stale until the next `/api/findings` call; the TLS Fingerprints modal
   now re-fetches the current view on close when any benign mark/unmark landed,
@@ -689,7 +699,7 @@ or malicious straight from a finding.
   so an analyst can triage a fingerprint straight from a finding — including a
   low-concern one the TLS Fingerprints wall hides (common shapes, single-host
   JA3). They hit the same endpoints the wall uses: Benign allowlists the
-  fingerprint (every finding carrying it gets the `fp benign` chip on the next
+  fingerprint (every finding carrying it gets the `FP Benign` chip on the next
   refresh, the CRITICAL beacon included), Malicious adds it to the JA3/JA4 IOC
   list (flags as `Malicious JA3/JA4` on the next analysis). Analyst/admin only.
   A known-bad C2 fingerprint is **non-markable** — the buttons are withheld and
@@ -927,7 +937,7 @@ analyzer without touching beacon detection.
   corporate EDR agent, a niche SDK, an internal scanner) re-surfaced every
   visit — the wall never shrank. A **Mark benign** action on each heuristic
   row drops it out of the inventory into a collapsed, reversible **Benign**
-  section, and findings carrying that JA3/JA4 are tagged with an `fp benign`
+  section, and findings carrying that JA3/JA4 are tagged with an `FP Benign`
   chip (a hint, not a dismissal — the finding still shows). Known-bad C2
   matches are non-markable: the button is withheld and the server rejects a
   POST naming a known-bad fingerprint, so a confirmed C2 match can never be

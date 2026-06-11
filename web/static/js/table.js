@@ -105,7 +105,7 @@ const Table = (() => {
     const fpChip = f.tls_allowlisted
       ? ' <span class="fp-allow-chip" title="' +
           _esc("This finding's TLS client fingerprint was marked benign on the TLS Fingerprints wall.") +
-          '">fp benign</span>'
+          '">FP Benign</span>'
       : '';
     return '<tr class="' + cls + '" data-id="' + f.id + '">' +
       '<td class="status-icon">' + _statusIcon(f) + '</td>' +
