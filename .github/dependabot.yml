@@ -1,0 +1,30 @@
+# Dependency-update PRs. Nothing here auto-merges — every bump goes
+# through the normal CI gates (race tests, govulncheck, CGO=0 build) and
+# operator review, and ships with whatever release is cut next. Security
+# advisories are raised immediately regardless of the schedules below.
+#
+# This is dev-time source-tree freshness only. Runtime auto-update of
+# deployed sensors (Quiver) is a separately de-scoped decision — see
+# CLAUDE.md / MATURATION_PLAN.md — and nothing in this file touches it.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      go-deps:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

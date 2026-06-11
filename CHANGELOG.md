@@ -28,6 +28,17 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- Dependabot now raises monthly grouped PRs for Go modules, the
+  Dockerfile base images, and GitHub Actions versions (security
+  advisories immediately). Nothing auto-merges — every bump rides the
+  normal CI gates and operator review, and ships with the next cut
+  release. Dev-time source freshness only; the de-scoped Quiver runtime
+  auto-update decision is untouched.
+
 ## [v0.70.1] — 2026-06-11
 
 ### Added
