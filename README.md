@@ -32,6 +32,7 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 - [Versioning](#versioning)
 - [Resetting to Factory State](#resetting-to-factory-state)
 - [Running Without Docker](#running-without-docker)
+- [Contributors](#contributors)
 - [License](#license)
 
 ---
@@ -1384,6 +1385,12 @@ go build -o archer ./cmd/archer
 ```
 
 The binary has no runtime dependencies beyond the operating system. SQLite is compiled in via a pure-Go driver — no `libsqlite3` required.
+
+---
+
+## Contributors
+
+- [teehootchens](https://github.com/teehootchens)
 
 ---
 
