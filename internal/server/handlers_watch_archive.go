@@ -148,7 +148,7 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 		jsonOK(w)
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -175,13 +175,13 @@ func (s *Server) handleArchive(w http.ResponseWriter, r *http.Request) {
 		jsonOK(w)
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
 func (s *Server) handleArchiveRun(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	me := userFromCtx(r)
@@ -237,7 +237,7 @@ func (s *Server) handleArchiveRun(w http.ResponseWriter, r *http.Request) {
 // regular analysis run.
 func (s *Server) handleArchiveScan(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if u := userFromCtx(r); u.Role != model.RoleAdmin {

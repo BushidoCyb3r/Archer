@@ -28,6 +28,19 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **Every `/api/*` error response is JSON** — `{"error":"message"}` with
+  `Content-Type: application/json`, as docs/API.md has always promised.
+  Previously ~66 error paths (method-not-allowed checks, role denials,
+  export/backup failures, the service-token rate limiter) returned
+  plaintext or JSON-shaped bodies with a text/plain Content-Type.
+  Status codes and message texts are unchanged; only the response
+  shape is corrected. Scripts that parsed the plaintext bodies (none
+  are known) would need to read the `error` field instead.
+
 ## [v0.71.0] — 2026-06-12
 
 ### Added

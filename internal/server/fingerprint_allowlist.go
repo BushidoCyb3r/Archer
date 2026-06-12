@@ -80,7 +80,7 @@ func (s *Server) handleFingerprintAllowlist(w http.ResponseWriter, r *http.Reque
 		json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": id})
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -88,7 +88,7 @@ func (s *Server) handleFingerprintAllowlist(w http.ResponseWriter, r *http.Reque
 // (write roles). The fingerprint returns to the inventory on the next fetch.
 func (s *Server) handleDeleteFingerprintAllow(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if u := userFromCtx(r); u.Role == model.RoleViewer {

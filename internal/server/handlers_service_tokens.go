@@ -22,10 +22,10 @@ func (s *Server) tokenOrSession(h http.HandlerFunc) http.Handler {
 				// legitimate monitoring scrapers with a valid token are
 				// never limited.
 				if allowed, _ := s.rateLimit.allow(sourceIP(r)); !allowed {
-					http.Error(w, "rate limit exceeded — try again shortly", http.StatusTooManyRequests)
+					jsonError(w, "rate limit exceeded — try again shortly", http.StatusTooManyRequests)
 					return
 				}
-				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				jsonError(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
 			h.ServeHTTP(w, r)
@@ -79,7 +79,7 @@ func (s *Server) handleServiceTokens(w http.ResponseWriter, r *http.Request) {
 		})
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -87,7 +87,7 @@ func (s *Server) handleServiceTokens(w http.ResponseWriter, r *http.Request) {
 // Admin only (enforced by route middleware).
 func (s *Server) handleServiceTokenItem(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/service-tokens/")

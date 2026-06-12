@@ -17,7 +17,7 @@ import (
 func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
 	findings, err := s.filterFindings(s.store.GetFindings(), r.URL.Query(), newBoundaryFromCtx(r))
 	if err != nil {
-		http.Error(w, "invalid query: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "invalid query: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -54,7 +54,7 @@ func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	findings, err := s.filterFindings(s.store.GetFindings(), r.URL.Query(), newBoundaryFromCtx(r))
 	if err != nil {
-		http.Error(w, "invalid query: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "invalid query: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "text/csv")

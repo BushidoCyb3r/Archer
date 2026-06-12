@@ -163,7 +163,7 @@ func (s *Server) handleFeeds(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": id})
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -271,7 +271,7 @@ func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 		jsonOK(w)
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -285,7 +285,7 @@ func (s *Server) handleFeedItem(w http.ResponseWriter, r *http.Request) {
 // without waiting for the next watch tick.
 func (s *Server) handleFeedRefresh(w http.ResponseWriter, r *http.Request, id int64) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if u := userFromCtx(r); u.Role != model.RoleAdmin {

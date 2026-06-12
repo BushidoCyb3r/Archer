@@ -31,7 +31,7 @@ import (
 // the intended split: "who clicked Run" vs. "scheduler tick fired."
 func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	files := s.scanLogsDir()
@@ -59,7 +59,7 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 // baseline" workflows where preserving old findings would be misleading.
 func (s *Server) handleAnalyzeReset(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if u := userFromCtx(r); u.Role != model.RoleAdmin {
@@ -92,7 +92,7 @@ func (s *Server) handleAnalyzeReset(w http.ResponseWriter, r *http.Request) {
 // handleAnalyzeStatus returns whether analysis is currently running/paused.
 func (s *Server) handleAnalyzeStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	s.analyzerMu.Lock()
@@ -125,7 +125,7 @@ func (s *Server) handleAnalyzeStatus(w http.ResponseWriter, r *http.Request) {
 // handleAnalyzeCancel stops the running analysis.
 func (s *Server) handleAnalyzeCancel(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	s.analyzerMu.Lock()
@@ -143,7 +143,7 @@ func (s *Server) handleAnalyzeCancel(w http.ResponseWriter, r *http.Request) {
 // handleAnalyzePause pauses the running analysis.
 func (s *Server) handleAnalyzePause(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	s.analyzerMu.Lock()
@@ -161,7 +161,7 @@ func (s *Server) handleAnalyzePause(w http.ResponseWriter, r *http.Request) {
 // handleAnalyzeResume resumes a paused analysis.
 func (s *Server) handleAnalyzeResume(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	s.analyzerMu.Lock()

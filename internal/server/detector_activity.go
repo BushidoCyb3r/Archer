@@ -48,7 +48,7 @@ type detectorActivityResp struct {
 // regression, just absent traffic.
 func (s *Server) handleDetectorActivity(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 

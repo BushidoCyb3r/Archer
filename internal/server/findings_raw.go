@@ -84,7 +84,7 @@ var logTypesForFinding = map[string][]string{
 // to drop into the SIEM.
 func (s *Server) handleFindingRaw(w http.ResponseWriter, r *http.Request, id int) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	f, ok := s.store.GetFinding(id)

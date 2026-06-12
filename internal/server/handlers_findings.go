@@ -22,7 +22,7 @@ import (
 // and matches exactly what the "New only" table filter shows.
 func (s *Server) handleFindingsUnseen(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	since := newBoundaryFromCtx(r)
@@ -44,7 +44,7 @@ func (s *Server) handleFindingsUnseen(w http.ResponseWriter, r *http.Request) {
 // climbs higher (genuinely new findings) or a fresh login starts a new session.
 func (s *Server) handleFindingsModalAck(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	unseen, _ := s.store.CountUnseen(newBoundaryFromCtx(r))
@@ -69,7 +69,7 @@ func (s *Server) handleFindingsModalAck(w http.ResponseWriter, r *http.Request) 
 // "give me everything for this hunt" workflows.
 func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -255,7 +255,7 @@ func projectFindingList(in []model.Finding, newBoundary int64, fpAllowed func(ki
 // summary number doesn't grow forever as analysts dismiss noise.
 func (s *Server) handleFindingsCounts(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -331,7 +331,7 @@ func (s *Server) handleFindingsCounts(w http.ResponseWriter, r *http.Request) {
 // rest of the filter bar will surface.
 func (s *Server) handleFindingsFacets(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	q := r.URL.Query()
@@ -345,7 +345,7 @@ func (s *Server) handleFindingsFacets(w http.ResponseWriter, r *http.Request) {
 
 	all, err := s.filterFindings(s.store.GetFindings(), q, newBoundaryFromCtx(r))
 	if err != nil {
-		http.Error(w, "invalid query: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "invalid query: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	typeSet := make(map[string]struct{})
@@ -437,7 +437,7 @@ var trendSeverities = []struct {
 // detections already counted, and would double-count.
 func (s *Server) handleFindingsTrend(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -616,7 +616,7 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPatch:
 		if u := userFromCtx(r); u.Role != model.RoleAnalyst && u.Role != model.RoleAdmin {
-			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			jsonError(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		var req struct {
@@ -675,7 +675,7 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 		jsonOK(w)
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -687,7 +687,7 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 // filter (deleted, archived, or status mismatch).
 func (s *Server) handleFindingPosition(w http.ResponseWriter, r *http.Request, id int) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -700,7 +700,7 @@ func (s *Server) handleFindingPosition(w http.ResponseWriter, r *http.Request, i
 
 	result, err := s.filterFindings(s.store.GetFindings(), q, newBoundaryFromCtx(r))
 	if err != nil {
-		http.Error(w, "invalid query: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, "invalid query: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	sortFindings(result, sortCol, sortDir)
@@ -781,17 +781,17 @@ func (s *Server) handleNotifications(w http.ResponseWriter, r *http.Request) {
 		// NEW-63: pre-fix any verb other than GET / POST got an empty
 		// response that net/http defaulted to 200 OK — confusing API
 		// surface. Reject explicitly.
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
 func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if u := userFromCtx(r); u.Role == model.RoleViewer {
-		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+		jsonError(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/findings/")

@@ -25,7 +25,7 @@ import (
 // downloaded backups with the same care as the live DB.
 func (s *Server) handleAdminBackup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -37,14 +37,14 @@ func (s *Server) handleAdminBackup(w http.ResponseWriter, r *http.Request) {
 	tmpFile, err := os.CreateTemp("", "archer-backup-*.db")
 	if err != nil {
 		slog.Error("backup: temp file create failed", "err", err)
-		http.Error(w, "backup setup failed", http.StatusInternalServerError)
+		jsonError(w, "backup setup failed", http.StatusInternalServerError)
 		return
 	}
 	tmpPath := tmpFile.Name()
 	tmpFile.Close()
 	if err := os.Remove(tmpPath); err != nil {
 		slog.Error("backup: pre-VACUUM unlink failed", "err", err)
-		http.Error(w, "backup setup failed", http.StatusInternalServerError)
+		jsonError(w, "backup setup failed", http.StatusInternalServerError)
 		return
 	}
 	defer os.Remove(tmpPath)
@@ -52,14 +52,14 @@ func (s *Server) handleAdminBackup(w http.ResponseWriter, r *http.Request) {
 	db := s.users.DB()
 	if _, err := db.ExecContext(r.Context(), "VACUUM INTO ?", tmpPath); err != nil {
 		slog.Error("backup: VACUUM INTO failed", "err", err)
-		http.Error(w, "backup snapshot failed", http.StatusInternalServerError)
+		jsonError(w, "backup snapshot failed", http.StatusInternalServerError)
 		return
 	}
 
 	f, err := os.Open(tmpPath)
 	if err != nil {
 		slog.Error("backup: open snapshot failed", "err", err)
-		http.Error(w, "backup open failed", http.StatusInternalServerError)
+		jsonError(w, "backup open failed", http.StatusInternalServerError)
 		return
 	}
 	defer f.Close()

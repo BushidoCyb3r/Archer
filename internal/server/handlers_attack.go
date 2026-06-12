@@ -106,7 +106,7 @@ func sortedCounts(m map[string]int) []coverageType {
 // finding set, powering the coverage modal. Read-only; any authenticated role.
 func (s *Server) handleAttackCoverage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

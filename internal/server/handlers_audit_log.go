@@ -21,7 +21,7 @@ import (
 // Audit 2026-05-10 v0.14.0 audit-log addition.
 func (s *Server) handleAuditLog(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	q := r.URL.Query()

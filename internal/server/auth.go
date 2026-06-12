@@ -275,7 +275,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 // the credential can't silently rotate it and lock the owner out.
 func (s *Server) handleMePassword(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	me := userFromCtx(r)
@@ -351,7 +351,7 @@ func (s *Server) handleUsersCollection(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		if me.Role != model.RoleAdmin {
-			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			jsonError(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		var req struct {
@@ -403,7 +403,7 @@ func (s *Server) handleUsersCollection(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(user)
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -547,7 +547,7 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 		jsonOK(w)
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 

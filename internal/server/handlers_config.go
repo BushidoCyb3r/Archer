@@ -65,7 +65,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(redacted)
 	case http.MethodPut:
 		if u := userFromCtx(r); u.Role != model.RoleAdmin {
-			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			jsonError(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		cfg := s.store.GetConfig()
@@ -159,6 +159,6 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		})
 		jsonOK(w)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }

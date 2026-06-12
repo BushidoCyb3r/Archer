@@ -20,7 +20,7 @@ import (
 // just means "no chart to render."
 func (s *Server) handleFindingHistory(w http.ResponseWriter, r *http.Request, id int) {
 	if r.Method != http.MethodGet {
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	f, ok := s.store.GetFinding(id)

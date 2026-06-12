@@ -74,7 +74,7 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 // mode and "Analyze sensor logs" will pick up.
 func (s *Server) handleLogsTree(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 

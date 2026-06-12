@@ -27,7 +27,7 @@ const importMaxBytes = 64 << 20 // 64 MiB — large enough for a real export, sm
 
 func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	var payload struct {

@@ -25,7 +25,7 @@ import (
 // admin-only action buttons for analyst sessions.
 func (s *Server) handleSensorsList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	out := s.store.GetSensors()
@@ -44,7 +44,7 @@ func (s *Server) handleSensorsList(w http.ResponseWriter, r *http.Request) {
 // the SSH port the docker-compose layout exposes.
 func (s *Server) handleSensorsInfo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if u := userFromCtx(r); u.Role != model.RoleAdmin {
@@ -66,7 +66,7 @@ func (s *Server) handleSensorsInfo(w http.ResponseWriter, r *http.Request) {
 // when Archer's admin URL differs from what sensors should hit.
 func (s *Server) handleSensorsHost(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if u := userFromCtx(r); u.Role != model.RoleAdmin {
@@ -133,7 +133,7 @@ func (s *Server) handleSensorsTokens(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(t)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -142,7 +142,7 @@ func (s *Server) handleSensorsTokens(w http.ResponseWriter, r *http.Request) {
 // of the row from the table is harmless.
 func (s *Server) handleSensorsTokenRevoke(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if u := userFromCtx(r); u.Role != model.RoleAdmin {
@@ -179,7 +179,7 @@ func (s *Server) handleSensorsTokenRevoke(w http.ResponseWriter, r *http.Request
 // The sensor's next checkin returns "disenrolled" and the sensor self-cleans.
 func (s *Server) handleSensorDisenroll(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if u := userFromCtx(r); u.Role != model.RoleAdmin {
@@ -271,7 +271,7 @@ func (s *Server) handleSensorDisenroll(w http.ResponseWriter, r *http.Request) {
 // we refuse to purge from any other status to keep the UI honest.
 func (s *Server) handleSensorPurge(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if u := userFromCtx(r); u.Role != model.RoleAdmin {
@@ -335,7 +335,7 @@ func (s *Server) handleSensorPurge(w http.ResponseWriter, r *http.Request) {
 // slot propagates on the sensor's next checkin.
 func (s *Server) handleSensorSchedule(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if u := userFromCtx(r); u.Role != model.RoleAdmin {
@@ -384,7 +384,7 @@ func (s *Server) handleSensorSchedule(w http.ResponseWriter, r *http.Request) {
 // Admin + analyst can read; only admin can dismiss.
 func (s *Server) handleUnauthorizedList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -394,7 +394,7 @@ func (s *Server) handleUnauthorizedList(w http.ResponseWriter, r *http.Request) 
 // handleUnauthorizedDismiss deletes an unauthorized_attempts row.
 func (s *Server) handleUnauthorizedDismiss(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if u := userFromCtx(r); u.Role != model.RoleAdmin {

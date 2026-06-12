@@ -103,7 +103,7 @@ func (s *Server) handleQuiverInstallScript(w http.ResponseWriter, r *http.Reques
 // previous ones on failure so no partial state is left behind.
 func (s *Server) handleQuiverEnroll(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	// Rate-limit enrollment by source IP. Tokens are 24 random bytes
@@ -119,7 +119,7 @@ func (s *Server) handleQuiverEnroll(w http.ResponseWriter, r *http.Request) {
 				Details:    map[string]any{"path": "/api/quiver/enroll", "reason": "unauth_rate_limit"},
 			})
 		}
-		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		jsonError(w, "rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}
 	var req struct {
@@ -335,7 +335,7 @@ const checkinMaxBytes = 1 << 10
 
 func (s *Server) handleQuiverCheckin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	// Rate limit is applied INSIDE recordUnauthorizedCheckin (only on
@@ -479,7 +479,7 @@ func (s *Server) recordUnauthorizedCheckin(r *http.Request, w http.ResponseWrite
 				Details:    map[string]any{"path": "/api/quiver/checkin", "reason": "unauth_rate_limit"},
 			})
 		}
-		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		jsonError(w, "rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}
 	attempt := s.store.RecordUnauthorizedAttempt(name, srcIP, time.Now().Unix())

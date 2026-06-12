@@ -53,7 +53,7 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 			return
 		}
 		if isUnsafeMethod(r.Method) && crossOriginRequest(r) {
-			http.Error(w, `{"error":"cross-origin request blocked"}`, http.StatusForbidden)
+			jsonError(w, "cross-origin request blocked", http.StatusForbidden)
 			return
 		}
 		ctx := context.WithValue(r.Context(), ctxUser, user)
@@ -97,7 +97,7 @@ func crossOriginRequest(r *http.Request) bool {
 func (s *Server) redirectOrUnauthorized(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.Path
 	if len(p) >= 5 && p[:5] == "/api/" || p == "/events" {
-		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		jsonError(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -113,7 +113,7 @@ func requireRole(roles ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !allowed[userFromCtx(r).Role] {
-				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				jsonError(w, "forbidden", http.StatusForbidden)
 				return
 			}
 			next.ServeHTTP(w, r)

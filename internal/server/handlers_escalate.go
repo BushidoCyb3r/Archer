@@ -24,7 +24,7 @@ import (
 // so the service is always available regardless of config state.
 func (s *Server) handleTIServices(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	cfg := s.store.GetConfig()
@@ -75,11 +75,11 @@ func (s *Server) forwardEscalationToSIEM(cfg config.Config, before model.Finding
 
 func (s *Server) handleEscalate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if u := userFromCtx(r); u.Role == model.RoleViewer {
-		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+		jsonError(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	// Extract ID from path: /api/findings/{id}/escalate

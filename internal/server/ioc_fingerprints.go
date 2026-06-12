@@ -71,7 +71,7 @@ func (s *Server) handleIOCFingerprints(w http.ResponseWriter, r *http.Request) {
 		})
 	case http.MethodPut:
 		if u := userFromCtx(r); u.Role == model.RoleViewer {
-			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			jsonError(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		var entries []string
@@ -110,7 +110,7 @@ func (s *Server) handleIOCFingerprints(w http.ResponseWriter, r *http.Request) {
 		})
 		jsonOK(w)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -121,7 +121,7 @@ func (s *Server) handleIOCFingerprints(w http.ResponseWriter, r *http.Request) {
 // is a no-op success.
 func (s *Server) handleMarkFingerprintMalicious(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if u := userFromCtx(r); u.Role == model.RoleViewer {

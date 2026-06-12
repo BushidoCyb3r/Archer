@@ -20,7 +20,7 @@ func (s *Server) handleAllowlist(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(s.store.GetAllowlist())
 	case http.MethodPut:
 		if u := userFromCtx(r); u.Role == model.RoleViewer {
-			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			jsonError(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		var entries []string
@@ -44,7 +44,7 @@ func (s *Server) handleAllowlist(w http.ResponseWriter, r *http.Request) {
 		})
 		jsonOK(w)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -62,7 +62,7 @@ func (s *Server) handleIOC(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(s.store.GetIOCList())
 	case http.MethodPut:
 		if u := userFromCtx(r); u.Role == model.RoleViewer {
-			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			jsonError(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		var entries []string
@@ -86,7 +86,7 @@ func (s *Server) handleIOC(w http.ResponseWriter, r *http.Request) {
 		})
 		jsonOK(w)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -103,7 +103,7 @@ func (s *Server) handleSuppressions(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		if u := userFromCtx(r); u.Role == model.RoleViewer {
-			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			jsonError(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		var req struct {
@@ -150,13 +150,13 @@ func (s *Server) handleSuppressions(w http.ResponseWriter, r *http.Request) {
 		})
 		jsonOK(w)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
 func (s *Server) handleDeleteSuppression(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if u := userFromCtx(r); u.Role == model.RoleViewer {
@@ -192,7 +192,7 @@ func (s *Server) handleDeleteSuppression(w http.ResponseWriter, r *http.Request)
 // /api/pair-allowlist endpoint which enforces the write-role gate there.
 func (s *Server) handleSuggestedAllowlist(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	suggestions := s.store.SuggestedPairAllowlist()
@@ -219,7 +219,7 @@ func (s *Server) handlePairAllowlist(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		me := userFromCtx(r)
 		if me.Role == model.RoleViewer {
-			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			jsonError(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		var req struct {
@@ -300,7 +300,7 @@ func (s *Server) handlePairAllowlist(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": id})
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -309,7 +309,7 @@ func (s *Server) handlePairAllowlist(w http.ResponseWriter, r *http.Request) {
 // /api/findings fetch — they were never dropped from the store.
 func (s *Server) handleDeletePairAllow(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if u := userFromCtx(r); u.Role == model.RoleViewer {

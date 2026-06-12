@@ -18,7 +18,7 @@ import (
 // they're handed to the store here so the store stays independent of analysis.
 func (s *Server) handleFingerprints(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	// Union the operator JA3/JA4 IOC list into the known-bad maps so an
