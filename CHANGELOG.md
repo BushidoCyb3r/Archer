@@ -28,13 +28,32 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
-## [Unreleased]
+## [v0.71.0] — 2026-06-12
 
-### Breaking
+### Added
 
-- **Two finding types removed: `Weak TLS` and `Protocol Anomaly`** (see
-  Removed below). Detection-semantics change — exports, SIEM pipelines,
-  or saved queries keyed on these types stop receiving new rows.
+- **Domains and `*.domain` wildcards in relationship allowlist rules** —
+  a pair-allow rule's source and destination each accept a domain
+  (`skype.com`) or a wildcard (`*.skype.com`), alongside the existing
+  IP and CIDR forms. DNS-family and TI-domain findings carry the domain
+  as their destination, so those tuples were previously impossible to
+  allowlist — the create API rejected anything that wasn't IP-or-CIDR.
+  A wildcard matches the apex and every name under it,
+  case-insensitively (`*.skype.com` covers `skype.com` and
+  `edge.skype.com`, never `notskype.com` or `skype.com.evil.net`);
+  exact domains keep exact-match semantics through the hash index, and
+  wildcards join CIDR rules on the post-miss scan path. Domain sides
+  are lowercased on create to match the detectors' normalized output.
+  Port, finding-type, and sensor scoping semantics are unchanged. The
+  Allow this Relationship dialog and the Relationships tab document the
+  syntax.
+
+- Dependabot now raises monthly grouped PRs for Go modules, the
+  Dockerfile base images, and GitHub Actions versions (security
+  advisories immediately). Nothing auto-merges — every bump rides the
+  normal CI gates and operator review, and ships with the next cut
+  release. Dev-time source freshness only; the de-scoped Quiver runtime
+  auto-update decision is untouched.
 
 ### Removed
 
@@ -66,30 +85,11 @@ relevant, `### Detection changes` in each release entry.
   can't silently undo. The findings themselves, their scores, and their
   Correlated Activity participation are unchanged.
 
-### Added
+### Breaking
 
-- **Domains and `*.domain` wildcards in relationship allowlist rules** —
-  a pair-allow rule's source and destination each accept a domain
-  (`skype.com`) or a wildcard (`*.skype.com`), alongside the existing
-  IP and CIDR forms. DNS-family and TI-domain findings carry the domain
-  as their destination, so those tuples were previously impossible to
-  allowlist — the create API rejected anything that wasn't IP-or-CIDR.
-  A wildcard matches the apex and every name under it,
-  case-insensitively (`*.skype.com` covers `skype.com` and
-  `edge.skype.com`, never `notskype.com` or `skype.com.evil.net`);
-  exact domains keep exact-match semantics through the hash index, and
-  wildcards join CIDR rules on the post-miss scan path. Domain sides
-  are lowercased on create to match the detectors' normalized output.
-  Port, finding-type, and sensor scoping semantics are unchanged. The
-  Allow this Relationship dialog and the Relationships tab document the
-  syntax.
-
-- Dependabot now raises monthly grouped PRs for Go modules, the
-  Dockerfile base images, and GitHub Actions versions (security
-  advisories immediately). Nothing auto-merges — every bump rides the
-  normal CI gates and operator review, and ships with the next cut
-  release. Dev-time source freshness only; the de-scoped Quiver runtime
-  auto-update decision is untouched.
+- **Two finding types removed: `Weak TLS` and `Protocol Anomaly`** (see
+  Removed below). Detection-semantics change — exports, SIEM pipelines,
+  or saved queries keyed on these types stop receiving new rows.
 
 ## [v0.70.1] — 2026-06-11
 
@@ -8933,6 +8933,9 @@ The baseline detection behavior is the in-tree state at this cut.
   replaced with the runtime version (`v0.1.0` at this cut). Any external
   tooling that parsed the literal as a sentinel needs a one-line update.
 
+[v0.71.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.70.1...v0.71.0
+[v0.70.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.70.0...v0.70.1
+[v0.70.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.69.0...v0.70.0
 [v0.69.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.68.1...v0.69.0
 [v0.68.1]: https://github.com/BushidoCyb3r/Archer/compare/v0.68.0...v0.68.1
 [v0.68.0]: https://github.com/BushidoCyb3r/Archer/compare/v0.67.0...v0.68.0
