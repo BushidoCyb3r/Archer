@@ -102,11 +102,6 @@ var SuspiciousTLDs = map[string]bool{
 	".faith": true, ".men": true, ".loan": true,
 }
 
-// WeakTLSVersions is the set of deprecated TLS protocol identifiers.
-var WeakTLSVersions = map[string]bool{
-	"SSLv2": true, "SSLv3": true, "TLSv10": true, "TLSv11": true,
-}
-
 // DoHIPs is the set of known DNS-over-HTTPS resolver IPs.
 var DoHIPs = map[string]bool{
 	"8.8.8.8": true, "8.8.4.4": true,

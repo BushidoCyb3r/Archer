@@ -52,12 +52,10 @@ var riskWeights = map[string]int{
 	"Suspicious URL":              30,
 	"Suspicious UA":               12,
 	"DoH Bypass":                  18,
-	"Weak TLS":                    10,
 	"C2 Port":                     22,
 	"Protocol on Unexpected Port": 25, // DPD-confirmed protocol/port mismatch on egress — stronger than a bare C2-port match
 	"Admin Protocol Egress":       20, // interactive remote-admin protocol reaching the public internet
 	"Database Protocol Egress":    22, // cleartext DB protocol crossing to the internet — exfil/exposure channel
-	"Protocol Anomaly":            8,
 }
 
 // dampenComposite applies an asymptotic curve above the identity threshold

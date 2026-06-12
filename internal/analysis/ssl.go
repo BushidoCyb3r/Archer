@@ -12,7 +12,6 @@ func (a *Analyzer) analyzeSSL(files []string) {
 	seenJA3 := make(map[[3]string]bool)
 	seenJA4 := make(map[[3]string]bool)
 	seenNoSNI := make(map[[3]string]bool)
-	seenWeakTLS := make(map[[3]string]bool)
 	seenDoH := make(map[[2]string]bool)
 
 	// Per-fingerprint prevalence over every TLS connection in this pass.
@@ -117,25 +116,6 @@ func (a *Analyzer) analyzeSSL(files []string) {
 							JA4:        ja4,
 						})
 					}
-				}
-			}
-
-			// Weak TLS version
-			if WeakTLSVersions[version] {
-				key := [3]string{src, dst, version}
-				if !seenWeakTLS[key] {
-					seenWeakTLS[key] = true
-					a.add(model.Finding{
-						Type:       "Weak TLS",
-						Severity:   model.SevLow,
-						Score:      48,
-						SrcIP:      src,
-						DstIP:      dst,
-						DstPort:    portStr,
-						Detail:     fmt.Sprintf("Deprecated TLS version: %s", version),
-						Timestamp:  fmtTS(ts),
-						SourceFile: f,
-					})
 				}
 			}
 

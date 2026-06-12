@@ -12,7 +12,7 @@ the connection UID in `sslUIDIndex` (built earlier by `analyzeSSL`).
 
 - `ssl.log` — one record with SNI `cdn.example.com`, TLSv12,
   `established = true`, and an empty JA3 so no SSL-side detector
-  trips (Malicious JA3, Weak TLS, SSL No-SNI all skipped).
+  trips (Malicious JA3, SSL No-SNI both skipped).
 - `http.log` — same UID as the SSL record but `Host: hidden.evil.com`.
   URI is `/` (length-1, skips CS/C2 URI checks) and UA is `Mozilla/5.0`
   so no other HTTP detectors fire.

@@ -23,7 +23,50 @@ The four breaking-change categories:
    feed-matching logic.
 
 Any of those changing at minor-bump granularity (e.g. v0.1 → v0.2) is
-expected pre-1.0. They will be called out under `### Added
+expected pre-1.0. They will be called out under `### Breaking` and, where
+relevant, `### Detection changes` in each release entry.
+
+---
+
+## [Unreleased]
+
+### Breaking
+
+- **Two finding types removed: `Weak TLS` and `Protocol Anomaly`** (see
+  Removed below). Detection-semantics change — exports, SIEM pipelines,
+  or saved queries keyed on these types stop receiving new rows.
+
+### Removed
+
+- **`Weak TLS` detector** (ssl.log) — a hygiene/compliance finding, not
+  a C2 behavior: real C2 overwhelmingly negotiates modern TLS, so the
+  type neither detected beacons nor corroborated them. It contributed
+  only a +10 HRS weight.
+- **`Protocol Anomaly` detector** (the Zeek weird.log passthrough) —
+  lowest signal-per-alert in the catalog; weirds are dominated by
+  broken-middlebox noise. Zeek notice passthrough is unaffected (those
+  are Zeek's own curated detections). weird.log files are still
+  accepted, stored, and archived — just no longer analyzed.
+
+  For both: existing findings survive as historical rows (exact `type:`
+  queries, the detail pane, raw-log pivot, ATT&CK classification, and
+  JSON import all keep working for them); the detectors' HRS weights
+  are gone, and the catalog narrows to types that detect or corroborate
+  C2 — keeping the catalog pointed at beacon hunting.
+
+### Detection changes
+
+- `Weak TLS` and `Protocol Anomaly` are no longer emitted (above); both
+  HRS weight-table entries removed.
+- **`Suspicious File Download` and `Off-Hours Transfer` are demoted from
+  the alert bell** — delivery-stage and exfil-timing context for the
+  hunt list, not bell-grade C2 conviction. Both already scored under the
+  95 bell gate (72 / ≤78); the new explicit bell-exclusion list (joining
+  `Host Risk Score`) makes the demotion a contract a future score change
+  can't silently undo. The findings themselves, their scores, and their
+  Correlated Activity participation are unchanged.
+
+### Added
 
 - **Domains and `*.domain` wildcards in relationship allowlist rules** —
   a pair-allow rule's source and destination each accept a domain

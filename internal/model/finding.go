@@ -388,12 +388,12 @@ var knownFindingTypes = map[string]bool{
 	"Strobe":              true, "Long Connection": true, "Data Exfiltration": true,
 	"Off-Hours Transfer": true, "Lateral Movement": true,
 	"DNS Tunneling": true, "DNS NXDOMAIN Flood": true, "DNS Subdomain DGA": true,
-	"Protocol Anomaly": true, "C2 Port": true, "C2 URI Pattern": true,
+	"C2 Port": true, "C2 URI Pattern": true,
 	"Protocol on Unexpected Port": true,
 	"Admin Protocol Egress":       true,
 	"Database Protocol Egress":    true,
 	"Cobalt Strike URI":           true, "Domain Fronting": true, "DoH Bypass": true,
-	"Malicious JA3": true, "Malicious JA4": true, "Weak TLS": true,
+	"Malicious JA3": true, "Malicious JA4": true,
 	"SSL No-SNI": true, "SSL No-SNI on C2 Port": true,
 	"Suspicious Certificate": true, "Suspicious File Download": true,
 	"Suspicious TLD": true, "Suspicious UA": true,
@@ -403,6 +403,11 @@ var knownFindingTypes = map[string]bool{
 	TypeTIHitLegacy:   true,
 	TypeHostRiskScore: true, TypeCorrelatedActivity: true,
 	TypeMultiStageBeacon: true,
+
+	// Removed detectors: no longer emitted, but rows persisted by
+	// earlier builds survive the fingerprint merge as historical
+	// findings, so exact type: queries for them must keep resolving.
+	"Weak TLS": true, "Protocol Anomaly": true,
 }
 
 // IsKnownFindingType reports whether t is a finding type the analyzer can
@@ -669,10 +674,12 @@ var ScoreExplanations = map[string]ScoreExplanation{
 		Scoring:        "Score: 35 (LOW — supporting indicator). Established TLS with no SNI on a non-standard, non-C2 port.",
 	},
 
+	// Removed detector — entry retained so historical findings from
+	// earlier builds keep their detail-pane context and import path.
 	"Weak TLS": {
-		Summary:        "The connection negotiated a deprecated, insecure TLS/SSL version — worth knowing as a hygiene gap and a downgrade-attack signal.",
+		Summary:        "Removed detector (historical findings only): the connection negotiated a deprecated, insecure TLS/SSL version. A hygiene finding, not a C2 behavior — retired to keep the catalog focused on beacon hunting.",
 		FalsePositives: "Legacy devices and old appliances still negotiate these versions.",
-		Scoring:        "Score: 48. Deprecated protocol: SSLv2 / SSLv3 / TLS 1.0 / TLS 1.1.",
+		Scoring:        "Score: 48. Deprecated protocol: SSLv2 / SSLv3 / TLS 1.0 / TLS 1.1. No longer emitted.",
 	},
 
 	"Suspicious UA": {
@@ -693,10 +700,12 @@ var ScoreExplanations = map[string]ScoreExplanation{
 		Scoring:        "Score: 72 (executable or script MIME type / extension in files.log).",
 	},
 
+	// Removed detector — entry retained so historical findings from
+	// earlier builds keep their detail-pane context and import path.
 	"Protocol Anomaly": {
-		Summary:        "Zeek flagged something structurally wrong or unexpected in this traffic (a 'weird') — a malformed or out-of-spec exchange that can signal tunneling, evasion, or a misbehaving implant.",
+		Summary:        "Removed detector (historical findings only): Zeek flagged something structurally wrong in this traffic (a 'weird'). Signal-per-alert was the lowest in the catalog — retired to keep the catalog focused on beacon hunting.",
 		FalsePositives: "Broken or quirky-but-benign software produces protocol weirds all the time.",
-		Scoring:        "Score: 65 (high-interest weird) or 22 (general), from Zeek weird.log.",
+		Scoring:        "Score: 65 (high-interest weird) or 22 (general), from Zeek weird.log. No longer emitted.",
 	},
 
 	"Protocol on Unexpected Port": {

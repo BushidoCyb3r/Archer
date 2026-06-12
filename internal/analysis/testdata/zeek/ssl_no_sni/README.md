@@ -8,8 +8,7 @@ or scripted client.
 ## Inputs
 
 - `ssl.log` — one record on port 443 with `established = true` and
-  `server_name = ""`. JA3 empty (no Malicious JA3 trigger), TLSv12 (no
-  Weak TLS), port 443 (not in `KnownC2Ports` so the C2-port variant
+  `server_name = ""`. JA3 empty (no Malicious JA3 trigger), port 443 (not in `KnownC2Ports` so the C2-port variant
   doesn't fire).
 
 ## Findings produced

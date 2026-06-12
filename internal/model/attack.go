@@ -71,7 +71,7 @@ var attackByType = map[string][]AttackTechnique{
 	"DNS Tunneling":               {tDNSProto, tExfilAlt},
 	"DNS NXDOMAIN Flood":          {tDGA},
 	"DNS Subdomain DGA":           {tDGA},
-	"Protocol Anomaly":            {tAppLayer},
+	"Protocol Anomaly":            {tAppLayer}, // removed detector; historical rows still classify
 	"C2 Port":                     {tOddPort},
 	"C2 URI Pattern":              {tWebProto},
 	"Protocol on Unexpected Port": {tOddPort},
@@ -82,7 +82,7 @@ var attackByType = map[string][]AttackTechnique{
 	"DoH Bypass":                  {tDNSProto, tTunneling},
 	"Malicious JA3":               {tEncrypted},
 	"Malicious JA4":               {tEncrypted},
-	"Weak TLS":                    {tEncrypted},
+	"Weak TLS":                    {tEncrypted}, // removed detector; historical rows still classify
 	"SSL No-SNI":                  {tEncrypted},
 	"SSL No-SNI on C2 Port":       {tEncrypted, tOddPort},
 	"Suspicious Certificate":      {tEncrypted},

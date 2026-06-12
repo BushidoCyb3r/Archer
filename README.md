@@ -39,7 +39,7 @@ Archer is a self-hosted, open-source network threat detection platform that proc
 
 ## Features
 
-- **Multi-log analysis** — ingests conn, DNS, HTTP, SSL, X.509, files, weird, and notice logs in TSV or JSON/NDJSON format, including gzip-compressed files
+- **Multi-log analysis** — ingests conn, DNS, HTTP, SSL, X.509, files, and notice logs in TSV or JSON/NDJSON format, including gzip-compressed files
 - **Spectral beacon rescue** — Lomb-Scargle periodogram over reservoir-sampled timestamps catches bounded-jitter C2 beacons (fixed cadence + random jitter around it) that defeat statistical interval-distribution scoring. DC-corrected `rayleighPower` eliminates finite-window leakage artifacts; a lower-bound plausibility gate (`ivMedian/5`) suppresses burst-structure noise while allowing burst-connect beacons whose true period exceeds `ivMedian`. Gated to only run when the statistical path scored weak, ~4 ms/pair overhead. Calibration knobs in Settings; tuning guide at [docs/SPECTRAL_TUNING.md](docs/SPECTRAL_TUNING.md). Operator validation: `bash corpus-spotcheck.sh`.
 - **DGA hostname augmentation** — Beacon / HTTP Beacon scores get a +15 / one-step severity bump when the destination's registrable domain looks algorithmically generated (high Shannon entropy + low English-bigram log-likelihood). Built-in CDN allowlist + operator allowlist suppress legitimate algorithmic hostnames.
 - **Cross-detector correlation** — same `(src, dst)` pair carrying findings from ≥N distinct detector types becomes a Correlated Activity roll-up; right-clicking the roll-up row → **Show contributing activity** filters the Findings tab to that `(src, dst)` pair so every contributor plus the roll-up land in one view (each contributor also carries its sibling IDs in the `correlations` API field). Catches kill-chain progression (Beacon + DNS Tunneling, Suspicious File + TI Hit, etc.).
@@ -132,7 +132,6 @@ Archer runs five parallel analysis phases across all supported log types.
 | **Malicious JA3** | TLS ClientHello fingerprint (MD5 hash) matches known C2 frameworks: Cobalt Strike (multiple profiles), Metasploit, Sliver, Brute Ratel — or an operator-supplied hash from the JA3/JA4 IOC list. Requires sensor Zeek JA3 script (stock). | CRITICAL |
 | **Malicious JA4** | TLS ClientHello fingerprint (JA4 structured format) matches known C2 malware: Cobalt Strike v4.9.1 (wininet/winhttp, SNI/no-SNI variants), IcedID loader. Source: FoxIO public JA4+ database. Requires sensor running Zeek JA4+ plugin. | CRITICAL |
 | **SSL No-SNI on C2 Port** | Established TLS connection with no SNI on known C2 ports (4444, 4899, 6666–6669, 8008, 8888, 9001, 9030, 31337) | HIGH |
-| **Weak TLS** | Deprecated protocol versions: SSLv2, SSLv3, TLSv1.0, TLSv1.1 | MEDIUM |
 | **SSL No-SNI** | Established TLS connection with no SNI on standard ports — supporting indicator | LOW |
 
 ### X.509 Certificates (`x509.log`)
@@ -140,12 +139,6 @@ Archer runs five parallel analysis phases across all supported log types.
 | Detection Type | Description | Severity |
 |---|---|---|
 | **Suspicious Certificate** | Self-signed certificates (subject equals issuer), generic or default subject strings, or anomalous validity windows (< 48 hours or > 10 years) | MEDIUM |
-
-### Protocol Anomalies (`weird.log`)
-
-| Detection Type | Description | Severity |
-|---|---|---|
-| **Protocol Anomaly** | Zeek-flagged protocol violations: `bad_HTTP_request`, `malformed_ssh`, `RST_with_data`, `DNS_label_too_long`, and others | MEDIUM / LOW |
 
 ### Zeek Notices (`notice.log`)
 
@@ -170,7 +163,7 @@ For the analyst-side workflow — how to actually hunt with these findings, what
 
 | Detection Type | Description | Severity |
 |---|---|---|
-| **Host Risk Score** | Weighted composite score (0–100) aggregated across all findings for a given source IP. Selected weights: Cobalt Strike URI / Malicious JA3 / Malicious JA4 +40, C2 URI Pattern +38, DNS Tunneling / TI Hit (IP/Domain/Hash) +35 each, Domain Fronting +32, Beacon / Port-Hopping Beacon / DNS Beacon / SSL No-SNI on C2 Port / Suspicious URL +30, HTTP Beacon +28, Data Exfiltration / Suspicious File Download / Protocol on Unexpected Port +25, DNS Subdomain DGA / C2 Port +22, Lateral Movement / Suspicious Certificate +20, DNS NXDOMAIN Flood / DoH Bypass +18, Strobe / SSL No-SNI +15, Suspicious UA +12, Long Connection / Weak TLS +10, Protocol Anomaly +8. Full table in `docs/DETECTION_METHODS.md §14`. Surfaced in the **Hosts** tab (not the Findings tab — that tab is reserved for discrete network events). Click any host row to open the underlying score breakdown. | CRITICAL / HIGH / MEDIUM / LOW |
+| **Host Risk Score** | Weighted composite score (0–100) aggregated across all findings for a given source IP. Selected weights: Cobalt Strike URI / Malicious JA3 / Malicious JA4 +40, C2 URI Pattern +38, DNS Tunneling / TI Hit (IP/Domain/Hash) +35 each, Domain Fronting +32, Beacon / Port-Hopping Beacon / DNS Beacon / SSL No-SNI on C2 Port / Suspicious URL +30, HTTP Beacon +28, Data Exfiltration / Suspicious File Download / Protocol on Unexpected Port +25, DNS Subdomain DGA / C2 Port +22, Lateral Movement / Suspicious Certificate +20, DNS NXDOMAIN Flood / DoH Bypass +18, Strobe / SSL No-SNI +15, Suspicious UA +12, Long Connection +10. Full table in `docs/DETECTION_METHODS.md §14`. Surfaced in the **Hosts** tab (not the Findings tab — that tab is reserved for discrete network events). Click any host row to open the underlying score breakdown. | CRITICAL / HIGH / MEDIUM / LOW |
 | **Correlated Activity** | Same-pair multi-detector roll-up: any `(src, dst)` pair carrying findings from N+ distinct detector types becomes a Correlated Activity row; right-click it → **Show contributing activity** to filter the Findings tab to that `(src, dst)` pair (all contributors + the roll-up row in one view). Score = max(contributor scores) + 5 per extra distinct type above N (capped 99). Excludes roll-ups (HRS recursion, self-feedback), Zeek Notice, and Long Connection from the contributor set. Surfaces kill-chain progression a single detector wouldn't catch alone. | CRITICAL / HIGH / MEDIUM |
 | **Multi-Stage Beacon** | Cross-host C2-staging roll-up: ≥ 2 internal hosts beaconing to the **same rare external destination** (≤ 6 distinct sources) with staggered onsets (≤ 48h apart) — the lateral-spread-with-shared-C2 pattern single-pair beacon detection can't see. HIGH when staged; CRITICAL when corroborated by a lateral hop, a TI hit on the destination, or a Malicious JA3/JA4 on it. A roll-up type (purge-when-stale, excluded from Host Risk Score weighting). Complements the broad Campaigns view with a narrow, high-conviction signal. See DETECTION_METHODS and `internal/analysis/stage.go` | CRITICAL / HIGH |
 
@@ -187,7 +180,7 @@ archer/
 ├── backup.sh                   # Auth'd VACUUM INTO snapshot via the admin endpoint; optional retention + rsync off-box
 ├── restore.sh                  # Confirmed swap of a snapshot into archer-data (container down; TLS + other volumes untouched)
 ├── demo.sh                     # One-command local demo — builds, seeds sample logs, analyzes, serves until Ctrl-C (see Try It Locally)
-├── demo/logs/                  # Sample Zeek captures (40 scenarios in a date tree) the demo analyzes
+├── demo/logs/                  # Sample Zeek captures (37 scenarios in a date tree) the demo analyzes
 ├── cmd/archer/main.go          # Entry point — flags, signal handler, TLS bootstrap, HTTP listener
 ├── internal/
 │   ├── analysis/               # Detection engines
@@ -198,7 +191,6 @@ archer/
 │   │   ├── ssl.go              # JA3/JA4, no-SNI, weak TLS; populates sslUIDIndex consumed by HTTP
 │   │   ├── x509.go             # Certificate anomalies
 │   │   ├── files.go            # Suspicious file downloads + MIME-mismatch
-│   │   ├── weird.go            # Zeek weirds passthrough with score
 │   │   ├── notice.go           # Zeek notices passthrough with score
 │   │   ├── ti.go               # Two-phase TI scan — Phase A dst-only sets per file, Phase B targeted collection
 │   │   ├── correlate.go        # Cross-detector correlation roll-up — Correlated Activity (v0.15.0)
@@ -709,10 +701,10 @@ Email:     demo@archer.local
 Password:  archerdemo
 ```
 
-The sample corpus is 40 curated single-scenario captures covering
+The sample corpus is 37 curated single-scenario captures covering
 every from-logs detector family (beaconing variants, DNS tunneling,
 HTTP C2, JA3/JA4, x509 anomalies, exfil, lateral movement, and
-more) — a full pass surfaces ~67 findings, enough to exercise the
+more) — a full pass surfaces ~60 findings, enough to exercise the
 query bar, the Views, and the beacon-depth tools. Override the port
 or credentials with `ARCHER_DEMO_PORT`, `ARCHER_DEMO_EMAIL`, and
 `ARCHER_DEMO_PASSWORD`. See `demo/README.md` for the scenario list.
@@ -792,7 +784,7 @@ The directory immediately under the configured logs root is used as the **sensor
 /logs/<sensor-name>/[subdirs/]<file>.log
 ```
 
-Supported log filenames: `conn`, `dns`, `http`, `ssl`, `x509`, `files`, `weird`, `notice` (with or without `.log` suffix, with or without `.gz`).
+Supported log filenames: `conn`, `dns`, `http`, `ssl`, `x509`, `files`, `notice` (with or without `.log` suffix, with or without `.gz`).
 
 ---
 

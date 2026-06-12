@@ -77,7 +77,6 @@ Each scenario subdirectory contains:
 | `http_suspicious_file/` | Suspicious File Download |
 | `http_beacon/` | HTTP Beacon |
 | `ssl_malicious_ja3/` | Malicious JA3 |
-| `ssl_weak_tls/` | Weak TLS |
 | `ssl_no_sni/` | SSL No-SNI |
 | `ssl_no_sni_c2_port/` | SSL No-SNI on C2 Port |
 | `x509_self_signed/` | Suspicious Certificate (self-signed) |
@@ -86,8 +85,6 @@ Each scenario subdirectory contains:
 | `x509_long_validity/` | Suspicious Certificate (long validity) |
 | `files_suspicious_mime/` | Suspicious File Download (MIME) |
 | `files_suspicious_ext/` | Suspicious File Download (extension) |
-| `weird_protocol_anomaly/` | Protocol Anomaly (low-interest) |
-| `weird_high_interest/` | Protocol Anomaly (high-interest) |
 | `notice_zeek/` | Zeek Notice (default HIGH) |
 | `notice_critical/` | Zeek Notice (critical keyword) |
 | `ti_feodo_ip/` | Threat Intel Hit (FeodoTracker IP — uses `feeds.json`) |

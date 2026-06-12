@@ -2624,3 +2624,31 @@ func TestFingerprintAllowlist(t *testing.T) {
 		t.Error("removing the allowlist entry must bring the fingerprint back to the wall")
 	}
 }
+
+// TestSetFindings_BellExcludedTypes pins the notification contract: the
+// bell-excluded types (Host Risk Score roll-up, plus the deliberately
+// demoted Suspicious File Download and Off-Hours Transfer) never notify
+// regardless of score, while a bell-eligible finding at the same score
+// does. The demoted types' detectors cap below the 95 gate today; this
+// asserts the exclusion holds even if a future score change lifts them.
+func TestSetFindings_BellExcludedTypes(t *testing.T) {
+	s := New(config.Default())
+
+	notifs := s.SetFindings([]model.Finding{
+		{Type: "Suspicious File Download", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", Score: 99, Severity: model.SevHigh, Timestamp: "2026-06-12 12:00:00"},
+		{Type: "Off-Hours Transfer", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", Score: 99, Severity: model.SevHigh, Timestamp: "2026-06-12 12:00:00"},
+		{Type: "Host Risk Score", SrcIP: "10.0.0.3", DstIP: "(network)", Score: 99, Severity: model.SevCritical, Timestamp: "2026-06-12 12:00:00"},
+		{Type: "Beacon", SrcIP: "10.0.0.4", DstIP: "4.4.4.4", Score: 99, Severity: model.SevCritical, Timestamp: "2026-06-12 12:00:00"},
+	})
+
+	if len(notifs) != 1 {
+		types := make([]string, 0, len(notifs))
+		for _, n := range notifs {
+			types = append(types, n.Type)
+		}
+		t.Fatalf("notifications = %v, want exactly the Beacon", types)
+	}
+	if notifs[0].Type != "Beacon" {
+		t.Errorf("notified type = %q, want Beacon", notifs[0].Type)
+	}
+}

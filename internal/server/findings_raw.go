@@ -24,7 +24,7 @@ import (
 //	"DNS Tunnel"       (analyzer emits "DNS Tunneling")
 //	"NXDOMAIN Flood"   (analyzer emits "DNS NXDOMAIN Flood")
 //	"No-SNI"           (analyzer emits "SSL No-SNI" / "SSL No-SNI on C2 Port")
-//	"Weird Event"      (analyzer emits "Protocol Anomaly")
+//	"Weird Event"      (analyzer emitted "Protocol Anomaly")
 //
 // Plus "Host Risk Score" (the cross-detector roll-up) had no entry at
 // all. The lookup-miss fallback at handleFindingRaw scans the wide
@@ -62,11 +62,11 @@ var logTypesForFinding = map[string][]string{
 	"DoH Bypass":                  {"ssl"},
 	"Malicious JA3":               {"ssl"},
 	"Malicious JA4":               {"ssl"},
-	"Weak TLS":                    {"ssl"},
+	"Weak TLS":                    {"ssl"}, // removed detector; historical rows still pivot
 	"SSL No-SNI":                  {"ssl"},
 	"SSL No-SNI on C2 Port":       {"ssl", "conn"},
 	"Suspicious Certificate":      {"x509"},
-	"Protocol Anomaly":            {"weird"},
+	"Protocol Anomaly":            {"weird"}, // removed detector; historical rows still pivot
 	"Zeek Notice":                 {"notice"},
 	"TI Hit (IP)":                 {"conn", "http", "ssl"},
 	"TI Hit (Domain)":             {"dns", "http"},

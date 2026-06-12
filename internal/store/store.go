@@ -666,6 +666,14 @@ func (s *Store) GetFindings() []model.Finding {
 	return out
 }
 
+// bellExcludedTypes never generate notifications, whatever their score.
+// See the gate in setFindingsImpl for the per-type rationale.
+var bellExcludedTypes = map[string]bool{
+	"Host Risk Score":          true,
+	"Suspicious File Download": true,
+	"Off-Hours Transfer":       true,
+}
+
 // SetFindings merges new analysis results with existing findings, carries over
 // analyst annotations for re-detected fingerprints, persists to SQLite, and
 // returns any new notifications generated. Use this for full-pipeline
@@ -1019,13 +1027,19 @@ func (s *Store) setFindingsImpl(findings []model.Finding, purgeStaleRollups bool
 		return newNotifs
 	}
 	for _, f := range findings {
+		// Bell-excluded types never notify regardless of score.
 		// Host Risk Score is an aggregate per-host roll-up that lives in
-		// the Hosts tab, not a discrete network event. Suppress it from
-		// the bell — the underlying network detections that pushed the
-		// host's score over the line have already generated their own
-		// notifications, and a "jump to finding" tap would land on a
-		// row that the Findings tab no longer renders.
-		if f.Type == "Host Risk Score" {
+		// the Hosts tab, not a discrete network event — the underlying
+		// network detections that pushed the host's score over the line
+		// have already generated their own notifications, and a "jump to
+		// finding" tap would land on a row the Findings tab no longer
+		// renders. Suspicious File Download and Off-Hours Transfer are
+		// deliberately demoted: delivery-stage and exfil-timing context
+		// for the hunt list, not bell-grade C2 conviction. Their scores
+		// (72 / ≤78) sit under the 95 gate today; the explicit exclusion
+		// keeps that demotion a contract a future score change can't
+		// silently undo.
+		if bellExcludedTypes[f.Type] {
 			continue
 		}
 		// Bell threshold: f.Score >= 95. v0.17.0 first cut this at

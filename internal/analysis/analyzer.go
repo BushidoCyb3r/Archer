@@ -1,7 +1,7 @@
 // Package analysis is Archer's detection engine. Analyze runs a fixed phased
 // pipeline over a set of Zeek log files: phase 0 prefetches threat-intel feeds,
 // phase 1 runs the per-log-type detectors in a memory-bounded worker pool
-// (conn/dns/ssl/x509/files/weird/notice), phase 2 runs HTTP analysis (which
+// (conn/dns/ssl/x509/files/notice), phase 2 runs HTTP analysis (which
 // depends on the SNI index ssl populates), phase 3 runs URL+TI matching and the
 // cross-host correlation/staging passes, and phase 4 rolls findings up into
 // per-host risk scores. Detectors never touch storage or HTTP — they emit
@@ -397,7 +397,6 @@ func (a *Analyzer) Analyze(files []string) []model.Finding {
 		{"SSL/TLS", a.analyzeSSL},
 		{"X.509 Certs", a.analyzeX509},
 		{"File Downloads", a.analyzeFiles},
-		{"Weird Events", a.analyzeWeird},
 	}
 
 	var wg1 sync.WaitGroup
@@ -503,7 +502,7 @@ func (a *Analyzer) Analyze(files []string) []model.Finding {
 
 // AnalyzeTIOnly runs the IOC + Feodo + URLhaus + suspicious-URL phases
 // over the given file set without doing any of the expensive scoring
-// (beacon, exfil, lateral, DNS-tunnel, file analysis, weird, x509, http).
+// (beacon, exfil, lateral, DNS-tunnel, file analysis, x509, http).
 // Used by the "Scan archive" admin action so a freshly added IOC or TI
 // feed can match against historical logs that have already aged out of
 // /logs into /data/archive. Host risk aggregation is also skipped — that

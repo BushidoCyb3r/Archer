@@ -1525,11 +1525,7 @@ should cross-reference `github.com/FoxIO-LLC/ja4/ja4plus-mapping.csv`
 as new C2-exclusive fingerprints are documented and add them to
 `KnownBadJA4` in `heuristics.go`.
 
-### 10.3 Weak TLS
-
-Categorical: TLS 1.0, TLS 1.1, SSLv3. Score 48, severity Low.
-
-### 10.4 SSL No-SNI
+### 10.3 SSL No-SNI
 
 An *established* TLS session with no `server_name` extension is unusual.
 Browsers and almost all modern clients send SNI. The absence is suspicious.
@@ -1537,7 +1533,7 @@ Browsers and almost all modern clients send SNI. The absence is suspicious.
 - If `dst_port` is a known C2 port → score 82, severity High.
 - Otherwise → score 35, severity Low.
 
-### 10.5 Domain Fronting
+### 10.4 Domain Fronting
 
 Joins `ssl.log` and `http.log` via the Zeek connection UID. If the SSL SNI is
 *different* from the HTTP `Host` header, the client is using domain fronting:
@@ -2065,8 +2061,6 @@ contributes a weight:
 | Strobe                  | 15     |
 | Suspicious UA           | 12     |
 | Long Connection         | 10     |
-| Weak TLS                | 10     |
-| Protocol Anomaly        | 8      |
 
 (Each TI Hit flavor independently adds 35 — a host that triggered a
 DNS-domain hit AND a file-hash hit gets +70. The legacy `Threat Intel
