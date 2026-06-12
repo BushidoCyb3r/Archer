@@ -66,7 +66,7 @@ type Store struct {
 	suppressions   map[string]SuppressionEntry
 	pairAllow      []model.PairAllowEntry
 	pairAllowIdx   map[string][]pairAllowRule // src\x00dst\x00port -> rules; sensor="" and ftype="" are wildcards
-	pairAllowCIDR  []pairAllowCIDRRule        // ranged rules (src and/or dst is a CIDR); scanned after the exact index misses
+	pairAllowScan  []pairAllowScanRule        // ranged rules (a side is a CIDR or *.domain); scanned after the exact index misses
 	fpAllow        []model.FingerprintAllowEntry
 	fpAllowIdx     map[string]bool // kind\x00fingerprint -> allowlisted (benign TLS fingerprint)
 	notifications  []model.Notification
@@ -1687,20 +1687,38 @@ func (s *Store) IsSuppressed(ip string) bool {
 // is (src,dst,port); sensor and ftype each act as wildcards when empty.
 type pairAllowRule struct{ sensor, ftype string }
 
-// pairAllowCIDRRule is a ranged rule: at least one of Src/Dst was written
-// as a CIDR, so the exact (src,dst,port) hash key can't represent it. A
-// nil net means that side is an exact-IP string compare (same semantics
-// as the exact index); port/sensor/ftype behave exactly as there too.
-// The ruleset is operator-curated and tiny, so a linear scan after the
-// exact-index miss costs nothing on the hot path.
-type pairAllowCIDRRule struct {
-	srcNet              *net.IPNet
-	dstNet              *net.IPNet
-	src, dst            string
-	port, sensor, ftype string
+// pairAllowScanRule is a ranged rule: at least one of Src/Dst was written
+// as a CIDR or a *.domain wildcard, so the exact (src,dst,port) hash key
+// can't represent it. Per side, exactly one of net/suffix is set — or
+// neither, meaning an exact string compare (same semantics as the exact
+// index); port/sensor/ftype behave exactly as there too. The ruleset is
+// operator-curated and tiny, so a linear scan after the exact-index miss
+// costs nothing on the hot path.
+type pairAllowScanRule struct {
+	srcNet               *net.IPNet
+	dstNet               *net.IPNet
+	srcSuffix, dstSuffix string // ".skype.com" for a *.skype.com side; matches the apex too
+	src, dst             string
+	port, sensor, ftype  string
 }
 
-func (r pairAllowCIDRRule) matches(src, dst, port, ftype, sensor string) bool {
+// sideMatches applies one side of a scan rule. Wildcard sides are
+// case-insensitive (DNS names are; the detectors lowercase, but x509
+// subjects and hand-fed values may not be).
+func sideMatches(ipnet *net.IPNet, suffix, exact, v string) bool {
+	switch {
+	case ipnet != nil:
+		ip := net.ParseIP(v)
+		return ip != nil && ipnet.Contains(ip)
+	case suffix != "":
+		lc := strings.ToLower(v)
+		return strings.HasSuffix(lc, suffix) || lc == suffix[1:]
+	default:
+		return exact == v
+	}
+}
+
+func (r pairAllowScanRule) matches(src, dst, port, ftype, sensor string) bool {
 	if r.port != port {
 		return false
 	}
@@ -1710,23 +1728,8 @@ func (r pairAllowCIDRRule) matches(src, dst, port, ftype, sensor string) bool {
 	if r.ftype != "" && r.ftype != ftype {
 		return false
 	}
-	if r.srcNet != nil {
-		ip := net.ParseIP(src)
-		if ip == nil || !r.srcNet.Contains(ip) {
-			return false
-		}
-	} else if r.src != src {
-		return false
-	}
-	if r.dstNet != nil {
-		ip := net.ParseIP(dst)
-		if ip == nil || !r.dstNet.Contains(ip) {
-			return false
-		}
-	} else if r.dst != dst {
-		return false
-	}
-	return true
+	return sideMatches(r.srcNet, r.srcSuffix, r.src, src) &&
+		sideMatches(r.dstNet, r.dstSuffix, r.dst, dst)
 }
 
 func pairAllowKey(src, dst, port string) string {
@@ -1737,36 +1740,43 @@ func pairAllowKey(src, dst, port string) string {
 // index and the ranged-rule slice from the rule list. Both are replaced
 // wholesale, never edited in place — FilterSnapshot relies on that
 // copy-on-write contract. Caller serialises access (write lock, or
-// startup before goroutines start). A ranged rule whose CIDR fails to
-// parse is dropped here (the API validates on create, so only a
+// startup before goroutines start). A ranged rule whose CIDR or wildcard
+// fails to parse is dropped here (the API validates on create, so only a
 // hand-edited DB row can produce one) — better an inert rule than one
 // that silently hides nothing while looking active, and the manager UI
 // still lists it for the operator to fix or delete.
 func (s *Store) rebuildPairAllowIdxLocked() {
 	idx := make(map[string][]pairAllowRule, len(s.pairAllow))
-	var ranged []pairAllowCIDRRule
+	var ranged []pairAllowScanRule
+	isRanged := func(v string) bool { return strings.Contains(v, "/") || strings.HasPrefix(v, "*.") }
 	for _, e := range s.pairAllow {
-		if strings.Contains(e.Src, "/") || strings.Contains(e.Dst, "/") {
-			r := pairAllowCIDRRule{src: e.Src, dst: e.Dst, port: e.Port, sensor: e.Sensor, ftype: e.FindingType}
+		if isRanged(e.Src) || isRanged(e.Dst) {
+			r := pairAllowScanRule{src: e.Src, dst: e.Dst, port: e.Port, sensor: e.Sensor, ftype: e.FindingType}
 			ok := true
-			if strings.Contains(e.Src, "/") {
-				if _, ipnet, err := net.ParseCIDR(e.Src); err == nil {
-					r.srcNet = ipnet
-				} else {
-					ok = false
-				}
-			}
-			if strings.Contains(e.Dst, "/") {
-				if _, ipnet, err := net.ParseCIDR(e.Dst); err == nil {
-					r.dstNet = ipnet
-				} else {
-					ok = false
+			for _, side := range []struct {
+				v      string
+				ipnet  **net.IPNet
+				suffix *string
+			}{{e.Src, &r.srcNet, &r.srcSuffix}, {e.Dst, &r.dstNet, &r.dstSuffix}} {
+				switch {
+				case strings.Contains(side.v, "/"):
+					if _, ipnet, err := net.ParseCIDR(side.v); err == nil {
+						*side.ipnet = ipnet
+					} else {
+						ok = false
+					}
+				case strings.HasPrefix(side.v, "*."):
+					if len(side.v) > 2 {
+						*side.suffix = strings.ToLower(side.v[1:])
+					} else {
+						ok = false
+					}
 				}
 			}
 			if ok {
 				ranged = append(ranged, r)
 			} else {
-				slog.Warn("pair-allow rule has an unparseable CIDR; rule inert", "src", e.Src, "dst", e.Dst, "id", e.ID)
+				slog.Warn("pair-allow rule has an unparseable CIDR or wildcard; rule inert", "src", e.Src, "dst", e.Dst, "id", e.ID)
 			}
 			continue
 		}
@@ -1774,13 +1784,14 @@ func (s *Store) rebuildPairAllowIdxLocked() {
 		idx[k] = append(idx[k], pairAllowRule{e.Sensor, e.FindingType})
 	}
 	s.pairAllowIdx = idx
-	s.pairAllowCIDR = ranged
+	s.pairAllowScan = ranged
 }
 
 // isPairAllowedLocked reports whether a pair rule hides a finding with
 // this (src,dst,port,type,sensor). An empty rule FindingType matches
 // every type on the tuple; an empty rule Sensor matches every sensor.
-// Exact rules resolve via the hash index; ranged (CIDR) rules scan.
+// Exact rules resolve via the hash index; ranged (CIDR / *.domain)
+// rules scan.
 // Caller holds s.mu (read or write).
 func (s *Store) isPairAllowedLocked(src, dst, port, ftype, sensor string) bool {
 	for _, r := range s.pairAllowIdx[pairAllowKey(src, dst, port)] {
@@ -1788,7 +1799,7 @@ func (s *Store) isPairAllowedLocked(src, dst, port, ftype, sensor string) bool {
 			return true
 		}
 	}
-	for _, r := range s.pairAllowCIDR {
+	for _, r := range s.pairAllowScan {
 		if r.matches(src, dst, port, ftype, sensor) {
 			return true
 		}
@@ -1816,7 +1827,7 @@ func (s *Store) IsPairAllowed(src, dst, port, ftype, sensor string) bool {
 type FilterSnapshot struct {
 	suppressions  map[string]time.Time
 	pairAllowIdx  map[string][]pairAllowRule
-	pairAllowCIDR []pairAllowCIDRRule
+	pairAllowScan []pairAllowScanRule
 	now           time.Time
 }
 
@@ -1835,7 +1846,7 @@ func (s *Store) NewFilterSnapshot() FilterSnapshot {
 	return FilterSnapshot{
 		suppressions:  sup,
 		pairAllowIdx:  s.pairAllowIdx,
-		pairAllowCIDR: s.pairAllowCIDR,
+		pairAllowScan: s.pairAllowScan,
 		now:           time.Now(),
 	}
 }
@@ -1857,7 +1868,7 @@ func (fs FilterSnapshot) IsPairAllowed(src, dst, port, ftype, sensor string) boo
 			return true
 		}
 	}
-	for _, r := range fs.pairAllowCIDR {
+	for _, r := range fs.pairAllowScan {
 		if r.matches(src, dst, port, ftype, sensor) {
 			return true
 		}

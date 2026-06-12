@@ -23,14 +23,23 @@ The four breaking-change categories:
    feed-matching logic.
 
 Any of those changing at minor-bump granularity (e.g. v0.1 → v0.2) is
-expected pre-1.0. They will be called out under `### Breaking` and, where
-relevant, `### Detection changes` in each release entry.
+expected pre-1.0. They will be called out under `### Added
 
----
-
-## [Unreleased]
-
-### Added
+- **Domains and `*.domain` wildcards in relationship allowlist rules** —
+  a pair-allow rule's source and destination each accept a domain
+  (`skype.com`) or a wildcard (`*.skype.com`), alongside the existing
+  IP and CIDR forms. DNS-family and TI-domain findings carry the domain
+  as their destination, so those tuples were previously impossible to
+  allowlist — the create API rejected anything that wasn't IP-or-CIDR.
+  A wildcard matches the apex and every name under it,
+  case-insensitively (`*.skype.com` covers `skype.com` and
+  `edge.skype.com`, never `notskype.com` or `skype.com.evil.net`);
+  exact domains keep exact-match semantics through the hash index, and
+  wildcards join CIDR rules on the post-miss scan path. Domain sides
+  are lowercased on create to match the detectors' normalized output.
+  Port, finding-type, and sensor scoping semantics are unchanged. The
+  Allow this Relationship dialog and the Relationships tab document the
+  syntax.
 
 - Dependabot now raises monthly grouped PRs for Go modules, the
   Dockerfile base images, and GitHub Actions versions (security

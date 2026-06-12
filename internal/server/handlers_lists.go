@@ -242,18 +242,35 @@ func (s *Server) handlePairAllowlist(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "src and dst are required", http.StatusBadRequest)
 			return
 		}
-		// Each side is an IP or a CIDR. Validated here so the store's
-		// index rebuild never has to cope with a malformed rule (a bad
-		// CIDR there is dropped as inert — see rebuildPairAllowIdxLocked).
-		for _, side := range []struct{ name, v string }{{"src", req.Src}, {"dst", req.Dst}} {
-			if strings.Contains(side.v, "/") {
-				if _, _, err := net.ParseCIDR(side.v); err != nil {
-					jsonError(w, side.name+" is not a valid CIDR: "+side.v, http.StatusBadRequest)
+		// Each side is an IP, a CIDR, a domain, or a *.domain wildcard.
+		// Validated here so the store's index rebuild never has to cope
+		// with a malformed rule (a bad ranged rule there is dropped as
+		// inert — see rebuildPairAllowIdxLocked). Domain sides are
+		// lowercased so exact rules match the detectors' normalized
+		// output (dns.go / ti.go lowercase every name they emit).
+		for _, side := range []struct {
+			name string
+			v    *string
+		}{{"src", &req.Src}, {"dst", &req.Dst}} {
+			v := *side.v
+			switch {
+			case strings.Contains(v, "/"):
+				if _, _, err := net.ParseCIDR(v); err != nil {
+					jsonError(w, side.name+" is not a valid CIDR: "+v, http.StatusBadRequest)
 					return
 				}
-			} else if net.ParseIP(side.v) == nil {
-				jsonError(w, side.name+" is not a valid IP or CIDR: "+side.v, http.StatusBadRequest)
-				return
+			case net.ParseIP(v) != nil:
+			default:
+				name := strings.ToLower(strings.TrimPrefix(v, "*."))
+				if !validDomainName(name) {
+					jsonError(w, side.name+" is not a valid IP, CIDR, or domain: "+v, http.StatusBadRequest)
+					return
+				}
+				if strings.HasPrefix(v, "*.") {
+					*side.v = "*." + name
+				} else {
+					*side.v = name
+				}
 			}
 		}
 		id, err := s.store.AddPairAllow(model.PairAllowEntry{
@@ -312,4 +329,34 @@ func (s *Server) handleDeletePairAllow(w http.ResponseWriter, r *http.Request) {
 		TargetName: idStr,
 	})
 	jsonOK(w)
+}
+
+// validDomainName reports whether v (already lowercased, wildcard prefix
+// stripped) is a plausible DNS name for a pair-allow side: dotted labels
+// of [a-z0-9_-], no label edge hyphens, RFC length caps. At least one
+// dot is required — every domain a detector puts in a finding's dst is
+// at least an apex, and the dot requirement catches bare-word typos
+// (and over-broad wildcards like *.com).
+func validDomainName(v string) bool {
+	if len(v) > 253 || !strings.Contains(v, ".") {
+		return false
+	}
+	for _, label := range strings.Split(v, ".") {
+		if len(label) == 0 || len(label) > 63 {
+			return false
+		}
+		for i := 0; i < len(label); i++ {
+			c := label[i]
+			switch {
+			case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '_':
+			case c == '-':
+				if i == 0 || i == len(label)-1 {
+					return false
+				}
+			default:
+				return false
+			}
+		}
+	}
+	return true
 }

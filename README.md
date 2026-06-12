@@ -1222,7 +1222,7 @@ is unchanged — still `/api/pair-allowlist`.
 | Method | Path | Role | Description |
 |---|---|---|---|
 | `GET` | `/api/pair-allowlist` | Any | `[{"id":1,"src":"10.0.0.1","dst":"1.1.1.1","port":"53","finding_type":"Beacon","detail":"...","created_by":"...","created_at":1234567890},...]` |
-| `POST` | `/api/pair-allowlist` | Analyst+ | Add a tuple-scoped view filter: `{"src","dst","port","finding_type","detail"}` (empty `finding_type` = all types on the tuple). `src` and `dst` each accept a single IP or a CIDR range (`10.0.0.0/24`, `2001:db8::/32`); anything that parses as neither is a `400`. No expiry — removal is explicit. |
+| `POST` | `/api/pair-allowlist` | Analyst+ | Add a tuple-scoped view filter: `{"src","dst","port","finding_type","detail"}` (empty `finding_type` = all types on the tuple). `src` and `dst` each accept a single IP, a CIDR range (`10.0.0.0/24`, `2001:db8::/32`), a domain (`skype.com`), or a `*.domain` wildcard (`*.skype.com` — apex plus every name under it; DNS and TI-domain findings carry the domain as their destination); anything that parses as none of those is a `400`. No expiry — removal is explicit. |
 | `DELETE` | `/api/pair-allowlist/{id}` | Analyst+ | Remove rule by id; matching findings reappear next fetch, no re-analysis |
 | `GET` | `/api/pair-allowlist/suggested` | Any | Beacon pairs that qualify for suggestion: 14+ history days, acknowledged finding, not already allowlisted. `[{"src_ip","dst_ip","dst_port","finding_type","day_count","first_seen","last_seen","peak_score","acked_by"},...]` |
 
