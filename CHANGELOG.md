@@ -30,6 +30,24 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Added
+
+- **Upgrade-path regression tests** — `TestRunMigrations_UpgradeFromEveryCheckpoint`
+  replays the schema a deployment frozen at every historical migration
+  checkpoint actually had, then upgrades it to current;
+  `TestRunMigrations_DataSurvivesUpgradeFromV1` seeds findings (including
+  a pre-v0.50.0 `Beaconing` row and analyst triage state) under the
+  oldest schema and asserts identity, the 0031 type rename, and analyst
+  work all survive the full chain. These tests are the proof behind the
+  v1.0 schema promise.
+- **v1.0 stability groundwork (docs)** — RELEASING.md gains the
+  detection-semantics stability contract (the frozen vocabulary —
+  types, fields, severity tiers, query grammar, fingerprint identity —
+  vs. the tunable calibration layer — formulas, thresholds, HRS
+  weights, Detail strings); docs/QUIVER.md pins the intentional
+  enroll/checkin schedule-shape asymmetry as frozen v2 contract;
+  docs/OPERATIONS.md upgrade procedure now leads with the backup step.
+
 ### Changed
 
 - **Every `/api/*` error response is JSON** — `{"error":"message"}` with
@@ -40,6 +58,15 @@ relevant, `### Detection changes` in each release entry.
   Status codes and message texts are unchanged; only the response
   shape is corrected. Scripts that parsed the plaintext bodies (none
   are known) would need to read the `error` field instead.
+
+### Fixed
+
+- `Port-Hopping Beacon` now counts toward the trend chart's
+  **beaconing** family — it previously fell through to "other", so the
+  beacon-family trend line undercounted port-rotation beacons.
+- The `dir:` query field's error message now lists `lateral` among the
+  accepted values (it was always accepted, just missing from the
+  message).
 
 ## [v0.71.0] — 2026-06-12
 

@@ -168,6 +168,46 @@ plaintext-listener removal, the v0.25.1 `window.INIT_CONFIG` removal) —
 this codifies the orderly path so future removals announce before they
 cut.
 
+## Detection-semantics stability contract
+
+Detection semantics is the fourth breaking surface, but unlike the other
+three it cannot freeze whole: scores are calibrated against real corpora
+and must keep moving (the v0.37 → v0.57 beacon-scoring overhaul is the
+proof). At v1.0 the surface splits into a frozen vocabulary and a tunable
+calibration layer. Pre-1.0, this section is the definition we harden
+toward; post-1.0 it is the contract.
+
+**Stable — breaking, major bump post-1.0:**
+
+- The finding-type catalog: renaming or removing an emitted type.
+  (Adding a new type is additive — minor.)
+- The `Finding` JSON field set: names and types of existing fields.
+  (Adding fields is minor.)
+- The severity tier vocabulary (critical / high / medium / low / info).
+- The query language: grammar, and the names + semantics of existing
+  fields. (Adding queryable fields is minor.)
+- Fingerprint identity inputs (`Type, SrcIP, DstIP, DstPort, Sensor,
+  Channel`): changing these orphans analyst notes/status on the next
+  re-analysis — the same blast radius as a schema break, handled with
+  the same gravity.
+
+**Tunable — minor bump with a `### Detection changes` entry, never major:**
+
+- Score formulas, sub-score blends, gates, thresholds, and calibration
+  constants (including everything in `internal/config` defaults).
+- HRS weight-table values.
+- The severity tier a given score maps to for a type.
+- `Detail` string contents — human-facing context, not a machine
+  contract; external consumers must not parse it.
+- Feed-matching internals and TI heuristics.
+
+**Why this split:** analyst automation, saved queries, and SIEM mappings
+key on type names and field names, never on exact scores. Freezing the
+vocabulary while keeping the numbers tunable protects integrations
+without fossilizing detection quality. The golden-fixture diff plus the
+`### Detection changes` CHANGELOG section remain the audit trail for
+every tunable-layer change.
+
 ## Schema migrations
 
 DB schema changes use the migration framework added in Phase 3.

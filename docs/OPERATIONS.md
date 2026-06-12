@@ -228,14 +228,17 @@ Run through this before exposing Archer to a multi-user team.
 
 ### Standard (non-breaking) release
 
-1. Pull the new tag in a checkout: `git fetch && git checkout v0.X.Y`.
-2. `./start.sh` rebuilds the image and recreates the container.
-3. Migrations run automatically at startup. A clean exit means
+1. Take a snapshot first: `./backup.sh`. Migrations are forward-only,
+   so the snapshot is the only rollback path if the upgrade needs to
+   be unwound (see Downgrade below).
+2. Pull the new tag in a checkout: `git fetch && git checkout v0.X.Y`.
+3. `./start.sh` rebuilds the image and recreates the container.
+4. Migrations run automatically at startup. A clean exit means
    schema is up-to-date. Check `docker compose logs archer` for
    the `applied schema migration` lines if you want explicit
    confirmation.
-4. UI version pill (top-right) should show the new version.
-5. `/api/version` returns the same value programmatically.
+5. UI version pill (top-right) should show the new version.
+6. `/api/version` returns the same value programmatically.
 
 ### Releases with `### Breaking` notes in CHANGELOG
 

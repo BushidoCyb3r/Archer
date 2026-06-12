@@ -284,6 +284,13 @@ The protocol contract pinned at v2 is everything the sensor and server agree on 
 - **Enrollment response**: `{name, schedule_hour, schedule_minute, protocol_version, checkin_secret}`. `checkin_secret` is returned exactly once and stored at `/etc/quiver/secret` (mode `0600`) on the sensor; the server never echoes it on any other endpoint (audit/export/SSE) per NEW-16.
 - **Checkin payload**: `{name, protocol_version}` body **plus** an `X-Quiver-Sig` header carrying `hex(HMAC-SHA256(body, checkin_secret))`. Missing or invalid signatures bucket as unauthorized checkin attempts.
 - **Checkin response**: status discriminator (`enrolled` / `disenrolled` / `unknown` / `protocol_unsupported`) plus version echo.
+- **Shape asymmetry is intentional and frozen in v2**: enrollment carries the
+  schedule as top-level `schedule_hour`/`schedule_minute` fields; checkin
+  nests it as `schedule:{hour,minute}`. Both shapes are part of the v2
+  contract — do not "harmonize" them, deployed `quiver.sh` parses each as-is.
+  The `protocol_version` echo in the enrollment response is informational
+  (the sensor persists its own literal, never parses the echo); it stays for
+  debugging clarity.
 
 **Identity and crypto**
 

@@ -2,12 +2,16 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/BushidoCyb3r/Archer/internal/config"
+	"github.com/BushidoCyb3r/Archer/internal/model"
 )
 
 // openTestDB opens a fresh SQLite file under t.TempDir(). Closes
@@ -305,5 +309,116 @@ func TestLoadMigrations_FindsEmbeddedFiles(t *testing.T) {
 	// content.
 	if !strings.Contains(migrations[0].body, "CREATE TABLE IF NOT EXISTS findings") {
 		t.Error("0001_init.sql doesn't appear to contain the findings table")
+	}
+}
+
+// applyMigrationsUpTo replays the embedded migration chain through
+// version n on a fresh DB — the exact schema a deployment that stopped
+// upgrading at version n had, since released migrations are never
+// edited. schema_migrations is created first because applyMigration
+// records each version (RunMigrations normally owns that).
+func applyMigrationsUpTo(t *testing.T, db *sql.DB, n int) {
+	t.Helper()
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version    INTEGER PRIMARY KEY,
+		applied_at INTEGER NOT NULL
+	)`); err != nil {
+		t.Fatalf("create schema_migrations: %v", err)
+	}
+	migrations, err := loadMigrations()
+	if err != nil {
+		t.Fatalf("loadMigrations: %v", err)
+	}
+	for _, m := range migrations {
+		if m.version > n {
+			break
+		}
+		if err := applyMigration(db, m); err != nil {
+			t.Fatalf("apply migration %d: %v", m.version, err)
+		}
+	}
+}
+
+// TestRunMigrations_UpgradeFromEveryCheckpoint pins the upgrade-path
+// invariant the v1.0 schema promise rests on: a database created at ANY
+// historical schema version migrates cleanly to current. Each subtest
+// builds the schema a deployment frozen at version N actually had
+// (migrations 1..N), then runs the full RunMigrations and asserts every
+// remaining version applies and lands in schema_migrations. A migration
+// that works on a fresh DB but breaks against some historical
+// intermediate schema fails here, named by checkpoint.
+func TestRunMigrations_UpgradeFromEveryCheckpoint(t *testing.T) {
+	migrations, err := loadMigrations()
+	if err != nil {
+		t.Fatalf("loadMigrations: %v", err)
+	}
+	want := len(migrations)
+	for _, checkpoint := range migrations {
+		n := checkpoint.version
+		t.Run(fmt.Sprintf("from_%04d", n), func(t *testing.T) {
+			db := openTestDB(t)
+			applyMigrationsUpTo(t, db, n)
+			if err := RunMigrations(db); err != nil {
+				t.Fatalf("upgrade from checkpoint %d: %v", n, err)
+			}
+			applied, err := readAppliedMigrations(db)
+			if err != nil {
+				t.Fatalf("readAppliedMigrations: %v", err)
+			}
+			if len(applied) != want {
+				t.Errorf("applied %d migrations, want %d", len(applied), want)
+			}
+		})
+	}
+}
+
+// TestRunMigrations_DataSurvivesUpgradeFromV1 pins the other half of the
+// upgrade promise: operator data written under the oldest schema rides
+// the full migration chain intact. Seeds findings at schema version 1 —
+// including a pre-v0.50.0 "Beaconing" row (exercising 0031's in-place
+// type rename) and analyst triage state — migrates to current, then
+// reads back through the modern Store and asserts identity, rename, and
+// analyst work all survived.
+func TestRunMigrations_DataSurvivesUpgradeFromV1(t *testing.T) {
+	db := openTestDB(t)
+	applyMigrationsUpTo(t, db, 1)
+
+	// Every v1 column populated, as the v1-era writer always did — the
+	// baseline schema has no NOT NULL constraints, but no real deployment
+	// ever held NULLs because the era's INSERT supplied every column.
+	if _, err := db.Exec(`INSERT INTO findings
+		(id, type, severity, score, src_ip, dst_ip, dst_port, detail, timestamp, source_file, status, analyst, analyst_note, status_ts, ioc_match, is_new, sensor, intervals, ts_data, notes)
+		VALUES
+		(1, 'Beaconing', 'high', 82, '10.0.0.5', '203.0.113.7', '443', '60s interval', '2026-01-01 00:00:00', '/logs/s1/conn.log', 'acknowledged', 'phill@example.com', 'known C2 drill', '2026-01-02 00:00:00', 0, 0, 's1', '', '', ''),
+		(2, 'DNS Tunneling', 'high', 75, '10.0.0.9', 'tunnel.example.net', '53', 'high entropy', '2026-01-01 00:00:00', '/logs/s1/dns.log', 'open', '', '', '', 0, 0, 's1', '', '', '')`); err != nil {
+		t.Fatalf("seed v1 findings: %v", err)
+	}
+
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("RunMigrations from v1 schema: %v", err)
+	}
+
+	s := New(config.Default())
+	s.InitDB(db)
+	findings := s.GetFindings()
+	if len(findings) != 2 {
+		t.Fatalf("findings after upgrade = %d, want 2", len(findings))
+	}
+	byID := map[int]model.Finding{}
+	for _, f := range findings {
+		byID[f.ID] = f
+	}
+	beacon := byID[1]
+	if beacon.Type != "Beacon" {
+		t.Errorf("0031 rename: type = %q, want Beacon", beacon.Type)
+	}
+	if beacon.Status != model.StatusAcknowledged || beacon.Analyst != "phill@example.com" || beacon.AnalystNote != "known C2 drill" {
+		t.Errorf("analyst triage state did not survive: %+v", beacon)
+	}
+	if beacon.Score != 82 || beacon.SrcIP != "10.0.0.5" || beacon.DstIP != "203.0.113.7" {
+		t.Errorf("finding identity did not survive: %+v", beacon)
+	}
+	if byID[2].Type != "DNS Tunneling" {
+		t.Errorf("non-renamed type altered: %q", byID[2].Type)
 	}
 }

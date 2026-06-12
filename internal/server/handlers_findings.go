@@ -397,7 +397,7 @@ func trendFamilyOf(t string) string {
 		return "ti"
 	}
 	switch t {
-	case "Beacon", "DNS Beacon", "HTTP Beacon", "Strobe":
+	case "Beacon", "DNS Beacon", "HTTP Beacon", "Port-Hopping Beacon", "Strobe":
 		return "beaconing"
 	case "Malicious JA3", "Malicious JA4":
 		return "ti"

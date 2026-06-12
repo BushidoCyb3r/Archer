@@ -144,7 +144,7 @@ func TestFindingsTrend_FamilyMappingTotal(t *testing.T) {
 		known[fam.Key] = true
 	}
 	allTypes := []string{
-		"Beacon", "DNS Beacon", "HTTP Beacon", "Strobe",
+		"Beacon", "DNS Beacon", "HTTP Beacon", "Port-Hopping Beacon", "Strobe",
 		model.TypeTIHitIP, model.TypeTIHitDomain, model.TypeTIHitHash, model.TypeTIHitLegacy, model.TypeSuspiciousURL,
 		"Malicious JA3", "Malicious JA4",
 		"Data Exfiltration", "Off-Hours Transfer", "Database Protocol Egress", "Admin Protocol Egress",

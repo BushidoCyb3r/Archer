@@ -163,7 +163,7 @@ func validateFieldValue(field, value string) error {
 		switch strings.ToLower(value) {
 		case "outbound", "inbound", "internal", "lateral", "external":
 		default:
-			return fmt.Errorf("unknown direction %q (want outbound, inbound, internal, or external)", value)
+			return fmt.Errorf("unknown direction %q (want outbound, inbound, internal, lateral, or external)", value)
 		}
 	}
 	return nil
