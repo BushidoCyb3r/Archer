@@ -22,7 +22,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /archer ./cmd/archer
 
 # ── Final image ───────────────────────────────────────────────────────────────
-FROM alpine:3.23
+FROM alpine:3.24
 
 # tini reaps zombies and forwards signals so that sshd dies cleanly when
 # Archer exits. openssh-server + rsync are the sensor-facing transport
