@@ -255,11 +255,23 @@ var expectedServicePorts = map[string]map[int]bool{
 // unexpectedServicePort reports whether Zeek identified a known service running
 // on a port outside its expected set. Returns false for an empty service (DPD
 // did not fingerprint the flow — the inherent coverage gap), for services not
-// in the curated table, and for services on an expected port.
+// in the curated table, and when any recognized label legitimately runs on the
+// port. Zeek frequently emits a multi-label service for one flow (`ssl,http`),
+// so the field is split and evaluated per label, matching serviceExpectedOnPort:
+// a single recognized label on a foreign port fires, but a recognized label that
+// is expected on the port (e.g. ssl on 443 in `ssl,http`) suppresses — the flow
+// is most likely that benign protocol, not one smuggled onto a foreign port.
 func unexpectedServicePort(service string, port int) bool {
-	ports, known := expectedServicePorts[strings.ToLower(service)]
-	if !known {
-		return false
+	sawKnown := false
+	for _, label := range splitServices(service) {
+		ports, known := expectedServicePorts[label]
+		if !known {
+			continue
+		}
+		sawKnown = true
+		if ports[port] {
+			return false
+		}
 	}
-	return !ports[port]
+	return sawKnown
 }

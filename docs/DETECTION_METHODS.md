@@ -1211,7 +1211,11 @@ of ports the protocol is *expected* on (`expectedServicePorts` in
 `ssl` → 443/8443/993/995/465/…, `ssh` → 22/2222, etc.). A recognized service on
 a port outside its set — `http` on 8443, `ssl` on 4444 — is a finding. This is
 the answer to "an implant is speaking HTTP on a random high port to dodge my
-port-based egress rules, and a port-only view can't see it."
+port-based egress rules, and a port-only view can't see it." DPD often stamps a
+multi-label service for one flow (`ssl,http`); the field is split and evaluated
+per label, so `ssl,http` on 9443 fires, but `ssl,http` on 443 does not — `ssl` is
+legitimate on 443, so the flow reads as benign HTTPS rather than a smuggled
+protocol.
 
 Score 70 (High), bumped to 75 when the port is *also* a known C2 default — a
 protocol mismatch landing on 4444 is strictly more suspicious than one on an

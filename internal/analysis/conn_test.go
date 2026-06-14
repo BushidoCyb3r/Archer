@@ -1034,16 +1034,31 @@ func TestProtocolOnUnexpectedPort(t *testing.T) {
 			got = append(got, f)
 		}
 	}
-	// Two external mismatches: http/8443 and ssl/4444. The expected-port
-	// (http/80), internal-destination (http/9099), and empty-service (31337)
-	// records must each produce nothing.
-	if len(got) != 2 {
-		t.Fatalf("expected 2 Protocol on Unexpected Port findings (http/8443, ssl/4444), got %d: %v", len(got), findingTypes(findings))
+	// Three external mismatches: http/8443, ssl/4444, and the multi-label
+	// ssl,http/9443 (a recognized label on a foreign port must still fire). The
+	// expected-port (http/80), internal-destination (http/9099), empty-service
+	// (31337), and multi-label-on-expected-port (ssl,http/443 — ssl is legit on
+	// 443, so it suppresses) records must each produce nothing.
+	if len(got) != 3 {
+		t.Fatalf("expected 3 Protocol on Unexpected Port findings (http/8443, ssl/4444, ssl,http/9443), got %d: %v", len(got), findingTypes(findings))
 	}
 
 	byPort := map[string]model.Finding{}
 	for _, f := range got {
 		byPort[f.DstPort] = f
+	}
+	if _, fired := byPort["443"]; fired {
+		t.Errorf("ssl,http on 443 must be suppressed (ssl is expected on 443), but it fired: %v", byPort["443"])
+	}
+	multi, ok := byPort["9443"]
+	if !ok {
+		t.Fatalf("missing finding for multi-label ssl,http on 9443; ports seen: %v", byPort)
+	}
+	if multi.Score != 70 {
+		t.Errorf("ssl,http/9443 score = %d; want 70 (mismatch on a non-C2 port)", multi.Score)
+	}
+	if multi.DstIP != "203.0.113.14" {
+		t.Errorf("ssl,http/9443 DstIP = %q; want 203.0.113.14", multi.DstIP)
 	}
 	http8443, ok := byPort["8443"]
 	if !ok {

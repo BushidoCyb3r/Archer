@@ -30,6 +30,26 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Protocol on Unexpected Port` now fires on multi-label DPD services.**
+  Zeek frequently stamps a comma-joined service for one flow (`ssl,http`),
+  but the detector did a whole-string lookup against the expected-port table,
+  so any multi-label flow on a foreign port silently produced no finding —
+  while the identical single-label `ssl` on the same port fired High. The
+  service field is now split per label (matching every sibling DPD-keyed conn
+  detector): a recognized label on a port outside its set fires, and a label
+  legitimately on the port (`ssl` in `ssl,http` on 443) suppresses. Closes a
+  silent miss of exactly the egress-evasion case the detector targets.
+
+### Detection changes
+
+- Multi-label DPD flows (e.g. `ssl,http`) egressing to an external port
+  outside the protocol's expected set now raise `Protocol on Unexpected Port`
+  (High, score 70/75) where they previously raised nothing. No change to
+  single-label behavior or scores. Baselines that relied on the gap will see
+  net-new findings on tunneled/multi-protocol flows.
+
 ## [v0.72.2] — 2026-06-14
 
 ### Fixed

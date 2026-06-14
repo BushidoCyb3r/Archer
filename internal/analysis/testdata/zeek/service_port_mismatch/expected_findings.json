@@ -31,10 +31,10 @@
   {
     "type": "Host Risk Score",
     "severity": "HIGH",
-    "score": 62,
+    "score": 68,
     "src_ip": "192.168.1.50",
     "dst_ip": "(network)",
-    "detail": "Composite risk: 62 | Detections: [C2 Port×2 Protocol on Unexpected Port×2]",
+    "detail": "Composite risk: 68 | Detections: [C2 Port×2 Protocol on Unexpected Port×3]",
     "timestamp": "2024-01-15 12:00:00"
   },
   {
@@ -56,5 +56,15 @@
     "dst_port": "4444",
     "detail": "Zeek DPD identified \"ssl\" on port 4444, outside its expected ports — Metasploit default",
     "timestamp": "2024-01-15 12:00:02"
+  },
+  {
+    "type": "Protocol on Unexpected Port",
+    "severity": "HIGH",
+    "score": 70,
+    "src_ip": "192.168.1.50",
+    "dst_ip": "203.0.113.14",
+    "dst_port": "9443",
+    "detail": "Zeek DPD identified \"ssl,http\" on port 9443, outside its expected ports",
+    "timestamp": "2024-01-15 12:00:05"
   }
 ]
