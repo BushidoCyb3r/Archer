@@ -30,8 +30,22 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.72.0] — 2026-06-14
+
 ### Added
 
+- **Server-side Campaigns/Hosts aggregation** — new `GET /api/campaigns`
+  and `GET /api/hosts` endpoints return the destination- and host-level
+  roll-ups directly (a few KB), plus `POST /api/campaigns/dismiss` for
+  atomic bulk-dismiss of a campaign's open findings. The Campaigns and
+  Hosts views now load these instead of fetching the entire findings
+  corpus to aggregate in the browser, and the campaign/host pivots and
+  "open in graph" drill-downs fetch their members on demand scoped by
+  `dst_ip`/`dst_port` or `src_ip`. At ~12k findings this collapses a
+  ~30s tab load (driven by a 10–20 MB full-corpus fetch + client-side
+  grouping) to a sub-second roll-up fetch. No detection-semantics, DB,
+  or sensor-protocol change — purely an API addition plus a client
+  data-path move.
 - **Upgrade-path regression tests** — `TestRunMigrations_UpgradeFromEveryCheckpoint`
   replays the schema a deployment frozen at every historical migration
   checkpoint actually had, then upgrades it to current;

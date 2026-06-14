@@ -62,7 +62,7 @@
   // fetch with no status filter; Dismissed > Campaigns fetches with
   // status=dismissed. Switching between modes invalidates the cache
   // so the next _ensureAggregate refetches with the right scope.
-  let _aggregateState = { findings: [], loaded: false, mode: null };
+  let _aggregateState = { campaigns: [], hosts: [], loaded: false, mode: null };
   // Per-tab render-pagination state for the aggregate tabs. offset is the
   // 0-based start index of the current page in the full _campaigns /
   // _hosts arrays; total is the full aggregated row count. Independent
@@ -79,7 +79,7 @@
     return mode === 'dismissed-campaigns' ? 'campaigns' : mode;
   }
   function _invalidateAggregate() {
-    _aggregateState = { findings: [], loaded: false, mode: null };
+    _aggregateState = { campaigns: [], hosts: [], loaded: false, mode: null };
     _aggTabState.campaigns = { offset: 0, total: 0 };
     _aggTabState.hosts     = { offset: 0, total: 0 };
   }
@@ -499,6 +499,20 @@
     return api(`/api/findings/${id}`);
   }
 
+  // _fetchScopedFindings pulls the member findings for a single campaign or
+  // host on demand (scoped by dst_ip/dst_port or src_ip), instead of holding
+  // the whole corpus in browser memory to filter client-side. The result set
+  // is one destination / one host, so a single high-limit round-trip returns
+  // it whole. Callers re-apply the exact in-memory predicate they used before,
+  // so the only behavioural change is the data source (a fresh server snapshot
+  // rather than the aggregate cache).
+  async function _fetchScopedFindings(params) {
+    const merged = Object.assign({}, params, { limit: String(_FULL_FETCH_LIMIT), offset: '0' });
+    const qs = new URLSearchParams(merged).toString();
+    const page = await api('/api/findings?' + qs);
+    return Array.isArray(page) ? page : [];
+  }
+
   // ── Load findings ──────────────────────────────────────────────────────────
   // Pagination is Findings-tab-only — the other tabs (Ack / Esc / IOC)
   // hold tiny result sets that fit comfortably in a single fetch, and
@@ -604,40 +618,45 @@
     Trend.refresh(_currentFilterQS());
   }
 
-  // _ensureAggregate fetches every finding within the current time
-  // range (no status / ioc_only filter, no pagination beyond the
-  // server's 50k cap) and rebuilds the Campaigns + Hosts roll-ups.
-  // Cached for the rest of the session until something invalidates it.
-  // Each aggregate tab maintains its own page offset in _aggTabState;
-  // build() renders the current page slice for both tables, and the
-  // first/back/next/last buttons drive _renderAggregatePage to advance.
+  // _ensureAggregate fetches the server-side Campaigns + Hosts roll-ups for
+  // the current filter (a few KB each) instead of pulling the whole findings
+  // corpus to aggregate in the browser. Cached for the rest of the session
+  // until something invalidates it. Each aggregate tab maintains its own page
+  // offset in _aggTabState; setData() renders the current page slice for both
+  // tables, and the first/back/next/last buttons drive _renderAggregatePage.
   async function _ensureAggregate() {
     Trend.setVisible(false); // per-day trend is a findings-list lens, not an aggregate one
     const mode = _tabMode; // 'campaigns' | 'hosts' | 'dismissed-campaigns'
     if (!_aggregateState.loaded || _aggregateState.mode !== mode) {
       const params = _currentFilterParams();
-      delete params.status;
       delete params.ioc_only;
       delete params.delta;
-      params.limit = String(_FULL_FETCH_LIMIT);
-      params.offset = '0';
-      // Top-level Campaigns/Hosts: no status filter (existing
-      // behavior — dismissed findings are excluded by the backend's
-      // default-exclude rule). Dismissed > Campaigns: status=dismissed
-      // so the roll-up covers only the dismissed bucket.
+      delete params.limit;
+      delete params.offset;
+      // Top-level Campaigns/Hosts: no status filter (the backend default-
+      // excludes dismissed). Dismissed > Campaigns: status=dismissed so the
+      // roll-up covers only the dismissed bucket.
       if (mode === 'dismissed-campaigns') params.status = 'dismissed';
+      else delete params.status;
       const qs = new URLSearchParams(params).toString();
+      const suffix = qs ? '?' + qs : '';
       try {
-        const r = await fetch('/api/findings' + (qs ? '?' + qs : ''));
-        if (!r.ok) { await _surfaceQueryError(r); return; }
+        const [campsRes, hostsRes] = await Promise.all([
+          fetch('/api/campaigns' + suffix),
+          fetch('/api/hosts' + suffix),
+        ]);
+        if (!campsRes.ok) { await _surfaceQueryError(campsRes); return; }
+        if (!hostsRes.ok) { await _surfaceQueryError(hostsRes); return; }
         hideQueryError();
-        const all = await r.json();
-        _aggregateState.findings = Array.isArray(all) ? all : [];
+        const campsJson = await campsRes.json();
+        const hostsJson = await hostsRes.json();
+        _aggregateState.campaigns = Array.isArray(campsJson.campaigns) ? campsJson.campaigns : [];
+        _aggregateState.hosts = Array.isArray(hostsJson.hosts) ? hostsJson.hosts : [];
         _aggregateState.loaded = true;
         _aggregateState.mode = mode;
       } catch (e) { /* swallow — stale cache is OK */ return; }
     }
-    Campaigns.build(_aggregateState.findings, {
+    Campaigns.setData(_aggregateState.campaigns, _aggregateState.hosts, {
       campaignsOffset: _aggTabState.campaigns.offset,
       campaignsLimit:  _pageSize,
       hostsOffset:     _aggTabState.hosts.offset,
@@ -2766,48 +2785,47 @@
     } catch (e) { setStatus('Error: ' + e); }
   }
 
-  // _bulkDismissCampaign dismisses every finding whose (dst_ip, dst_port)
-  // matches the campaign's key. Driven from the Campaigns context menu;
-  // the campaign object only carries the aggregation (srcs / maxScore /
-  // types) so member findings are resolved against the cached aggregate.
-  // The PATCH loop is best-effort: a single failure doesn't abort the
-  // batch — the operator gets a partial-success status line instead so
-  // they can tell whether to re-try.
+  // _bulkDismissCampaign dismisses every open finding whose (dst_ip, dst_port)
+  // matches the campaign's key. Driven from the Campaigns context menu; the
+  // campaign object only carries the aggregation (srcs / maxScore / types).
+  // The open member count is resolved with a scoped fetch (so the confirm
+  // prompt shows a real number) and the dismissal itself is one atomic
+  // server request — no corpus held in memory, no per-finding PATCH loop.
   async function _bulkDismissCampaign(camp) {
     if (!camp) return;
     const dst  = camp.dst || '';
     const port = camp.port || '';
-    // Resolve member findings from the aggregate cache. The Dismissed >
-    // Campaigns view is built over a status=dismissed cache, so on that
-    // sub-tab we'd be un-dismissing the bucket. Keep semantics simple
-    // and only offer this from the top-level Campaigns view for now.
-    const findings = (_aggregateState.findings || []).filter(f =>
-      (f.dst_ip || f.domain || '') === dst &&
-      String(f.dst_port || '') === String(port) &&
-      f.status !== 'dismissed'
-    );
-    if (findings.length === 0) {
+    let open = [];
+    try {
+      const params = { dst_ip: dst };
+      if (port) params.dst_port = port;
+      const rows = await _fetchScopedFindings(params);
+      open = rows.filter(f =>
+        f.dst_ip === dst &&
+        String(f.dst_port || '') === String(port) &&
+        f.status !== 'dismissed'
+      );
+    } catch (e) { open = []; }
+    if (open.length === 0) {
       setStatus('No open findings in this campaign to dismiss');
       return;
     }
-    const label = `Dismiss ${findings.length} finding${findings.length === 1 ? '' : 's'} (${dst}${port ? ':' + port : ''})`;
+    const label = `Dismiss ${open.length} finding${open.length === 1 ? '' : 's'} (${dst}${port ? ':' + port : ''})`;
     const note = await promptNote(label);
     if (note === null) return; // cancelled
-    let ok = 0, fail = 0;
-    setStatus(`Dismissing ${findings.length} findings…`);
-    for (const f of findings) {
-      try {
-        await api(`/api/findings/${f.id}`, {
-          method: 'PATCH',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({status: 'dismissed', note}),
-        });
-        ok++;
-      } catch (_) { fail++; }
+    setStatus(`Dismissing ${open.length} findings…`);
+    try {
+      const res = await api('/api/campaigns/dismiss', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({dst_ip: dst, dst_port: port, note}),
+      });
+      await _reloadFindingsInPlace();
+      const n = (res && res.dismissed) | 0;
+      setStatus(`Dismissed ${n} finding${n === 1 ? '' : 's'} in campaign`);
+    } catch (e) {
+      setStatus('Error: ' + e);
     }
-    await _reloadFindingsInPlace();
-    if (fail === 0) setStatus(`Dismissed ${ok} finding${ok === 1 ? '' : 's'} in campaign`);
-    else            setStatus(`Dismissed ${ok}, failed ${fail} — re-try to clear remaining`);
   }
 
   function initDetailActions() {
@@ -3596,22 +3614,12 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(_collectArchive()),
           });
-          // Refresh the in-memory org CIDR list and rebuild the Hosts panel so
-          // the new filter is reflected without a page reload. Honor the
-          // active per-tab pagination so this re-render doesn't dump
-          // every row into the DOM.
+          // Org-CIDR membership is computed server-side in the Hosts roll-up,
+          // so invalidate the aggregate cache to pick up the new filter on the
+          // next visit, and refresh now if a Campaigns/Hosts tab is on screen.
           _orgCIDRs = Array.isArray(payload.org_internal_cidrs) ? payload.org_internal_cidrs : [];
-          Campaigns.build(_allFindings, {
-            campaignsOffset: _aggTabState.campaigns.offset,
-            campaignsLimit:  _pageSize,
-            hostsOffset:     _aggTabState.hosts.offset,
-            hostsLimit:      _pageSize,
-          });
-          _aggTabState.campaigns.total = Campaigns.getCampaigns().length;
-          _aggTabState.hosts.total     = Campaigns.getHosts().length;
-          _clampAggOffset(_aggTabState.campaigns);
-          _clampAggOffset(_aggTabState.hosts);
-          _updatePaginationFooter();
+          _invalidateAggregate();
+          if (_isAggregateTab(_tabMode)) await _ensureAggregate();
           setStatus('Settings saved');
         } catch (e) {
           setStatus('Error: ' + e);
@@ -4910,19 +4918,20 @@
     // Open a campaign in the in-app graph. The findings list is filtered down
     // to those participating in this campaign so node/edge severities reflect
     // the real data rather than a synthesised default.
-    document.getElementById('ctx-graph-campaign').addEventListener('click', () => {
+    document.getElementById('ctx-graph-campaign').addEventListener('click', async () => {
       if (!_ctxFinding || !_ctxFinding._campaign) return;
       const c = _ctxFinding._campaign;
       const srcs = c.srcs instanceof Set ? c.srcs : new Set(c.srcs || []);
       const port = String(c.port || '');
-      // Source from the aggregate cache when available — the active
-      // findings tab may be paginated to a small slice (or empty if the
-      // analyst opened Campaigns directly), and the graph needs every
-      // finding belonging to this campaign to render the full host set.
-      const pool = (_aggregateState.loaded && _aggregateState.findings.length > 0)
-        ? _aggregateState.findings
-        : _allFindings;
-      const findings = pool.filter(f =>
+      // Fetch this campaign's members on demand — the graph needs every
+      // finding belonging to it to render the full host set, scoped server-side
+      // by destination rather than filtering the whole corpus in memory.
+      const params = { dst_ip: c.dst };
+      if (port) params.dst_port = port;
+      let rows = [];
+      try { rows = await _fetchScopedFindings(params); }
+      catch (e) { rows = []; }
+      const findings = rows.filter(f =>
         f.dst_ip === c.dst &&
         String(f.dst_port || '') === port &&
         srcs.has(f.src_ip)
@@ -5266,11 +5275,12 @@
     // followed by a contact-set table of every network finding for this
     // host sorted score-desc. Clicking a contact-set row drills into
     // that finding's full detail.
-    const onHostClick = ip => {
-      const pool = (_aggregateState.loaded && _aggregateState.findings.length > 0)
-        ? _aggregateState.findings : _allFindings;
-      const hrs = pool.find(x => _isHostFinding(x) && x.src_ip === ip);
-      const contactFindings = pool
+    const onHostClick = async ip => {
+      let rows = [];
+      try { rows = await _fetchScopedFindings({ src_ip: ip }); }
+      catch (e) { rows = []; }
+      const hrs = rows.find(x => _isHostFinding(x) && x.src_ip === ip) || null;
+      const contactFindings = rows
         .filter(x => x.src_ip === ip && !_isHostFinding(x) && x.type !== 'Correlated Activity')
         .sort((a, b) => b.score - a.score);
       _selectedFinding = hrs || null;
@@ -5283,10 +5293,13 @@
         Detail.render(f);
       });
     };
-    const onCampaignClick = (dst, port) => {
-      const pool = (_aggregateState.loaded && _aggregateState.findings.length > 0)
-        ? _aggregateState.findings : _allFindings;
-      const campaignFindings = pool
+    const onCampaignClick = async (dst, port) => {
+      const params = { dst_ip: dst };
+      if (port) params.dst_port = port;
+      let rows = [];
+      try { rows = await _fetchScopedFindings(params); }
+      catch (e) { rows = []; }
+      const campaignFindings = rows
         .filter(x => x.dst_ip === dst && (x.dst_port || '') === (port || '') && !_isHostFinding(x))
         .sort((a, b) => b.score - a.score);
       _selectedFinding = null;

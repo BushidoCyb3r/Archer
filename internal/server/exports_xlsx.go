@@ -151,14 +151,17 @@ func writeFindingsSheet(xf *excelize.File, name string, findings []model.Finding
 }
 
 // campaignRollup mirrors the JS _computeCampaigns shape. Sorted score
-// desc to match the default Campaigns tab ordering.
+// desc to match the default Campaigns tab ordering. The JSON tags are the
+// /api/campaigns response contract; Srcs carries the distinct source IPs
+// the Campaigns view renders, exports, and seeds the graph filter from.
 type campaignRollup struct {
-	Dst       string
-	Port      string
-	SrcCount  int
-	MaxScore  int
-	HostCount int
-	Types     []string
+	Dst       string   `json:"dst"`
+	Port      string   `json:"port"`
+	Srcs      []string `json:"srcs"`
+	SrcCount  int      `json:"-"`
+	MaxScore  int      `json:"max_score"`
+	HostCount int      `json:"hosts"`
+	Types     []string `json:"types"`
 }
 
 func buildCampaignsRollup(findings []model.Finding) []campaignRollup {
@@ -204,8 +207,13 @@ func buildCampaignsRollup(findings []model.Finding) []campaignRollup {
 			types = append(types, t)
 		}
 		sort.Strings(types)
+		srcs := make([]string, 0, len(b.srcs))
+		for ip := range b.srcs {
+			srcs = append(srcs, ip)
+		}
+		sort.Strings(srcs)
 		out = append(out, campaignRollup{
-			Dst: b.dst, Port: b.port,
+			Dst: b.dst, Port: b.port, Srcs: srcs,
 			SrcCount: len(b.srcs), MaxScore: b.maxScore,
 			HostCount: len(b.srcs), Types: types,
 		})
@@ -234,13 +242,22 @@ func writeCampaignsSheet(xf *excelize.File, name string, rows []campaignRollup) 
 
 // hostRollup mirrors the JS _computeHosts shape. Severity ordering
 // follows the JS SEV_ORDER map so descending sort lands CRITICAL first.
+// The JSON tags are the /api/hosts response contract; BeaconCount is the
+// per-host beacon density the Hosts view renders and sorts on.
 type hostRollup struct {
-	IP       string
-	Score    int
-	Count    int
-	TopSev   string
-	Types    []string
-	sevOrder int // private — used only for sorting
+	IP          string   `json:"ip"`
+	Score       int      `json:"score"`
+	Count       int      `json:"count"`
+	BeaconCount int      `json:"beacon_count"`
+	TopSev      string   `json:"top_sev"`
+	Types       []string `json:"types"`
+	sevOrder    int      // private — used only for sorting
+}
+
+// hostBeaconTypes mirrors the JS _computeHosts beacon-density tally: the
+// four beacon finding types that count toward a host's beacon column.
+var hostBeaconTypes = map[string]bool{
+	"Beacon": true, "HTTP Beacon": true, "DNS Beacon": true, "Port-Hopping Beacon": true,
 }
 
 var hostSevOrder = map[string]int{
@@ -282,12 +299,13 @@ func buildHostsRollup(findings []model.Finding, orgCIDRs []string) []hostRollup 
 	}
 
 	type bucket struct {
-		ip       string
-		score    int
-		count    int
-		topSev   string
-		topOrder int
-		types    map[string]bool
+		ip          string
+		score       int
+		count       int
+		beaconCount int
+		topSev      string
+		topOrder    int
+		types       map[string]bool
 	}
 	by := make(map[string]*bucket)
 	for _, f := range findings {
@@ -300,6 +318,9 @@ func buildHostsRollup(findings []model.Finding, orgCIDRs []string) []hostRollup 
 			by[f.SrcIP] = b
 		}
 		b.count++
+		if hostBeaconTypes[f.Type] {
+			b.beaconCount++
+		}
 		if f.Type != "" {
 			b.types[f.Type] = true
 		}
@@ -324,7 +345,7 @@ func buildHostsRollup(findings []model.Finding, orgCIDRs []string) []hostRollup 
 		}
 		sort.Strings(types)
 		out = append(out, hostRollup{
-			IP: b.ip, Score: b.score, Count: b.count,
+			IP: b.ip, Score: b.score, Count: b.count, BeaconCount: b.beaconCount,
 			TopSev: b.topSev, Types: types, sevOrder: b.topOrder,
 		})
 	}

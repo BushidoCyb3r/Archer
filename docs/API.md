@@ -253,6 +253,25 @@ The most-used surface. Findings are detector outputs, persisted in
 | `GET` | `/api/findings/{id}/position` | any | Absolute zero-indexed position of finding `{id}` within `/api/findings` under the same filter + sort query parameters. Returns `{found: bool, offset: N, total: M}` (200) or `{found: false, total: M}` (404) when the finding does not match. The bell-notification **Jump** action uses this to navigate to the page containing the target finding regardless of the analyst's current pagination offset. |
 | `GET` | `/api/findings/{id}/history` | any | 30-day beacon score evolution rows for Beacon / HTTP Beacon findings. Returns `[]` (not 404) for other finding types so the SPA can call unconditionally. See `BeaconHistoryRow` shape below. |
 
+### Campaigns / Hosts
+
+Server-side roll-ups so the Campaigns and Hosts views load a small aggregate
+instead of fetching the whole findings corpus to group in the browser. Both
+accept the same filter surface as `GET /api/findings` (`limit`/`offset` are
+ignored — the roll-up is returned whole for client-side sort/paginate) and
+honor `status` (the top-level views send none, so dismissed findings are
+default-excluded; `status=dismissed` rolls up the dismissed bucket).
+
+| Method | Path | Role | Description |
+|---|---|---|---|
+| `GET` | `/api/campaigns` | any | `{campaigns}` — every external destination contacted by ≥2 distinct source IPs. Each row `{dst, port, srcs, max_score, hosts, types}` (`srcs` is the distinct source-IP list, `hosts` its count). |
+| `GET` | `/api/hosts` | any | `{hosts}` — per-host roll-up over org-internal source IPs. Each row `{ip, score, count, beacon_count, top_sev, types}`. |
+| `POST` | `/api/campaigns/dismiss` | analyst+ | Bulk-dismiss a campaign: `{"dst_ip":"...","dst_port":"...","note":"..."}` dismisses every open finding matching that `(dst_ip, dst_port)` in one atomic request, returns `{dismissed}`. Already-dismissed findings are skipped; each dismissal is audited individually as a `finding_status_change`. |
+
+Member drill-downs (campaign / host pivot, open-in-graph) fetch their findings
+on demand via `GET /api/findings` scoped by `dst_ip`+`dst_port` or `src_ip`,
+rather than holding the corpus client-side.
+
 **Finding shape** (`model.Finding`, `internal/model/finding.go:23`):
 
 ```json

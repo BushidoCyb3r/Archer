@@ -5,7 +5,6 @@ const Campaigns = (() => {
   let _onCtx = null;
   let _onHostClick = null;     // app.js hook: clicking a Hosts row opens the host-pivot panel
   let _onCampaignClick = null; // app.js hook: clicking a Campaigns row opens the campaign-pivot panel
-  let _isOrgIP = () => true; // predicate set by app.js; default to "everything is internal" so the panel works before init runs
   let _campaigns = []; // exposed via getCampaigns() for export
   let _hosts = [];     // exposed via getHosts() for export
 
@@ -21,9 +20,10 @@ const Campaigns = (() => {
   // so a desc sort lands CRITICAL at the top.
   const _SEV_ORDER = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFO: 4, IOC_HIT: 5 };
 
+  // isOrgIP is accepted for call-site compatibility but unused — org-internal
+  // filtering now happens server-side in the /api/hosts roll-up.
   function init(onCtx, isOrgIP, onHostClick, onCampaignClick) {
     _onCtx = onCtx;
-    if (typeof isOrgIP === 'function') _isOrgIP = isOrgIP;
     if (typeof onHostClick === 'function') _onHostClick = onHostClick;
     if (typeof onCampaignClick === 'function') _onCampaignClick = onCampaignClick;
     _wireSortHeaders();
@@ -104,13 +104,31 @@ const Campaigns = (() => {
     });
   }
 
-  // build computes the campaigns + hosts arrays. App.js calls
-  // renderCampaignsPage(offset, limit) and renderHostsPage(offset, limit)
-  // to render a specific page window without recomputing.
-  function build(findings, opts) {
+  // setData ingests the server-side roll-ups (/api/campaigns, /api/hosts) and
+  // renders the requested page window. It replaces the former build(findings),
+  // which aggregated the whole findings corpus in the browser — the reduce now
+  // happens server-side. The in-memory object shape is preserved exactly
+  // (srcs / types as Sets) so the sort, render, export, graph, and
+  // context-menu consumers are unchanged; only the data source moved.
+  function setData(campaigns, hosts, opts) {
     opts = opts || {};
-    _computeCampaigns(findings);
-    _computeHosts(findings);
+    _campaigns = (campaigns || []).map(c => ({
+      dst: c.dst,
+      port: c.port || '',
+      srcs: new Set(c.srcs || []),
+      maxScore: c.max_score | 0,
+      types: new Set(c.types || []),
+    }));
+    _hosts = (hosts || []).map(h => ({
+      ip: h.ip,
+      score: h.score | 0,
+      count: h.count | 0,
+      beaconCount: h.beacon_count | 0,
+      types: new Set(h.types || []),
+      topSev: h.top_sev || 'INFO',
+    }));
+    _applyCampaignsSort();
+    _applyHostsSort();
     const cOff = opts.campaignsOffset | 0;
     const cLim = opts.campaignsLimit  || Infinity;
     const hOff = opts.hostsOffset     | 0;
@@ -121,31 +139,6 @@ const Campaigns = (() => {
 
   function getCampaigns() { return _campaigns; }
   function getHosts() { return _hosts; }
-
-  function _computeCampaigns(findings) {
-    const map = new Map(); // dst_ip:dst_port → {srcs, maxScore, type}
-    findings.forEach(f => {
-      const dst = f.dst_ip || f.domain || '';
-      // "(network)" is a synthetic destination the analyzer uses for findings
-      // that target the network as a whole (e.g., NXDOMAIN flood, lateral
-      // sweeps). It's expected that many hosts "talk to" the network, so it
-      // would otherwise dominate the campaigns view with a non-actionable row.
-      if (dst === '(network)') return;
-      const key = `${dst}:${f.dst_port || ''}`;
-      if (!key.startsWith(':')) {
-        if (!map.has(key)) map.set(key, {dst: dst, port: f.dst_port || '', srcs: new Set(), maxScore: 0, types: new Set()});
-        const e = map.get(key);
-        if (f.src_ip) e.srcs.add(f.src_ip);
-        if (f.score > e.maxScore) e.maxScore = f.score;
-        e.types.add(f.type || '');
-      }
-    });
-
-    // Filter: ≥ 2 distinct source IPs. Sort with the active column;
-    // _campSort defaults to score desc to match prior behaviour.
-    _campaigns = [...map.values()].filter(e => e.srcs.size >= 2);
-    _applyCampaignsSort();
-  }
 
   function renderCampaignsPage(offset, limit) {
     const off = offset | 0;
@@ -190,32 +183,6 @@ const Campaigns = (() => {
       });
       tbody.appendChild(tr);
     });
-  }
-
-  function _computeHosts(findings) {
-    const map = new Map(); // src_ip → {score, findings, types, topSev}
-    const SEV_ORDER = {CRITICAL:0, HIGH:1, MEDIUM:2, LOW:3, INFO:4, IOC_HIT:5};
-    findings.forEach(f => {
-      if (!f.src_ip) return;
-      // Only build rows for hosts that belong to the user's organisation
-      // (built-in private ranges + admin-supplied CIDRs). Public src IPs,
-      // the "(TI)" placeholder from threat-intel hits, and anything else
-      // not owned by the org are noise in this view.
-      if (!_isOrgIP(f.src_ip)) return;
-      if (!map.has(f.src_ip)) map.set(f.src_ip, {ip: f.src_ip, score: 0, count: 0, beaconCount: 0, types: new Set(), topSev: 'INFO'});
-      const e = map.get(f.src_ip);
-      e.count++;
-      // Per-host beacon density (§2a). A host accounting for many of
-      // the active beacons is a likely staging point — the pattern an
-      // analyst catches instantly but a flat findings list buries.
-      if (f.type === 'Beacon' || f.type === 'HTTP Beacon' || f.type === 'DNS Beacon' || f.type === 'Port-Hopping Beacon') e.beaconCount++;
-      e.types.add(f.type || '');
-      if (f.score > e.score) e.score = f.score;
-      if ((SEV_ORDER[f.severity] ?? 99) < (SEV_ORDER[e.topSev] ?? 99)) e.topSev = f.severity;
-    });
-
-    _hosts = [...map.values()];
-    _applyHostsSort();
   }
 
   function renderHostsPage(offset, limit) {
@@ -275,5 +242,5 @@ const Campaigns = (() => {
       ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
-  return { init, build, getCampaigns, getHosts, renderCampaignsPage, renderHostsPage };
+  return { init, setData, getCampaigns, getHosts, renderCampaignsPage, renderHostsPage };
 })();
