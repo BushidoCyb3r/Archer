@@ -32,6 +32,15 @@ relevant, `### Detection changes` in each release entry.
 
 ### Fixed
 
+- **DNS Subdomain DGA: the per-apex distinct-subdomain set is now bounded.**
+  A DGA or DNS-tunnel host — the detector's own target — emits very many
+  unique subdomains under one apex, and the diversity set held every string
+  for the whole pass (the one unbounded-strings accumulator left on the DNS
+  path; the sibling resolver-apex set was already capped). It is now capped at
+  4096 per `(src, apex)`: the score is unchanged (cardinality only has to clear
+  the gate and the entropy sample reads ≤200), and the reported count renders
+  as `N+` when saturated so the bound is visible, not silent.
+
 - **`Protocol on Unexpected Port` now fires on multi-label DPD services.**
   Zeek frequently stamps a comma-joined service for one flow (`ssl,http`),
   but the detector did a whole-string lookup against the expected-port table,

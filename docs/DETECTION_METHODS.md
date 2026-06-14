@@ -1332,6 +1332,11 @@ subdomains. If `|set| ≥ DNSUniqueSubdomainMin` (default 50):
 - `score = clamp( int(min(55 + 6·avg_entropy, 90)), 1, 95 )`  (inner min caps at 90)
 - Severity is High if `avg_entropy > 3.0`, else Medium.
 
+The distinct-subdomain set is bounded at `apexSubCap` (4096) per `(src, apex)` so
+a DGA/tunnel host hammering one apex can't retain an unbounded string set; the
+score is unaffected (cardinality only needs to clear the gate, and the entropy
+sample reads at most 200), and the count renders as `N+` when the cap is hit.
+
 ### 9.4 Suspicious TLD
 
 Categorical match against a curated list of free / abused TLDs (`.tk`, `.ml`,

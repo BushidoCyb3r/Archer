@@ -73,18 +73,32 @@ type resolverStat struct {
 }
 
 // resolverApexCap bounds the per-pair distinct-apex set; dnsAnswerCap
-// bounds the per-apex resolved-IP set carried into a DNS Beacon's Detail.
+// bounds the per-apex resolved-IP set carried into a DNS Beacon's Detail;
+// apexSubCap bounds the per-apex distinct-subdomain set. A DGA / DNS-tunnel
+// host — exactly this detector's target — emits very many unique subdomains
+// under one apex, so the set is the one unbounded-strings accumulator on the
+// DNS path. Both consumers only need the count saturated above a threshold
+// (the DGA gate at DNSUniqueSubdomainMin, and the inverse-diversity beacon
+// axis which decays to 0 at the same floor), and the entropy sample reads at
+// most 200 entries — so capping cardinality at apexSubCap (far above both)
+// changes no score, only the retained string count.
 const (
 	resolverApexCap = 512
 	dnsAnswerCap    = 8
+	apexSubCap      = 4096
 )
 
 func (a *Analyzer) analyzeDNS(files []string) {
 	type apexKey struct{ sensor, src, apex string }
 	type apexData struct {
-		subs    map[string]bool
-		firstTS float64
-		port    string // observed dst port of the first contributing query
+		subs map[string]bool
+		// subsOverflow marks the distinct-subdomain set hitting apexSubCap —
+		// the count renders as "N+" rather than holding an unbounded set for a
+		// DGA/tunnel host. Score is unaffected (cardinality saturates above the
+		// gate; the entropy sample needs only 200 entries).
+		subsOverflow bool
+		firstTS      float64
+		port         string // observed dst port of the first contributing query
 	}
 
 	// dnsBeaconState accumulates per-(src, apex) query timing for the
@@ -325,12 +339,22 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			// (TrimSuffix leaves it unchanged) and is skipped.
 			if sub := strings.TrimSuffix(query, "."+apex); sub != query {
 				k := apexKey{sensor, src, apex}
-				if apexMap[k] == nil {
-					apexMap[k] = &apexData{subs: make(map[string]bool), firstTS: ts, port: dnsPort}
+				ad := apexMap[k]
+				if ad == nil {
+					ad = &apexData{subs: make(map[string]bool), firstTS: ts, port: dnsPort}
+					apexMap[k] = ad
 				}
-				apexMap[k].subs[sub] = true
-				if ts > 0 && (apexMap[k].firstTS == 0 || ts < apexMap[k].firstTS) {
-					apexMap[k].firstTS = ts
+				// Admit a new subdomain only while under the cap; an
+				// already-tracked one always updates. Mirrors the conn.go
+				// aux-key guard. Cardinality saturates at apexSubCap, which is
+				// far above the DGA gate and the 200-entry entropy sample.
+				if _, seen := ad.subs[sub]; seen || len(ad.subs) < apexSubCap {
+					ad.subs[sub] = true
+				} else {
+					ad.subsOverflow = true
+				}
+				if ts > 0 && (ad.firstTS == 0 || ts < ad.firstTS) {
+					ad.firstTS = ts
 				}
 			}
 
@@ -444,6 +468,10 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			sev = model.SevHigh
 		}
 		score := clamp(int(math.Min(55+avgEnt*6, 90)), 1, 95)
+		subLabel := fmt.Sprintf("%d", len(data.subs))
+		if data.subsOverflow {
+			subLabel += "+"
+		}
 		a.add(model.Finding{
 			Type:      "DNS Subdomain DGA",
 			Severity:  sev,
@@ -452,7 +480,7 @@ func (a *Analyzer) analyzeDNS(files []string) {
 			SrcIP:     k.src,
 			DstIP:     k.apex,
 			DstPort:   data.port,
-			Detail:    fmt.Sprintf("High subdomain diversity — apex: %s | Unique subdomains: %d | Avg entropy: %.2f", k.apex, len(data.subs), avgEnt),
+			Detail:    fmt.Sprintf("High subdomain diversity — apex: %s | Unique subdomains: %s | Avg entropy: %.2f", k.apex, subLabel, avgEnt),
 			Timestamp: fmtTS(data.firstTS),
 		})
 	}

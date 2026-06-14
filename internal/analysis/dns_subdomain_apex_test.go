@@ -51,3 +51,42 @@ func TestDNSSubdomainDGA_ApexNotCountedOnMultiPartETLD(t *testing.T) {
 		t.Errorf("detail = %q; want it to report 3 unique subdomains (the bare apex must not count as a 4th)", f.Detail)
 	}
 }
+
+// TestDNSSubdomainDGA_SubsCapped pins the apexSubCap memory bound. A DGA host —
+// exactly this detector's target — emits far more than apexSubCap unique
+// subdomains under one apex; the distinct-subdomain set must stop growing at the
+// cap while the finding still fires (cardinality saturates above the gate, so no
+// detection is lost) and the reported count renders saturated ("N+"), not silent.
+func TestDNSSubdomainDGA_SubsCapped(t *testing.T) {
+	cfg := config.Default()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dns.log")
+	var b strings.Builder
+	// apexSubCap distinct subdomains plus a surplus that must be dropped, all
+	// under one apex. Random-looking labels keep entropy high (DGA-shaped).
+	total := apexSubCap + 200
+	for i := 0; i < total; i++ {
+		q := fmt.Sprintf("x7k%dq9z2.evil.example", i)
+		fmt.Fprintf(&b, `{"ts":%d.0,"id.orig_h":"192.168.1.50","id.resp_h":"10.0.0.1","id.resp_p":53,"query":%q,"qtype_name":"A"}`+"\n", 1700000000+i, q)
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatalf("write dns.log: %v", err)
+	}
+
+	a := New(cfg, "", nil, nil)
+	a.feodoIPs = map[string]bool{}
+	a.urlhausIPs = map[string]bool{}
+	a.urlhausHosts = map[string]bool{}
+
+	findings := a.Analyze([]string{path})
+
+	f := findingOfType(findings, "DNS Subdomain DGA")
+	if f == nil {
+		t.Fatalf("DNS Subdomain DGA did not fire on %d subdomains; the cap must not lose the detection. got: %v", total, findingTypes(findings))
+	}
+	want := fmt.Sprintf("Unique subdomains: %d+", apexSubCap)
+	if !strings.Contains(f.Detail, want) {
+		t.Errorf("detail = %q; want it to report a saturated count %q (set bounded at apexSubCap, overflow marked)", f.Detail, want)
+	}
+}
