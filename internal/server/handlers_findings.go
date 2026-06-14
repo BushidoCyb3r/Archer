@@ -129,6 +129,14 @@ func sortFindings(findings []model.Finding, sortCol, sortDir string) {
 			return a.SrcIP < b.SrcIP, a.SrcIP == b.SrcIP
 		case "dst_ip":
 			return a.DstIP < b.DstIP, a.DstIP == b.DstIP
+		case "dst_port":
+			// DstPort is a string; lexicographic compare matches the prior
+			// client-side sort. Not numeric — keep parity, don't "fix" it here.
+			return a.DstPort < b.DstPort, a.DstPort == b.DstPort
+		case "status":
+			return a.Status < b.Status, a.Status == b.Status
+		case "sensor":
+			return a.Sensor < b.Sensor, a.Sensor == b.Sensor
 		case "timestamp":
 			return a.Timestamp < b.Timestamp, a.Timestamp == b.Timestamp
 		default: // "score" and any unknown column

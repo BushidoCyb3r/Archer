@@ -51,3 +51,122 @@ func TestSortFindings_StrictWeakOrderingWithTiebreak(t *testing.T) {
 		t.Errorf("permutations sorted differently: %v vs %v — not a total order", ids(a), ids(b))
 	}
 }
+
+// TestSortFindings_EverySortableClientColumn asserts the server orders by every
+// column the findings table lets the analyst click — score, severity, type,
+// src_ip, dst_ip, dst_port, timestamp, status, sensor — and falls back to score
+// for an unknown column. The client now defers sorting to the server entirely
+// (it renders /api/findings in the order received); a column the server doesn't
+// recognize would silently collapse to score and mislead the analyst, so each
+// one is pinned here. Ties break on ID ascending in every case.
+func TestSortFindings_EverySortableClientColumn(t *testing.T) {
+	ids := func(fs []model.Finding) []int {
+		out := make([]int, len(fs))
+		for i, f := range fs {
+			out[i] = f.ID
+		}
+		return out
+	}
+
+	cases := []struct {
+		col  string
+		dir  string
+		in   []model.Finding
+		want []int
+	}{
+		{
+			col: "severity", dir: "asc",
+			in: []model.Finding{
+				{ID: 1, Severity: model.SevLow},
+				{ID: 2, Severity: model.SevCritical},
+				{ID: 3, Severity: model.SevMedium},
+			},
+			want: []int{1, 3, 2}, // asc by severityOrder: LOW(1) < MEDIUM(2) < CRITICAL(4)
+		},
+		{
+			col: "type", dir: "asc",
+			in: []model.Finding{
+				{ID: 1, Type: "Strobe"},
+				{ID: 2, Type: "Beacon"},
+				{ID: 3, Type: "DNS Tunneling"},
+			},
+			want: []int{2, 3, 1},
+		},
+		{
+			col: "src_ip", dir: "asc",
+			in: []model.Finding{
+				{ID: 1, SrcIP: "10.0.0.9"},
+				{ID: 2, SrcIP: "10.0.0.1"},
+			},
+			want: []int{2, 1},
+		},
+		{
+			col: "dst_ip", dir: "asc",
+			in: []model.Finding{
+				{ID: 1, DstIP: "203.0.113.9"},
+				{ID: 2, DstIP: "203.0.113.1"},
+			},
+			want: []int{2, 1},
+		},
+		{
+			// DstPort is a string — lexicographic, so "443" sorts before "80".
+			col: "dst_port", dir: "asc",
+			in: []model.Finding{
+				{ID: 1, DstPort: "80"},
+				{ID: 2, DstPort: "443"},
+			},
+			want: []int{2, 1},
+		},
+		{
+			col: "timestamp", dir: "asc",
+			in: []model.Finding{
+				{ID: 1, Timestamp: "2026-06-14T10:00:00Z"},
+				{ID: 2, Timestamp: "2026-06-14T09:00:00Z"},
+			},
+			want: []int{2, 1},
+		},
+		{
+			col: "status", dir: "asc",
+			in: []model.Finding{
+				{ID: 1, Status: model.StatusEscalated},
+				{ID: 2, Status: model.StatusAcknowledged},
+			},
+			want: []int{2, 1},
+		},
+		{
+			col: "sensor", dir: "asc",
+			in: []model.Finding{
+				{ID: 1, Sensor: "sensor-west"},
+				{ID: 2, Sensor: "sensor-east"},
+			},
+			want: []int{2, 1},
+		},
+		{
+			// Tied keys break on ID ascending, exercised here on sensor.
+			col: "sensor", dir: "desc",
+			in: []model.Finding{
+				{ID: 3, Sensor: "s"},
+				{ID: 1, Sensor: "s"},
+				{ID: 2, Sensor: "s"},
+			},
+			want: []int{1, 2, 3},
+		},
+		{
+			// Unknown column falls back to score (default branch).
+			col: "bogus", dir: "desc",
+			in: []model.Finding{
+				{ID: 1, Score: 10},
+				{ID: 2, Score: 90},
+				{ID: 3, Score: 50},
+			},
+			want: []int{2, 3, 1},
+		},
+	}
+
+	for _, tc := range cases {
+		sortFindings(tc.in, tc.col, tc.dir)
+		if got := ids(tc.in); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("sort col=%q dir=%q: ids=%v, want %v", tc.col, tc.dir, got, tc.want)
+		}
+	}
+}

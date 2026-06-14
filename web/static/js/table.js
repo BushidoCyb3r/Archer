@@ -14,6 +14,7 @@ const Table = (() => {
   let _selected = null;
   let _onSelect    = null;
   let _onCtx       = null;
+  let _onSort      = null;
 
   // Row height is pinned in archer.css (#findings-tbody > tr:not([aria-hidden])
   // { height: 32px }). Using a constant here — and a CSS rule there — keeps
@@ -26,7 +27,6 @@ const Table = (() => {
   let _lastEnd   = -1;
   let _skeleton  = false;  // true while shimmer rows are displayed; suppresses empty-state clear
 
-  const SEV_ORDER = {CRITICAL:0, HIGH:1, MEDIUM:2, LOW:3, INFO:4};
 
   function _statusIcon(f) {
     // Precedence: analyst-action states (esc/ack) win because they show
@@ -48,18 +48,6 @@ const Table = (() => {
     return 'OPEN';
   }
 
-  function _cmp(a, b) {
-    let av = a[_sortCol], bv = b[_sortCol];
-    if (_sortCol === 'severity') {
-      av = SEV_ORDER[av] ?? 99;
-      bv = SEV_ORDER[bv] ?? 99;
-    }
-    if (av == null && bv == null) return 0;
-    if (av == null) return 1;
-    if (bv == null) return -1;
-    if (typeof av === 'string') return _sortDir * av.localeCompare(bv);
-    return _sortDir * (av - bv);
-  }
 
   // Rows are emitted as HTML strings rather than DOM nodes — the visible
   // window can swap on every scroll event, so building thousands of <tr>s
@@ -170,13 +158,16 @@ const Table = (() => {
   }
 
   function _render() {
-    _sorted = [..._findings].sort(_cmp);
+    // Render in the order the server returned. Sorting is server-authoritative
+    // (the active column/dir ride the /api/findings fetch), so re-sorting the
+    // loaded slice here would reorder a single page out of the global order —
+    // misleading on a paginated tab. The count is owned by app.js (server
+    // total via X-Total-Count), not the loaded-slice length.
+    _sorted = _findings;
     // Reset the window cache so _renderWindow definitely runs (sort/load
     // changes the underlying data even if start/end happen to match).
     _lastStart = _lastEnd = -1;
     _renderWindow();
-    document.getElementById('findings-count').textContent =
-      `${_sorted.length} finding${_sorted.length !== 1 ? 's' : ''}`;
   }
 
   function _select(f) {
@@ -220,12 +211,11 @@ const Table = (() => {
     if (_sortCol === col) _sortDir *= -1;
     else { _sortCol = col; _sortDir = -1; }
     _updateSortHeaders();
-    // After a sort, the user expects to see the new top of the list — keeping
-    // their previous scrollTop would land them in arbitrary middle data.
-    const tbody = document.getElementById('findings-tbody');
-    const wrap  = tbody && tbody.closest('.table-wrap');
-    if (wrap) wrap.scrollTop = 0;
-    _render();
+    // A sort is a deliberate, global view change: hand it to the owner so the
+    // new order is fetched server-side (and lands the analyst at the new top
+    // of the full list, not a re-sorted page). The reload resets scroll.
+    if (_onSort) _onSort(_sortCol, _sortDir);
+    else _render();
   }
 
   function _updateSortHeaders() {
@@ -266,6 +256,10 @@ const Table = (() => {
   }
 
   function getSelected() { return _selected; }
+
+  // Current sort, for the owner to thread into the /api/findings fetch.
+  // dir: -1 = descending, 1 = ascending (matches the server's dir=desc|asc).
+  function getSort() { return { col: _sortCol, dir: _sortDir }; }
 
   function showSkeleton(n) {
     const tbody = document.getElementById('findings-tbody');
@@ -313,9 +307,10 @@ const Table = (() => {
     jumpTo(next.id);
   }
 
-  function init(onSelect, onCtx) {
+  function init(onSelect, onCtx, onSort) {
     _onSelect   = onSelect;
     _onCtx      = onCtx;
+    _onSort     = onSort;
     document.querySelectorAll('#findings-table thead th[data-col]').forEach(th => {
       th.addEventListener('click', () => _sortBy(th.dataset.col));
     });
@@ -348,5 +343,5 @@ const Table = (() => {
     });
   }
 
-  return { init, load, update, jumpTo, getSelected, flash, showSkeleton, clearSkeleton };
+  return { init, load, update, jumpTo, getSelected, getSort, flash, showSkeleton, clearSkeleton };
 })();

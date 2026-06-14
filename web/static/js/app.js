@@ -514,17 +514,15 @@
   }
 
   // ── Load findings ──────────────────────────────────────────────────────────
-  // Pagination is Findings-tab-only — the other tabs (Ack / Esc / IOC)
-  // hold tiny result sets that fit comfortably in a single fetch, and
-  // the per-page selector + Load More button only make sense for the
-  // big slab. Non-Findings tabs request limit=50000 (server cap) which
-  // returns the entire matching set in one round-trip.
-  // Findings/Ack/Esc/IOC paginate server-side via /api/findings; each tab
-  // owns its own offset/total/loaded state in _tabState. Campaigns and
-  // Hosts paginate client-side over _aggregateState (the full unfiltered
-  // set) by slicing the rendered output — see _renderCampaignsPage /
-  // _renderHostsPage. _isPaginatedTab is true for both groups; the
-  // pagination footer shows for every tab.
+  // All five findings-table tabs (Findings / Ack / Esc / IOC / Dismissed)
+  // paginate server-side via /api/findings at _pageSize; each tab owns its
+  // own offset/total/loaded state in _tabState. Campaigns and Hosts paginate
+  // client-side over _aggregateState (the full unfiltered set) by slicing the
+  // rendered output — see _renderCampaignsPage / _renderHostsPage.
+  // _isPaginatedTab is true for both groups; the pagination footer shows for
+  // every tab. The _FULL_FETCH_LIMIT branch below is a defensive fallback —
+  // loadFindings is only invoked for findings tabs, so paginated is always
+  // true here; the single high-limit pull lives in _fetchScopedFindings.
   const _findingsTabs = new Set(['findings', 'ack', 'esc', 'ioc', 'dismissed']);
   const _aggregateTabs = new Set(['campaigns', 'hosts', 'dismissed-campaigns']);
   function _isPaginatedTab(tab) { return _findingsTabs.has(tab) || _aggregateTabs.has(tab); }
@@ -550,7 +548,13 @@
       Table.showSkeleton();
     }
 
+    // Sorting is server-authoritative — the table only holds a page, so it
+    // can't order the full set. Send the active column/dir so the server
+    // returns the correct global order (and the count stays the server total).
+    const sort = Table.getSort();
     const merged = Object.assign({}, params, {
+      sort:   sort.col,
+      dir:    sort.dir === 1 ? 'asc' : 'desc',
       limit:  String(paginated ? _pageSize : _FULL_FETCH_LIMIT),
       offset: String(paginated ? ts.offset : 0),
     });
@@ -786,6 +790,15 @@
     } else {
       await loadFindings(_currentFilterParams(), opts);
     }
+  }
+
+  // _onSortChange handles a column-header click. Sort is global and
+  // server-side now, so every tab's cache is ordered by the previous sort —
+  // drop the findings caches (counts are sort-independent, leave them) so each
+  // tab refetches in the new order on next view, and reload the active tab.
+  function _onSortChange() {
+    Object.values(_tabState).forEach(t => { t.loaded = false; });
+    loadFindings(_currentFilterParams());
   }
 
   // _updatePaginationFooter updates the "Showing X–Y of Z", "Page N of M",
@@ -5268,7 +5281,8 @@
           Detail.render(full);
         }).catch(() => {});
       },
-      (e, f) => showMenu(e, f)
+      (e, f) => showMenu(e, f),
+      _onSortChange
     );
 
     // Hosts-row click opens the host-pivot view: HRS roll-up at top,
