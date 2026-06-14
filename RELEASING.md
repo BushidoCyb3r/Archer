@@ -300,7 +300,7 @@ those alongside the golden test on every detection-touching change.
   invalidates deployed image references.
 - **Do not skip the CHANGELOG.** A release without a changelog entry is a
   release nobody can understand six months later.
-- **The maturation roadmap** (`MATURATION_PLAN.md`, gitignored) tracks
-  longer-arc work that will eventually replace parts of this manual
-  process — schema migrations, detection tests, CI gating, etc. Update
-  that file when a phase finishes.
+- **Keep the longer-arc roadmap current.** Schema migrations, detection
+  tests, and CI gating will eventually replace parts of this manual process;
+  record where that work stands as each phase finishes so the runbook and the
+  roadmap don't drift.

@@ -106,6 +106,14 @@ relevant, `### Detection changes` in each release entry.
   single-label behavior or scores. Baselines that relied on the gap will see
   net-new findings on tunneled/multi-protocol flows.
 
+### Documentation
+
+- Corrected `/api/findings/counts` in the README to the full
+  `{open, ack, esc, dis, ioc, total, campaigns, hosts}` shape, bumped the
+  documented migrations range to `0037`, added `/api/findings/trend` to the
+  API reference, and removed dangling pointers to internal (gitignored)
+  planning docs from OPERATIONS.md and RELEASING.md.
+
 ## [v0.72.2] — 2026-06-14
 
 ### Fixed

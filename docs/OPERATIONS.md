@@ -1001,12 +1001,11 @@ absence.
 
 ### Roadmapped (not yet)
 
-- **Metrics endpoint** (`/metrics` Prometheus-style) — see
-  MATURATION_PLAN section 11. Monitor Archer with your existing
-  monitoring stack rather than via UI screen-scraping.
+- **Metrics endpoint** (`/metrics` Prometheus-style) — monitor
+  Archer with your existing monitoring stack rather than via UI
+  screen-scraping.
 - **Trust-CA-bundle sensor mode** — alternative to pubkey
   pinning so CA rotation doesn't force fleet-wide re-enrollment.
-  See MATURATION_PLAN section 11.
 - **Password complexity / lockout policies** — enforce at the
   onboarding-flow layer for now.
 
