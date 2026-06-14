@@ -30,6 +30,19 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.72.1] — 2026-06-14
+
+### Fixed
+
+- **Archive tests no longer age out of the retention window** —
+  `TestRunArchive_PrunesEmptyDirsAfterMove` and
+  `TestRunArchive_DirectoryDateDominatesMtime` hardcoded a "recent"
+  date-directory the archive age-check keys on; once wall-clock passed
+  that date + 30 days the fixtures fell outside the window and the tests
+  flipped red with no code change (they went red on 2026-06-14). Fixture
+  date-dirs are now derived from `time.Now()` so the suite is
+  time-invariant. Test-only change — no shipped behavior is affected.
+
 ## [v0.72.0] — 2026-06-14
 
 ### Added
