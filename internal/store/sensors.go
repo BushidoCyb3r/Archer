@@ -198,6 +198,37 @@ func (s *Store) GetActiveSensorByName(name string) (Sensor, bool) {
 	return sn, true
 }
 
+// GetActiveSensorByPubkeyFP returns the currently-enrolled sensor whose SSH
+// pubkey fingerprint matches, or (Sensor{}, false). sshd authenticates by key
+// and runs the first matching authorized_keys line's forced command, so two
+// sensors sharing one key would mix logs into the first sensor's directory —
+// enrollment rejects a key already bound to another active sensor. The
+// fingerprint is the SHA-256 of the decoded key blob, so distinct keys never
+// collide here. An empty fp (unparseable key) never matches.
+func (s *Store) GetActiveSensorByPubkeyFP(fp string) (Sensor, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.db == nil || fp == "" {
+		return Sensor{}, false
+	}
+	row := s.db.QueryRow(`SELECT id, name,
+	                             COALESCE(host,'')          AS host,
+	                             COALESCE(source_ip,'')     AS source_ip,
+	                             enrolled_at,
+	                             COALESCE(enrolled_by,'')   AS enrolled_by,
+	                             status,
+	                             COALESCE(pubkey_fp,'')     AS pubkey_fp,
+	                             COALESCE(authkey_line,'')  AS authkey_line,
+	                             COALESCE(checkin_secret,'') AS checkin_secret,
+	                             schedule_hour, schedule_minute, last_seen_at, last_files, last_bytes, protocol_version
+	                      FROM sensors WHERE pubkey_fp=? AND status IN ('enrolled','disenrolling') ORDER BY id DESC LIMIT 1`, fp)
+	var sn Sensor
+	if err := row.Scan(&sn.ID, &sn.Name, &sn.Host, &sn.SourceIP, &sn.EnrolledAt, &sn.EnrolledBy, &sn.Status, &sn.PubkeyFP, &sn.AuthKeyLine, &sn.CheckinSecret, &sn.ScheduleHour, &sn.ScheduleMinute, &sn.LastSeenAt, &sn.LastFiles, &sn.LastBytes, &sn.ProtocolVersion); err != nil {
+		return Sensor{}, false
+	}
+	return sn, true
+}
+
 // HasMostRecentDisenrolled reports whether the most recent row for `name`
 // is in disenrolled state. Used so the checkin endpoint can return a
 // "disenrolled" verdict to a sensor whose authorized_keys line was already

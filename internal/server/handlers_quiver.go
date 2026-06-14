@@ -208,6 +208,17 @@ func (s *Server) handleQuiverEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reject a key already bound to another active sensor. sshd matches by key
+	// and runs the first authorized_keys line's forced rrsync command, so two
+	// sensors sharing one key would land the second's pushes in the first's
+	// /logs directory (cross-sensor log mixing). Enforce one key per sensor.
+	pubkeyFP := store.FingerprintSSHPubkey(req.Pubkey)
+	if other, exists := s.store.GetActiveSensorByPubkeyFP(pubkeyFP); exists {
+		_ = s.store.ResetEnrollmentToken(tok.ID)
+		jsonError(w, "this ssh key is already enrolled to sensor "+other.Name+"; each sensor needs its own key", http.StatusConflict)
+		return
+	}
+
 	// Hourly cadence: pick a random minute-of-hour per sensor so 20
 	// sensors don't all hit Archer at HH:00. ScheduleHour is preserved
 	// in the row schema for backward-compat with daily-mode sensors but
@@ -247,7 +258,7 @@ func (s *Server) handleQuiverEnroll(w http.ResponseWriter, r *http.Request) {
 		SourceIP:        sourceIP(r),
 		EnrolledAt:      now,
 		EnrolledBy:      tok.CreatedBy,
-		PubkeyFP:        store.FingerprintSSHPubkey(req.Pubkey),
+		PubkeyFP:        pubkeyFP,
 		AuthKeyLine:     authLine,
 		CheckinSecret:   checkinSecret,
 		ScheduleHour:    hour,

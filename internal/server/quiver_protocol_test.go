@@ -7,10 +7,63 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/config"
 	"github.com/BushidoCyb3r/Archer/internal/store"
 )
+
+// TestHandleQuiverEnroll_RejectsDuplicatePubkey is the F-1 regression. sshd
+// authenticates by key and runs the first matching authorized_keys line's
+// forced rrsync command, so two sensors sharing one SSH key would land the
+// second sensor's pushes in the first's /logs directory (cross-sensor log
+// mixing). Enrollment now rejects a key already bound to an active sensor, and
+// rolls the consumed token back so the operator can retry with a distinct key.
+func TestHandleQuiverEnroll_RejectsDuplicatePubkey(t *testing.T) {
+	s := newAuditTestServer(t)
+	const key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 shared"
+
+	now := time.Now().Unix()
+	if _, err := s.store.CreateSensor(store.Sensor{
+		Name:            "sensor-a",
+		EnrolledAt:      now,
+		PubkeyFP:        store.FingerprintSSHPubkey(key),
+		ProtocolVersion: 2,
+	}); err != nil {
+		t.Fatalf("seed sensor: %v", err)
+	}
+
+	const tok = "enroll-token-b"
+	if _, err := s.store.CreateEnrollmentToken(store.EnrollmentToken{
+		Token: tok, CreatedAt: now, ExpiresAt: now + 3600, CreatedBy: "admin",
+	}); err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"token":            tok,
+		"name":             "sensor-b",
+		"host":             "",
+		"pubkey":           key,
+		"protocol_version": 2,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/quiver/enroll", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.handleQuiverEnroll(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("duplicate-key enroll: status=%d, want 409; body=%s", w.Code, w.Body.String())
+	}
+	if _, ok := s.store.GetActiveSensorByName("sensor-b"); ok {
+		t.Error("sensor-b was created despite the duplicate-key rejection")
+	}
+	for _, et := range s.store.ListEnrollmentTokens() {
+		if et.Token == tok && et.UsedAt != 0 {
+			t.Errorf("token was not reset after the rejected enroll (used_at=%d) — operator is stuck with a burned token", et.UsedAt)
+		}
+	}
+}
 
 func TestResolveQuiverProtocol_NilResolvesToV1ButRejected(t *testing.T) {
 	// v0.12.0 dropped the v1 backwards-compat window: missing

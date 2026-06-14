@@ -32,6 +32,13 @@ relevant, `### Detection changes` in each release entry.
 
 ### Security
 
+- **Enrollment rejects an SSH key already bound to another sensor (HTTP 409).**
+  sshd matches by key and runs the first matching `authorized_keys` line's
+  forced rrsync command, so two sensors sharing one key would land the second's
+  log pushes in the first sensor's `/logs` directory (cross-sensor log mixing).
+  Enrollment now refuses a duplicate key and rolls the consumed token back so
+  the operator can retry with a distinct key. One keypair per sensor.
+
 - **First-registrant admin bootstrap is now race-free.** On a fresh install the
   first `/register` becomes the admin; the `UserCount()==0` check and the user
   create were two separate DB calls, so two concurrent registrations with
