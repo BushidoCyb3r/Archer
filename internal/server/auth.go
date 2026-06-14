@@ -154,6 +154,11 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Serialize the bootstrap decision: UserCount()==0 and CreateUser are
+		// two separate DB calls, so concurrent first registrations could
+		// otherwise both elect themselves admin. The lock spans only the
+		// check → create, not the bcrypt-heavy duplicate-email path above.
+		s.registerMu.Lock()
 		isFirstUser := s.users.UserCount() == 0
 		role := model.RoleViewer
 		status := model.StatusPending
@@ -165,6 +170,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		}
 
 		user, err := s.users.CreateUser(email, firstName, lastName, password, role, status)
+		s.registerMu.Unlock()
 		if err != nil {
 			fail("Registration failed. Please try again.")
 			return

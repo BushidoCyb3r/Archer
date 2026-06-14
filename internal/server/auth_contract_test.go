@@ -2,10 +2,12 @@ package server
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/BushidoCyb3r/Archer/internal/model"
@@ -145,6 +147,64 @@ func TestHandleRegister_BootstrapThenSelfService(t *testing.T) {
 	}
 	if second.Status != model.StatusPending {
 		t.Errorf("second user status=%q, want pending", second.Status)
+	}
+}
+
+// TestHandleRegister_ConcurrentBootstrapElectsOneAdmin is the AZ-N1 regression.
+// UserCount()==0 and CreateUser are two separate DB calls; before registerMu
+// serialized them, concurrent first registrations with distinct emails could
+// both observe an empty user table and both be created as active admins — a
+// network-adjacent party racing the operator during the open bootstrap window
+// could plant a second admin. The invariant: however many registrations land
+// concurrently on a fresh install, exactly one becomes an active admin and the
+// rest are pending viewers. Run under -race to also catch the data race.
+func TestHandleRegister_ConcurrentBootstrapElectsOneAdmin(t *testing.T) {
+	s := newAuditTestServer(t)
+	s.webDir = "../../web"
+	s.authTmpls = loadAuthTemplates(s.webDir)
+	s.rateLimit = newRateLimiter()
+
+	const n = 16
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			form := url.Values{
+				"first_name": {"Test"},
+				"last_name":  {"User"},
+				"email":      {fmt.Sprintf("user%d@example.test", i)},
+				"password":   {"correct-horse"},
+				"confirm":    {"correct-horse"},
+			}
+			req := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			// Distinct source IP per goroutine so the unauth rate limiter
+			// doesn't drop any registration.
+			req.RemoteAddr = fmt.Sprintf("192.0.2.%d:1234", i+1)
+			s.handleRegister(httptest.NewRecorder(), req)
+		}(i)
+	}
+	wg.Wait()
+
+	users := s.users.ListUsers()
+	admins, active := 0, 0
+	for _, u := range users {
+		if u.Role == model.RoleAdmin {
+			admins++
+		}
+		if u.Status == model.StatusActive {
+			active++
+		}
+	}
+	if len(users) != n {
+		t.Errorf("created %d users, want %d (every distinct-email registration should succeed)", len(users), n)
+	}
+	if admins != 1 {
+		t.Errorf("got %d admins after %d concurrent registrations, want exactly 1 (bootstrap race elected multiple)", admins, n)
+	}
+	if active != 1 {
+		t.Errorf("got %d active users, want exactly 1 (only the bootstrap admin is auto-approved)", active)
 	}
 }
 

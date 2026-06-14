@@ -30,6 +30,16 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Security
+
+- **First-registrant admin bootstrap is now race-free.** On a fresh install the
+  first `/register` becomes the admin; the `UserCount()==0` check and the user
+  create were two separate DB calls, so two concurrent registrations with
+  distinct emails could both observe an empty table and both be created as
+  active admins. A network-adjacent party racing the operator during the open
+  bootstrap window could plant a second admin. The check and create are now
+  serialized, so exactly one account is ever elected admin.
+
 ### Fixed
 
 - **Persistence failures on curated state are now operator-visible, not just

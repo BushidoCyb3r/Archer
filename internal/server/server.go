@@ -27,14 +27,21 @@ var scoreExplanationsMap = model.ScoreExplanations
 
 // Server holds all server dependencies.
 type Server struct {
-	store          *store.Store
-	users          *store.UserStore
-	broker         *Broker
-	webDir         string
-	logsDir        string
-	authKeysPath   string
-	authTmpls      map[string]*template.Template
-	mux            *http.ServeMux
+	store        *store.Store
+	users        *store.UserStore
+	broker       *Broker
+	webDir       string
+	logsDir      string
+	authKeysPath string
+	authTmpls    map[string]*template.Template
+	mux          *http.ServeMux
+	// registerMu serializes the first-registrant bootstrap decision in
+	// handleRegister. UserCount()==0 and the subsequent CreateUser are two
+	// separate DB calls; without this, two concurrent registrations with
+	// distinct emails can both observe an empty user table and both be created
+	// as active admins (the email UNIQUE constraint only stops same-email
+	// duplicates). Held only across the count-check → create.
+	registerMu     sync.Mutex
 	analyzerMu     sync.Mutex
 	activeAnalyzer *analysis.Analyzer
 	analysisWg     sync.WaitGroup
