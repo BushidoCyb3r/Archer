@@ -30,6 +30,35 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.72.2] — 2026-06-14
+
+### Fixed
+
+- **Findings sort is now server-authoritative — the table no longer
+  re-sorts a single page out of global order.** Clicking a column header
+  re-sorted only the loaded slice client-side, so on a paginated tab the
+  "top by source IP" you saw was the top among the loaded page, not the
+  whole result set; the `#findings-count` element also flipped from the
+  server total to the loaded-row count after a sort. The active column +
+  direction now ride the `/api/findings` fetch (`sort=`/`dir=`), the table
+  renders the order the server returns, and the count has a single writer
+  (the `X-Total-Count` server total). `sortFindings` gained the three
+  columns the table exposes but the server didn't recognize (`dst_port`,
+  `status`, `sensor`) — previously a click on those silently collapsed to
+  a score sort.
+- **Network graph caps at 200 nodes before layout.** A high fan-in
+  campaign graph fed every distinct source into Cytoscape's `cose` layout
+  (O(n²) per tick), which wedged the view. The graph now keeps the
+  highest-degree nodes (the scoped destination hub always retained), drops
+  dangling edges, and surfaces a "showing top N of M nodes" notice.
+
+### Changed
+
+- **Severity-column sort now orders LOW→CRITICAL ascending** (first click
+  shows CRITICAL first), matching the score column's "most-significant
+  first" convention and the server's `severityOrder`. The previous
+  client-side sort used an inverted order. Cosmetic ordering change only.
+
 ## [v0.72.1] — 2026-06-14
 
 ### Fixed
