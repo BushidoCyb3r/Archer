@@ -30,22 +30,7 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
-### Security
-
-- **Enrollment rejects an SSH key already bound to another sensor (HTTP 409).**
-  sshd matches by key and runs the first matching `authorized_keys` line's
-  forced rrsync command, so two sensors sharing one key would land the second's
-  log pushes in the first sensor's `/logs` directory (cross-sensor log mixing).
-  Enrollment now refuses a duplicate key and rolls the consumed token back so
-  the operator can retry with a distinct key. One keypair per sensor.
-
-- **First-registrant admin bootstrap is now race-free.** On a fresh install the
-  first `/register` becomes the admin; the `UserCount()==0` check and the user
-  create were two separate DB calls, so two concurrent registrations with
-  distinct emails could both observe an empty table and both be created as
-  active admins. A network-adjacent party racing the operator during the open
-  bootstrap window could plant a second admin. The check and create are now
-  serialized, so exactly one account is ever elected admin.
+## [v0.73.0] — 2026-06-14
 
 ### Fixed
 
@@ -97,6 +82,23 @@ relevant, `### Detection changes` in each release entry.
   detector): a recognized label on a port outside its set fires, and a label
   legitimately on the port (`ssl` in `ssl,http` on 443) suppresses. Closes a
   silent miss of exactly the egress-evasion case the detector targets.
+
+### Security
+
+- **Enrollment rejects an SSH key already bound to another sensor (HTTP 409).**
+  sshd matches by key and runs the first matching `authorized_keys` line's
+  forced rrsync command, so two sensors sharing one key would land the second's
+  log pushes in the first sensor's `/logs` directory (cross-sensor log mixing).
+  Enrollment now refuses a duplicate key and rolls the consumed token back so
+  the operator can retry with a distinct key. One keypair per sensor.
+
+- **First-registrant admin bootstrap is now race-free.** On a fresh install the
+  first `/register` becomes the admin; the `UserCount()==0` check and the user
+  create were two separate DB calls, so two concurrent registrations with
+  distinct emails could both observe an empty table and both be created as
+  active admins. A network-adjacent party racing the operator during the open
+  bootstrap window could plant a second admin. The check and create are now
+  serialized, so exactly one account is ever elected admin.
 
 ### Detection changes
 
