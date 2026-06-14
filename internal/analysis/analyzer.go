@@ -383,6 +383,14 @@ func (a *Analyzer) Analyze(files []string) []model.Finding {
 		a.prefetchFeeds(files)
 		close(feedsDone)
 	}()
+	// Ensure the prefetch goroutine never outlives Analyze. The phase-3 drain
+	// below is skipped by the early returns on cancel/pause in phases 1–2.5, so
+	// without this a cancelled run leaked the goroutine while it was still
+	// writing a.feodoIPs/urlhausIPs/urlhausHosts/feedSources — the fields those
+	// early returns assume are owned by the feedsDone barrier. Receiving from
+	// the already-closed channel at the phase-3 drain is a no-op, so this
+	// composes with it.
+	defer func() { <-feedsDone }()
 	a.sendProgress(3, "Fetch Feeds")
 
 	// ── Phase 1: independent log analyzers (all run in parallel) ─────────────

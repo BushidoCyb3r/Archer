@@ -49,6 +49,13 @@ relevant, `### Detection changes` in each release entry.
 
 ### Fixed
 
+- **A cancelled analysis no longer leaks the threat-intel prefetch goroutine.**
+  Feed prefetch runs in a background goroutine that writes the analyzer's feed
+  caches, guarded by a barrier the phase-3 drain waits on. A cancel during the
+  earlier phases took an early return that skipped that drain, leaking the
+  goroutine (and its in-flight feed fetch) while it was still writing those
+  fields. Analyze now waits for the prefetch goroutine on every return path.
+
 - **Persistence failures on curated state are now operator-visible, not just
   for findings.** A findings-save failure already raised the persistence-degraded
   flag (analyze-status endpoint + SSE), but the allowlist/IOC lists, config,
