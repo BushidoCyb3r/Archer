@@ -138,10 +138,15 @@ func TestRunArchive_PrunesEmptyDirsAfterMove(t *testing.T) {
 	defer func() { archiveDir = origArchiveDir }()
 
 	old := time.Now().Add(-40 * 24 * time.Hour)
+	// Date-dir segments are relative to now so the archive age-check (keyed on
+	// the directory date) behaves identically whenever the suite runs — a
+	// hardcoded calendar date silently ages out of the retention window.
+	oldDay := time.Now().Add(-45 * 24 * time.Hour).Format("2006-01-02")
+	recentDay := time.Now().Add(-5 * 24 * time.Hour).Format("2006-01-02")
 
 	// Dataset "drained" — a date subdirectory holding only old logs that
 	// will all migrate out, leaving the subdirectory empty.
-	drainedSub := filepath.Join(tmpLogs, "drained", "2026-01-01")
+	drainedSub := filepath.Join(tmpLogs, "drained", oldDay)
 	if err := os.MkdirAll(drainedSub, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +162,7 @@ func TestRunArchive_PrunesEmptyDirsAfterMove(t *testing.T) {
 
 	// Dataset "mixed" — date dir within the 30-day window; both files stay
 	// regardless of their individual mtimes because directory date is authoritative.
-	mixedSub := filepath.Join(tmpLogs, "mixed", "2026-05-15")
+	mixedSub := filepath.Join(tmpLogs, "mixed", recentDay)
 	if err := os.MkdirAll(mixedSub, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +180,7 @@ func TestRunArchive_PrunesEmptyDirsAfterMove(t *testing.T) {
 
 	// Dataset "with-junk" — old log plus a non-Zeek file. Archive only
 	// touches the log; the directory should remain because notes.txt stays.
-	junkSub := filepath.Join(tmpLogs, "with-junk", "2026-01-15")
+	junkSub := filepath.Join(tmpLogs, "with-junk", oldDay)
 	if err := os.MkdirAll(junkSub, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -213,8 +218,8 @@ func TestRunArchive_PrunesEmptyDirsAfterMove(t *testing.T) {
 		t.Errorf("logs root must always survive: %v", err)
 	}
 
-	// Mixed dataset: both files stay because the directory date (2026-05-15) is
-	// within the retention window, regardless of individual file mtime.
+	// Mixed dataset: both files stay because the directory date is within the
+	// retention window, regardless of individual file mtime.
 	if _, err := os.Stat(mixedSub); err != nil {
 		t.Errorf("mixed subdirectory should remain: %v", err)
 	}
@@ -555,10 +560,15 @@ func TestRunArchive_DirectoryDateDominatesMtime(t *testing.T) {
 	archiveDir = tmpArchive
 	defer func() { archiveDir = origArchiveDir }()
 
-	// A log that is 45 days old by directory name but has a CURRENT mtime
-	// (simulating rsync landing with the transfer timestamp instead of the
-	// original sensor timestamp).
-	oldDateDir := filepath.Join(tmpLogs, "sensor", "2026-04-05")
+	// Date-dir segments are relative to now so the age-check behaves the same
+	// whenever the suite runs (a hardcoded date ages out of the window).
+	oldDay := time.Now().Add(-45 * 24 * time.Hour).Format("2006-01-02")
+	recentDay := time.Now().Add(-5 * 24 * time.Hour).Format("2006-01-02")
+
+	// A log that is old by directory name but has a CURRENT mtime (simulating
+	// rsync landing with the transfer timestamp instead of the original sensor
+	// timestamp).
+	oldDateDir := filepath.Join(tmpLogs, "sensor", oldDay)
 	if err := os.MkdirAll(oldDateDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -569,7 +579,7 @@ func TestRunArchive_DirectoryDateDominatesMtime(t *testing.T) {
 	// mtime is intentionally left as-is (current time) — the bug scenario.
 
 	// A log with a date dir inside the retention window; mtime is old.
-	recentDateDir := filepath.Join(tmpLogs, "sensor", "2026-05-15")
+	recentDateDir := filepath.Join(tmpLogs, "sensor", recentDay)
 	if err := os.MkdirAll(recentDateDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
