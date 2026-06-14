@@ -135,6 +135,43 @@ const Graph = (() => {
     };
   }
 
+  // cose is O(n^2) per tick; past a few hundred nodes a high fan-in campaign
+  // graph wedges the layout. 200 keeps the hub-and-top-talkers structure
+  // legible while staying well inside cose's comfortable range. Global
+  // calibration constant, not an operator setting.
+  const MAX_GRAPH_NODES = 200;
+
+  // Reduce a built node/edge set to at most `cap` nodes, preserving the most
+  // structurally significant ones: rank by node degree (incident edge count),
+  // tie-break by finding count, and always keep the scoped dst hub if present.
+  // Any edge touching a dropped node is removed so no dangling edges remain.
+  function _capElements(cyNodes, cyEdges, dstHint, cap) {
+    if (cyNodes.length <= cap) {
+      return { nodes: cyNodes, edges: cyEdges, total: cyNodes.length, truncated: false };
+    }
+    const degree = new Map();
+    cyEdges.forEach(e => {
+      degree.set(e.data.source, (degree.get(e.data.source) || 0) + 1);
+      degree.set(e.data.target, (degree.get(e.data.target) || 0) + 1);
+    });
+    const ranked = cyNodes.slice().sort((a, b) => {
+      const da = degree.get(a.data.id) || 0, db = degree.get(b.data.id) || 0;
+      if (db !== da) return db - da;
+      return (b.data.count || 0) - (a.data.count || 0);
+    });
+    const keep = new Set();
+    if (dstHint && cyNodes.some(n => n.data.id === dstHint)) keep.add(dstHint);
+    for (let i = 0; i < ranked.length && keep.size < cap; i++) {
+      keep.add(ranked[i].data.id);
+    }
+    return {
+      nodes: cyNodes.filter(n => keep.has(n.data.id)),
+      edges: cyEdges.filter(e => keep.has(e.data.source) && keep.has(e.data.target)),
+      total: cyNodes.length,
+      truncated: true,
+    };
+  }
+
   // Resolve a theme token to its computed value. Cytoscape paints to a canvas,
   // which can't read CSS vars, so the style array is built from live token
   // values each render and re-applied on archer:themechange.
@@ -235,9 +272,10 @@ const Graph = (() => {
     const container = document.getElementById('graph-canvas');
     if (!container) return;
     if (_cy) { _cy.destroy(); _cy = null; }
+    const capped = _capElements(elements.nodes, elements.edges, _lastDstHint, MAX_GRAPH_NODES);
     _cy = window.cytoscape({
       container,
-      elements: [...elements.nodes, ...elements.edges],
+      elements: [...capped.nodes, ...capped.edges],
       style: _buildStyle(),
       layout: _layoutOpts(),
       wheelSensitivity: 0.2,
@@ -261,8 +299,13 @@ const Graph = (() => {
         _cy.elements().removeClass('dimmed hovered');
       });
     });
-    document.getElementById('graph-info').textContent =
-      `${elements.stats.nodes} nodes · ${elements.stats.edges} edges · ${elements.stats.findings} findings`;
+    const shownNodes = capped.truncated ? capped.nodes.length : elements.stats.nodes;
+    const shownEdges = capped.truncated ? capped.edges.length : elements.stats.edges;
+    let info = `${shownNodes} nodes · ${shownEdges} edges · ${elements.stats.findings} findings`;
+    if (capped.truncated) {
+      info += ` · showing top ${shownNodes} of ${capped.total} nodes`;
+    }
+    document.getElementById('graph-info').textContent = info;
   }
 
   async function _open(findings, subtitle) {

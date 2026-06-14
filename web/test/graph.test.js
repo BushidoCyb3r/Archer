@@ -40,3 +40,44 @@ test('_nodeLabel appends a count badge at >= 10 findings', () => {
   assert.strictEqual(f('10.0.0.1', 10), '10.0.0.1 · 10');
   assert.strictEqual(f('203.0.113.5', 42), '203.0.113.5 · 42');
 });
+
+// Node cap keeps cose from hanging on a high fan-in campaign graph. The
+// invariant: above the cap the kept set is exactly `cap` nodes, always
+// includes the scoped dst hub, and carries no edge referencing a dropped node.
+test('_capElements caps a high fan-in graph, keeps the hub, drops dangling edges', () => {
+  const cap = 50;
+  const dst = '203.0.113.9'; // scoped hub every src fans into
+  const N = 200;
+  const nodes = [{ data: { id: dst, count: N } }];
+  const edges = [];
+  for (let i = 0; i < N; i++) {
+    const src = '10.0.0.' + i;
+    nodes.push({ data: { id: src, count: 1 } });
+    edges.push({ data: { id: 'e' + i, source: src, target: dst } });
+  }
+
+  const f = extractFn('graph.js', '_capElements');
+  const out = f(nodes, edges, dst, cap);
+
+  assert.strictEqual(out.truncated, true);
+  assert.strictEqual(out.total, N + 1);
+  assert.strictEqual(out.nodes.length, cap, 'kept set is exactly the cap');
+
+  const kept = new Set(out.nodes.map(n => n.data.id));
+  assert.ok(kept.has(dst), 'scoped dst hub is always kept');
+  out.edges.forEach(e => {
+    assert.ok(kept.has(e.data.source) && kept.has(e.data.target),
+      'no edge references a dropped node');
+  });
+});
+
+// Below the cap nothing is dropped and the set passes through untouched.
+test('_capElements passes a small graph through untruncated', () => {
+  const f = extractFn('graph.js', '_capElements');
+  const nodes = [{ data: { id: 'a', count: 1 } }, { data: { id: 'b', count: 1 } }];
+  const edges = [{ data: { id: 'e0', source: 'a', target: 'b' } }];
+  const out = f(nodes, edges, 'b', 200);
+  assert.strictEqual(out.truncated, false);
+  assert.strictEqual(out.nodes.length, 2);
+  assert.strictEqual(out.edges.length, 1);
+});
