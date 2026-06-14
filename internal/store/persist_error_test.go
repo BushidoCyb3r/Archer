@@ -54,3 +54,47 @@ func TestSaveFindings_PersistenceErrorFlag(t *testing.T) {
 		t.Errorf("after recovery save, PersistenceError = %q, want empty (flag should clear on success)", pe)
 	}
 }
+
+// TestPersistList_PersistenceErrorFlag is the AR-3 residual regression. The
+// findings path already surfaced write failures; the curated lists
+// (allowlist/IOC), config, suppressions, and notifications logged-and-returned,
+// so a failed write on those diverged in-memory state from disk silently — an
+// allowlist that can't persist un-hides hosts on the next restart with no
+// operator signal. The invariant: a failed authoritative-state write (here an
+// allowlist save against a closed DB) sets PersistenceError, and a later
+// successful write clears it.
+func TestPersistList_PersistenceErrorFlag(t *testing.T) {
+	db := openTestDB(t)
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
+	}
+	s := New(config.Default())
+	s.InitDB(db)
+
+	// Baseline: an allowlist save that commits leaves no persistence error.
+	s.SetAllowlist([]string{"10.0.0.0/8"})
+	if pe := s.PersistenceError(); pe != "" {
+		t.Fatalf("after a successful allowlist save, PersistenceError = %q, want empty", pe)
+	}
+
+	// Close the DB out from under the store, then mutate the allowlist: the
+	// persistList write must fail and be surfaced, not swallowed.
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+	s.SetAllowlist([]string{"10.0.0.0/8", "192.168.0.0/16"})
+	if pe := s.PersistenceError(); pe == "" {
+		t.Fatalf("after a failed allowlist save (DB closed), PersistenceError is empty — the failure was not surfaced")
+	}
+
+	// Recovery: a working DB and a successful write clears the flag.
+	db2 := openTestDB(t)
+	if err := RunMigrations(db2); err != nil {
+		t.Fatalf("RunMigrations (db2): %v", err)
+	}
+	s.InitDB(db2)
+	s.SetAllowlist([]string{"10.0.0.0/8"})
+	if pe := s.PersistenceError(); pe != "" {
+		t.Errorf("after recovery allowlist save, PersistenceError = %q, want empty", pe)
+	}
+}

@@ -32,6 +32,19 @@ relevant, `### Detection changes` in each release entry.
 
 ### Fixed
 
+- **Persistence failures on curated state are now operator-visible, not just
+  for findings.** A findings-save failure already raised the persistence-degraded
+  flag (analyze-status endpoint + SSE), but the allowlist/IOC lists, config,
+  suppressions, and notifications logged-and-returned on a write failure — so a
+  failed allowlist write (disk full, DB locked) diverged in-memory state from
+  disk silently and un-hid hosts on the next restart with no signal. Every
+  authoritative-state write now routes its result through the same flag.
+- **Sensor disenroll and log-rotate errors now log through `slog`, not bare
+  stderr.** A failed `authorized_keys` removal on disenroll — which can leave a
+  sensor's SSH key active — went to unstructured stderr and was easy to miss in
+  a structured-log view; it is now a structured `slog.Error` carrying the sensor
+  name and id (the log-tree rename failure is a `slog.Warn`).
+
 - **The admin config save no longer clobbers concurrent analysis/archive
   telemetry.** `PUT /api/config` is a read-decode-write, and the watch/archive
   workers write their runtime fields (the two analysis timestamps, the dataset

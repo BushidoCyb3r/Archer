@@ -9,6 +9,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -247,8 +248,11 @@ func (s *Server) handleSensorDisenroll(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := RemoveAuthKey(s.authKeysPath, sn.AuthKeyLine); err != nil {
 		// Don't bail — the disenroll is mostly a server-side state change;
-		// log and continue so we don't get stuck in 'disenrolling'.
-		fmt.Fprintf(os.Stderr, "disenroll: %v\n", err)
+		// log and continue so we don't get stuck in 'disenrolling'. This is
+		// security-relevant: a failed removal leaves the sensor's SSH key
+		// active, so it must land in the structured log, not bare stderr.
+		slog.Error("sensor disenroll: authorized_keys removal failed — sensor key may still be active",
+			"sensor", sn.Name, "id", sn.ID, "err", err)
 	}
 	stamp := time.Now().UTC().Format("2006-01-02")
 	s.rotateSensorLogs(sn.Name, stamp)
@@ -456,7 +460,7 @@ func (s *Server) rotateSensorLogs(name, stamp string) {
 		dst = filepath.Join(archiveRoot, fmt.Sprintf("%s-%d", stamp, i))
 	}
 	if err := os.Rename(src, dst); err != nil {
-		fmt.Fprintf(os.Stderr, "rotateSensorLogs: %v\n", err)
+		slog.Warn("rotateSensorLogs: rename failed", "src", src, "dst", dst, "err", err)
 	}
 }
 

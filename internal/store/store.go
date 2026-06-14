@@ -452,6 +452,7 @@ func (s *Store) persistNotification(n model.Notification) {
 	if err != nil {
 		slog.Error("store: persist notification", "id", n.ID, "err", err)
 	}
+	s.recordPersist("notification", err)
 }
 
 // persistList replaces all rows in tbl with the current entries.
@@ -466,23 +467,28 @@ func (s *Store) persistList(tbl string, items []string) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		slog.Error("store: persist list begin", "table", tbl, "err", err)
+		s.recordPersist("list "+tbl, err)
 		return
 	}
 	if _, err := tx.Exec(`DELETE FROM ` + tbl); err != nil {
 		tx.Rollback()
 		slog.Error("store: persist list delete", "table", tbl, "err", err)
+		s.recordPersist("list "+tbl, err)
 		return
 	}
 	for _, e := range items {
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO `+tbl+` (entry) VALUES (?)`, e); err != nil {
 			tx.Rollback()
 			slog.Error("store: persist list insert", "table", tbl, "err", err)
+			s.recordPersist("list "+tbl, err)
 			return
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		slog.Error("store: persist list commit", "table", tbl, "err", err)
+	cerr := tx.Commit()
+	if cerr != nil {
+		slog.Error("store: persist list commit", "table", tbl, "err", cerr)
 	}
+	s.recordPersist("list "+tbl, cerr)
 }
 
 // loadFindings reads persisted findings from SQLite into s.findings.
@@ -647,8 +653,8 @@ func (s *Store) saveFindings() {
 	}
 }
 
-// PersistenceError returns the message from the most recent findings-save
-// failure, or "" if the last save succeeded. The server layer surfaces this
+// PersistenceError returns the message from the most recent authoritative-state
+// write, or "" if the last one succeeded. The server layer surfaces this
 // (analyze-status endpoint, SSE status event) so a persistent write failure
 // is operator-visible rather than only living in a log line that a container
 // restart discards.
@@ -656,6 +662,23 @@ func (s *Store) PersistenceError() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.persistErr
+}
+
+// recordPersist sets or clears the persistence-degraded flag from the outcome
+// of an authoritative-state write. saveFindings was the only path that surfaced
+// its failures; the curated lists (allowlist/IOC), config, suppressions, and
+// notifications logged-and-returned, so a failed write on any of them diverged
+// in-memory state from disk silently — analyst-curated state that vanishes on
+// the next restart with no signal. Every persist path now routes its result
+// here. SQLite's single-file store fails all-or-nothing (disk full, DB
+// locked/closed), so a success on any path is a reliable "writable again"
+// signal that clears the flag. Caller holds s.mu (write).
+func (s *Store) recordPersist(op string, err error) {
+	if err != nil {
+		s.persistErr = op + ": " + err.Error()
+		return
+	}
+	s.persistErr = ""
 }
 
 func (s *Store) GetFindings() []model.Finding {
@@ -1470,9 +1493,11 @@ func (s *Store) persistConfig() {
 		return
 	}
 	cfgJSON, _ := json.Marshal(s.config)
-	if _, err := s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON)); err != nil {
+	_, err := s.db.Exec(`INSERT OR REPLACE INTO settings (id, config) VALUES (1, ?)`, string(cfgJSON))
+	if err != nil {
 		slog.Error("store: persist settings", "err", err)
 	}
+	s.recordPersist("config", err)
 }
 
 func (s *Store) GetAllowlist() []string {
@@ -1666,9 +1691,11 @@ func (s *Store) AddSuppression(target string, expiry time.Time, detail string) {
 	s.mu.Lock()
 	s.suppressions[target] = SuppressionEntry{Expiry: expiry, Detail: detail}
 	if s.db != nil {
-		if _, err := s.db.Exec(`INSERT OR REPLACE INTO suppressions (target, expiry, detail) VALUES (?, ?, ?)`, target, expiry.Unix(), detail); err != nil {
+		_, err := s.db.Exec(`INSERT OR REPLACE INTO suppressions (target, expiry, detail) VALUES (?, ?, ?)`, target, expiry.Unix(), detail)
+		if err != nil {
 			slog.Error("store: persist suppression", "err", err)
 		}
+		s.recordPersist("suppression", err)
 	}
 	// Stale-notification cleanup — see SetAllowlist for rationale.
 	// NEW-111.
@@ -1680,9 +1707,11 @@ func (s *Store) RemoveSuppression(target string) {
 	s.mu.Lock()
 	delete(s.suppressions, target)
 	if s.db != nil {
-		if _, err := s.db.Exec(`DELETE FROM suppressions WHERE target = ?`, target); err != nil {
+		_, err := s.db.Exec(`DELETE FROM suppressions WHERE target = ?`, target)
+		if err != nil {
 			slog.Error("store: remove suppression", "err", err)
 		}
+		s.recordPersist("suppression", err)
 	}
 	s.mu.Unlock()
 }
@@ -1976,8 +2005,10 @@ func (s *Store) RemovePairAllow(id int64) {
 	if s.db != nil {
 		if _, err := s.db.Exec(`DELETE FROM pair_allowlist WHERE id = ?`, id); err != nil {
 			slog.Error("store: remove pair allow", "id", id, "err", err)
+			s.recordPersist("pair_allowlist", err)
 			return
 		}
+		s.recordPersist("pair_allowlist", nil)
 	}
 	for i := range s.pairAllow {
 		if s.pairAllow[i].ID == id {
