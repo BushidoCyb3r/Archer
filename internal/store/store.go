@@ -1428,6 +1428,37 @@ func (s *Store) SetConfig(cfg config.Config) {
 	s.mu.Unlock()
 }
 
+// SetConfigPreservingRuntime persists an admin-edited config while keeping the
+// worker-owned runtime/telemetry fields (archive-run results, the two analysis
+// timestamps, the dataset fingerprint) at their live values, and returns the
+// merged config that was persisted.
+//
+// The admin Settings PUT does a read-decode-write: it reads the config, decodes
+// the request body onto it, validates, then writes the whole struct back. Those
+// telemetry fields are part of that struct but are not admin-editable — they're
+// set by the background watch/archive workers. Without this merge, a worker that
+// wrote a fresh LastAnalysisUnix (or an archive-run result) between the handler's
+// read and its write would have that write clobbered by the stale snapshot the
+// handler is about to persist — silently rolling back, e.g., the incremental
+// watch mtime cutoff. Reading the live runtime fields here, under the same lock
+// as the write, closes that window: the admin PUT can only ever overwrite the
+// operator-editable fields.
+func (s *Store) SetConfigPreservingRuntime(cfg config.Config) config.Config {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cfg.ArchiveLastRunAt = s.config.ArchiveLastRunAt
+	cfg.ArchiveLastFilesArchived = s.config.ArchiveLastFilesArchived
+	cfg.ArchiveLastBytesArchived = s.config.ArchiveLastBytesArchived
+	cfg.ArchiveLastFindingsPruned = s.config.ArchiveLastFindingsPruned
+	cfg.ArchiveLastTriggeredBy = s.config.ArchiveLastTriggeredBy
+	cfg.LastAnalysisFingerprint = s.config.LastAnalysisFingerprint
+	cfg.LastFullAnalysisUnix = s.config.LastFullAnalysisUnix
+	cfg.LastAnalysisUnix = s.config.LastAnalysisUnix
+	s.config = cfg
+	s.persistConfig()
+	return s.config
+}
+
 // persistConfig writes s.config to the settings row. Caller must hold
 // s.mu (any form). All one-field config mutations (SetWatch,
 // SetSensorFacingHost, etc.) route through here so a failed DB write

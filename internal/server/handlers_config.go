@@ -151,11 +151,15 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		before := s.store.GetConfig()
-		s.store.SetConfig(cfg)
+		// Preserve the worker-owned runtime/telemetry fields under the store
+		// lock so a concurrent watch/archive write isn't clobbered by this
+		// read-decode-write. The returned value is what was actually persisted,
+		// so the audit reflects reality rather than the handler's stale snapshot.
+		saved := s.store.SetConfigPreservingRuntime(cfg)
 		s.recordAudit(r, "config_change", auditEvent{
 			TargetType:  "config",
 			BeforeValue: configToAuditMap(before),
-			AfterValue:  configToAuditMap(cfg),
+			AfterValue:  configToAuditMap(saved),
 		})
 		jsonOK(w)
 	default:

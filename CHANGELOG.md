@@ -32,6 +32,16 @@ relevant, `### Detection changes` in each release entry.
 
 ### Fixed
 
+- **The admin config save no longer clobbers concurrent analysis/archive
+  telemetry.** `PUT /api/config` is a read-decode-write, and the watch/archive
+  workers write their runtime fields (the two analysis timestamps, the dataset
+  fingerprint, the last-archive-run results) into the same settings row. A
+  worker write that landed between the handler's read and its write was rolled
+  back by the stale snapshot the handler then persisted — silently reverting,
+  e.g., the incremental-watch mtime cutoff. The save now merges those
+  worker-owned fields from the live config under the store lock, so an admin
+  save can only ever change the operator-editable settings.
+
 - **DNS Subdomain DGA: the per-apex distinct-subdomain set is now bounded.**
   A DGA or DNS-tunnel host — the detector's own target — emits very many
   unique subdomains under one apex, and the diversity set held every string
