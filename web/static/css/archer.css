@@ -3019,6 +3019,15 @@ a.attack-chip:hover { background: var(--accent-glow); }
   color: var(--on-ok) !important;
   font-weight: 600;
 }
+/* Danger variant — solid --sev-critical, the red counterpart of the green
+   toast-ok above (same red the query toast uses). showToast(msg, ms, 'err')
+   applies it, e.g. marking a fingerprint malicious. */
+#pcap-toast.toast-err {
+  background: var(--sev-critical) !important;
+  border-color: rgba(0, 0, 0, 0.25) !important;
+  color: #1a0307 !important;
+  font-weight: 600;
+}
 
 /* Red query-error toast — slides down from the top edge when the findings
    query is rejected, retracts above the viewport when valid. */

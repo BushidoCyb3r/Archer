@@ -387,7 +387,8 @@
   function showToast(msg, duration = 2500, kind = '') {
     const t = document.getElementById('pcap-toast');
     t.textContent = msg;
-    t.classList.toggle('toast-ok', kind === 'ok');
+    t.classList.toggle('toast-ok', kind === 'ok');   // green (e.g. marked benign)
+    t.classList.toggle('toast-err', kind === 'err'); // red (e.g. marked malicious)
     t.style.display = 'block';
     clearTimeout(t._timer);
     t._timer = setTimeout(() => t.style.display = 'none', duration);
@@ -5774,7 +5775,7 @@
       if (typeof Fingerprints !== 'undefined' && Fingerprints.init) {
         Fingerprints.init({
           onPivot: (kind, fp) => pivotByTLS(kind === 'ja4' ? { ja4: fp } : { ja3: fp }),
-          onToast: (msg) => showToast(msg, 4000),
+          onToast: (msg, kind) => showToast(msg, 4000, kind),
           onChange: _reloadFindingsInPlace,
           canWrite: u.role !== 'viewer',
         });
@@ -5800,7 +5801,7 @@
               body: JSON.stringify({ kind, fingerprint: fp, note: '' }),
             })
               .then(() => {
-                showToast('Marked benign — findings carrying this fingerprint now show the “FP Benign” chip', 4500);
+                showToast('Marked benign — findings carrying this fingerprint now show the “FP Benign” chip', 4500, 'ok');
                 _reloadFindingsInPlace();
               })
               .catch(err => showToast('Could not mark benign: ' + err, 4500));
@@ -5810,7 +5811,7 @@
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ fingerprint: fp }),
             })
-              .then(() => showToast('Added to IOC list — flags as Malicious JA3/JA4 on the next analysis', 4500))
+              .then(() => showToast('Added to IOC list — flags as Malicious JA3/JA4 on the next analysis', 4500, 'err'))
               .catch(err => showToast('Could not mark malicious: ' + err, 4500));
           },
         });

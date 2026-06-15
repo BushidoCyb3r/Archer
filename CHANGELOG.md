@@ -30,6 +30,8 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.74.1] — 2026-06-15
+
 ### Changed
 
 - **Bulk findings actions: Acknowledge now also confirms through the modal, and
@@ -40,6 +42,11 @@ relevant, `### Detection changes` in each release entry.
   the modal (count + optional shared note), and the undo toast shares the PCAP
   toast's surface tokens, gives the Undo button a contrasting accent fill, and
   shows a countdown bar for the 10-second undo window.
+- **Mark-benign / mark-malicious confirmations are now colour-coded.** Marking a
+  TLS fingerprint benign shows a green toast (the PCAP-filter toast's green
+  variant); marking it malicious shows a red toast (the same red the query-error
+  toast uses). Both the detail-pane mark buttons and the TLS Fingerprints modal
+  use it. Behavior is otherwise unchanged.
 
 ## [v0.74.0] — 2026-06-15
 

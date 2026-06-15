@@ -143,7 +143,7 @@ const Fingerprints = (() => {
       if (_onToast) _onToast('Could not mark malicious: ' + err.message);
       return;
     }
-    if (_onToast) _onToast('Added to IOC list — flags as malicious on the next analysis');
+    if (_onToast) _onToast('Added to IOC list — flags as malicious on the next analysis', 'err');
     await _reload();
   }
 
