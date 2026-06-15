@@ -30,6 +30,16 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Changed
+
+- **Every bulk findings action now confirms through the modal; the undo toast
+  is removed.** Acknowledge previously applied immediately and all three actions
+  relied on a 10-second undo toast that was easy to miss. Acknowledge, Escalate,
+  and Dismiss now all open the confirmation modal (count + optional shared note)
+  before applying — the explicit confirmation is the safety mechanism instead of
+  a post-hoc undo. The `POST /api/findings/bulk` response still includes `prior`
+  and the `open` action (unused by the UI now, kept for API consumers).
+
 ## [v0.74.0] — 2026-06-15
 
 ### Added

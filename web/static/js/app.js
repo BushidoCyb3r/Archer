@@ -2767,21 +2767,13 @@
 
   // ── Bulk actions ───────────────────────────────────────────────────────────
   // The footer Acknowledge/Escalate/Dismiss buttons act on the table's checkbox
-  // selection when one exists (otherwise the single-finding path runs). Dismiss
-  // and Escalate confirm through a modal; every bulk action shows a 10-second
-  // undo toast that restores each finding to its prior status.
-  let _bulkUndoTimer = null;
+  // selection when one exists (otherwise the single-finding path runs). Every
+  // bulk action confirms through a modal before it applies — the explicit
+  // confirmation is the safety mechanism (no undo toast).
   let _lastBulkCount = 0;
   // When true, a bulk action targets every finding matching the current filter
   // (the "select all N matching" banner), not just the checked rows on the page.
   let _selectAllMatching = false;
-
-  function _statusToAction(s) {
-    return s === 'acknowledged' ? 'ack'
-         : s === 'escalated'    ? 'esc'
-         : s === 'dismissed'    ? 'dismiss'
-         : 'open';
-  }
 
   // Put the three footer buttons into bulk mode: a "(N)" count, force-enabled,
   // and a marker class. Idempotent — also re-asserted after a detail render so
@@ -2864,8 +2856,10 @@
     }
   }
 
-  // Modal confirm for a destructive bulk action. Resolves {note} on confirm,
-  // null on cancel (including Escape / backdrop close).
+  // Modal confirm for a bulk action. Resolves {note} on confirm, null on cancel
+  // (including Escape / backdrop close). Every bulk action — acknowledge,
+  // escalate, dismiss — routes through here so the analyst always confirms the
+  // count before it applies.
   function _bulkConfirm(action, count) {
     return new Promise(resolve => {
       const dlg    = document.getElementById('bulk-confirm-dlg');
@@ -2874,11 +2868,12 @@
       const note   = document.getElementById('bulk-confirm-note');
       const ok     = document.getElementById('bulk-confirm-ok');
       const cancel = document.getElementById('bulk-confirm-cancel');
-      const verb = action === 'dismiss' ? 'Dismiss' : 'Escalate';
+      const verb = action === 'ack' ? 'Acknowledge' : action === 'esc' ? 'Escalate' : 'Dismiss';
       const noun = count === 1 ? 'finding' : 'findings';
       title.textContent = `${verb} ${count} ${noun}?`;
-      body.textContent = action === 'esc'
-        ? `${count} ${noun} will be marked escalated and forwarded to the SIEM if configured. Bulk escalate does not run TI enrichment.`
+      body.textContent =
+        action === 'ack' ? `${count} ${noun} will be marked acknowledged and moved to the Acknowledged tab.`
+        : action === 'esc' ? `${count} ${noun} will be marked escalated and forwarded to the SIEM if configured. Bulk escalate does not run TI enrichment.`
         : `${count} ${noun} will be dismissed and hidden from the open views.`;
       ok.textContent = verb;
       note.value = '';
@@ -2905,12 +2900,11 @@
     const tab = (typeof _curTab === 'function') ? _curTab() : null;
     const count = useFilter ? ((tab && tab.total) || 0) : ids.length;
     if (count === 0) return;
-    let note = '';
-    if (action === 'dismiss' || action === 'esc') {
-      const res = await _bulkConfirm(action, count);
-      if (!res) return; // cancelled
-      note = res.note;
-    }
+    // Always confirm through the modal before applying — the confirmation is
+    // the safety mechanism (no undo toast).
+    const res = await _bulkConfirm(action, count);
+    if (!res) return; // cancelled
+    const note = res.note;
     // Filter scope sends the same query the table is showing (no ids), so the
     // server resolves every matching finding; otherwise the checked ids.
     let url = '/api/findings/bulk';
@@ -2921,9 +2915,8 @@
     } else {
       body.ids = ids;
     }
-    let resp;
     try {
-      resp = await api(url, {
+      await api(url, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(body),
@@ -2931,51 +2924,6 @@
     } catch (e) { setStatus('Error: ' + e); return; }
     _selectAllMatching = false;
     Table.clearChecked();
-    await _reloadFindingsInPlace();
-    _showBulkUndo(action, (resp && resp.affected) || 0, (resp && resp.prior) || []);
-  }
-
-  function _hideBulkUndo() {
-    if (_bulkUndoTimer) { clearTimeout(_bulkUndoTimer); _bulkUndoTimer = null; }
-    const toast = document.getElementById('bulk-undo-toast');
-    if (toast) toast.hidden = true;
-  }
-
-  function _showBulkUndo(action, affected, prior) {
-    if (!affected) return; // nothing changed → nothing to undo
-    const toast = document.getElementById('bulk-undo-toast');
-    const msg   = document.getElementById('bulk-undo-msg');
-    const btn   = document.getElementById('bulk-undo-btn');
-    if (!toast || !msg || !btn) return;
-    const verb = action === 'ack' ? 'acknowledged'
-               : action === 'esc' ? 'escalated'
-               : action === 'dismiss' ? 'dismissed' : 'reopened';
-    const noun = affected === 1 ? 'finding' : 'findings';
-    msg.textContent = `${affected} ${noun} ${verb}.`;
-    btn.onclick = async () => { _hideBulkUndo(); await _undoBulk(prior); };
-    if (_bulkUndoTimer) clearTimeout(_bulkUndoTimer);
-    toast.hidden = false;
-    _bulkUndoTimer = setTimeout(_hideBulkUndo, 10000);
-  }
-
-  // Restore each finding to its prior status by replaying through the bulk
-  // endpoint, grouped by the action that reproduces each prior status.
-  async function _undoBulk(prior) {
-    if (!prior || prior.length === 0) return;
-    const groups = {};
-    prior.forEach(p => {
-      const a = _statusToAction(p.status);
-      (groups[a] = groups[a] || []).push(p.id);
-    });
-    for (const a of Object.keys(groups)) {
-      try {
-        await api('/api/findings/bulk', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ action: a, ids: groups[a] }),
-        });
-      } catch (_) { /* best-effort undo */ }
-    }
     await _reloadFindingsInPlace();
   }
 
