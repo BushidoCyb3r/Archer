@@ -30,20 +30,23 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.74.0] — 2026-06-15
+
 ### Added
 
-- **Bulk acknowledge / escalate / dismiss / reopen for findings.** Findings can
-  be multi-selected in the table (checkbox column, plus Shift/Ctrl-click ranges)
-  and the existing footer Acknowledge / Escalate / Dismiss buttons act on the
-  whole selection; a "select all N matching" path acts on the entire current
-  filter. Backed by `POST /api/findings/bulk` — `{action: ack|esc|dismiss|open,
-  ids?[] or the same filter query as /api/findings, note?}` → `{affected, prior}`
-  — which applies the status change in one transaction and returns each
-  finding's prior status so a 10-second undo toast can restore them exactly.
-  Bulk escalate is a triage action: it flips status and SIEM-forwards each
-  finding, but deliberately does not run the per-finding TI vendor enrichment
-  the single-finding escalate does (fanning out hundreds of vendor lookups from
-  one click is a rate-limit/cost footgun).
+- **Bulk acknowledge / escalate / dismiss for findings.** Multi-select findings
+  in the table — a checkbox column, Shift-click for ranges, Ctrl/Cmd-click to
+  toggle, and a header select-all-on-page — and the existing footer Acknowledge
+  / Escalate / Dismiss buttons act on the whole selection (with a count).
+  Dismiss and Escalate confirm through a modal with an optional shared note;
+  every bulk action shows a 10-second undo toast that restores each finding to
+  its prior status. Backed by `POST /api/findings/bulk` —
+  `{action: ack|esc|dismiss|open, ids?[] or the same filter query as
+  /api/findings, note?}` → `{affected, prior}` — applying the change in one
+  transaction. Bulk escalate flips status and SIEM-forwards each finding but
+  does not run the per-finding TI vendor enrichment the single-finding escalate
+  does (fanning out hundreds of vendor lookups from one click is a
+  rate-limit/cost footgun).
 
 ## [v0.73.0] — 2026-06-14
 
