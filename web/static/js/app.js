@@ -2765,6 +2765,167 @@
     });
   }
 
+  // ── Bulk actions ───────────────────────────────────────────────────────────
+  // The footer Acknowledge/Escalate/Dismiss buttons act on the table's checkbox
+  // selection when one exists (otherwise the single-finding path runs). Dismiss
+  // and Escalate confirm through a modal; every bulk action shows a 10-second
+  // undo toast that restores each finding to its prior status.
+  let _bulkUndoTimer = null;
+  let _lastBulkCount = 0;
+
+  function _statusToAction(s) {
+    return s === 'acknowledged' ? 'ack'
+         : s === 'escalated'    ? 'esc'
+         : s === 'dismissed'    ? 'dismiss'
+         : 'open';
+  }
+
+  // Put the three footer buttons into bulk mode: a "(N)" count, force-enabled,
+  // and a marker class. Idempotent — also re-asserted after a detail render so
+  // inspecting a row mid-selection doesn't knock the buttons back to single mode.
+  function _applyBulkButtons(count) {
+    const ack = document.getElementById('ack-btn');
+    const esc = document.getElementById('esc-btn');
+    const dis = document.getElementById('dismiss-btn');
+    if (!ack || !esc || !dis) return;
+    ack.textContent = `Acknowledge (${count})`;
+    esc.textContent = `Escalate (${count})`;
+    dis.textContent = `Dismiss (${count})`;
+    [ack, esc, dis].forEach(b => { b.disabled = false; b.classList.add('bulk'); });
+  }
+
+  // If a bulk selection is active, keep the footer buttons in bulk mode after a
+  // detail render (Detail.render rewrites their labels/disabled per the single
+  // finding's status). Called by the row-select path.
+  function _reassertBulkButtons() {
+    const n = Table.checkedCount();
+    if (n > 0) _applyBulkButtons(n);
+  }
+
+  // Reflect the bulk-selection size onto the three footer buttons: when a
+  // selection exists they go into bulk mode; when it clears, labels reset and
+  // the single-finding enabled state is restored.
+  function _onBulkSelChange(count) {
+    if (count === _lastBulkCount) return; // ignore redundant emits (e.g. load())
+    _lastBulkCount = count;
+    const ack = document.getElementById('ack-btn');
+    const esc = document.getElementById('esc-btn');
+    const dis = document.getElementById('dismiss-btn');
+    if (!ack || !esc || !dis) return;
+    if (count > 0) {
+      _applyBulkButtons(count);
+    } else {
+      ack.textContent = 'Acknowledge';
+      esc.textContent = 'Escalate';
+      dis.textContent = 'Dismiss';
+      [ack, esc, dis].forEach(b => b.classList.remove('bulk'));
+      // Restore the single-finding enabled state (Detail owns it per status).
+      if (_selectedFinding) Detail.render(_selectedFinding);
+      else [ack, esc, dis].forEach(b => { b.disabled = true; });
+    }
+  }
+
+  // Modal confirm for a destructive bulk action. Resolves {note} on confirm,
+  // null on cancel (including Escape / backdrop close).
+  function _bulkConfirm(action, count) {
+    return new Promise(resolve => {
+      const dlg    = document.getElementById('bulk-confirm-dlg');
+      const title  = document.getElementById('bulk-confirm-title');
+      const body   = document.getElementById('bulk-confirm-body');
+      const note   = document.getElementById('bulk-confirm-note');
+      const ok     = document.getElementById('bulk-confirm-ok');
+      const cancel = document.getElementById('bulk-confirm-cancel');
+      const verb = action === 'dismiss' ? 'Dismiss' : 'Escalate';
+      const noun = count === 1 ? 'finding' : 'findings';
+      title.textContent = `${verb} ${count} ${noun}?`;
+      body.textContent = action === 'esc'
+        ? `${count} ${noun} will be marked escalated and forwarded to the SIEM if configured. Bulk escalate does not run TI enrichment.`
+        : `${count} ${noun} will be dismissed and hidden from the open views.`;
+      ok.textContent = verb;
+      note.value = '';
+      let settled = false;
+      const done = val => {
+        if (settled) return;
+        settled = true;
+        ok.onclick = cancel.onclick = null;
+        dlg.removeEventListener('close', onClose);
+        if (dlg.open) dlg.close();
+        resolve(val);
+      };
+      const onClose = () => done(null);
+      ok.onclick = () => done({ note: note.value.trim() });
+      cancel.onclick = () => done(null);
+      dlg.addEventListener('close', onClose);
+      dlg.showModal();
+    });
+  }
+
+  async function _bulkAction(action) {
+    const ids = Table.getCheckedIds();
+    if (ids.length === 0) return;
+    let note = '';
+    if (action === 'dismiss' || action === 'esc') {
+      const res = await _bulkConfirm(action, ids.length);
+      if (!res) return; // cancelled
+      note = res.note;
+    }
+    let resp;
+    try {
+      resp = await api('/api/findings/bulk', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ action, ids, note }),
+      });
+    } catch (e) { setStatus('Error: ' + e); return; }
+    Table.clearChecked();
+    await _reloadFindingsInPlace();
+    _showBulkUndo(action, (resp && resp.affected) || 0, (resp && resp.prior) || []);
+  }
+
+  function _hideBulkUndo() {
+    if (_bulkUndoTimer) { clearTimeout(_bulkUndoTimer); _bulkUndoTimer = null; }
+    const toast = document.getElementById('bulk-undo-toast');
+    if (toast) toast.hidden = true;
+  }
+
+  function _showBulkUndo(action, affected, prior) {
+    if (!affected) return; // nothing changed → nothing to undo
+    const toast = document.getElementById('bulk-undo-toast');
+    const msg   = document.getElementById('bulk-undo-msg');
+    const btn   = document.getElementById('bulk-undo-btn');
+    if (!toast || !msg || !btn) return;
+    const verb = action === 'ack' ? 'acknowledged'
+               : action === 'esc' ? 'escalated'
+               : action === 'dismiss' ? 'dismissed' : 'reopened';
+    const noun = affected === 1 ? 'finding' : 'findings';
+    msg.textContent = `${affected} ${noun} ${verb}.`;
+    btn.onclick = async () => { _hideBulkUndo(); await _undoBulk(prior); };
+    if (_bulkUndoTimer) clearTimeout(_bulkUndoTimer);
+    toast.hidden = false;
+    _bulkUndoTimer = setTimeout(_hideBulkUndo, 10000);
+  }
+
+  // Restore each finding to its prior status by replaying through the bulk
+  // endpoint, grouped by the action that reproduces each prior status.
+  async function _undoBulk(prior) {
+    if (!prior || prior.length === 0) return;
+    const groups = {};
+    prior.forEach(p => {
+      const a = _statusToAction(p.status);
+      (groups[a] = groups[a] || []).push(p.id);
+    });
+    for (const a of Object.keys(groups)) {
+      try {
+        await api('/api/findings/bulk', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ action: a, ids: groups[a] }),
+        });
+      } catch (_) { /* best-effort undo */ }
+    }
+    await _reloadFindingsInPlace();
+  }
+
   // _toggleDismiss is the single source of truth for dismiss /
   // un-dismiss. Called from both the context-menu Dismiss item and
   // (post-tabbed-dock) the action footer's Dismiss button so both
@@ -2906,11 +3067,13 @@
     }
 
     document.getElementById('dismiss-btn').addEventListener('click', async () => {
+      if (Table.checkedCount() > 0) { _bulkAction('dismiss'); return; }
       if (!_selectedFinding) return;
       _toggleDismiss(_selectedFinding);
     });
 
     document.getElementById('ack-btn').addEventListener('click', async () => {
+      if (Table.checkedCount() > 0) { _bulkAction('ack'); return; }
       if (!_selectedFinding) return;
       const f = _selectedFinding;
       const newStatus = f.status === 'acknowledged' ? '' : 'acknowledged';
@@ -2955,6 +3118,7 @@
     const _checked = id => { const el = document.getElementById(id); return el ? el.checked : false; };
 
     document.getElementById('esc-btn').addEventListener('click', async () => {
+      if (Table.checkedCount() > 0) { _bulkAction('esc'); return; }
       if (!_selectedFinding) return;
       const f = _selectedFinding;
 
@@ -5274,15 +5438,18 @@
         _pivotCtx = null; // a direct row click leaves any pivot context
         if (_isDockCollapsed()) _setDockCollapsed(false, false);
         Detail.render(f);
+        _reassertBulkButtons(); // keep bulk mode if a selection is active
         if (!f || !f.id) return;
         fetchFinding(f.id).then(full => {
           if (!_selectedFinding || _selectedFinding.id !== full.id) return;
           _selectedFinding = full;
           Detail.render(full);
+          _reassertBulkButtons();
         }).catch(() => {});
       },
       (e, f) => showMenu(e, f),
-      _onSortChange
+      _onSortChange,
+      _onBulkSelChange
     );
 
     // Hosts-row click opens the host-pivot view: HRS roll-up at top,

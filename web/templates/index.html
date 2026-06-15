@@ -364,6 +364,7 @@
         <table id="findings-table">
           <thead>
             <tr>
+              <th class="th-check" title="Select all on this page"><input type="checkbox" id="findings-check-all" tabindex="-1" aria-label="Select all findings on this page"></th>
               <th style="width:56px"></th>
               <th data-col="score" style="width:100px">Score</th>
               <th data-col="severity" style="width:130px">Severity</th>
@@ -857,6 +858,29 @@
     <button class="dlg-btn primary" id="sensors-confirm-ok">Confirm</button>
   </div>
 </dialog>
+
+<!-- Bulk acknowledge/escalate/dismiss confirmation. Reused for every
+     destructive bulk action; the title, body, and confirm-button label are
+     set per action in app.js. The optional note is applied to every finding. -->
+<dialog id="bulk-confirm-dlg">
+  <div class="dlg-header" id="bulk-confirm-title">Confirm</div>
+  <div class="dlg-body" style="min-width:340px">
+    <div id="bulk-confirm-body" style="font-size:13px;line-height:1.5;margin-bottom:10px"></div>
+    <label for="bulk-confirm-note" style="display:block;font-size:12px;color:var(--fg-dim);margin-bottom:4px">Note (optional, applied to all)</label>
+    <textarea id="bulk-confirm-note" rows="2" style="width:100%;box-sizing:border-box;resize:vertical"></textarea>
+  </div>
+  <div class="dlg-footer">
+    <button class="dlg-btn secondary" id="bulk-confirm-cancel">Cancel</button>
+    <button class="dlg-btn primary" id="bulk-confirm-ok">Confirm</button>
+  </div>
+</dialog>
+
+<!-- Bulk-action undo toast. Non-blocking; shown for 10s after a bulk action so
+     a mistaken batch can be reverted to each finding's prior status. -->
+<div id="bulk-undo-toast" role="status" aria-live="polite" hidden>
+  <span id="bulk-undo-msg"></span>
+  <button type="button" id="bulk-undo-btn">Undo</button>
+</div>
 
 <dialog id="sensors-schedule-dlg">
   <div class="dlg-header">Reassign Schedule Slot</div>

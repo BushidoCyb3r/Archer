@@ -16,13 +16,23 @@ const Table = (() => {
   let _onCtx       = null;
   let _onSort      = null;
 
+  // Bulk-action selection. _checkedIds is the explicit multi-select set the
+  // footer Acknowledge/Escalate/Dismiss buttons act on (independent of
+  // _selected, which drives the detail pane). _anchorIdx is the index into
+  // _sorted of the last checkbox interaction, for Shift-click range selection.
+  // The set is cleared on every load() — a data reload (tab switch, new query,
+  // post-action refetch) makes any prior selection stale.
+  let _checkedIds   = new Set();
+  let _anchorIdx    = -1;
+  let _onSelChange  = null;
+
   // Row height is pinned in archer.css (#findings-tbody > tr:not([aria-hidden])
   // { height: 32px }). Using a constant here — and a CSS rule there — keeps
   // the spacer math identical to actual rendered geometry so we never drift
   // into a scroll/render feedback loop.
   const ROW_H     = 32;
   const BUFFER    = 8;     // rows of overscan above/below the visible window
-  const COL_COUNT = 11;    // matches thead column count for spacer colspan
+  const COL_COUNT = 12;    // matches thead column count for spacer colspan (incl. the select checkbox)
   let _lastStart = -1;     // remember last window so we can skip no-op renders
   let _lastEnd   = -1;
   let _skeleton  = false;  // true while shimmer rows are displayed; suppresses empty-state clear
@@ -95,7 +105,10 @@ const Table = (() => {
           _esc("This finding's TLS client fingerprint was marked benign on the TLS Fingerprints wall.") +
           '">FP Benign</span>'
       : '';
-    return '<tr class="' + cls + '" data-id="' + f.id + '">' +
+    const checkedCls = _checkedIds.has(f.id) ? ' row-checked' : '';
+    return '<tr class="' + cls + checkedCls + '" data-id="' + f.id + '">' +
+      '<td class="row-check"><input type="checkbox" tabindex="-1" aria-label="Select finding"' +
+        (_checkedIds.has(f.id) ? ' checked' : '') + '></td>' +
       '<td class="status-icon">' + _statusIcon(f) + '</td>' +
       '<td class="score">' + _esc(f.score) + '</td>' +
       '<td class="severity">' + _esc(sev) + '</td>' +
@@ -183,6 +196,65 @@ const Table = (() => {
     return _findings.find(f => f.id === id);
   }
 
+  // ── Bulk selection ─────────────────────────────────────────────────────────
+  function _emitSel() { if (_onSelChange) _onSelChange(_checkedIds.size); }
+
+  // Reflect the authoritative _checkedIds set onto the currently-rendered rows
+  // without a full re-render — selection changes don't shift the virtual window,
+  // so _renderWindow would no-op. Recycled rows pick the state up from _rowHTML.
+  function _syncCheckDom() {
+    document.querySelectorAll('#findings-tbody tr[data-id]').forEach(tr => {
+      const id = parseInt(tr.dataset.id, 10);
+      const on = _checkedIds.has(id);
+      const cb = tr.querySelector('.row-check input');
+      if (cb) cb.checked = on;
+      tr.classList.toggle('row-checked', on);
+    });
+    _updateCheckAll();
+  }
+
+  // Header "select all on page" checkbox tri-state: checked when every loaded
+  // finding is selected, indeterminate when some are, unchecked when none.
+  function _updateCheckAll() {
+    const all = document.getElementById('findings-check-all');
+    if (!all) return;
+    const total = _findings.length;
+    let n = 0;
+    for (const f of _findings) if (_checkedIds.has(f.id)) n++;
+    all.checked = total > 0 && n === total;
+    all.indeterminate = n > 0 && n < total;
+  }
+
+  function _setCheck(id, on) { if (on) _checkedIds.add(id); else _checkedIds.delete(id); }
+
+  // Range-select from the anchor row to toIdx (inclusive) into the given state.
+  function _rangeCheck(toIdx, on) {
+    if (_anchorIdx < 0) { return; }
+    const lo = Math.min(_anchorIdx, toIdx), hi = Math.max(_anchorIdx, toIdx);
+    for (let i = lo; i <= hi; i++) {
+      const f = _sorted[i];
+      if (f) _setCheck(f.id, on);
+    }
+  }
+
+  // A checkbox / modifier interaction on a row: toggle membership (or extend a
+  // Shift range), update the DOM, and notify the owner. Returns true if it was a
+  // selection interaction (so the caller skips the detail-open path).
+  function _handleSelectClick(e, id, idx) {
+    const onCheckbox = !!e.target.closest('.row-check');
+    if (!onCheckbox && !e.shiftKey && !e.ctrlKey && !e.metaKey) return false;
+    const willCheck = !_checkedIds.has(id);
+    if (e.shiftKey && _anchorIdx >= 0) {
+      _rangeCheck(idx, willCheck);
+    } else {
+      _setCheck(id, willCheck);
+    }
+    _anchorIdx = idx;
+    _syncCheckDom();
+    _emitSel();
+    return true;
+  }
+
   // Event delegation — one click + one contextmenu listener on tbody rather
   // than per-row handlers. Rows are recycled on every scroll, so per-row
   // listeners would have to be re-attached constantly.
@@ -192,6 +264,10 @@ const Table = (() => {
     const id = parseInt(tr.dataset.id, 10);
     const f = _findById(id);
     if (!f) return;
+    const idx = _sorted.findIndex(x => x.id === id);
+    // A checkbox click or a modifier-click drives the bulk selection and does
+    // NOT open the detail pane; a plain click opens detail as before.
+    if (_handleSelectClick(e, id, idx)) return;
     _select(f);
   }
 
@@ -230,6 +306,10 @@ const Table = (() => {
   function load(findings, opts) {
     _skeleton = false;
     _findings = findings || [];
+    // A data reload makes any prior bulk selection stale (the rows may no
+    // longer be present, or their statuses changed). Clear it and notify.
+    _checkedIds.clear();
+    _anchorIdx = -1;
     const tbody = document.getElementById('findings-tbody');
     const wrap  = tbody && tbody.closest('.table-wrap');
     // Default: reset scroll on load — fresh data should land the analyst
@@ -237,6 +317,8 @@ const Table = (() => {
     // in-place reload path so analysts stay where they were reading.
     if (wrap && !(opts && opts.preserveScroll)) wrap.scrollTop = 0;
     _render();
+    _updateCheckAll();
+    _emitSel();
   }
 
   function flash(id) {
@@ -256,6 +338,18 @@ const Table = (() => {
   }
 
   function getSelected() { return _selected; }
+
+  // Bulk-selection accessors for the owner (app.js): the checked finding ids,
+  // their count, and a way to clear the set after an action completes.
+  function getCheckedIds() { return Array.from(_checkedIds); }
+  function checkedCount()  { return _checkedIds.size; }
+  function clearChecked() {
+    if (_checkedIds.size === 0) { _updateCheckAll(); return; }
+    _checkedIds.clear();
+    _anchorIdx = -1;
+    _syncCheckDom();
+    _emitSel();
+  }
 
   // Current sort, for the owner to thread into the /api/findings fetch.
   // dir: -1 = descending, 1 = ascending (matches the server's dir=desc|asc).
@@ -307,14 +401,29 @@ const Table = (() => {
     jumpTo(next.id);
   }
 
-  function init(onSelect, onCtx, onSort) {
-    _onSelect   = onSelect;
-    _onCtx      = onCtx;
-    _onSort     = onSort;
+  function init(onSelect, onCtx, onSort, onSelChange) {
+    _onSelect    = onSelect;
+    _onCtx       = onCtx;
+    _onSort      = onSort;
+    _onSelChange = onSelChange;
     document.querySelectorAll('#findings-table thead th[data-col]').forEach(th => {
       th.addEventListener('click', () => _sortBy(th.dataset.col));
     });
     _updateSortHeaders();
+
+    // Header "select all on page" checkbox: toggle every loaded finding in or
+    // out of the bulk-selection set. Lives in its own th so a click on it never
+    // triggers a column sort.
+    const checkAll = document.getElementById('findings-check-all');
+    if (checkAll) {
+      checkAll.addEventListener('click', e => {
+        const on = e.target.checked;
+        _findings.forEach(f => _setCheck(f.id, on));
+        _anchorIdx = -1;
+        _syncCheckDom();
+        _emitSel();
+      });
+    }
 
     const tbody = document.getElementById('findings-tbody');
     if (tbody) {
@@ -343,5 +452,6 @@ const Table = (() => {
     });
   }
 
-  return { init, load, update, jumpTo, getSelected, getSort, flash, showSkeleton, clearSkeleton };
+  return { init, load, update, jumpTo, getSelected, getSort, flash, showSkeleton, clearSkeleton,
+           getCheckedIds, checkedCount, clearChecked };
 })();

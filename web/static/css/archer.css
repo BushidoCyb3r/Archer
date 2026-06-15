@@ -3047,6 +3047,47 @@ a.attack-chip:hover { background: var(--accent-glow); }
   transform: translate(-50%, 0);
 }
 
+/* Bulk-action selection: checkbox column + checked-row highlight. The checkbox
+   is the primary cue; checked rows also take the selected-row tint (without the
+   accent bar, which marks the detail-pane's active row). */
+th.th-check, td.row-check { width: 30px; text-align: center; padding-left: 8px; padding-right: 4px; }
+th.th-check input, td.row-check input { cursor: pointer; margin: 0; vertical-align: middle; }
+#findings-tbody > tr.row-checked { background: var(--row-selected); }
+
+/* Footer action buttons carry a "(N)" count when a bulk selection is active. */
+.action-btn.bulk { font-weight: 600; }
+
+/* Bulk-action undo toast — non-blocking, bottom-center, with an Undo button. */
+#bulk-undo-toast {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px 10px 16px;
+  background: var(--panel);
+  color: var(--fg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+  z-index: 10000;
+}
+#bulk-undo-toast[hidden] { display: none; }
+#bulk-undo-btn {
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 5px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+#bulk-undo-btn:hover { filter: brightness(1.08); }
+
 /* ============================================================================
    Auth pages (login / register) — inherit base typography automatically.
    No extra rules needed; the templates pick up the body font + colors.
