@@ -882,6 +882,14 @@
   </div>
 </dialog>
 
+<!-- Bulk-action undo toast — same surface as the PCAP toast, with a contrasting
+     Undo button and a countdown bar showing the 10-second window. -->
+<div id="bulk-undo-toast" role="status" aria-live="polite" hidden>
+  <span id="bulk-undo-msg"></span>
+  <button type="button" id="bulk-undo-btn">Undo</button>
+  <div id="bulk-undo-progress"></div>
+</div>
+
 <dialog id="sensors-schedule-dlg">
   <div class="dlg-header">Reassign Schedule Slot</div>
   <div class="dlg-body">

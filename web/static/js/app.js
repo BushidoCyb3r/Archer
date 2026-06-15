@@ -2768,12 +2768,20 @@
   // ── Bulk actions ───────────────────────────────────────────────────────────
   // The footer Acknowledge/Escalate/Dismiss buttons act on the table's checkbox
   // selection when one exists (otherwise the single-finding path runs). Every
-  // bulk action confirms through a modal before it applies — the explicit
-  // confirmation is the safety mechanism (no undo toast).
+  // bulk action confirms through a modal first; after it applies, a 10-second
+  // undo toast (with a countdown) can restore each finding to its prior status.
+  let _bulkUndoTimer = null;
   let _lastBulkCount = 0;
   // When true, a bulk action targets every finding matching the current filter
   // (the "select all N matching" banner), not just the checked rows on the page.
   let _selectAllMatching = false;
+
+  function _statusToAction(s) {
+    return s === 'acknowledged' ? 'ack'
+         : s === 'escalated'    ? 'esc'
+         : s === 'dismissed'    ? 'dismiss'
+         : 'open';
+  }
 
   // Put the three footer buttons into bulk mode: a "(N)" count, force-enabled,
   // and a marker class. Idempotent — also re-asserted after a detail render so
@@ -2915,8 +2923,9 @@
     } else {
       body.ids = ids;
     }
+    let resp;
     try {
-      await api(url, {
+      resp = await api(url, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(body),
@@ -2924,6 +2933,57 @@
     } catch (e) { setStatus('Error: ' + e); return; }
     _selectAllMatching = false;
     Table.clearChecked();
+    await _reloadFindingsInPlace();
+    _showBulkUndo(action, (resp && resp.affected) || 0, (resp && resp.prior) || []);
+  }
+
+  function _hideBulkUndo() {
+    if (_bulkUndoTimer) { clearTimeout(_bulkUndoTimer); _bulkUndoTimer = null; }
+    const toast = document.getElementById('bulk-undo-toast');
+    if (toast) { toast.hidden = true; toast.classList.remove('counting'); }
+  }
+
+  // Show the undo toast for 10s after a bulk action. The countdown bar
+  // (#bulk-undo-progress) animates over the same 10s so the window to undo is
+  // obvious; restarting it needs a reflow to retrigger the CSS animation.
+  function _showBulkUndo(action, affected, prior) {
+    if (!affected) return; // nothing changed → nothing to undo
+    const toast = document.getElementById('bulk-undo-toast');
+    const msg   = document.getElementById('bulk-undo-msg');
+    const btn   = document.getElementById('bulk-undo-btn');
+    if (!toast || !msg || !btn) return;
+    const verb = action === 'ack' ? 'acknowledged'
+               : action === 'esc' ? 'escalated'
+               : action === 'dismiss' ? 'dismissed' : 'reopened';
+    const noun = affected === 1 ? 'finding' : 'findings';
+    msg.textContent = `${affected} ${noun} ${verb}.`;
+    btn.onclick = async () => { _hideBulkUndo(); await _undoBulk(prior); };
+    if (_bulkUndoTimer) clearTimeout(_bulkUndoTimer);
+    toast.hidden = false;
+    toast.classList.remove('counting');
+    void toast.offsetWidth; // force reflow so the countdown animation restarts
+    toast.classList.add('counting');
+    _bulkUndoTimer = setTimeout(_hideBulkUndo, 10000);
+  }
+
+  // Restore each finding to its prior status by replaying through the bulk
+  // endpoint, grouped by the action that reproduces each prior status.
+  async function _undoBulk(prior) {
+    if (!prior || prior.length === 0) return;
+    const groups = {};
+    prior.forEach(p => {
+      const a = _statusToAction(p.status);
+      (groups[a] = groups[a] || []).push(p.id);
+    });
+    for (const a of Object.keys(groups)) {
+      try {
+        await api('/api/findings/bulk', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ action: a, ids: groups[a] }),
+        });
+      } catch (_) { /* best-effort undo */ }
+    }
     await _reloadFindingsInPlace();
   }
 

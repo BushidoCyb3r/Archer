@@ -3057,6 +3057,61 @@ th.th-check input, td.row-check input { cursor: pointer; margin: 0; vertical-ali
 /* Footer action buttons carry a "(N)" count when a bulk selection is active. */
 .action-btn.bulk { font-weight: 600; }
 
+/* Bulk-action undo toast — same surface tokens as the PCAP toast (bg-elev-2 +
+   border + shadow) so it's cohesive and visible on every skin. The Undo button
+   is a contrasting accent fill, and a countdown bar across the bottom shrinks
+   over the 10-second undo window. */
+#bulk-undo-toast {
+  position: fixed;
+  bottom: 36px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 11px 16px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg-primary);
+  font-size: 13px;
+  box-shadow: var(--shadow-md);
+  z-index: 9999;
+  overflow: hidden;
+}
+#bulk-undo-toast[hidden] { display: none; }
+#bulk-undo-msg { white-space: nowrap; }
+#bulk-undo-btn {
+  flex: none;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 5px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+#bulk-undo-btn:hover { filter: brightness(1.1); }
+/* Countdown bar — full width, shrinks left-to-right over the 10s window. */
+#bulk-undo-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 100%;
+  background: var(--accent);
+  transform-origin: left;
+  transform: scaleX(0);
+}
+#bulk-undo-toast.counting #bulk-undo-progress {
+  animation: bulk-undo-countdown 10s linear forwards;
+}
+@keyframes bulk-undo-countdown {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+
 /* "Select all N matching this filter" banner — shown above the findings table
    when the whole loaded page is selected and more rows match than fit on it. */
 #bulk-selectall-banner {
