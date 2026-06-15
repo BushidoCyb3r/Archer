@@ -2772,6 +2772,9 @@
   // undo toast that restores each finding to its prior status.
   let _bulkUndoTimer = null;
   let _lastBulkCount = 0;
+  // When true, a bulk action targets every finding matching the current filter
+  // (the "select all N matching" banner), not just the checked rows on the page.
+  let _selectAllMatching = false;
 
   function _statusToAction(s) {
     return s === 'acknowledged' ? 'ack'
@@ -2799,7 +2802,9 @@
   // finding's status). Called by the row-select path.
   function _reassertBulkButtons() {
     const n = Table.checkedCount();
-    if (n > 0) _applyBulkButtons(n);
+    if (n <= 0) return;
+    const tab = (typeof _curTab === 'function') ? _curTab() : null;
+    _applyBulkButtons(_selectAllMatching ? ((tab && tab.total) || n) : n);
   }
 
   // Reflect the bulk-selection size onto the three footer buttons: when a
@@ -2808,20 +2813,54 @@
   function _onBulkSelChange(count) {
     if (count === _lastBulkCount) return; // ignore redundant emits (e.g. load())
     _lastBulkCount = count;
+    _refreshBulkUI();
+  }
+
+  // Single place that reconciles the footer buttons and the select-all-matching
+  // banner with the current selection. Also called directly when the banner
+  // toggles select-all-matching (where the checked count doesn't move, so
+  // _onBulkSelChange's guard would skip it).
+  function _refreshBulkUI() {
+    const checked = Table.checkedCount();
+    const loaded  = Table.loadedCount ? Table.loadedCount() : checked;
+    const tab     = (typeof _curTab === 'function') ? _curTab() : null;
+    const total   = (tab && tab.total) || 0;
+    // select-all-matching only holds while the whole loaded page is selected.
+    if (checked === 0 || checked !== loaded) _selectAllMatching = false;
     const ack = document.getElementById('ack-btn');
     const esc = document.getElementById('esc-btn');
     const dis = document.getElementById('dismiss-btn');
-    if (!ack || !esc || !dis) return;
-    if (count > 0) {
-      _applyBulkButtons(count);
+    if (ack && esc && dis) {
+      if (checked > 0) {
+        _applyBulkButtons(_selectAllMatching ? total : checked);
+      } else {
+        ack.textContent = 'Acknowledge';
+        esc.textContent = 'Escalate';
+        dis.textContent = 'Dismiss';
+        [ack, esc, dis].forEach(b => b.classList.remove('bulk'));
+        // Restore the single-finding enabled state (Detail owns it per status).
+        if (_selectedFinding) Detail.render(_selectedFinding);
+        else [ack, esc, dis].forEach(b => { b.disabled = true; });
+      }
+    }
+    _updateSelectAllBanner(checked, loaded, total);
+  }
+
+  // Show/update the "select all N matching" banner — visible only when the
+  // entire loaded page is selected and the filter matches more than fit on it.
+  function _updateSelectAllBanner(checked, loaded, total) {
+    const banner = document.getElementById('bulk-selectall-banner');
+    const msg    = document.getElementById('bulk-selectall-msg');
+    const action = document.getElementById('bulk-selectall-action');
+    if (!banner || !msg || !action) return;
+    if (!(checked > 0 && checked === loaded && total > loaded)) { banner.hidden = true; return; }
+    banner.hidden = false;
+    if (_selectAllMatching) {
+      msg.textContent = `All ${total} findings matching this filter are selected.`;
+      action.textContent = 'Clear selection';
     } else {
-      ack.textContent = 'Acknowledge';
-      esc.textContent = 'Escalate';
-      dis.textContent = 'Dismiss';
-      [ack, esc, dis].forEach(b => b.classList.remove('bulk'));
-      // Restore the single-finding enabled state (Detail owns it per status).
-      if (_selectedFinding) Detail.render(_selectedFinding);
-      else [ack, esc, dis].forEach(b => { b.disabled = true; });
+      msg.textContent = `All ${loaded} on this page selected.`;
+      action.textContent = `Select all ${total} matching this filter`;
     }
   }
 
@@ -2861,22 +2900,36 @@
   }
 
   async function _bulkAction(action) {
-    const ids = Table.getCheckedIds();
-    if (ids.length === 0) return;
+    const useFilter = _selectAllMatching;
+    const ids = useFilter ? [] : Table.getCheckedIds();
+    const tab = (typeof _curTab === 'function') ? _curTab() : null;
+    const count = useFilter ? ((tab && tab.total) || 0) : ids.length;
+    if (count === 0) return;
     let note = '';
     if (action === 'dismiss' || action === 'esc') {
-      const res = await _bulkConfirm(action, ids.length);
+      const res = await _bulkConfirm(action, count);
       if (!res) return; // cancelled
       note = res.note;
     }
+    // Filter scope sends the same query the table is showing (no ids), so the
+    // server resolves every matching finding; otherwise the checked ids.
+    let url = '/api/findings/bulk';
+    const body = { action, note };
+    if (useFilter) {
+      const qs = _currentFilterQS();
+      if (qs) url += '?' + qs;
+    } else {
+      body.ids = ids;
+    }
     let resp;
     try {
-      resp = await api('/api/findings/bulk', {
+      resp = await api(url, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ action, ids, note }),
+        body: JSON.stringify(body),
       });
     } catch (e) { setStatus('Error: ' + e); return; }
+    _selectAllMatching = false;
     Table.clearChecked();
     await _reloadFindingsInPlace();
     _showBulkUndo(action, (resp && resp.affected) || 0, (resp && resp.prior) || []);
@@ -3070,6 +3123,14 @@
       if (Table.checkedCount() > 0) { _bulkAction('dismiss'); return; }
       if (!_selectedFinding) return;
       _toggleDismiss(_selectedFinding);
+    });
+
+    // "Select all N matching this filter" banner: switch the page selection to
+    // filter scope, or (when already in filter scope) clear it.
+    const _selAllAction = document.getElementById('bulk-selectall-action');
+    if (_selAllAction) _selAllAction.addEventListener('click', () => {
+      if (_selectAllMatching) { Table.clearChecked(); } // emits 0 → _refreshBulkUI resets
+      else { _selectAllMatching = true; _refreshBulkUI(); }
     });
 
     document.getElementById('ack-btn').addEventListener('click', async () => {

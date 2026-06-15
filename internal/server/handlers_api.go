@@ -28,6 +28,7 @@ const (
 	listBodyMaxBytes     = 4 << 20   // PUT /allowlist, /ioc-list — room for ~150K entries
 	suppressBodyMaxBytes = 8 << 10   // POST /suppressions — tiny payload
 	configBodyMaxBytes   = 16 << 10  // PUT /config — fixed-shape struct
+	bulkBodyMaxBytes     = 1 << 20   // POST /api/findings/bulk — note + an explicit id list (undo replays many ids)
 
 	// maxTIEscalationResponse caps each third-party TI lookup response read
 	// during escalation. Per-IP JSON responses are small; this bounds memory

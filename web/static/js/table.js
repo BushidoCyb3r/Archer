@@ -343,6 +343,10 @@ const Table = (() => {
   // their count, and a way to clear the set after an action completes.
   function getCheckedIds() { return Array.from(_checkedIds); }
   function checkedCount()  { return _checkedIds.size; }
+  // Number of findings currently loaded (the page the virtual scroller holds).
+  // Used by the owner to detect a full-page selection and offer "select all
+  // matching".
+  function loadedCount()   { return _findings.length; }
   function clearChecked() {
     if (_checkedIds.size === 0) { _updateCheckAll(); return; }
     _checkedIds.clear();
@@ -453,5 +457,5 @@ const Table = (() => {
   }
 
   return { init, load, update, jumpTo, getSelected, getSort, flash, showSkeleton, clearSkeleton,
-           getCheckedIds, checkedCount, clearChecked };
+           getCheckedIds, checkedCount, loadedCount, clearChecked };
 })();

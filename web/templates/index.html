@@ -360,6 +360,13 @@
 
     <!-- ── Findings / Acknowledged / Escalated share this panel ── -->
     <div class="tab-panel active" id="tab-findings">
+      <!-- Appears when every loaded row is selected and more match the filter
+           than fit on the page — the "select all N matching this filter"
+           escape hatch so a bulk action can span the whole result set. -->
+      <div id="bulk-selectall-banner" hidden>
+        <span id="bulk-selectall-msg"></span>
+        <button type="button" id="bulk-selectall-action" class="linklike"></button>
+      </div>
       <div class="table-wrap">
         <table id="findings-table">
           <thead>

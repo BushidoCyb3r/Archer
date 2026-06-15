@@ -37,7 +37,10 @@ relevant, `### Detection changes` in each release entry.
 - **Bulk acknowledge / escalate / dismiss for findings.** Multi-select findings
   in the table — a checkbox column, Shift-click for ranges, Ctrl/Cmd-click to
   toggle, and a header select-all-on-page — and the existing footer Acknowledge
-  / Escalate / Dismiss buttons act on the whole selection (with a count).
+  / Escalate / Dismiss buttons act on the whole selection (with a count). When
+  the whole page is selected and more findings match the active filter than fit
+  on it, a "select all N matching this filter" banner extends the action to the
+  entire result set (resolved server-side, beyond the loaded page).
   Dismiss and Escalate confirm through a modal with an optional shared note;
   every bulk action shows a 10-second undo toast that restores each finding to
   its prior status. Backed by `POST /api/findings/bulk` —

@@ -710,7 +710,7 @@ func (s *Server) handleFindingsBulk(w http.ResponseWriter, r *http.Request) {
 		IDs    []int  `json:"ids"`
 		Note   string `json:"note"`
 	}
-	if err := decodeJSONBody(w, r, &req, noteBodyMaxBytes); err != nil {
+	if err := decodeJSONBody(w, r, &req, bulkBodyMaxBytes); err != nil {
 		return
 	}
 	var status model.Status

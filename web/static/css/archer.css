@@ -3088,6 +3088,32 @@ th.th-check input, td.row-check input { cursor: pointer; margin: 0; vertical-ali
 }
 #bulk-undo-btn:hover { filter: brightness(1.08); }
 
+/* "Select all N matching this filter" banner — shown above the findings table
+   when the whole loaded page is selected and more rows match than fit on it. */
+#bulk-selectall-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--accent-soft);
+  color: var(--fg-primary);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+#bulk-selectall-banner[hidden] { display: none; }
+#bulk-selectall-action {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+#bulk-selectall-action:hover { filter: brightness(1.1); }
+
 /* ============================================================================
    Auth pages (login / register) — inherit base typography automatically.
    No extra rules needed; the templates pick up the body font + colors.
