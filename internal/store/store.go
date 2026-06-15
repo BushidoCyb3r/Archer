@@ -1157,6 +1157,75 @@ func (s *Store) GetFinding(id int) (model.Finding, bool) {
 	return s.findings[i], true
 }
 
+// BulkUpdateStatus applies a status transition to many findings in one
+// transaction under a single lock — the batched form of UpdateFinding, used by
+// the bulk ack/escalate/dismiss endpoint. It keeps UpdateFinding's DB-before-
+// memory ordering (a crash mid-update leaves the DB authoritative) but does one
+// Begin/Commit and one lock acquisition instead of N round-trips. Findings that
+// aren't present, or are already in the target status, are skipped. Returns the
+// pre-change snapshots (so the handler can write an accurate audit row) and the
+// count actually changed. On any DB failure nothing is applied in memory and
+// the persistence-degraded flag is set.
+func (s *Store) BulkUpdateStatus(ids []int, status model.Status, analyst, note, statusTS string) ([]model.Finding, int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idxs := make([]int, 0, len(ids))
+	seen := make(map[int]bool, len(ids))
+	for _, id := range ids {
+		i, ok := s.findingsIdx[id]
+		if !ok || seen[id] || s.findings[i].Status == status {
+			continue
+		}
+		seen[id] = true
+		idxs = append(idxs, i)
+	}
+	if len(idxs) == 0 {
+		return nil, 0
+	}
+
+	if s.db != nil {
+		tx, err := s.db.Begin()
+		if err != nil {
+			slog.Error("store: bulk status begin", "err", err)
+			s.recordPersist("bulk status", err)
+			return nil, 0
+		}
+		stmt, err := tx.Prepare(`UPDATE findings SET status=?, analyst=?, analyst_note=?, status_ts=? WHERE id=?`)
+		if err != nil {
+			tx.Rollback()
+			slog.Error("store: bulk status prepare", "err", err)
+			s.recordPersist("bulk status", err)
+			return nil, 0
+		}
+		defer stmt.Close()
+		for _, i := range idxs {
+			if _, err := stmt.Exec(string(status), analyst, note, statusTS, s.findings[i].ID); err != nil {
+				tx.Rollback()
+				slog.Error("store: bulk status exec", "id", s.findings[i].ID, "err", err)
+				s.recordPersist("bulk status", err)
+				return nil, 0
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			slog.Error("store: bulk status commit", "err", err)
+			s.recordPersist("bulk status", err)
+			return nil, 0
+		}
+		s.recordPersist("bulk status", nil)
+	}
+
+	befores := make([]model.Finding, 0, len(idxs))
+	for _, i := range idxs {
+		befores = append(befores, s.findings[i])
+		s.findings[i].Status = status
+		s.findings[i].Analyst = analyst
+		s.findings[i].AnalystNote = note
+		s.findings[i].StatusTS = statusTS
+	}
+	return befores, len(befores)
+}
+
 // CountBeaconsWithJA3 returns how many beacon findings other than
 // excludeID carry the same (non-empty) JA3 — the "matched N other
 // beacons in this dataset" signal the detail pane renders. An empty

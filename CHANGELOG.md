@@ -30,6 +30,21 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Added
+
+- **Bulk acknowledge / escalate / dismiss / reopen for findings.** Findings can
+  be multi-selected in the table (checkbox column, plus Shift/Ctrl-click ranges)
+  and the existing footer Acknowledge / Escalate / Dismiss buttons act on the
+  whole selection; a "select all N matching" path acts on the entire current
+  filter. Backed by `POST /api/findings/bulk` — `{action: ack|esc|dismiss|open,
+  ids?[] or the same filter query as /api/findings, note?}` → `{affected, prior}`
+  — which applies the status change in one transaction and returns each
+  finding's prior status so a 10-second undo toast can restore them exactly.
+  Bulk escalate is a triage action: it flips status and SIEM-forwards each
+  finding, but deliberately does not run the per-finding TI vendor enrichment
+  the single-finding escalate does (fanning out hundreds of vendor lookups from
+  one click is a rate-limit/cost footgun).
+
 ## [v0.73.0] — 2026-06-14
 
 ### Fixed

@@ -335,7 +335,8 @@ func (s *Server) routes() {
 	// router.
 	s.mux.Handle("/api/findings/unseen", any(s.handleFindingsUnseen))
 	s.mux.Handle("/api/findings/modal-ack", any(s.handleFindingsModalAck))
-	s.mux.Handle("/api/findings/", any(s.handleFindingRouter)) // write checks done per-method inside
+	s.mux.Handle("/api/findings/bulk", write(s.handleFindingsBulk)) // bulk ack/escalate/dismiss; exact path before the {id} router
+	s.mux.Handle("/api/findings/", any(s.handleFindingRouter))      // write checks done per-method inside
 
 	// Campaigns / Hosts roll-ups — server-side aggregation so the views don't
 	// fetch the whole findings corpus. Read-only, any authenticated user.

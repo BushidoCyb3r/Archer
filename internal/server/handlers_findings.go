@@ -687,6 +687,108 @@ func (s *Server) handleFinding(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleFindingsBulk applies a status transition (acknowledge / escalate /
+// dismiss) to many findings at once — the batched analog of the single-finding
+// PATCH and the generalization of the campaign bulk-dismiss. The target set is
+// either an explicit list of `ids` (the table's checkbox selection) or, when
+// `ids` is empty, every finding matching the request's filter query params (the
+// "select all N matching" path, reusing the exact /api/findings filter surface).
+//
+// Escalate here is a triage action: it flips status and forwards each newly-
+// escalated finding to the SIEM (cheap, best-effort), but deliberately does NOT
+// run the per-finding TI vendor enrichment the single /escalate does — fanning
+// out hundreds of VirusTotal/OTX/AbuseIPDB lookups from one click is a
+// rate-limit and cost footgun. Enrichment stays a deliberate single-finding act.
+// Route is write-gated (analyst+).
+func (s *Server) handleFindingsBulk(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Action string `json:"action"`
+		IDs    []int  `json:"ids"`
+		Note   string `json:"note"`
+	}
+	if err := decodeJSONBody(w, r, &req, noteBodyMaxBytes); err != nil {
+		return
+	}
+	var status model.Status
+	switch req.Action {
+	case "ack":
+		status = model.StatusAcknowledged
+	case "esc":
+		status = model.StatusEscalated
+	case "dismiss":
+		status = model.StatusDismissed
+	case "open":
+		// Reopen — also the target the undo toast replays into for findings
+		// whose prior status was open.
+		status = model.StatusOpen
+	default:
+		jsonError(w, `action must be "ack", "esc", "dismiss", or "open"`, http.StatusBadRequest)
+		return
+	}
+
+	// Target set: explicit ids, else every finding matching the filter query.
+	ids := req.IDs
+	if len(ids) == 0 {
+		matched, err := s.filterFindings(s.store.GetFindings(), r.URL.Query(), newBoundaryFromCtx(r))
+		if err != nil {
+			jsonError(w, "invalid query: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		ids = make([]int, 0, len(matched))
+		for _, f := range matched {
+			ids = append(ids, f.ID)
+		}
+	}
+
+	user := userFromCtx(r)
+	ts := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
+	befores, n := s.store.BulkUpdateStatus(ids, status, user.DisplayName(), req.Note, ts)
+
+	// One audit row per finding (matching the single-PATCH and campaign-dismiss
+	// trail), tagged bulk:<action> so the aggregate action is filterable. befores
+	// are the pre-change snapshots captured under the store lock.
+	auditAction := "finding_status_change"
+	if status == model.StatusEscalated {
+		auditAction = "finding_escalate"
+	}
+	noteLen := len(strings.TrimSpace(req.Note))
+	for _, before := range befores {
+		s.recordAudit(r, auditAction, auditEvent{
+			TargetType:  "finding",
+			TargetID:    strconv.Itoa(before.ID),
+			TargetName:  findingAuditName(before),
+			BeforeValue: map[string]any{"status": string(before.Status)},
+			AfterValue:  map[string]any{"status": string(status)},
+			Details:     map[string]any{"note_length": noteLen, "bulk": req.Action},
+		})
+	}
+
+	// Escalate: forward each newly-escalated finding to the SIEM, best-effort
+	// and off the response path. No TI vendor enrichment — see the doc comment.
+	if status == model.StatusEscalated {
+		cfg := s.store.GetConfig()
+		for _, before := range befores {
+			before.IOCMatch, before.IOCSource = s.iocStatusFor(before)
+			go s.forwardEscalationToSIEM(cfg, before, user.DisplayName(), siemDeepLink(r, before.ID))
+		}
+	}
+
+	// Return the per-finding prior statuses so the client's undo toast can
+	// restore each finding to its OWN previous status (a bulk-ack may include
+	// findings that were escalated — blanket-reopen would corrupt them). Undo
+	// replays these grouped by status back through this same endpoint.
+	prior := make([]map[string]any, 0, len(befores))
+	for _, b := range befores {
+		prior = append(prior, map[string]any{"id": b.ID, "status": string(b.Status)})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"affected": n, "prior": prior})
+}
+
 // handleFindingPosition returns the absolute zero-indexed position of a
 // finding within /api/findings under the same filter + sort parameters.
 // The bell-notification "Jump" action uses it to navigate to the page
