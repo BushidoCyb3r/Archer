@@ -1,57 +1,47 @@
 package server
 
 import (
-	"os"
-	"path/filepath"
-	"strings"
+	"net/url"
 	"testing"
+
+	"github.com/BushidoCyb3r/Archer/internal/model"
 )
 
-// TestSpectralRescueMarker_Contract asserts that the literal string
-// "Spectral rescued:" — written into a Beacon or HTTP Beacon
-// finding's Detail field when the spectral rescue path wins the
-// timing-axis score — appears in both the emitter sites (conn.go,
-// http_analysis.go) and the consumer site (findings_filter.go's
-// spectral_only=true query-param branch). The SPA's "Spectral rescued
-// only" filter chip in the advanced filter bar depends on the
-// server-side substring match against this exact literal.
+// TestSpectralOnlyFilter_MatchesStructuredFlag pins the spectral_only filter
+// contract. Spectral is annotation-only (the 2026-06-21 timing-axis
+// validation demoted the score boost to a hint), and the filter now selects
+// findings by the structured SpectralRescued flag rather than a Detail
+// substring. This replaces the old marker-string lockstep test: the filter no
+// longer greps Detail, so a wording change to the annotation can't silently
+// break it — but a regression that drops the flag check, or reverts to a
+// substring match the emitters no longer produce, fails here.
 //
-// Without this contract test, a refactor that renames the marker on
-// one side (e.g. "Spectral rescued:" → "Spectral periodogram rescue:"
-// because someone reading the codebase decides the latter is more
-// precise) would silently break the filter chip: the chip returns
-// zero rows, the "Spectral rescued only" checkbox stops working,
-// calibration becomes impossible. Same shape as NEW-30's _esc
-// consistency test, NEW-41's audit-action vocabulary test, NEW-61's
-// raw-decoder discipline test — locks a convention as compile-time
-// enforced rather than aspirational. NEW-74.
-func TestSpectralRescueMarker_Contract(t *testing.T) {
-	const marker = "Spectral rescued:"
+// The SPA's "Spectral signal only" chip and the `spectral:true` query token
+// both resolve to this server-side flag check, so this is the single contract
+// guarding all three surfaces.
+func TestSpectralOnlyFilter_MatchesStructuredFlag(t *testing.T) {
+	s := newAuditTestServer(t)
 
-	analysisDir, err := filepath.Abs(filepath.Join("..", "analysis"))
-	if err != nil {
-		t.Fatalf("resolve analysis dir: %v", err)
-	}
-	emitters := []string{
-		filepath.Join(analysisDir, "conn.go"),
-		filepath.Join(analysisDir, "http_analysis.go"),
-	}
-	for _, path := range emitters {
-		body, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
-		if !strings.Contains(string(body), marker) {
-			t.Errorf("%s no longer emits the literal %q — findings_filter.go's spectral_only filter and the SPA's `filter-spectral-only` checkbox both depend on this marker. Either update both sides in lockstep or update this test to match the new marker.", filepath.Base(path), marker)
-		}
+	findings := []model.Finding{
+		// Flag set, but the Detail carries the new wording (no "rescued"
+		// substring) — proving the filter keys on the flag, not the text.
+		{ID: 1, Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "1.1.1.1", DstPort: "443", Score: 80, Timestamp: "2026-05-12 09:00:00",
+			SpectralRescued: true, Detail: "Spectral signal (informational, unscored): period 3600s"},
+		// No spectral signal.
+		{ID: 2, Type: "Beacon", SrcIP: "10.0.0.2", DstIP: "2.2.2.2", DstPort: "443", Score: 80, Timestamp: "2026-05-12 09:01:00"},
+		// A finding whose Detail happens to mention spectral words but whose
+		// flag is false must NOT match — the flag is authoritative.
+		{ID: 3, Type: "Beacon", SrcIP: "10.0.0.3", DstIP: "3.3.3.3", DstPort: "443", Score: 80, Timestamp: "2026-05-12 09:02:00",
+			Detail: "no spectral signal here"},
 	}
 
-	consumer := "findings_filter.go"
-	body, err := os.ReadFile(consumer)
+	q := url.Values{}
+	q.Set("spectral_only", "true")
+	got, err := s.filterFindings(findings, q, 0)
 	if err != nil {
-		t.Fatalf("read %s: %v", consumer, err)
+		t.Fatalf("filterFindings: %v", err)
 	}
-	if !strings.Contains(string(body), marker) {
-		t.Errorf("%s no longer references the literal %q — the emitters still produce it but the consumer no longer matches against it. The spectral_only filter is broken silently.", consumer, marker)
+	if len(got) != 1 || got[0].ID != 1 {
+		t.Fatalf("spectral_only should return exactly the flagged finding (id 1); got %v", idsOf(got))
 	}
 }

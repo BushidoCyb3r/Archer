@@ -447,7 +447,7 @@ rather than holding the corpus client-side.
 | `status` | `open`/`acknowledged`/`escalated`/`dismissed` | Status filter. |
 | `ioc_only` | `true` | Only findings whose `src_ip` or `dst_ip` is in the IOC list. |
 | `include_dismissed` | `true` | Counts-style flag for callers that want dismissed findings included in an otherwise-unscoped result. Has no effect when `status` is explicitly set. Default behavior (omitted or `false`): if no `status` filter is provided, dismissed findings are excluded — the "I don't want to see this again" semantic carries through every non-Dismissed tab. Used internally by `/api/findings/counts` to bucket dismissed separately. |
-| `spectral_only` | `true` | Only Beacon findings whose timing score was rescued by the spectral path. Matches on the `Spectral rescued:` substring in the Detail field. Useful during spectral-tuning calibration — see `docs/SPECTRAL_TUNING.md`. |
+| `spectral_only` | `true` | Only findings carrying a spectral signal (the `spectral_rescued` flag, set when the Lomb-Scargle path found a peak). Spectral is annotation-only — a match means the finding was flagged for possible jittered periodicity, not that its score was boosted. Useful during spectral-tuning calibration — see `docs/SPECTRAL_TUNING.md`. |
 | `ts_min`/`ts_max`, `ds_min`/`ds_max`, `hist_min`/`hist_max`, `dur_min`/`dur_max` | float `[0,1]` | Inclusive bound on one beacon sub-axis (timing / data-size / hour-coverage / duration). Either bound of a pair may be omitted; a non-numeric value disables that one axis rather than blanking the filter. **Setting any sub-score bound implicitly scopes the result to beacon types** (`Beacon`/`HTTP Beacon`/`DNS Beacon`) — a bare upper bound like `dur_max=0.3` would otherwise surface every non-beacon, whose sub-scores are a structural `0 ≤ 0.3`. Lets a hunter query a beacon *signature* the composite score averages away (e.g. `ts_min=0.8&dur_max=0.3` = short-lived tight-cadence spikes). DNS Beacon leaves `ds_score` a structural zero, so a `ds_min>0` filter correctly excludes it. |
 | `ja3` | string | Exact JA3 client-fingerprint match (case-insensitive — stored lowercased at emit). Powers **TLS Pivot** for sensors on stock Zeek (no JA4+ plugin). Filters to every finding carrying that JA3 so one beacon unravels the whole implant family. |
 | `ja4` | string | Exact JA4 client-fingerprint match (case-insensitive — stored lowercased at emit). Powers **TLS Pivot** for sensors running the Zeek JA4+ plugin. Independent of `ja3`; both filters may be set simultaneously (AND). |
@@ -559,16 +559,18 @@ window).
   *max-score* write — so an analyst inspecting a high-score day
   sees the sub-axis breakdown that drove the high.
 - `severity` matches the max-score write.
-- `spectral_rescued` is `1` when the Lomb-Scargle periodogram rescued
-  this beacon on this day (i.e., the `ts_score` was below the spectral
-  rescue threshold on the raw Bowley/MAD path but the periodogram found
-  a strong peak). `0` otherwise. Pre-migration-0023 rows and
-  non-spectral beacons read back as `0`. The evolution chart marks
-  rescued days so analysts can see which days relied on spectral
-  detection. Migration 0023.
+- `spectral_rescued` is `1` when the Lomb-Scargle periodogram found a
+  strong peak on this beacon this day (i.e., the `ts_score` was below the
+  spectral threshold on the raw Bowley/MAD path but the periodogram found
+  a peak). `0` otherwise. Spectral is annotation-only — the flag records
+  that a spectral signal was present, not that the score was boosted (the
+  field name retains the legacy "rescued" word). Pre-migration-0023 rows
+  and non-spectral beacons read back as `0`. The evolution chart marks
+  flagged days so analysts can see which days carried a spectral signal.
+  Migration 0023.
 - `spectral_period` is the dominant period (seconds) the periodogram
-  identified on a rescued day. `0` when the period wasn't resolved or
-  the day wasn't spectral-rescued. Migration 0023.
+  identified on a flagged day. `0` when the period wasn't resolved or
+  the day carried no spectral signal. Migration 0023.
 
 Rows are written by `Store.SetFindings` via
 `INSERT … ON CONFLICT DO UPDATE`: max_* updates conditionally when

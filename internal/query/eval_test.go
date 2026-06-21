@@ -159,7 +159,7 @@ func TestFingerprintFields(t *testing.T) {
 }
 
 func TestBoolFields(t *testing.T) {
-	f := beacon() // IOCMatch false, IsNewToMe false, detail has "Spectral rescued:"
+	f := beacon() // IOCMatch false, IsNewToMe false, SpectralRescued true
 	if matches(t, "ioc:true", f) {
 		t.Error("non-IOC finding should not match ioc:true")
 	}

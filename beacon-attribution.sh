@@ -59,9 +59,12 @@ fi
 # layer columns default to 0 and would masquerade as raw-layer wins).
 BEACON_FILTER="type IN ('Beacon','HTTP Beacon','DNS Beacon','Port-Hopping Beacon') AND sample_size > 0"
 
-# Shared SQL fragment: the deciding layer for one finding row.
+# Shared SQL fragment: the deciding layer for one finding row. Spectral is
+# annotation-only (the 2026-06-21 timing-axis validation demoted it), so it is
+# NO LONGER a deciding layer — the winner is always max(raw, mm, ent). The
+# spectral_rescued column is still reported per-row as a separate annotation
+# flag, and the spectral-annotation rate is summarised below the crosstabs.
 WINNER="CASE
-          WHEN spectral_rescued = 1            THEN 'spectral'
           WHEN ts_ent > ts_raw AND ts_ent > ts_mm THEN 'entropy'
           WHEN ts_mm  > ts_raw                 THEN 'multimodal'
           ELSE 'raw'
@@ -135,4 +138,20 @@ sqlite3 -column -header "$DB" "
   WHERE $BEACON_FILTER
   GROUP BY layer
   ORDER BY total DESC;
+"
+echo
+
+# ── Spectral annotation rate (annotation-only — NOT a deciding layer) ─────────
+# How often the Lomb-Scargle pass flagged a beacon, and the disposition of
+# those flags. Spectral no longer feeds the score; this tracks whether the
+# annotation is ever attached to a finding an analyst treated as real.
+echo "Spectral annotation (informational flag; does not affect score):"
+sqlite3 -column -header "$DB" "
+  SELECT SUM(spectral_rescued = 1)                              AS flagged,
+         SUM(spectral_rescued = 1 AND status = 'escalated')     AS escalated,
+         SUM(spectral_rescued = 1 AND status = 'acknowledged')  AS acknowledged,
+         SUM(spectral_rescued = 1 AND status = 'dismissed')     AS dismissed,
+         COUNT(*)                                               AS total_beacons
+  FROM findings
+  WHERE $BEACON_FILTER;
 "

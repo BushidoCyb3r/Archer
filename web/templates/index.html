@@ -285,7 +285,7 @@
             <li data-field="analyst:">Analyst</li>
             <li data-field="file:">Source log file</li>
             <li data-field="detected:&gt;=">First detected (date)</li>
-            <li data-token="spectral:true">Spectral rescued</li>
+            <li data-token="spectral:true">Spectral signal</li>
             <li data-token="ioc:true">IOC match</li>
             <li data-field="tscore:&gt;=">Beacon timing score</li>
             <li data-field="dscore:&gt;=">Beacon data-size score</li>
@@ -1359,9 +1359,9 @@
         <label>Exfil Min (MB)<input class="dlg-input" id="cfg-exfil" type="number" min="1"></label>
       </div>
       <div style="color:var(--fg-dim);font-size:0.9em;margin-top:10px;margin-bottom:8px">
-        Spectral rescue runs a frequency-domain analysis (Lomb-Scargle periodogram) on pairs whose statistical timing score was weak. Catches bounded-jitter beacons where adversaries randomize timing around a fixed schedule. Disable if real-world false-positive rate on periodic legitimate traffic (cron jobs, health probes, RSS pollers) outweighs the detection gain.
+        Spectral analysis runs a frequency-domain pass (Lomb-Scargle periodogram) on pairs whose statistical timing score was weak, and annotates findings that carry a periodic peak. It is informational only — it flags possible jittered periodicity for the analyst but does not change a finding's score or severity (a live-corpus validation found it decided no true positives while inflating benign periodic traffic). Disable to skip the compute on pairs with weak timing scores.
       </div>
-      <label><input id="cfg-spectral-enabled" type="checkbox"> Enable spectral rescue for jittered beacons <span style="color:var(--fg-dim)">(adds ~4ms per rescue-eligible pair)</span></label>
+      <label><input id="cfg-spectral-enabled" type="checkbox"> Enable spectral annotation for jittered beacons <span style="color:var(--fg-dim)">(adds ~4ms per eligible pair)</span></label>
       <div style="color:var(--fg-dim);font-size:0.85em;margin-top:10px;margin-bottom:6px">
         Calibration knobs — leave at defaults unless you've measured FP/TP rates on your traffic. See docs/DETECTION_METHODS.md §2 for what each one controls.
       </div>

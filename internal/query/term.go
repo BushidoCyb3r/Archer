@@ -306,7 +306,13 @@ func (t term) eval(f model.Finding, opLoc *time.Location) bool {
 	case "ioc":
 		return boolMatch(f.IOCMatch, t.value)
 	case "spectral":
-		return boolMatch(strings.Contains(f.Detail, "Spectral rescued:"), t.value)
+		// Matches the structured SpectralRescued flag (set when the
+		// Lomb-Scargle path fired), not a Detail substring — the flag is set
+		// under the identical condition and survives detail-string wording
+		// changes. Spectral is annotation-only as of the timing-axis
+		// validation: a match means the finding carries a spectral signal,
+		// not that the score was boosted.
+		return boolMatch(f.SpectralRescued, t.value)
 	case "channel":
 		// channel:true scopes to promoted per-channel beacon sub-findings (a
 		// non-empty Channel discriminator); channel:false to blends and every

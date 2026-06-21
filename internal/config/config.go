@@ -53,19 +53,25 @@ type Config struct {
 	// threshold rely on their individual detector findings.
 	CorrelationMinTypes int `json:"correlation_min_types"`
 
-	// Spectral beacon detection — frequency-domain rescue for beacons
-	// whose timing jitter defeats the Bowley/MAD statistical math but
-	// who still have a clear periodic structure (the C2 use case where
-	// adversaries deliberately jitter to evade timing-regularity
-	// detection). The rescue runs Lomb-Scargle on the reservoir of
-	// connection timestamps and combines its score into the timing
-	// axis via max() — same shape as the multimodal and entropy
-	// augmentations already in place.
+	// Spectral beacon detection — frequency-domain analysis (Lomb-Scargle
+	// on the reservoir of connection timestamps) for beacons whose timing
+	// jitter defeats the Bowley/MAD statistical math but which still have a
+	// clear periodic structure.
+	//
+	// Annotation-only as of the 2026-06-21 timing-axis validation: the
+	// result is recorded as an analyst hint (the SpectralRescued flag and a
+	// Detail note) but does NOT feed the timing-axis score. The validation
+	// against a live C2 corpus found the spectral path decided 0 true
+	// positives and inflated 400+ benign clustered findings to CRITICAL, and
+	// the period gate that would suppress those was deliberately removed for
+	// burst-connect beacons (analysis/spectral_test.go) — so it cannot be
+	// tuned out, and the boost was demoted to a hint.
 	//
 	// CPU cost: ~4 ms per pair on a 200-timestamp reservoir × 2000
-	// frequency-grid points. Only fires when the statistical timing
-	// score is already below SpectralRescueThreshold, so well-scoring
-	// beacons skip this entirely.
+	// frequency-grid points. Only runs when the statistical timing score is
+	// already below SpectralRescueThreshold (the gate naming is legacy; it
+	// now gates whether the annotation is computed, not a score rescue), so
+	// well-scoring beacons skip this entirely.
 	SpectralEnabled         bool    `json:"spectral_enabled"`
 	SpectralMinObservations int     `json:"spectral_min_observations"`
 	SpectralFAPThreshold    float64 `json:"spectral_fap_threshold"`

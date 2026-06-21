@@ -214,8 +214,8 @@ bucketLow`, where `bucketLow` is the lower bound of the dominant bucket in
 seconds: bucket 8 (256s lower bound) → × 0.5; bucket 9 (512s) → × 0.25.
 Tightly clustered intervals in buckets 0–7 (widths 1–128 s) are unaffected.
 
-**Spectral rescue.** The three statistical paths above all derive
-from the inter-arrival *interval distribution*. A beacon whose
+**Spectral signal (annotation-only).** The three statistical paths above all
+derive from the inter-arrival *interval distribution*. A beacon whose
 intervals are spread enough to confuse every distribution-based
 score (Bowley + MAD on raw values, multimodal on log2-binned
 peaks, entropy on bin occupancy) can still have very clear
@@ -223,6 +223,19 @@ peaks, entropy on bin occupancy) can still have very clear
 timing-regularity detection use exactly this shape: a fixed
 schedule with bounded random jitter around it. The intervals look
 noisy; the spectrum has a sharp peak.
+
+> **Annotation-only.** The spectral path is informational: it flags a finding
+> with a possible-jittered-periodicity note for the analyst, but it does **not**
+> contribute to the timing-axis score or the finding's severity. A 2026-06-21
+> timing-axis validation against a live C2 corpus found the spectral path
+> decided **zero** true positives while inflating 400+ benign clustered
+> findings (CDN/SaaS/cloud polling) to CRITICAL — and the period gate that
+> would suppress those is deliberately one-sided (see the plausibility-gate
+> note below), so the false positives can't be tuned out. The score boost was
+> therefore demoted to a hint. The detection it *theoretically* protects —
+> fixed-grid cron C2 and burst-connect C2 — remains untested against a labeled
+> true positive; the annotation keeps the signal visible so a future such case
+> still surfaces in triage and in the `spectral:true` filter.
 
 The spectral path runs a Lomb-Scargle periodogram over the pair's
 most-recent-N connection timestamps, held in a ring buffer (see §1).
@@ -269,9 +282,10 @@ what counts as a plausible beacon period:
    `window/3` slide into the plausible range — run `corpus-spotcheck.sh`
    after each corpus extension to confirm the gate is still holding.
 
-When both mechanisms reject the only strong peak, the pair still
-emits a beacon finding via the statistical path (without the spectral
-score boost), and the blocked count is recorded in `analysis_stats`.
+When both mechanisms reject the only strong peak, no spectral annotation is
+added, and the blocked count is recorded in `analysis_stats`. (The beacon
+finding's score comes from the statistical path either way — the spectral
+result never feeds it.)
 
 **`[artifact Xs suppressed]` in the Detail line.** This tag appears
 when the rescue *succeeded* on a shorter plausible period AND a
@@ -287,30 +301,33 @@ The path is gated to keep its CPU cost off the hot path:
 1. **`SpectralEnabled` flag** (default on). Operator can disable
    if real-corpus calibration shows too many false positives or if
    per-run runtime budget is tight.
-2. **Rescue-only invocation.** Spectral runs only when the
+2. **Weak-timing-only invocation.** Spectral runs only when the
    statistical chain already scored `ts < SpectralRescueThreshold`
    (default 0.5) — pairs that scored well don't get spectral run
-   on them.
+   on them. (The config field name retains the legacy "rescue" word;
+   it now gates whether the annotation is computed, not a score boost.)
 3. **Reservoir floor.** Below `SpectralMinObservations` (default
    16) the path returns zero. Below 8 it short-circuits
    defensively regardless of operator config — the math is
    unreliable on too few samples.
 
-When the spectral path wins (`spec.Score > tsScore`), the
-Beacon finding's Detail string gets a tag:
+When the spectral path detects a peak above the statistical score
+(`spec.Score > tsScore`), the Beacon finding's Detail string gets an
+annotation (the score is unchanged — note `ts=0.31` below tracks the
+statistical layers, not the spectral peak):
 
 ```
 Connections: 200 | Mean interval: 60.4s | CV: 0.32 |
-Score components: ts=0.62 ds=0.85 hist=0.71 dur=0.40 |
+Score components: ts=0.31 ds=0.85 hist=0.71 dur=0.40 |
 ts_layers: raw=0.31 mm=0.12 ent=0.08 |
-Spectral rescued: score=0.62 (period 60.3s, 22.8×median, power 37.2, threshold 12.0)
+Spectral signal (informational, unscored): period 60.3s, 22.8×median, power 37.2, threshold 12.0
 ```
 
-So an analyst triaging the finding can see which signal drove
-the timing score. A beacon at CV ≈ 0.5 that scored High via
-spectral rescue is operationally different from one that scored
-High via Bowley + MAD: the former is more likely deliberately
-jittered C2, the latter more likely tight automation.
+So an analyst triaging the finding can see that a frequency-domain peak was
+present even though the statistical timing score is what drove the severity.
+A spectral annotation on a CV ≈ 0.5 beacon is a hint that the timing may be
+deliberately jittered — worth a closer look — but it is not itself evidence
+that lifts the score.
 
 As of v0.34.0, all three pre-spectral layer scores are always
 surfaced in the detail string (`ts_layers: raw=X mm=Y ent=Z`)
@@ -596,16 +613,17 @@ changed**, and the golden corpus is unchanged:
 Catches: fixed-interval implants (Cobalt Strike default 60s, Empire 5min,
 custom RATs), long-running tunnels with constant-size keepalives.
 
-Catches (via the spectral rescue path): bounded-jitter beacons —
-fixed schedule with random offsets around each scheduled
+Annotates (via the spectral path, but does not score): bounded-jitter
+beacons — fixed schedule with random offsets around each scheduled
 timestamp. The statistical paths score these poorly because the
 interval distribution looks spread; Lomb-Scargle finds the
 underlying period because phase doesn't accumulate. Burst-connect
 beacons (multiple connections per burst, long silence between
-bursts) are also caught: the plausibility gate is lower-bound only
+bursts) also get the annotation: the plausibility gate is lower-bound only
 so legitimate long spectral periods are not blocked. The
-`Spectral rescue: period≈Xs` tag in the Detail line marks
-findings that the frequency-domain path rescued.
+`Spectral signal (informational, unscored):` tag in the Detail line marks
+these findings; the validation (above) demoted this path to a hint, so it
+flags the pattern for the analyst but does not lift the score.
 
 Misses (intentionally, to limit false positives): adversarial
 jitter at σ/period > 0.45 where the spectral peak itself washes

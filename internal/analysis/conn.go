@@ -925,24 +925,33 @@ func (a *Analyzer) analyzeConn(files []string) {
 		ivMean := fmean(ivs)
 		ivMedian := fmedian(ivs)
 
-		// Spectral augmentation: frequency-domain rescue for the
-		// class of beacons the Bowley/MAD/multimodal/entropy paths
+		// Spectral signal (annotation-only): frequency-domain detection
+		// of the class of beacons the Bowley/MAD/multimodal/entropy paths
 		// all explicitly miss — a single fixed period with enough
 		// bounded jitter to wreck statistical regularity scores but
 		// not enough to wash out a Lomb-Scargle peak. Uses the
 		// dedicated spectralTs series (capped at spectralTsCap=2000)
 		// rather than tsData so that pairs with ~200-600 events get
-		// their full timestamp series. The plausibility gate
-		// [ivMedian/5, ivMedian×5] rejects burst-clustering artifacts
-		// whose dominant period is orders of magnitude from the
-		// observed inter-arrival cadence — the primary source of
-		// spectral false positives.
+		// their full timestamp series. Only a lower plausibility bound
+		// (ivMedian/5) is applied; the upper bound is deliberately disabled
+		// so burst-connect beacons (median far below true period) survive,
+		// but that opening also admits burst-clustering artifacts. The
+		// 2026-06-21 timing-axis validation showed they dominate (0 true
+		// positives, 400+ benign CRITICALs to CDN/SaaS/cloud), so the
+		// spectral result is recorded as an analyst hint and does NOT lift
+		// tsScore (see the assignment below).
 		var spectralRescued bool
 		var spectralResult SpectralResult
 		if a.cfg.SpectralEnabled && tsScore < a.cfg.SpectralRescueThreshold && len(st.spectralTs) >= a.cfg.SpectralMinObservations {
 			spec := spectralScore(st.spectralTs, a.cfg.SpectralMinObservations, a.cfg.SpectralFAPThreshold, ivMedian/5.0, 0)
 			if spec.Score > tsScore {
-				tsScore = spec.Score
+				// Annotation-only: record the spectral signal but do NOT lift
+				// tsScore. 2026-06-21 timing-axis validation: spectral rescued
+				// 0 true positives and 400+ benign CRITICALs (CDN/SaaS/cloud)
+				// on a live-C2 corpus; the period gate that would suppress them
+				// was deliberately removed for burst-connect beacons (see
+				// TestSpectralScore_PlausibilityGate_BurstConnectBeaconPasses),
+				// so it can't be tuned out. Demoted to an analyst hint.
 				spectralRescued = true
 				spectralResult = spec
 			} else if spec.DominantPeriod > 0 {
@@ -1015,8 +1024,8 @@ func (a *Analyzer) analyzeConn(files []string) {
 
 		detail := fmt.Sprintf("Connections: %d | Mean interval: %.1fs | CV: %.2f | Score components: ts=%.2f ds=%.2f hist=%.2f dur=%.2f conf=%.2f | ts_layers: raw=%.2f mm=%.2f ent=%.2f", totalObserved, ivMean, ivCV, tsScore, dsScore, hScore, durScore, confMod, tsRaw, tsMM, tsEnt)
 		if spectralRescued {
-			detail += fmt.Sprintf(" | Spectral rescued: score=%.2f (period %.1fs, %.1f×median, power %.1f, threshold %.1f)",
-				spectralResult.Score, spectralResult.Period, spectralResult.Period/ivMedian,
+			detail += fmt.Sprintf(" | Spectral signal (informational, unscored): period %.1fs, %.1f×median, power %.1f, threshold %.1f",
+				spectralResult.Period, spectralResult.Period/ivMedian,
 				spectralResult.RawPower, a.cfg.SpectralFAPThreshold)
 			if spectralResult.DominantPeriod > 0 {
 				detail += fmt.Sprintf(" [artifact %.1fs (%.0f×median) suppressed]",
@@ -1264,7 +1273,8 @@ func (a *Analyzer) scoreChannel(recs []chanRec, winMin, winMax, prevalenceMod fl
 	if a.cfg.SpectralEnabled && tsScore < a.cfg.SpectralRescueThreshold && len(spectralTs) >= a.cfg.SpectralMinObservations {
 		spec := spectralScore(spectralTs, a.cfg.SpectralMinObservations, a.cfg.SpectralFAPThreshold, ivMedian/5.0, 0)
 		if spec.Score > tsScore {
-			tsScore = spec.Score
+			// Annotation-only — see the main beacon loop. The spectral signal
+			// is recorded but does not lift tsScore.
 			cs.spectralRescued = true
 			cs.spectralPeriod = spec.Period
 		}

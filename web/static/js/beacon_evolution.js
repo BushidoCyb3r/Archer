@@ -66,7 +66,7 @@ const BeaconEvolution = (() => {
     lines.push(`ts=${(r.ts_score || 0).toFixed(2)}  ds=${(r.ds_score || 0).toFixed(2)}  hist=${(r.hist_score || 0).toFixed(2)}  dur=${(r.dur_score || 0).toFixed(2)}`);
     if (r.spectral_rescued) {
       const period = r.spectral_period > 0 ? ` period≈${r.spectral_period.toFixed(1)}s` : '';
-      lines.push(`Spectral rescue${period}`);
+      lines.push(`Spectral signal${period}`);
     }
     return lines;
   }
@@ -154,7 +154,7 @@ const BeaconEvolution = (() => {
     }).join('');
 
     // Legend rendered inside the SVG below the plot area. Line swatches
-    // for the five series; diamond for Spectral rescue (matches data-point
+    // for the five series; diamond for Spectral signal (matches data-point
     // marker shape). Centered horizontally across the full viewBox width.
     const legItems = [
       { label: 'Score (0-100)', color: COLORS.score,    diamond: false },
@@ -162,7 +162,7 @@ const BeaconEvolution = (() => {
       { label: 'Data size',     color: COLORS.ds,        diamond: false },
       { label: 'Histogram',     color: COLORS.hist,      diamond: false },
       { label: 'Persistence',   color: COLORS.dur,       diamond: false },
-      { label: 'Spectral rescue', color: COLORS.spectral, diamond: true  },
+      { label: 'Spectral signal', color: COLORS.spectral, diamond: true  },
     ];
     const SW = 16, SG = 5, IG = 10, CPX = 6;
     const iw = it => SW + SG + it.label.length * CPX;

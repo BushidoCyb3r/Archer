@@ -34,10 +34,10 @@ import (
 //	dst_ip        — IP or CIDR; matches finding.DstIP
 //	sensor        — exact sensor match
 //	from, to      — inclusive Timestamp window; either "2006-01-02 15:04:05" or RFC3339
-//	spectral_only — "true" restricts to Beacon findings whose timing axis
-//	                was rescued by the spectral path (Detail contains
-//	                "Spectral rescued:"). Used by the calibration loop to
-//	                triage which rescue candidates are true vs false positives.
+//	spectral_only — "true" restricts to findings carrying a spectral signal
+//	                (SpectralRescued flag set). Spectral is annotation-only:
+//	                it flags possible jittered periodicity for analyst review
+//	                but does not affect the score.
 //	ts_min/ts_max, ds_min/ds_max, hist_min/hist_max, dur_min/dur_max
 //	              — inclusive [min,max] bounds on the four beacon sub-scores
 //	                (each axis is 0–1; either bound may be omitted). Setting
@@ -293,13 +293,11 @@ func (s *Server) filterFindings(findings []model.Finding, q url.Values, deltaSin
 		if iocOnly && !ioMatch {
 			continue
 		}
-		// Spectral-rescued filter: matches the tag the analyzer
-		// writes into Detail at emit time. Substring match is
-		// adequate — the tag is a fixed prefix the analyzer
-		// controls; nothing else in the codebase emits that exact
-		// string. If/when the rescue annotation surface needs
-		// stronger typing, this is the call site to upgrade.
-		if spectralOnly && !strings.Contains(f.Detail, "Spectral rescued:") {
+		// Spectral filter: matches the structured SpectralRescued flag set
+		// at emit time, not a Detail substring (which the flag tracks but
+		// which can change wording). Spectral is annotation-only, so this
+		// selects findings carrying a spectral signal, not score-boosted ones.
+		if spectralOnly && !f.SpectralRescued {
 			continue
 		}
 		f.IOCMatch = ioMatch

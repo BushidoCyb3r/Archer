@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
-# corpus-spotcheck.sh — validates the spectral rescue plausibility gate
+# corpus-spotcheck.sh — validates the spectral plausibility gate
 # against live findings in the Archer database.
+#
+# NOTE: spectral is annotation-only as of the 2026-06-21 timing-axis
+# validation — it no longer feeds a finding's score. The gate below still
+# runs (it decides whether the spectral annotation is attached), so these
+# checks remain valid sanity checks on the annotation's period; "rescue"
+# persists below as the path's legacy nickname.
 #
 # The gate is lower-bound only: spectral_period >= median_interval/5.
 # There is no upper bound because burst-connect beacons (many connections
@@ -47,21 +53,20 @@ fi
 
 # Spectral data lives in beacon_history. findings carries median_interval.
 # The rescues we care about are in findings.detail (new-code format after
-# re-analysis): "Spectral rescued: score=X (period Ys, N×median, ...)".
+# re-analysis): "Spectral signal (informational, unscored): ... period Ys, N×median, ...".
 # Pre-re-analysis (old-code detail format), there is no ratio in the
 # detail string — run analysis with the new code before using this script.
 
 # ── Timing-layer census (advisory) ───────────────────────────────────────────
-# Runs first, and regardless of whether any spectral rescue fired — the rest of
-# this script validates spectral specifically, but the census exists to place
-# spectral among the four timing layers (max(ts_raw, ts_mm, ts_ent, spectral)),
-# and is most informative precisely when spectral is NOT the driver. Counts how
-# often each layer is the deciding one; the winner expression mirrors conn.go's
-# strict-greater upgrade chain (spectral if it rescued, else the highest of
-# raw/mm/ent with raw winning ties). A spectral share that dwarfs the others, or
-# an entropy/multimodal share climbing across runs, is a cue to validate that
-# layer against analyst dispositions — which beacon-attribution.sh crosstabs in
-# full. Requires migration 0034 (per-layer columns on findings).
+# Counts how often each timing layer is the deciding one. The score is
+# ts_score = max(ts_raw, ts_mm, ts_ent); spectral is annotation-only (the
+# 2026-06-21 timing-axis validation demoted it) and is NOT a deciding layer, so
+# the winner expression mirrors conn.go's strict-greater chain over raw/mm/ent
+# (raw winning ties). An entropy/multimodal share climbing across runs is a cue
+# to validate that layer against analyst dispositions — which
+# beacon-attribution.sh crosstabs in full, alongside the separate
+# spectral-annotation rate. Requires migration 0034 (per-layer columns on
+# findings).
 
 LAYERS_OK=$(sqlite3 "$DB" "
   SELECT COUNT(*) FROM pragma_table_info('findings') WHERE name = 'ts_raw';
@@ -82,7 +87,6 @@ else
         echo "Deciding timing layer across $LAYER_BEACONS beacon finding(s):"
         sqlite3 -column -header "$DB" "
           SELECT CASE
-                   WHEN spectral_rescued = 1            THEN 'spectral'
                    WHEN ts_ent > ts_raw AND ts_ent > ts_mm THEN 'entropy'
                    WHEN ts_mm  > ts_raw                 THEN 'multimodal'
                    ELSE 'raw'
@@ -105,7 +109,7 @@ echo ""
 
 TOTAL=$(sqlite3 "$DB" "
   SELECT COUNT(*) FROM findings
-  WHERE detail LIKE '%Spectral rescued%'
+  WHERE detail LIKE '%Spectral signal%'
     AND median_interval > 0;
 ")
 echo "Spectral-rescued findings with median_interval: $TOTAL"
@@ -124,7 +128,7 @@ if [ "$TOTAL" -gt 0 ]; then
 
     # ── Check 1: lower-bound plausibility (PASS/FAIL) ──────────────────────
     # Extract spectral_period from the new-format detail string:
-    # "Spectral rescued: score=X.XX (period Ys, N×median, ...)"
+    # "Spectral signal (informational, unscored): ... period Ys, N×median, ..."
     # Note: old-format detail has "dominant period Ys" — different keyword.
     # Run analysis with current code to populate the new format before running.
 
@@ -138,7 +142,7 @@ if [ "$TOTAL" -gt 0 ]; then
                  ) AS REAL
                ) AS spectral_period
         FROM findings
-        WHERE detail LIKE '%Spectral rescued%'
+        WHERE detail LIKE '%Spectral signal%'
           AND detail LIKE '% period %s,%'
           AND median_interval > 0
       )
@@ -162,7 +166,7 @@ if [ "$TOTAL" -gt 0 ]; then
                      ) AS REAL
                    ) AS spectral_period
             FROM findings
-            WHERE detail LIKE '%Spectral rescued%'
+            WHERE detail LIKE '%Spectral signal%'
               AND detail LIKE '% period %s,%'
               AND median_interval > 0
           )

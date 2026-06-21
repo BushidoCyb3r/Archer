@@ -1,13 +1,25 @@
-# Spectral Rescue Tuning Manual
+# Spectral Tuning Manual
 
-An operator's guide to dialing in the spectral path's false-positive
-vs. true-positive trade-off against your traffic. The math is in
-`docs/DETECTION_METHODS.md` §2 — this doc is the *how-to-tune-it*
-companion.
+An operator's guide to dialing in the spectral path against your traffic.
+The math is in `docs/DETECTION_METHODS.md` §2 — this doc is the
+*how-to-tune-it* companion.
+
+> **Spectral is annotation-only.** As of the 2026-06-21 timing-axis
+> validation, the spectral path no longer affects a finding's score or
+> severity — it only adds a "possible jittered periodicity" note for the
+> analyst (and sets the `spectral_rescued` flag that `spectral:true` /
+> `spectral_only` select on). The validation against a live C2 corpus found
+> spectral decided **zero** true positives while inflating 400+ benign
+> clustered findings to CRITICAL, so the score boost was demoted to a hint.
+> The knobs below therefore control **when the annotation appears and what
+> it costs to compute**, not detection strength. None of them can change a
+> finding's score anymore. If a future fixed-grid / burst-connect C2 case
+> proves spectral earns a score contribution back, that's a separate
+> detection-semantics change.
 
 > **Default values ship calibrated for typical enterprise traffic.**
-> If you're seeing reasonable Beacon findings and no flood of
-> spectral-rescued false positives, you don't need this doc.
+> If you're seeing reasonable Beacon findings and the spectral annotations
+> aren't cluttering triage, you don't need this doc.
 
 ---
 
@@ -180,9 +192,11 @@ the threshold from 12 → 14 removes most without losing the
 high-power true positives.
 
 **Lower it (more permissive) when:** ground truth shows a known
-jittered C2 sample's Detail line carries `Spectral rescued: ...
-power 10.4 ...` against your threshold of 12 — the peak was there,
-the threshold was the gate that closed it.
+jittered C2 sample's Detail line carries `Spectral signal
+(informational, unscored): ... power 10.4 ...` against your threshold of
+12 — the peak was there, the threshold was the gate that closed it.
+(Remember: a lower threshold surfaces more *annotations* for triage; it
+does not change any score.)
 
 > **Sanity check before adjusting:** read the actual `power=X`
 > value in the Detail line of a few suspect findings. The number
@@ -249,24 +263,24 @@ Two anti-patterns to avoid:
 
 ## Reading the Detail line
 
-The full diagnostic tag on a spectral-rescued finding looks
-like:
+The full diagnostic tag on a spectral-flagged finding looks
+like (note `ts=0.31` reflects the statistical layers — the spectral peak
+is annotated but does not feed the score):
 
 ```
 Connections: 200 | Mean interval: 60.4s | CV: 0.32 |
-Score components: ts=0.62 ds=0.85 hist=0.71 dur=0.40 conf=1.00 |
-Spectral rescued: score=0.91 (period 60.3s, 22.8×median, power 37.2, threshold 12.0)
+Score components: ts=0.31 ds=0.85 hist=0.71 dur=0.40 conf=1.00 |
+Spectral signal (informational, unscored): period 60.3s, 22.8×median, power 37.2, threshold 12.0
 ```
 
-Five fields in the rescue tag, each telling you something
+Four fields in the annotation, each telling you something
 calibration-relevant:
 
 | Field | What to read it for |
 |---|---|
-| `score=0.91` | The spectral path's contribution to the final `ts`. Above 0.7 = strong rescue; 0.5-0.7 = marginal. |
 | `period 60.3s` | What the implant's actual cadence appears to be. Match against known C2 default beacon intervals (CS 60s, Empire 5min) or against legitimate periodicity in your environment (cron `* */15 * * *` → 900s). |
-| `22.8×median` | Period expressed as a multiple of the pair's median inter-arrival interval. Values below ~5 indicate the periodogram is finding intra-burst rhythm, not beacon cadence (the plausibility gate should block these; if you see one, check the gate). Values above ~20 mean the spectral period is operating on a very different cadence than the typical connection rate — normal for burst-connect C2. |
-| `power 37.2` | How far above the noise floor the peak rose. **This is the dial you most often need.** Power 12.1 against threshold 12 is borderline; power 37 is unambiguous. |
+| `22.8×median` | Period expressed as a multiple of the pair's median inter-arrival interval. Values below ~5 indicate the periodogram is finding intra-burst rhythm, not beacon cadence (the plausibility gate should block these; if you see one, check the gate). Values above ~20 mean the spectral period is operating on a very different cadence than the typical connection rate — normal for burst-connect C2, and the dominant shape in the benign FP population the validation flagged. |
+| `power 37.2` | How far above the noise floor the peak rose. **This is the dial you most often need.** Power 12.1 against threshold 12 is borderline; power 37 is unambiguous. (High power no longer means high score — it means a confident annotation.) |
 | `threshold 12.0` | The active power threshold on this run. Echoed so you can correlate against the active setting without opening config. |
 
 **Common patterns:**
@@ -322,12 +336,12 @@ the rescue didn't fire.
 
 Approach:
 1. Click the finding (or grep the export). Read the Detail
-   line — does it have a `Spectral rescued:` tag at all?
-2. **No tag:** rescue gate didn't open. Check the statistical
-   `ts` score. If it's above the current rescue gate (default
+   line — does it have a `Spectral signal` tag at all?
+2. **No tag:** the gate didn't open. Check the statistical
+   `ts` score. If it's above the current gate (default
    0.5), raise the gate to 0.6 or 0.7.
-3. **Tag present but `score < tsScore`:** spectral ran but
-   didn't win. Read the `power=X` value.
+3. **Tag present:** spectral found a peak (it's now an annotation,
+   not a score driver). Read the `power=X` value.
    - **Power well below FAP threshold:** Lomb-Scargle didn't
      find a peak. The jitter is high enough that frequency-
      domain doesn't help either; nothing to tune.

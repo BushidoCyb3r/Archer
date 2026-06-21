@@ -234,10 +234,10 @@ CREATE TABLE findings (
     top_uris        TEXT NOT NULL DEFAULT '',  -- migration 0020: JSON []{uri,count} HTTP-beacon
                                                -- path footprint, aggregated pre-dedup
     ts_raw           REAL    NOT NULL DEFAULT 0,  -- migration 0034: per-layer timing attribution.
-    ts_mm            REAL    NOT NULL DEFAULT 0,  -- composed ts_score = max(ts_raw, ts_mm, ts_ent,
-    ts_ent           REAL    NOT NULL DEFAULT 0,  -- spectral). Persists the deciding layer so it
-    spectral_rescued INTEGER NOT NULL DEFAULT 0,  -- survives restart and joins to the finding's
-    spectral_period  REAL    NOT NULL DEFAULT 0,  -- analyst disposition (beacon-attribution.sh)
+    ts_mm            REAL    NOT NULL DEFAULT 0,  -- composed ts_score = max(ts_raw, ts_mm, ts_ent).
+    ts_ent           REAL    NOT NULL DEFAULT 0,  -- Persists the deciding layer so it survives restart.
+    spectral_rescued INTEGER NOT NULL DEFAULT 0,  -- spectral is annotation-only (does NOT feed ts_score);
+    spectral_period  REAL    NOT NULL DEFAULT 0,  -- the flag/period are an analyst hint (beacon-attribution.sh)
     channel          TEXT    NOT NULL DEFAULT '', -- migration 0035: per-channel beacon discriminator
                                                   -- ("ja3:<hash>"); empty on the blend. Enters
                                                   -- Fingerprint() so a split channel keeps its own
@@ -433,12 +433,14 @@ CREATE TABLE service_tokens (
 );
 
 -- v0.30.0 / migration 0023. spectral_rescued and spectral_period on
--- beacon_history. spectral_rescued=1 when Lomb-Scargle rescued the
+-- beacon_history. spectral_rescued=1 when Lomb-Scargle found a peak on the
 -- beacon that day; spectral_period is the dominant period in seconds.
+-- (Spectral is annotation-only — the flag records a spectral signal, not a
+-- score boost; the column name retains the legacy "rescued" word.)
 -- Both update alongside peak-characterisation columns (severity, sub-axis
 -- scores). DEFAULT 0 — pre-0023 rows and non-spectral beacons read as
--- "not rescued." The evolution chart marks rescued days with a distinct
--- indicator.
+-- "no spectral signal." The evolution chart marks flagged days with a
+-- distinct indicator.
 ALTER TABLE beacon_history ADD COLUMN spectral_rescued INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE beacon_history ADD COLUMN spectral_period  REAL    NOT NULL DEFAULT 0;
 

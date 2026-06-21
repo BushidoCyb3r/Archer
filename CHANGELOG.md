@@ -30,6 +30,42 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.75.0] — 2026-06-21
+
+### Detection changes
+
+- **Spectral beacon detection is now annotation-only — it no longer affects a
+  finding's score or severity.** The Lomb-Scargle path still runs on pairs
+  whose statistical timing score is weak and still flags them (the
+  `spectral_rescued` flag, the `spectral:true` / `spectral_only` filters, and a
+  Detail note are all retained), but the peak it finds no longer feeds the
+  timing axis. A live-C2 timing-axis validation (jitter sweep against a Sliver
+  C2, five labelled beacon cells) found the spectral path decided **zero** true
+  positives — `raw` carried every labelled beacon, even at maximum Sliver
+  jitter — while inflating 400+ benign clustered findings (CDN/SaaS/cloud
+  polling) to CRITICAL. The period gate that would suppress those false
+  positives is deliberately one-sided (an upper bound would block burst-connect
+  beacons), so they can't be tuned out; the score boost was therefore demoted
+  to an analyst hint. The two detection cases spectral theoretically protects —
+  fixed-grid cron C2 and burst-connect C2 — remain untested against a labelled
+  true positive, so the annotation is kept (not removed) to surface any future
+  such case in triage.
+- **Effect on existing baselines:** beacon findings that previously scored High
+  or CRITICAL *solely* via the spectral boost drop to their statistical score
+  (typically Medium/High). No finding gains score. Re-ground any baseline that
+  keyed on spectral-driven CRITICALs.
+
+### Changed
+
+- The `spectral:true` query field and the `spectral_only` API filter now match
+  the structured `spectral_rescued` flag instead of grepping the Detail string,
+  so they survive the annotation's wording change (same finding set).
+- Analyst-facing wording moved from "Spectral rescued" to "Spectral signal"
+  across the finding Detail line, the filter chip, the beacon-evolution legend,
+  and the docs. The `spectral_rescued` / `spectral_period` columns and the
+  `spectral_rescue_threshold` config key keep their names (renaming them is a
+  schema/settings break not worth the churn under the current deployment model).
+
 ## [v0.74.1] — 2026-06-15
 
 ### Changed

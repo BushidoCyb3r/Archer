@@ -20,16 +20,17 @@ func matches(t *testing.T, q string, f model.Finding) bool {
 
 func beacon() model.Finding {
 	return model.Finding{
-		Type:     "Beacon",
-		Severity: model.SevCritical,
-		Score:    98,
-		SrcIP:    "10.2.4.9",
-		DstIP:    "91.218.114.11",
-		DstPort:  "443",
-		Detail:   "Spectral rescued: period 3600s",
-		Hostname: "cdn.evil.com",
-		Sensor:   "sensor-a",
-		JA3:      "a0e9f5d64349fb13191bc781f81f42e1",
+		Type:            "Beacon",
+		Severity:        model.SevCritical,
+		Score:           98,
+		SrcIP:           "10.2.4.9",
+		DstIP:           "91.218.114.11",
+		DstPort:         "443",
+		Detail:          "Spectral signal (informational, unscored): period 3600s",
+		SpectralRescued: true,
+		Hostname:        "cdn.evil.com",
+		Sensor:          "sensor-a",
+		JA3:             "a0e9f5d64349fb13191bc781f81f42e1",
 	}
 }
 
@@ -68,12 +69,12 @@ func TestBareTermSubstringAcrossFields(t *testing.T) {
 		q    string
 		want bool
 	}{
-		{"Beacon", true},     // type
-		{"rescued", true},    // detail substring
-		{"443", true},        // port
-		{"nonsense", false},  //
-		{"10.2.4.9", true},   // exact IP against src
-		{"10.2.4.99", false}, // full-IP must be exact, not prefix
+		{"Beacon", true},        // type
+		{"informational", true}, // detail substring
+		{"443", true},           // port
+		{"nonsense", false},     //
+		{"10.2.4.9", true},      // exact IP against src
+		{"10.2.4.99", false},    // full-IP must be exact, not prefix
 	}
 	for _, tc := range tests {
 		if got := matches(t, tc.q, f); got != tc.want {
@@ -125,11 +126,11 @@ func TestPrecedenceAndGrouping(t *testing.T) {
 }
 
 func TestQuotedPhrase(t *testing.T) {
-	f := beacon() // detail contains "Spectral rescued: period 3600s"
-	if !matches(t, `detail:"Spectral rescued"`, f) {
-		t.Error(`detail:"Spectral rescued" should match`)
+	f := beacon() // detail contains "Spectral signal (informational, unscored): period 3600s"
+	if !matches(t, `detail:"Spectral signal"`, f) {
+		t.Error(`detail:"Spectral signal" should match`)
 	}
-	if matches(t, `detail:"rescued spectral"`, f) {
+	if matches(t, `detail:"signal Spectral"`, f) {
 		t.Error("phrase order matters; should not match")
 	}
 	// A bare quoted phrase is an all-field substring.
