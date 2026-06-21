@@ -107,11 +107,12 @@ func TestRunMigrations_ExistingPreFrameworkDB_StampsVersion1(t *testing.T) {
 	// against a single-table seed (e.g. 0007 ADD COLUMN on `sensors`,
 	// or any future ALTER of `users`).
 	preFrameworkTables := []string{
-		// findings carries `type` because a real pre-framework install
-		// created it with the full 0001 schema, and migration 0031 reads
-		// findings.type. The stub still omits the rest of 0001's columns so
+		// findings carries `type` and `is_new` because a real pre-framework
+		// install created it with the full 0001 schema, and later migrations
+		// reference those columns: 0031 reads findings.type, and 0038 indexes
+		// findings.is_new. The stub still omits the rest of 0001's columns so
 		// the re-run check below can detect a spurious 0001 re-create.
-		`CREATE TABLE findings (id INTEGER PRIMARY KEY, type TEXT)`,
+		`CREATE TABLE findings (id INTEGER PRIMARY KEY, type TEXT, is_new INTEGER DEFAULT 0)`,
 		`CREATE TABLE sensors (id INTEGER PRIMARY KEY)`,
 		`CREATE TABLE users (id INTEGER PRIMARY KEY)`,
 		`CREATE TABLE allowlist (id INTEGER PRIMARY KEY)`,

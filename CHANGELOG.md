@@ -30,6 +30,22 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+### Changed
+
+- **Indexed the two findings COUNT queries** that previously full-scanned the
+  table on every analyze pass and bell refresh: `idx_findings_is_new` backs the
+  new-findings counter (`WHERE is_new = 1`) and `idx_findings_detected_at_type`
+  backs the unseen counter (`WHERE detected_at > ? AND type NOT IN (...)`).
+  Both now resolve as covering-index scans. Index-only migration (0038), no
+  schema or data change.
+
+### Added
+
+- **`gate.sh`** — one-command local mirror of the CI gate set (gofmt, `go vet`,
+  `go test -race`, CGO=0 build, govulncheck pinned to the CI version, and the
+  SPA `node --test` harness). Runs govulncheck via `go run` when the binary
+  isn't installed locally, so the full release-readiness check works on any box.
+
 ## [v0.75.0] — 2026-06-21
 
 ### Detection changes
