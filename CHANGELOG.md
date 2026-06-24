@@ -30,6 +30,8 @@ relevant, `### Detection changes` in each release entry.
 
 ## [Unreleased]
 
+## [v0.76.0] — 2026-06-25
+
 ### Changed
 
 - **Indexed the two findings COUNT queries** that previously full-scanned the
