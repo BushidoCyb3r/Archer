@@ -20,7 +20,7 @@ const SSE = (() => {
   }
 
   function _attachListeners(es) {
-    ['progress', 'done', 'notification', 'status', 'ti_result', 'ti_done', 'unauthorized_attempt', 'sensor_enrolled', 'resync_required', 'watch.heartbeat'].forEach(type => {
+    ['progress', 'done', 'notification', 'status', 'ti_result', 'ti_done', 'llm_done', 'unauthorized_attempt', 'sensor_enrolled', 'resync_required', 'watch.heartbeat'].forEach(type => {
       es.addEventListener(type, e => {
         try { _emit(type, JSON.parse(e.data)); } catch(err) { console.error('SSE parse error:', type, err); }
       });

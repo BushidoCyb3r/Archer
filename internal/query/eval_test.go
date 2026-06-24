@@ -101,6 +101,28 @@ func TestStringFieldsAndWildcards(t *testing.T) {
 	}
 }
 
+func TestAIField(t *testing.T) {
+	triaged := model.Finding{Type: "Beacon", Severity: model.SevHigh, Notes: []model.Note{
+		{Author: "analyst", Text: "looking into this"},
+		{Author: model.AuthorAITriage, Text: "LIKELY BENIGN — broadcast destination"},
+	}}
+	untriaged := model.Finding{Type: "Beacon", Severity: model.SevHigh, Notes: []model.Note{
+		{Author: "analyst", Text: "looking into this"},
+	}}
+	if !matches(t, "ai:true", triaged) {
+		t.Error("ai:true should match a finding carrying an AI Triage note")
+	}
+	if matches(t, "ai:true", untriaged) {
+		t.Error("ai:true must not match a finding with no AI Triage note")
+	}
+	if matches(t, "ai:false", triaged) {
+		t.Error("ai:false must not match a triaged finding")
+	}
+	if !matches(t, "ai:false", untriaged) {
+		t.Error("ai:false should match an untriaged finding")
+	}
+}
+
 func TestAttackField(t *testing.T) {
 	b := beacon()                                                          // Beacon → T1071
 	dns := model.Finding{Type: "DNS Beacon", Severity: model.SevHigh}      // → T1071.004

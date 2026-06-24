@@ -104,6 +104,31 @@ type Config struct {
 	CensysAPIID     string `json:"censys_api_id"`
 	CensysAPISecret string `json:"censys_api_secret"`
 
+	// AI enrichment — optional, opt-in summarization of an escalated/triaged
+	// finding's already-collected evidence (detector output + TI notes) into a
+	// short analyst briefing written as a finding note. Annotation-only: the
+	// model output never feeds a finding's score or severity.
+	//
+	// LLMProvider selects the backend: "anthropic" | "gemini" | "openai" |
+	// "ollama" | "dod" | "custom". Cloud providers (anthropic/gemini/openai)
+	// send the (redacted) evidence off-box; "ollama"/"dod"/"custom" point at a
+	// self-hosted OpenAI-compatible endpoint — Ollama on the local/LAN network
+	// (air-gapped posture) or the US DoD GenAI platform inside the accredited
+	// boundary, so the evidence never leaves the enclave. Internal IPs are
+	// tokenized out before send regardless of provider; external threat
+	// indicators (the same ones already shared with TI services) are sent.
+	//
+	// LLMAPIKey is a credential — redacted by secretConfigKeys. LLMBaseURL is
+	// required for ollama/custom; LLMModel is required for every provider
+	// except anthropic (which defaults to claude-opus-4-8).
+	LLMEnabled        bool   `json:"llm_enabled"`
+	LLMProvider       string `json:"llm_provider,omitempty"`
+	LLMBaseURL        string `json:"llm_base_url,omitempty"`
+	LLMModel          string `json:"llm_model,omitempty"`
+	LLMAPIKey         string `json:"llm_api_key,omitempty"`
+	LLMTimeoutSec     int    `json:"llm_timeout_sec,omitempty"`
+	LLMAutoOnEscalate bool   `json:"llm_auto_on_escalate,omitempty"`
+
 	// Operator timezone — IANA name, e.g. "America/New_York". Empty = UTC.
 	// Used by the watch scheduler (WatchTime is HH:MM in this TZ) and by
 	// the off-hours detector (OffHoursStart/End read as hour-of-day in this

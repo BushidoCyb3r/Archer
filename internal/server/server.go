@@ -381,6 +381,11 @@ func (s *Server) routes() {
 	// Threat intel — read=any
 	s.mux.Handle("/api/ti/services", any(s.handleTIServices))
 
+	// AI enrichment status — read=any (the detail pane decides whether to
+	// render the "AI Triage" button). The enrich action itself is on the
+	// {id} router below, write-gated inside the handler.
+	s.mux.Handle("/api/llm/status", any(s.handleLLMStatus))
+
 	// Feed integration (Phase 7) — read=any, mutate=admin enforced inside.
 	// /api/feeds              GET (list) | POST (create, admin)
 	// /api/feeds/{id}         PUT (update, admin) | DELETE (remove, admin)
@@ -451,6 +456,10 @@ func (s *Server) handleFindingRouter(w http.ResponseWriter, r *http.Request) {
 		}
 		if strings.HasSuffix(rest, "/notes") {
 			s.handleAddNote(w, r)
+			return
+		}
+		if strings.HasSuffix(rest, "/enrich") {
+			s.handleEnrich(w, r)
 			return
 		}
 	}

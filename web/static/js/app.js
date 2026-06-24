@@ -9,6 +9,7 @@
   let _selectedFinding = null;
   let _pivotCtx        = null; // {type:'host'|'campaign', label, hrs?, findings[]}
   let _ctxFinding      = null;
+  let _llmStatus       = { enabled: false, provider: '', local: false }; // /api/llm/status; gates the AI Triage button + ctx item
   let _watchActive     = false;
   let _tabMode         = 'findings'; // 'findings' | 'ack' | 'esc' | 'ioc' | 'dismissed' (drives findings-table filter)
   let _activeTab       = 'findings'; // 'findings' | 'ack' | 'esc' | 'ioc' | 'dismissed' | 'campaigns' | 'hosts' (which panel is visible)
@@ -2473,6 +2474,24 @@
       showToast(msg, 6000);
     });
 
+    SSE.on('llm_done', evt => {
+      const msg = evt.ok
+        ? `AI triage complete (${evt.provider}) — briefing added to Notes`
+        : `AI triage failed — ${evt.error || 'unknown error'}`;
+      setStatus(msg);
+      showToast(msg, 6000);
+      // Refresh the detail pane if the enriched finding is on screen, so the
+      // new note appears without a manual reload (mirrors the ti_result path).
+      if (evt.ok && _selectedFinding && _selectedFinding.id === evt.finding_id) {
+        fetchFinding(evt.finding_id).then(updated => {
+          _selectedFinding = updated;
+          Detail.render(updated);
+          const idx = _allFindings.findIndex(x => x.id === updated.id);
+          if (idx >= 0) _allFindings[idx] = updated;
+        }).catch(() => {});
+      }
+    });
+
     // resync_required is the canary the server sends when an SSE
     // buffer overflowed and we missed events. Best-effort live
     // updates is fine for most apps but Archer's live channel
@@ -3075,6 +3094,40 @@
     if (tlsBtn) {
       tlsBtn.addEventListener('click', () => {
         if (_selectedFinding) pivotByTLS(_selectedFinding);
+      });
+    }
+    // AI Triage — reveal the button only when enrichment is enabled+configured
+    // and the user can write. The title spells out the egress posture so the
+    // analyst knows whether clicking sends evidence off-box.
+    const aiBtn = document.getElementById('ai-enrich-btn');
+    if (aiBtn) {
+      api('/api/llm/status').then(st => {
+        _llmStatus = st || _llmStatus;
+        const canWrite = _currentUser && _currentUser.role !== 'viewer';
+        if (st && st.enabled && canWrite) {
+          aiBtn.classList.remove('hidden');
+          aiBtn.title = st.local
+            ? `Summarize with ${st.provider} — stays on your network. Decision support, written as a note.`
+            : `Summarize with ${st.provider} — sends redacted evidence off-box. Decision support, written as a note.`;
+        }
+      }).catch(() => {});
+      aiBtn.addEventListener('click', async () => {
+        if (!_selectedFinding) return;
+        const id = _selectedFinding.id;
+        aiBtn.disabled = true;
+        try {
+          await api(`/api/findings/${id}/enrich`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({}),
+          });
+          setStatus('AI triage running…');
+          showToast('AI triage running in background', 5000);
+        } catch (e) {
+          setStatus('Error: ' + e);
+        } finally {
+          aiBtn.disabled = false;
+        }
       });
     }
     const rawClose = document.getElementById('raw-dlg-close');
@@ -4361,6 +4414,19 @@
     // without parsing on every lookup.
     set('cfg-censys-id',      cfg.censys_api_id);
     set('cfg-censys-secret',  cfg.censys_api_secret);
+    // AI enrichment. Provider defaults to anthropic in the select; only
+    // override when the stored config names one.
+    const llmEnabled = document.getElementById('cfg-llm-enabled');
+    if (llmEnabled) llmEnabled.checked = !!cfg.llm_enabled;
+    const llmProvider = document.getElementById('cfg-llm-provider');
+    if (llmProvider && cfg.llm_provider) llmProvider.value = cfg.llm_provider;
+    set('cfg-llm-model',    cfg.llm_model);
+    set('cfg-llm-key',      cfg.llm_api_key);
+    set('cfg-llm-base-url', cfg.llm_base_url);
+    const llmTimeout = document.getElementById('cfg-llm-timeout');
+    if (llmTimeout) llmTimeout.value = cfg.llm_timeout_sec || '';
+    const llmAuto = document.getElementById('cfg-llm-auto-escalate');
+    if (llmAuto) llmAuto.checked = !!cfg.llm_auto_on_escalate;
     const cidrEl = document.getElementById('cfg-org-cidrs');
     if (cidrEl) cidrEl.value = Array.isArray(cfg.org_internal_cidrs) ? cfg.org_internal_cidrs.join('\n') : '';
     const alwaysFull = document.getElementById('cfg-watch-always-full');
@@ -4477,6 +4543,13 @@
       siem_enabled: !!(document.getElementById('cfg-siem-enabled') || {}).checked,
       siem_host:    g('cfg-siem-host').trim(),
       siem_port:    parseInt(g('cfg-siem-port'), 10) || 9003,
+      llm_enabled:  !!(document.getElementById('cfg-llm-enabled') || {}).checked,
+      llm_provider: g('cfg-llm-provider'),
+      llm_model:    g('cfg-llm-model').trim(),
+      llm_api_key:  g('cfg-llm-key'),
+      llm_base_url: g('cfg-llm-base-url').trim(),
+      llm_timeout_sec: parseInt(g('cfg-llm-timeout'), 10) || 0,
+      llm_auto_on_escalate: !!(document.getElementById('cfg-llm-auto-escalate') || {}).checked,
     };
   }
 
@@ -4938,6 +5011,13 @@
       const hasChart = !!(f && (f.type === 'Beacon' || f.type === 'HTTP Beacon' || f.type === 'DNS Beacon' || f.type === 'Port-Hopping Beacon'));
       if (chartItem) chartItem.style.display = hasChart ? '' : 'none';
 
+      // AI Triage: the ctx-write loop already hid it for viewers and on the
+      // aggregate tabs; additionally require enrichment to be enabled+configured
+      // (same gate as the detail-pane button), so it never offers a click that
+      // would 400. _llmStatus is fetched once at init.
+      const aiItem = document.getElementById('ctx-ai-triage');
+      if (aiItem && !_llmStatus.enabled) aiItem.style.display = 'none';
+
       // Campaign-only items: revealed when campaigns.js attached _campaign.
       const showCampaign = !!(f && f._campaign);
       document.querySelectorAll('.ctx-campaign-only').forEach(el => {
@@ -5043,6 +5123,9 @@
     });
     document.getElementById('ctx-escalate').addEventListener('click', () => {
       if (_ctxFinding) document.getElementById('esc-btn').click();
+    });
+    document.getElementById('ctx-ai-triage').addEventListener('click', () => {
+      if (_ctxFinding) document.getElementById('ai-enrich-btn').click();
     });
     document.getElementById('ctx-dismiss').addEventListener('click', () => {
       if (!_ctxFinding) return;
@@ -5830,7 +5913,7 @@
       // picker applies instantly via localStorage, no save), and relabel
       // Cancel to Close since there's nothing to cancel.
       if (u.role !== 'admin') {
-        ['detection', 'ti', 'ops', 'admin'].forEach(t => {
+        ['detection', 'ti', 'ai', 'ops', 'admin'].forEach(t => {
           const btn = document.querySelector('#settings-tabs .dlg-tab-btn[data-settab="' + t + '"]');
           if (btn) btn.style.display = 'none';
         });

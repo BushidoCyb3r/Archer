@@ -41,6 +41,30 @@ relevant, `### Detection changes` in each release entry.
 
 ### Added
 
+- **AI triage enrichment (opt-in, annotation-only).** A new "AI Triage" button
+  on the finding detail view (and an optional auto-run on escalate) asks a
+  configured large-language-model provider to summarize a finding's already-
+  collected evidence — detector output plus TI enrichment notes — into a short
+  analyst briefing, written as a note authored "AI Triage". It is decision
+  support only: the model output never feeds a finding's score, severity, or
+  status (`internal/server/enrich_annotation_only_test.go` locks that
+  invariant). Five providers via three wire implementations
+  (`internal/llm/`): Anthropic (Claude), Google Gemini, OpenAI, and any
+  OpenAI-compatible endpoint — Ollama on a local/LAN host, the **US DoD GenAI
+  platform** inside an accredited boundary, or a custom gateway. The local/
+  enclave providers keep finding context on the operator's own network (the
+  air-gapped / accredited posture); cloud providers send the evidence off-box.
+  Internal addresses (RFC 1918 + Organization Hosts CIDRs) are tokenized out
+  before any send and expanded back in the saved note; external indicators
+  (already shared with TI services) are sent. New endpoints
+  `GET /api/llm/status` and `POST /api/findings/{id}/enrich`, new SSE event
+  `llm_done`, a new admin-only **AI Enrichment** Settings tab, and an **`ai:`
+  query field** (`ai:true` / `ai:false`) to filter findings that carry a
+  briefing. New config
+  keys (`llm_enabled`, `llm_provider`, `llm_base_url`, `llm_model`,
+  `llm_api_key` (redacted), `llm_timeout_sec`, `llm_auto_on_escalate`).
+  Additive to the API/SSE contract and the settings blob — no DB migration, no
+  detection-semantics change.
 - **`gate.sh`** — one-command local mirror of the CI gate set (gofmt, `go vet`,
   `go test -race`, CGO=0 build, govulncheck pinned to the CI version, and the
   SPA `node --test` harness). Runs govulncheck via `go run` when the binary

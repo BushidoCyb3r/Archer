@@ -658,6 +658,10 @@ button, input, select, textarea {
    here or the toggle is a silent no-op. */
 #trend-panel.hidden, #trend-body.hidden, #trend-legend.hidden,
 #trend-zoom-controls.hidden, #trend-tip.hidden, #trend-mode.hidden { display: none; }
+/* AI Triage action button — hidden until /api/llm/status reports enrichment
+   enabled (and the viewer has write access). Scoped per the no-global-.hidden
+   rule above. */
+#ai-enrich-btn.hidden { display: none; }
 /* Lens toggle — Families | Severity segmented pair */
 #trend-mode {
   display: inline-flex;

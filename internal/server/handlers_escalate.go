@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/BushidoCyb3r/Archer/internal/config"
+	"github.com/BushidoCyb3r/Archer/internal/llm"
 	"github.com/BushidoCyb3r/Archer/internal/model"
 	"github.com/BushidoCyb3r/Archer/internal/siem"
 	"github.com/BushidoCyb3r/Archer/internal/version"
@@ -155,6 +156,18 @@ func (s *Server) handleEscalate(w http.ResponseWriter, r *http.Request) {
 	// unreachable SIEM never adds latency to the escalation. Arguments are
 	// evaluated now, before the goroutine reads them.
 	go s.forwardEscalationToSIEM(s.store.GetConfig(), before, user.DisplayName(), siemDeepLink(r, id))
+
+	// Optional auto AI-triage on escalate, gated by the settings toggle (same
+	// shape as the SIEM auto-forward). Off the response path; misconfiguration
+	// is silently skipped here — the analyst already saw the validation error
+	// when saving config, and a triage briefing is never load-bearing.
+	if cfg := s.store.GetConfig(); cfg.LLMEnabled && cfg.LLMAutoOnEscalate {
+		if provider, err := llm.NewProvider(llmSettingsFromConfig(cfg)); err == nil {
+			if f, ok := s.store.GetFinding(id); ok {
+				go s.runLLMEnrichment(provider, f, cfg.OrgInternalCIDRs)
+			}
+		}
+	}
 	jsonOK(w)
 }
 

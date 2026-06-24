@@ -287,6 +287,7 @@
             <li data-field="detected:&gt;=">First detected (date)</li>
             <li data-token="spectral:true">Spectral signal</li>
             <li data-token="ioc:true">IOC match</li>
+            <li data-token="ai:true">Has AI triage</li>
             <li data-field="tscore:&gt;=">Beacon timing score</li>
             <li data-field="dscore:&gt;=">Beacon data-size score</li>
             <li data-field="hist:&gt;=">Beacon histogram score</li>
@@ -496,6 +497,7 @@
         <button class="action-btn raw"   id="raw-btn"   disabled>Source Records</button>
         <button class="action-btn ja3"   id="tls-btn"   disabled title="Filter every beacon sharing this TLS client fingerprint (JA4 preferred; falls back to JA3)">TLS Pivot</button>
         <button class="action-btn supp"  id="supp-btn"  disabled>Suppress</button>
+        <button class="action-btn ai-triage hidden" id="ai-enrich-btn" disabled title="Summarize this finding's evidence with the configured AI provider — decision support, written as a note. Internal addresses are redacted before send.">AI Triage</button>
         <span id="analyst-rec"></span>
       </div>
     </div>
@@ -550,9 +552,10 @@
   <li id="ctx-chart">Beacon Chart</li>
   <li id="ctx-show-contributing" class="ctx-correlation-only" style="display:none">Show contributing activity</li>
   <li class="ctx-separator ctx-write-sep"></li>
-  <li id="ctx-ack"      class="ctx-write">Acknowledge</li>
-  <li id="ctx-escalate" class="ctx-write">Escalate</li>
-  <li id="ctx-dismiss"  class="ctx-write">Dismiss</li>
+  <li id="ctx-ack"       class="ctx-write">Acknowledge</li>
+  <li id="ctx-escalate"  class="ctx-write">Escalate</li>
+  <li id="ctx-ai-triage" class="ctx-write" style="display:none">AI Triage</li>
+  <li id="ctx-dismiss"   class="ctx-write">Dismiss</li>
   <li id="ctx-suppress" class="ctx-submenu ctx-write">Suppress
     <ul class="ctx-submenu-panel" id="ctx-supp-sub">
       <li data-days="1">1 day</li>
@@ -1343,6 +1346,7 @@
   <div class="dlg-tabs" id="settings-tabs">
     <button class="dlg-tab-btn active" data-settab="detection">Detection</button>
     <button class="dlg-tab-btn" data-settab="ti">Threat Intel</button>
+    <button class="dlg-tab-btn" data-settab="ai">AI Enrichment</button>
     <button class="dlg-tab-btn" data-settab="ops">Operations</button>
     <button class="dlg-tab-btn" data-settab="appearance">Appearance</button>
     <button class="dlg-tab-btn" data-settab="admin">Admin</button>
@@ -1419,6 +1423,37 @@
           </div>
         </label>
       </div>
+    </div>
+    </div>
+    <div class="settings-tab-panel" data-setpanel="ai">
+    <div class="settings-group">
+      <div class="settings-group-title">AI Triage Enrichment</div>
+      <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
+        Adds an &quot;AI Triage&quot; button to the finding detail view that asks the configured model to summarize the finding's evidence (detector output + TI notes) into a short briefing, written as a note. It is decision support only — it never changes a finding's score, severity, or status. Internal addresses (RFC 1918 + your Organization Hosts CIDRs) are tokenized out before the evidence is sent; the external indicators already shared with TI services are sent.
+      </div>
+      <label><input id="cfg-llm-enabled" type="checkbox"> Enable AI triage enrichment</label>
+      <div class="settings-grid" style="margin-top:10px">
+        <label>Provider
+          <select class="dlg-input dlg-select" id="cfg-llm-provider">
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="ollama">Ollama (local / LAN)</option>
+            <option value="dod">DoD GenAI Platform</option>
+            <option value="custom">Custom (OpenAI-compatible)</option>
+          </select>
+        </label>
+        <label>Model<input class="dlg-input" id="cfg-llm-model" type="text" placeholder="e.g. claude-opus-4-8, gpt-4o-mini, llama3.1" autocomplete="off"></label>
+        <label>API Key<input class="dlg-input" id="cfg-llm-key" type="password" placeholder="required for cloud providers" autocomplete="off"></label>
+        <label>Request timeout (s)<input class="dlg-input" id="cfg-llm-timeout" type="number" min="0" placeholder="30"></label>
+      </div>
+      <label style="display:block;margin-top:8px">Base URL <span style="color:var(--fg-dim)">— required for Ollama / DoD / Custom; e.g. http://10.0.0.5:11434/v1</span>
+        <input class="dlg-input" id="cfg-llm-base-url" type="text" placeholder="provider default" autocomplete="off" style="width:100%">
+      </label>
+      <div style="color:var(--fg-dim);font-size:0.85em;margin-top:10px">
+        For air-gapped or accredited deployments, point this at a model on your own network — Ollama on a local/LAN host, or the DoD GenAI platform inside the accredited boundary — so finding context never leaves the enclave. Cloud providers (Anthropic / OpenAI / Gemini) send the redacted evidence off-box.
+      </div>
+      <label style="display:block;margin-top:10px"><input id="cfg-llm-auto-escalate" type="checkbox"> Automatically run AI triage when a finding is escalated</label>
     </div>
     </div>
     <div class="settings-tab-panel" data-setpanel="ops">

@@ -44,7 +44,7 @@ var knownFields = map[string]bool{
 	"conns": true, "meanint": true, "medint": true, "jitter": true,
 	"uri": true, "note": true, "analyst": true, "dir": true, "detected": true,
 	"channel": true, "benign": true, "service": true, "attack": true,
-	"outratio": true,
+	"outratio": true, "ai": true,
 }
 
 // serviceQueryAliases maps the common protocol name an analyst types to Zeek's
@@ -323,6 +323,18 @@ func (t term) eval(f model.Finding, opLoc *time.Location) bool {
 		// been marked benign on the TLS Fingerprints wall. The flag is stamped
 		// by findings_filter just before this runs (it's not a stored field).
 		return boolMatch(f.TLSAllowlisted, t.value)
+	case "ai":
+		// ai:true matches findings that carry an AI-triage briefing note. Read
+		// straight off the (populated) Notes slice — the list path filters before
+		// projection strips notes, so they're present here.
+		has := false
+		for _, n := range f.Notes {
+			if n.Author == model.AuthorAITriage {
+				has = true
+				break
+			}
+		}
+		return boolMatch(has, t.value)
 	case "ts":
 		return tsMatch(f.Timestamp, t, opLoc)
 	case "detected":

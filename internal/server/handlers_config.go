@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/BushidoCyb3r/Archer/internal/llm"
 	"github.com/BushidoCyb3r/Archer/internal/model"
 )
 
@@ -20,6 +21,7 @@ var secretConfigKeys = []string{
 	"greynoise_api_key",
 	"censys_api_id",
 	"censys_api_secret",
+	"llm_api_key",
 }
 
 // redactConfigSecrets returns cfg as a JSON-shaped map with every
@@ -149,6 +151,16 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		if cfg.DNSBeaconMinQueries < 4 {
 			jsonError(w, "dns_beacon_min_queries must be at least 4 (fewer queries cannot produce 3 timing intervals)", http.StatusBadRequest)
 			return
+		}
+		// AI enrichment boundary check: if the operator enables it, the
+		// provider settings must actually build — otherwise the feature
+		// silently fails the first time an analyst clicks "AI Triage".
+		// Reject loudly here, same NEW-66 shape as the detector bounds.
+		if cfg.LLMEnabled {
+			if _, err := llm.NewProvider(llmSettingsFromConfig(cfg)); err != nil {
+				jsonError(w, "AI enrichment is enabled but misconfigured: "+err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 		before := s.store.GetConfig()
 		// Preserve the worker-owned runtime/telemetry fields under the store

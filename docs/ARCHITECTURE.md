@@ -607,6 +607,7 @@ subscribers connected to `/events`. Every event has a `type` and a JSON
 | `notification` | analyzer, watch, sensor heartbeat, feed health | `Notification` row | Bell entry. `kind` disambiguates: `finding` (score ≥ 95), `sensor` (heartbeat alarm), `feed` (reliability alarm). `Host Risk Score` is suppressed. |
 | `ti_result` | escalation handler | `{"finding_id":N,"source":"vt","detail":"...","hit":bool,"informative":bool}` | Per-service TI lookup outcome during escalation. |
 | `ti_done` | escalation handler | `{"finding_id":N,"hits":N}` | All TI lookups for this escalation have settled. Triggers consolidated note write. |
+| `llm_done` | enrich handler | `{"finding_id":N,"ok":bool,"error":"...","provider":"..."}` | AI triage briefing finished. On `ok`, the UI refetches the finding to show the new "AI Triage" note; on failure, surfaces `error` as a toast. |
 | `sensor_enrolled` | quiver enroll handler | full `Sensor` row | Drives the in-flight enrollment dialog's confirmation tick. |
 | `unauthorized_attempt` | quiver checkin handler | full `UnauthorizedAttempt` row | Surfaces in the Sensors modal's "Unauthorized" tab. |
 | `watch.heartbeat` | server | `{}` | Unconditional 60s tick — proves the SSE pipeline is alive. UI flips a top-bar dot red after 180s without one. |

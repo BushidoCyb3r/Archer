@@ -299,6 +299,12 @@ const Detail = (() => {
     const exportBtn = document.getElementById('export-notes-btn');
     if (exportBtn) exportBtn.disabled = false;
 
+    // AI Triage — clickable once a finding is shown. Its visibility (the
+    // .hidden class) is governed by /api/llm/status in app.js; this only
+    // flips the disabled state so it matches the other action buttons.
+    const aiBtn = document.getElementById('ai-enrich-btn');
+    if (aiBtn) aiBtn.disabled = false;
+
     ackBtn.textContent     = f.status === 'acknowledged' ? 'Acknowledged' : 'Acknowledge';
     dismissBtn.textContent = f.status === 'dismissed'    ? 'Un-dismiss'   : 'Dismiss';
 

@@ -46,6 +46,11 @@ func (u User) DisplayName() string {
 	return u.Email
 }
 
+// AuthorAITriage is the Note.Author stamped on AI-enrichment briefings. Shared
+// so the writer (server) and the `ai:` query field stay in lockstep — a rename
+// in one place without the other would silently break the search filter.
+const AuthorAITriage = "AI Triage"
+
 // Note is an analyst annotation attached to a finding.
 type Note struct {
 	Text        string `json:"text"`
