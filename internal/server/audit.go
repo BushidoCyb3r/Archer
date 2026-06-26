@@ -42,7 +42,7 @@ type auditEvent struct {
 //	pair_allowlist_add / pair_allowlist_remove
 //	allowlist_edit / ioc_edit
 //	config_change / watch_change
-//	finding_import
+//	finding_import / finding_ai_enrich
 //
 // Add new actions to the same flat namespace rather than freeform
 // strings so the UI's filter and any compliance-side report keep a

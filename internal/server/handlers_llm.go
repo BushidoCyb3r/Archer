@@ -94,8 +94,53 @@ func (s *Server) handleEnrich(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	go s.runLLMEnrichment(provider, f, cfg.OrgInternalCIDRs)
+	// In-flight guard: a double-click (or an auto-on-escalate racing a manual
+	// click) must not spawn two goroutines that each append a briefing note.
+	if !s.acquireEnrich(id) {
+		jsonOK(w) // already running for this finding; the first run will publish
+		return
+	}
+	s.auditEnrich(r, f, provider)
+	go s.runLLMEnrichment(provider, f, cfg.OrgInternalCIDRs, cfg.OrgInternalDomains)
 	jsonOK(w)
+}
+
+// acquireEnrich records that an enrichment is in flight for id, returning false
+// if one already is. releaseEnrich clears it; runLLMEnrichment defers it.
+func (s *Server) acquireEnrich(id int) bool {
+	s.llmInflightMu.Lock()
+	defer s.llmInflightMu.Unlock()
+	if s.llmInflight[id] {
+		return false
+	}
+	if s.llmInflight == nil {
+		s.llmInflight = map[int]bool{}
+	}
+	s.llmInflight[id] = true
+	return true
+}
+
+func (s *Server) releaseEnrich(id int) {
+	s.llmInflightMu.Lock()
+	defer s.llmInflightMu.Unlock()
+	delete(s.llmInflight, id)
+}
+
+// auditEnrich records that a finding's evidence was sent for AI triage —
+// who, which finding, which provider, and whether that provider keeps the
+// evidence on the operator's network (local) or sends it off-box (cloud). For
+// accredited deployments this is the egress trail the escalate path already has.
+func (s *Server) auditEnrich(r *http.Request, f model.Finding, provider llm.Provider) {
+	posture := "cloud"
+	if llmLocalProviders[strings.ToLower(provider.Name())] {
+		posture = "local"
+	}
+	s.recordAudit(r, "finding_ai_enrich", auditEvent{
+		TargetType: "finding",
+		TargetID:   strconv.Itoa(f.ID),
+		TargetName: findingAuditName(f),
+		Details:    map[string]any{"provider": provider.Name(), "egress": posture},
+	})
 }
 
 // runLLMEnrichment assembles the finding's already-collected evidence, redacts
@@ -103,7 +148,8 @@ func (s *Server) handleEnrich(w http.ResponseWriter, r *http.Request) {
 // redaction tokens back, and writes the result as a finding note. It never
 // touches Score/Severity/Status — annotation-only by construction. Live
 // progress is signalled over SSE so the detail pane can spin and then refresh.
-func (s *Server) runLLMEnrichment(provider llm.Provider, f model.Finding, orgCIDRs []string) {
+func (s *Server) runLLMEnrichment(provider llm.Provider, f model.Finding, orgCIDRs, orgDomains []string) {
+	defer s.releaseEnrich(f.ID)
 	publishDone := func(ok bool, errMsg string) {
 		data, _ := json.Marshal(map[string]any{
 			"finding_id": f.ID,
@@ -114,7 +160,7 @@ func (s *Server) runLLMEnrichment(provider llm.Provider, f model.Finding, orgCID
 		s.broker.Publish(SSEEvent{Type: "llm_done", Data: string(data)})
 	}
 
-	redactor := llm.NewRedactor(orgCIDRs)
+	redactor := llm.NewRedactor(orgCIDRs, orgDomains)
 	// Finding-intrinsic evidence plus the store-derived decision context (host
 	// reputation, fingerprint rarity, campaign roll-ups, related findings) — the
 	// full workup, so the verdict rests on everything an analyst would check.

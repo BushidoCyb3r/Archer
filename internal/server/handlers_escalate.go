@@ -163,8 +163,9 @@ func (s *Server) handleEscalate(w http.ResponseWriter, r *http.Request) {
 	// when saving config, and a triage briefing is never load-bearing.
 	if cfg := s.store.GetConfig(); cfg.LLMEnabled && cfg.LLMAutoOnEscalate {
 		if provider, err := llm.NewProvider(llmSettingsFromConfig(cfg)); err == nil {
-			if f, ok := s.store.GetFinding(id); ok {
-				go s.runLLMEnrichment(provider, f, cfg.OrgInternalCIDRs)
+			if f, ok := s.store.GetFinding(id); ok && s.acquireEnrich(f.ID) {
+				s.auditEnrich(r, f, provider)
+				go s.runLLMEnrichment(provider, f, cfg.OrgInternalCIDRs, cfg.OrgInternalDomains)
 			}
 		}
 	}

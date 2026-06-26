@@ -191,6 +191,15 @@ type Config struct {
 	// "your host." Examples: "203.0.113.0/24", "198.51.100.42".
 	OrgInternalCIDRs []string `json:"org_internal_cidrs,omitempty"`
 
+	// OrgInternalDomains are admin-supplied internal DNS domain suffixes (e.g.
+	// "corp.example.com", "lab.internal"). They are used only by the AI-triage
+	// redactor: any hostname in a finding's evidence that is, or is a subdomain
+	// of, one of these is tokenized out before the evidence is sent to a
+	// provider — the hostname analog of OrgInternalCIDRs. External indicators
+	// (the C2 domains the briefing exists to assess) never match an internal
+	// suffix and are sent. Empty = no hostname redaction.
+	OrgInternalDomains []string `json:"org_internal_domains,omitempty"`
+
 	// SensorFacingHost is the hostname/IP (and optional :port) that Quiver
 	// install one-liners should target. Empty = derive from the Host header
 	// on the admin's enrollment request. Set this when Archer is reached at

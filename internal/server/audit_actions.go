@@ -49,6 +49,10 @@ const (
 	ActionFindingStatusChange = "finding_status_change"
 	ActionFindingEscalate     = "finding_escalate"
 	ActionFindingNoteAdd      = "finding_note_add"
+	// AI-triage egress — a finding's evidence was sent to an LLM provider.
+	// The egress detail records cloud vs. local so an accredited deployment
+	// can prove what left the enclave and what stayed on-network.
+	ActionFindingAIEnrich = "finding_ai_enrich"
 
 	// Config + global lists
 	ActionConfigChange               = "config_change"
@@ -121,6 +125,7 @@ var knownAuditActions = map[string]struct{}{
 	ActionFindingStatusChange:        {},
 	ActionFindingEscalate:            {},
 	ActionFindingNoteAdd:             {},
+	ActionFindingAIEnrich:            {},
 	ActionConfigChange:               {},
 	ActionAllowlistEdit:              {},
 	ActionIOCEdit:                    {},

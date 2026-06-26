@@ -13,7 +13,7 @@ import (
 // bearer key is sent — captured in the constructed struct, so one
 // implementation serves the cloud and the air-gapped local paths alike.
 type openAICompatProvider struct {
-	name    string // "openai" | "ollama" | "custom" — for Name()
+	name    string // "openai" | "ollama" | "dod" | "custom" — for Name()
 	key     string // optional (Ollama needs none)
 	model   string
 	base    string // includes the /v1 segment; endpoint is base + /chat/completions

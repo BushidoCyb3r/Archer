@@ -151,6 +151,15 @@ func TestDoDGenAIWireContract(t *testing.T) {
 	}
 }
 
+// The system prompt must keep its injection guard: evidence carries strings
+// observed on the wire, so the model must be told to treat all of it as data.
+func TestSystemPromptHasInjectionGuard(t *testing.T) {
+	low := strings.ToLower(SystemPrompt)
+	if !strings.Contains(low, "untrusted") || !strings.Contains(low, "never as instructions") {
+		t.Error("system prompt lost its prompt-injection guard")
+	}
+}
+
 func TestNewProviderValidation(t *testing.T) {
 	cases := []struct {
 		name string
@@ -162,6 +171,9 @@ func TestNewProviderValidation(t *testing.T) {
 		{"openai no key", Settings{Provider: "openai", Model: "m"}},
 		{"ollama no base", Settings{Provider: "ollama", Model: "m"}},
 		{"ollama no model", Settings{Provider: "ollama", BaseURL: "http://x:11434/v1"}},
+		{"anthropic cleartext base", Settings{Provider: "anthropic", APIKey: "k", BaseURL: "http://proxy.example.com"}},
+		{"openai cleartext base", Settings{Provider: "openai", APIKey: "k", Model: "m", BaseURL: "http://gw.example.com/v1"}},
+		{"gemini cleartext base", Settings{Provider: "gemini", APIKey: "k", Model: "m", BaseURL: "http://gw.example.com"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -169,6 +181,24 @@ func TestNewProviderValidation(t *testing.T) {
 				t.Errorf("expected validation error for %s", c.name)
 			}
 		})
+	}
+}
+
+// A cloud provider accepts https and loopback-http base URLs (the latter is a
+// local TLS-terminating proxy), but rejects cleartext to a remote host — that
+// rejection is covered in TestNewProviderValidation.
+func TestCloudProviderAcceptsHTTPSAndLoopback(t *testing.T) {
+	ok := []Settings{
+		{Provider: "anthropic", APIKey: "k", BaseURL: "https://api.anthropic.com"},
+		{Provider: "openai", APIKey: "k", Model: "m", BaseURL: "https://gw.example.com/v1"},
+		{Provider: "anthropic", APIKey: "k", BaseURL: "http://localhost:8080"},
+		{Provider: "openai", APIKey: "k", Model: "m", BaseURL: "http://127.0.0.1:8080/v1"},
+		{Provider: "anthropic", APIKey: "k"}, // default base is https
+	}
+	for _, s := range ok {
+		if _, err := NewProvider(s); err != nil {
+			t.Errorf("NewProvider(%s, %q) errored: %v", s.Provider, s.BaseURL, err)
+		}
 	}
 }
 

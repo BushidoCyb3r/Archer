@@ -4429,6 +4429,8 @@
     if (llmAuto) llmAuto.checked = !!cfg.llm_auto_on_escalate;
     const cidrEl = document.getElementById('cfg-org-cidrs');
     if (cidrEl) cidrEl.value = Array.isArray(cfg.org_internal_cidrs) ? cfg.org_internal_cidrs.join('\n') : '';
+    const domEl = document.getElementById('cfg-org-domains');
+    if (domEl) domEl.value = Array.isArray(cfg.org_internal_domains) ? cfg.org_internal_domains.join('\n') : '';
     const alwaysFull = document.getElementById('cfg-watch-always-full');
     if (alwaysFull) alwaysFull.checked = !!cfg.watch_always_full;
 
@@ -4510,6 +4512,10 @@
       .split('\n')
       .map(s => s.trim())
       .filter(s => s.length > 0);
+    const domains = g('cfg-org-domains')
+      .split('\n')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
     return {
       beacon_min_connections:   parseInt(g('cfg-beacon-thresh'), 10),
       http_beacon_min_requests: parseInt(g('cfg-http-beacon-thresh'), 10),
@@ -4528,6 +4534,7 @@
       censys_api_id:            g('cfg-censys-id').trim(),
       censys_api_secret:        g('cfg-censys-secret').trim(),
       org_internal_cidrs:       cidrs,
+      org_internal_domains:     domains,
       watch_always_full:        !!(document.getElementById('cfg-watch-always-full') || {}).checked,
       spectral_enabled:         !!(document.getElementById('cfg-spectral-enabled') || {}).checked,
       spectral_min_observations: parseInt(g('cfg-spectral-min-obs'))  || 16,

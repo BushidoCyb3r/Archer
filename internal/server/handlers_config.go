@@ -157,6 +157,12 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		// silently fails the first time an analyst clicks "AI Triage".
 		// Reject loudly here, same NEW-66 shape as the detector bounds.
 		if cfg.LLMEnabled {
+			// A negative timeout is nonsense and a very large one lets a slow or
+			// hung provider pin an enrichment goroutine for minutes; cap it.
+			if cfg.LLMTimeoutSec < 0 || cfg.LLMTimeoutSec > 600 {
+				jsonError(w, "llm_timeout_sec must be in [0, 600] (0 = default 30s)", http.StatusBadRequest)
+				return
+			}
 			if _, err := llm.NewProvider(llmSettingsFromConfig(cfg)); err != nil {
 				jsonError(w, "AI enrichment is enabled but misconfigured: "+err.Error(), http.StatusBadRequest)
 				return

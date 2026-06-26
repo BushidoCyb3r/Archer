@@ -28,7 +28,47 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
-## [Unreleased]
+## [v0.77.0] — 2026-06-26
+
+### Security
+
+- **AI triage egress hardening.** Tightened the boundary where a finding's
+  evidence can leave the box when AI enrichment is used:
+  - **Internal hostname redaction.** The redactor now also tokenizes internal
+    hostnames — any name under an operator-configured internal domain suffix
+    (new `org_internal_domains` config, the hostname analog of
+    `org_internal_cidrs`). Off by default; external indicators never match an
+    internal suffix and are still sent. Closes the gap where an internal
+    hostname in a finding's evidence reached a cloud provider verbatim.
+  - **Cloud providers must use `https`.** `anthropic`/`gemini`/`openai` reject a
+    cleartext base URL at config-save (loopback `http` is still allowed for a
+    local TLS-terminating proxy); the self-hosted providers are unaffected.
+  - **Egress audit trail.** Dispatching an enrichment now writes a
+    `finding_ai_enrich` audit row naming the actor, finding, provider, and
+    whether the egress was `local` or `cloud`.
+  - **Timeout bound.** `llm_timeout_sec` is now validated to 0–600s so a hung
+    provider can't pin an enrichment goroutine indefinitely.
+  - **Duplicate-run guard.** A second enrichment for a finding already in
+    flight (double-click, or auto-on-escalate racing a manual click) is
+    suppressed instead of appending a second briefing.
+  - **Prompt-injection guard.** The system prompt now instructs the model to
+    treat all evidence (which contains attacker-influenceable wire strings) as
+    untrusted data, never as instructions.
+- New operator guide **`docs/AI_TRIAGE.md`** documents the full egress trust
+  boundary — what is and isn't redacted, and how to pick a provider for an
+  air-gapped or accredited deployment.
+
+### Added
+
+- **`org_internal_domains`** config (Settings → Organization Hosts) — internal
+  DNS domain suffixes used by the AI-triage redactor to tokenize internal
+  hostnames out of evidence before send. Additive, non-breaking; empty =
+  previous behavior (no hostname redaction).
+
+### Fixed
+
+- The IPv6 redaction pattern now catches leading-`::` addresses (e.g. `::1`),
+  which the previous `\b`-anchored pattern could not match.
 
 ## [v0.76.0] — 2026-06-25
 

@@ -17,6 +17,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -44,7 +46,7 @@ var ErrRefused = errors.New("llm: provider declined the request")
 // config.Config. Keeping it local to this package leaves llm free of any
 // dependency on internal/config.
 type Settings struct {
-	Provider   string // "anthropic" | "gemini" | "openai" | "ollama" | "custom"
+	Provider   string // "anthropic" | "gemini" | "openai" | "ollama" | "dod" | "custom"
 	BaseURL    string // required for ollama/custom; provider default otherwise
 	Model      string // required except anthropic, which defaults
 	APIKey     string // secret; required for anthropic/gemini/openai
@@ -79,6 +81,8 @@ func NewProvider(s Settings) (Provider, error) {
 		base := s.BaseURL
 		if base == "" {
 			base = "https://api.anthropic.com"
+		} else if err := requireHTTPS("anthropic", base); err != nil {
+			return nil, err
 		}
 		return &anthropicProvider{key: s.APIKey, model: model, base: strings.TrimRight(base, "/"), timeout: timeout}, nil
 	case "gemini":
@@ -91,6 +95,8 @@ func NewProvider(s Settings) (Provider, error) {
 		base := s.BaseURL
 		if base == "" {
 			base = "https://generativelanguage.googleapis.com"
+		} else if err := requireHTTPS("gemini", base); err != nil {
+			return nil, err
 		}
 		return &geminiProvider{key: s.APIKey, model: s.Model, base: strings.TrimRight(base, "/"), timeout: timeout}, nil
 	case "openai":
@@ -103,6 +109,8 @@ func NewProvider(s Settings) (Provider, error) {
 		base := s.BaseURL
 		if base == "" {
 			base = "https://api.openai.com/v1"
+		} else if err := requireHTTPS("openai", base); err != nil {
+			return nil, err
 		}
 		return &openAICompatProvider{name: "openai", key: s.APIKey, model: s.Model, base: strings.TrimRight(base, "/"), timeout: timeout}, nil
 	case "ollama", "custom", "dod":
@@ -131,4 +139,34 @@ func NewProvider(s Settings) (Provider, error) {
 	default:
 		return nil, fmt.Errorf("unknown LLM provider %q", s.Provider)
 	}
+}
+
+// requireHTTPS rejects a cleartext base URL for a cloud provider — sending an
+// API key and the finding evidence over http to a third-party endpoint would
+// expose both on the wire. Loopback is exempt (a local TLS-terminating proxy is
+// a legitimate pattern and cleartext to loopback never leaves the host); the
+// self-hosted providers (ollama/dod/custom) skip this check entirely, since they
+// legitimately run http on a trusted local/enclave network.
+func requireHTTPS(provider, base string) error {
+	u, err := url.Parse(strings.TrimSpace(base))
+	if err != nil {
+		return fmt.Errorf("%s provider base URL is invalid: %w", provider, err)
+	}
+	if strings.EqualFold(u.Scheme, "https") {
+		return nil
+	}
+	if strings.EqualFold(u.Scheme, "http") && isLoopbackHost(u.Hostname()) {
+		return nil
+	}
+	return fmt.Errorf("%s provider base URL must use https (got %q)", provider, base)
+}
+
+func isLoopbackHost(h string) bool {
+	if strings.EqualFold(h, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(h); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }

@@ -6,7 +6,7 @@ import (
 )
 
 func TestHostClass(t *testing.T) {
-	r := NewRedactor([]string{"203.0.113.0/24"})
+	r := NewRedactor([]string{"203.0.113.0/24"}, nil)
 	cases := []struct {
 		ip   string
 		want string

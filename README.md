@@ -824,10 +824,13 @@ Opt-in. Configure in **Settings → AI Enrichment** (admin only). Disabled by de
 | `llm_enabled` | `false` | Master switch for the AI Triage button / endpoint |
 | `llm_provider` | — | `anthropic` \| `gemini` \| `openai` \| `ollama` \| `dod` \| `custom`. The last three are OpenAI-compatible endpoints on your own network/enclave (evidence stays on-box); the first three are cloud (redacted evidence sent off-box) |
 | `llm_model` | — | Model id. Required for every provider except `anthropic` (defaults to `claude-opus-4-8`) |
-| `llm_base_url` | — | Endpoint base URL. **Required** for `ollama` / `dod` / `custom` (e.g. `http://10.0.0.5:11434/v1`); provider default otherwise |
+| `llm_base_url` | — | Endpoint base URL. **Required** for `ollama` / `dod` / `custom` (e.g. `http://10.0.0.5:11434/v1`); provider default otherwise. Cloud providers (`anthropic`/`gemini`/`openai`) must use `https` (loopback `http` allowed for a local TLS-terminating proxy) |
 | `llm_api_key` | — | Credential (redacted). Required for cloud providers; optional for local/enclave gateways that authenticate at the network/PKI layer |
-| `llm_timeout_sec` | `30` | Per-request timeout |
-| `llm_auto_on_escalate` | `false` | Also run AI triage automatically whenever a finding is escalated |
+| `llm_timeout_sec` | `30` | Per-request timeout, in seconds. Range `0`–`600` (`0` = default 30s) |
+| `llm_auto_on_escalate` | `false` | Also run AI triage automatically whenever a finding is escalated (single-finding escalate only — bulk escalate never fans out enrichment) |
+| `org_internal_domains` | — | Internal DNS domain suffixes (Settings → Organization Hosts). Hostnames under these are tokenized out of evidence before send, the hostname analog of `org_internal_cidrs` |
+
+The act of sending a finding's evidence to a provider is recorded in the audit log (`finding_ai_enrich`, with the provider and whether it was a cloud or local egress). **What is and isn't redacted, and how to choose a provider for an air-gapped or accredited deployment, is covered in [docs/AI_TRIAGE.md](docs/AI_TRIAGE.md).**
 
 ### Deployment
 

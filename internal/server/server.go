@@ -71,6 +71,12 @@ type Server struct {
 	// siemSend writes one CEF datagram to addr ("host:port"). Defaults to
 	// siem.Send; overridable in tests to assert forwarding without a socket.
 	siemSend func(addr, line string) error
+
+	// llmInflight guards against duplicate AI-triage runs for the same finding
+	// (a double-click, or auto-on-escalate racing a manual click). An entry is
+	// set at dispatch and cleared when runLLMEnrichment returns.
+	llmInflightMu sync.Mutex
+	llmInflight   map[int]bool
 }
 
 type sensorMtimeEntry struct {

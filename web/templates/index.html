@@ -1401,6 +1401,10 @@
         The Hosts tab automatically includes RFC 1918 (10/8, 172.16/12, 192.168/16), IPv4 link-local (169.254/16), IPv6 ULA (fc00::/7), and IPv6 link-local (fe80::/10). Add additional CIDRs or single IPs here to surface cloud-hosted servers, owned public blocks, or any non-private address you want monitored as &quot;your host.&quot; One per line.
       </div>
       <textarea class="dlg-input" id="cfg-org-cidrs" rows="4" placeholder="203.0.113.0/24&#10;198.51.100.42" style="width:100%;font-family:monospace;resize:vertical"></textarea>
+      <div style="color:var(--fg-dim);font-size:0.9em;margin:10px 0 8px">
+        Internal DNS domain suffixes — used by AI Triage to tokenize internal hostnames out of a finding's evidence before it is sent to a provider (the hostname analog of the CIDRs above). Any name that is, or is under, one of these is redacted; external indicators never match and are sent. One per line. Leave empty to disable hostname redaction.
+      </div>
+      <textarea class="dlg-input" id="cfg-org-domains" rows="3" placeholder="corp.example.com&#10;lab.internal" style="width:100%;font-family:monospace;resize:vertical"></textarea>
     </div>
     </div>
     <div class="settings-tab-panel" data-setpanel="ti">
@@ -1429,7 +1433,7 @@
     <div class="settings-group">
       <div class="settings-group-title">AI Triage Enrichment</div>
       <div style="color:var(--fg-dim);font-size:0.9em;margin-bottom:8px">
-        Adds an &quot;AI Triage&quot; button to the finding detail view that asks the configured model to summarize the finding's evidence (detector output + TI notes) into a short briefing, written as a note. It is decision support only — it never changes a finding's score, severity, or status. Internal addresses (RFC 1918 + your Organization Hosts CIDRs) are tokenized out before the evidence is sent; the external indicators already shared with TI services are sent.
+        Adds an &quot;AI Triage&quot; button to the finding detail view that asks the configured model to summarize the finding's evidence (detector output + TI notes) into a short briefing, written as a note. It is decision support only — it never changes a finding's score, severity, or status. Internal addresses (RFC 1918 + your Organization Hosts CIDRs) and internal hostnames (your Organization Hosts domains) are tokenized out before the evidence is sent; the external indicators already shared with TI services are sent. Free-text analyst notes can still carry internal context the redactor doesn't recognize — for the strongest boundary, use a local/enclave provider. See docs/AI_TRIAGE.md.
       </div>
       <label><input id="cfg-llm-enabled" type="checkbox"> Enable AI triage enrichment</label>
       <div class="settings-grid" style="margin-top:10px">

@@ -21,7 +21,7 @@ func TestBuildEnrichmentEvidence_StructuralFactsSurviveRedaction(t *testing.T) {
 		DstIP:   "172.16.10.255", // subnet broadcast — the benign tell
 		DstPort: "15600",         // custom port — no well-known service
 	}
-	r := llm.NewRedactor(nil)
+	r := llm.NewRedactor(nil, nil)
 	evidence := buildEnrichmentEvidence(f, r)
 
 	// The structural classification reaches the model...
@@ -65,7 +65,7 @@ func TestEnrichmentEvidence_GroundingAndRelatedContext(t *testing.T) {
 		}
 	}
 
-	r := llm.NewRedactor(nil)
+	r := llm.NewRedactor(nil, nil)
 	evidence := buildEnrichmentEvidence(beacon, r) + s.decisionContext(beacon)
 
 	for _, want := range []string{
@@ -188,7 +188,7 @@ func TestEnrichment_IsAnnotationOnly(t *testing.T) {
 	stub := &stubLLM{reply: "HOST_1 is beaconing to the external host; investigate."}
 	// Called synchronously (not via the go in handleEnrich) so the note is
 	// written before we assert.
-	s.runLLMEnrichment(stub, before, nil)
+	s.runLLMEnrichment(stub, before, nil, nil)
 
 	after, ok := st.GetFinding(id)
 	if !ok {
