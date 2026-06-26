@@ -317,6 +317,76 @@ const Detail = (() => {
     }
   }
 
+  // _parseAITriage extracts verdict, confidence, reason, body, and checks
+  // from a stored AI Triage note text. Returns null for unrecognized formats.
+  function _parseAITriage(text) {
+    const paras = text.split(/\n\n+/).map(p => p.trim()).filter(Boolean);
+    let verdictIdx = -1;
+    let verdictMatch = null;
+    for (let i = 0; i < paras.length; i++) {
+      const m = paras[i].match(/^(LIKELY MALICIOUS|LIKELY BENIGN|INVESTIGATE)(?:\s*\((\w+)\))?\s*[—\-–]+\s*(.*)/s);
+      if (m) { verdictIdx = i; verdictMatch = m; break; }
+    }
+    if (!verdictMatch) return null;
+    const verdict    = verdictMatch[1];
+    const confidence = verdictMatch[2] || '';
+    const reason     = (verdictMatch[3] || '').trim();
+    const verdictKey = verdict === 'LIKELY MALICIOUS' ? 'malicious'
+                     : verdict === 'LIKELY BENIGN'    ? 'benign'
+                     : 'investigate';
+
+    const body = [], checks = [];
+    for (let i = verdictIdx + 1; i < paras.length; i++) {
+      const lines = paras[i].split('\n');
+      const checkLines = lines.filter(l => l.trim());
+      const isChecks = checkLines.length > 0 && checkLines.every(l => /^\d+\.\s/.test(l.trim()));
+      if (isChecks) {
+        checkLines.forEach(l => {
+          const m = l.trim().match(/^\d+\.\s+(.*)/);
+          if (m) checks.push(m[1].trim());
+        });
+      } else {
+        // Strip ** bold markers that older notes may carry.
+        const cleaned = paras[i].replace(/\*\*([^*]+)\*\*/g, '$1').trim();
+        if (cleaned) body.push(cleaned);
+      }
+    }
+    return { verdictKey, verdict, confidence, reason, body: body.join('\n\n'), checks };
+  }
+
+  // _renderAITriageItem returns a DOM element for an AI Triage note, using the
+  // structured card layout when the note parses successfully and falling back to
+  // the plain note-item otherwise.
+  function _renderAITriageItem(n) {
+    const parsed = _parseAITriage(n.text || '');
+    const div = document.createElement('div');
+    if (!parsed) {
+      div.className = 'note-item';
+      div.innerHTML =
+        `<div class="note-meta"><span class="note-author">${_esc(n.author)}</span>  •  ${_esc(n.timestamp)}</div>` +
+        `<div class="note-text">${_esc(n.text)}</div>`;
+      return div;
+    }
+    const { verdictKey, verdict, confidence, reason, body, checks } = parsed;
+    const confHTML  = confidence ? `<span class="ai-triage-conf">${_esc(confidence)}</span>` : '';
+    const bodyHTML  = body  ? `<div class="ai-triage-analysis">${_esc(body)}</div>` : '';
+    const checkItems = checks.map(c => `<li>${_esc(c)}</li>`).join('');
+    const checksHTML = checkItems ? `<ol class="ai-triage-checks">${checkItems}</ol>` : '';
+    div.className = 'note-item ai-triage-note';
+    div.innerHTML =
+      `<div class="note-meta"><span class="note-author">${_esc(n.author)}</span>  •  ${_esc(n.timestamp)}</div>` +
+      `<div class="ai-triage-card ai-triage-${_esc(verdictKey)}">` +
+        `<div class="ai-triage-verdict-row">` +
+          `<span class="ai-triage-verdict-label">${_esc(verdict)}</span>` +
+          confHTML +
+          `<span class="ai-triage-verdict-reason">${_esc(reason)}</span>` +
+        `</div>` +
+        bodyHTML +
+        checksHTML +
+      `</div>`;
+    return div;
+  }
+
   // _renderNotes partitions a finding's notes between the Notes tab
   // (analyst-authored) and the TI Results tab (machine-authored
   // "TI Enrichment" notes from the escalation lookups). Tab badges
@@ -351,12 +421,17 @@ const Detail = (() => {
         return;
       }
       items.forEach(n => {
-        const div = document.createElement('div');
-        div.className = 'note-item';
-        div.innerHTML = `
-          <div class="note-meta"><span class="note-author">${_esc(n.author)}</span>  •  ${_esc(n.timestamp)}</div>
-          <div class="note-text">${_esc(n.text)}</div>`;
-        list.appendChild(div);
+        const el = (n.author || '') === 'AI Triage'
+          ? _renderAITriageItem(n)
+          : (() => {
+              const div = document.createElement('div');
+              div.className = 'note-item';
+              div.innerHTML =
+                `<div class="note-meta"><span class="note-author">${_esc(n.author)}</span>  •  ${_esc(n.timestamp)}</div>` +
+                `<div class="note-text">${_esc(n.text)}</div>`;
+              return div;
+            })();
+        list.appendChild(el);
       });
     };
     renderInto(notesList, analystNotes, 'No notes yet');

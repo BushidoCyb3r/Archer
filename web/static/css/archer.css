@@ -1616,6 +1616,55 @@ body.dock-resizing {
 }
 .note-author { color: var(--fg-secondary); font-weight: 600; }
 .note-text { font-size: 14px; color: var(--fg-primary); white-space: pre-wrap; line-height: 1.5; }
+/* AI Triage structured note card */
+.note-item.ai-triage-note { padding: 0; overflow: hidden; }
+.note-item.ai-triage-note .note-meta { padding: 6px 12px 0; }
+.ai-triage-card { margin-top: 6px; font-size: 13px; line-height: 1.5; }
+.ai-triage-verdict-row {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 6px 12px 7px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.ai-triage-malicious  .ai-triage-verdict-row { background: color-mix(in srgb, var(--sev-critical) 13%, transparent); }
+.ai-triage-investigate .ai-triage-verdict-row { background: color-mix(in srgb, var(--sev-medium)   13%, transparent); }
+.ai-triage-benign      .ai-triage-verdict-row { background: color-mix(in srgb, var(--ok)           10%, transparent); }
+.ai-triage-verdict-label {
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.ai-triage-malicious  .ai-triage-verdict-label { color: var(--sev-critical); }
+.ai-triage-investigate .ai-triage-verdict-label { color: var(--sev-medium); }
+.ai-triage-benign      .ai-triage-verdict-label { color: var(--ok); }
+.ai-triage-conf {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ai-triage-malicious  .ai-triage-conf { background: color-mix(in srgb, var(--sev-critical) 18%, transparent); color: var(--sev-critical); }
+.ai-triage-investigate .ai-triage-conf { background: color-mix(in srgb, var(--sev-medium)   18%, transparent); color: var(--sev-medium); }
+.ai-triage-benign      .ai-triage-conf { background: color-mix(in srgb, var(--ok)           15%, transparent); color: var(--ok); }
+.ai-triage-verdict-reason { color: var(--fg); font-style: italic; flex: 1; min-width: 0; }
+.ai-triage-analysis {
+  padding: 8px 12px;
+  color: var(--fg-primary);
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: pre-wrap;
+}
+.ai-triage-checks {
+  margin: 0;
+  padding: 7px 12px 9px 30px;
+  color: var(--fg-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
 #add-note-row { display: flex; gap: 6px; align-items: flex-start; }
 #inline-note-input {
   flex: 1;

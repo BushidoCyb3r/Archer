@@ -185,7 +185,7 @@ func (s *Server) runLLMEnrichment(provider llm.Provider, f model.Finding, orgCID
 	}
 	ts := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 	note := model.Note{
-		Text:        fmt.Sprintf("AI Triage (%s) — decision support, not a verdict\n\n%s", provider.Name(), briefing),
+		Text:        fmt.Sprintf("AI Triage (%s)\n\n%s", provider.Name(), briefing),
 		Author:      model.AuthorAITriage,
 		AuthorEmail: "system",
 		Timestamp:   ts,

@@ -28,6 +28,24 @@ relevant, `### Detection changes` in each release entry.
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **AI Triage note card.** AI enrichment briefings are now rendered as a
+  structured card in the Notes tab: a colored verdict row (red / amber / green
+  for LIKELY MALICIOUS / INVESTIGATE / LIKELY BENIGN), confidence chip, one-line
+  reason, an analysis block, and a numbered next-checks list. Plain notes are
+  unchanged. Handles both new-format notes (confidence inline on verdict line)
+  and older notes automatically.
+- Tightened the AI triage system prompt so the model places confidence inline on
+  the verdict line, combines the driving-fact and flip into a single statement,
+  and keeps next checks to one sentence each. Removed the "decision support, not
+  a verdict" disclaimer from the note header (redundant with the annotation-only
+  invariant locked in code).
+
+---
+
 ## [v0.77.0] — 2026-06-26
 
 ### Security
