@@ -53,9 +53,11 @@ func siemDeepLink(r *http.Request, id int) string {
 
 // forwardEscalationToSIEM forwards an escalated finding to a configured SIEM,
 // best-effort. It fires only on the transition into escalated (before.Status
-// guards against re-sending on a redundant escalate). Errors are logged, never
-// surfaced — escalation's outcome is unchanged whether the SIEM is up, down,
-// or unconfigured.
+// guards against re-sending on a redundant escalate). If an AI Triage note
+// already exists on the finding, its verdict is prepended to msg so the
+// assessment is immediately visible in the SIEM alert listing. Errors are
+// logged, never surfaced — escalation's outcome is unchanged whether the SIEM
+// is up, down, or unconfigured.
 func (s *Server) forwardEscalationToSIEM(cfg config.Config, before model.Finding, analyst, deepLink string) {
 	if !cfg.SIEMEnabled || cfg.SIEMHost == "" || before.Status == model.StatusEscalated {
 		return
@@ -68,9 +70,49 @@ func (s *Server) forwardEscalationToSIEM(cfg config.Config, before model.Finding
 		port = 9003
 	}
 	addr := net.JoinHostPort(cfg.SIEMHost, strconv.Itoa(port))
-	line := siem.FormatCEF(fwd, version.Version, deepLink)
+	// Fetch current notes to pick up any existing AI Triage verdict. This is a
+	// fresh read because before is the pre-mutation snapshot without notes loaded.
+	var triage *siem.TriageData
+	if s.store != nil {
+		if current, ok := s.store.GetFinding(before.ID); ok {
+			triage = parseTriageFromNotes(current.Notes)
+		}
+	}
+	line := siem.FormatCEFEnriched(fwd, triage, version.Version, deepLink)
 	if err := s.siemSend(addr, line); err != nil {
 		slog.Warn("SIEM forward failed", "finding_id", before.ID, "addr", addr, "err", err)
+	}
+}
+
+// forwardTriageSIEM sends a supplemental AI Triage CEF event to the SIEM when
+// enrichment completes on an already-escalated finding. This covers the case
+// where the triage note wasn't available at escalation time (auto-on-escalate,
+// or a manual triage run after the finding was escalated). The event uses the
+// "ai_triage" device-event-class-id so SIEM detection rules can target it
+// independently from the escalation event; the two events are correlated by
+// externalId (finding ID). Best-effort, same as forwardEscalationToSIEM.
+func (s *Server) forwardTriageSIEM(f model.Finding, briefing, providerName, deepLink string) {
+	cfg := s.store.GetConfig()
+	if !cfg.SIEMEnabled || cfg.SIEMHost == "" {
+		return
+	}
+	current, ok := s.store.GetFinding(f.ID)
+	if !ok || current.Status != model.StatusEscalated {
+		return
+	}
+	triage := parseBriefingVerdict(briefing, providerName)
+	if triage.Verdict == "" {
+		return
+	}
+	current.IOCMatch, current.IOCSource = s.iocStatusFor(current)
+	port := cfg.SIEMPort
+	if port == 0 {
+		port = 9003
+	}
+	addr := net.JoinHostPort(cfg.SIEMHost, strconv.Itoa(port))
+	line := siem.FormatAITriageCEF(current, triage, version.Version, deepLink)
+	if err := s.siemSend(addr, line); err != nil {
+		slog.Warn("SIEM triage forward failed", "finding_id", f.ID, "addr", addr, "err", err)
 	}
 }
 
@@ -165,7 +207,7 @@ func (s *Server) handleEscalate(w http.ResponseWriter, r *http.Request) {
 		if provider, err := llm.NewProvider(llmSettingsFromConfig(cfg)); err == nil {
 			if f, ok := s.store.GetFinding(id); ok && s.acquireEnrich(f.ID) {
 				s.auditEnrich(r, f, provider)
-				go s.runLLMEnrichment(provider, f, cfg.OrgInternalCIDRs, cfg.OrgInternalDomains)
+				go s.runLLMEnrichment(provider, f, cfg.OrgInternalCIDRs, cfg.OrgInternalDomains, siemDeepLink(r, id))
 			}
 		}
 	}

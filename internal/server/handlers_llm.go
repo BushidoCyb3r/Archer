@@ -14,6 +14,7 @@ import (
 	"github.com/BushidoCyb3r/Archer/internal/config"
 	"github.com/BushidoCyb3r/Archer/internal/llm"
 	"github.com/BushidoCyb3r/Archer/internal/model"
+	"github.com/BushidoCyb3r/Archer/internal/siem"
 )
 
 // llmLocalProviders are the OpenAI-compatible providers that reach a model
@@ -101,7 +102,7 @@ func (s *Server) handleEnrich(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditEnrich(r, f, provider)
-	go s.runLLMEnrichment(provider, f, cfg.OrgInternalCIDRs, cfg.OrgInternalDomains)
+	go s.runLLMEnrichment(provider, f, cfg.OrgInternalCIDRs, cfg.OrgInternalDomains, siemDeepLink(r, f.ID))
 	jsonOK(w)
 }
 
@@ -148,7 +149,9 @@ func (s *Server) auditEnrich(r *http.Request, f model.Finding, provider llm.Prov
 // redaction tokens back, and writes the result as a finding note. It never
 // touches Score/Severity/Status — annotation-only by construction. Live
 // progress is signalled over SSE so the detail pane can spin and then refresh.
-func (s *Server) runLLMEnrichment(provider llm.Provider, f model.Finding, orgCIDRs, orgDomains []string) {
+// deepLink is the Archer URL back to this finding, forwarded to the SIEM if the
+// finding is already escalated when enrichment completes.
+func (s *Server) runLLMEnrichment(provider llm.Provider, f model.Finding, orgCIDRs, orgDomains []string, deepLink string) {
 	defer s.releaseEnrich(f.ID)
 	publishDone := func(ok bool, errMsg string) {
 		data, _ := json.Marshal(map[string]any{
@@ -194,7 +197,61 @@ func (s *Server) runLLMEnrichment(provider llm.Provider, f model.Finding, orgCID
 		publishDone(false, "could not save the briefing")
 		return
 	}
+	// Forward to SIEM as a supplemental AI Triage CEF event if the finding is
+	// already escalated. This covers both auto-on-escalate (where the note isn't
+	// ready when the escalation CEF fires) and manual post-escalation triage.
+	s.forwardTriageSIEM(f, briefing, provider.Name(), deepLink)
 	publishDone(true, "")
+}
+
+// parseBriefingVerdict extracts the verdict, confidence, and one-line reason
+// from a stored AI Triage note text or raw briefing. It scans for the first
+// line matching one of the three verdict keywords, which is robust to the
+// "AI Triage (provider)\n\n" prefix stored in note text as well as raw briefings.
+func parseBriefingVerdict(text, provider string) siem.TriageData {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		for _, v := range []string{"LIKELY MALICIOUS", "LIKELY BENIGN", "INVESTIGATE"} {
+			if !strings.HasPrefix(line, v) {
+				continue
+			}
+			rest := strings.TrimSpace(line[len(v):])
+			var conf, reason string
+			if strings.HasPrefix(rest, "(") {
+				if end := strings.Index(rest, ")"); end > 0 {
+					conf = rest[1:end]
+					rest = strings.TrimSpace(rest[end+1:])
+					rest = strings.TrimLeft(rest, "—–- \t")
+				}
+			}
+			reason = rest
+			return siem.TriageData{Verdict: v, Confidence: conf, Reason: reason, Provider: provider}
+		}
+	}
+	return siem.TriageData{}
+}
+
+// parseTriageFromNotes returns the verdict parsed from the most recent AI
+// Triage note, or nil if no such note exists or no verdict can be extracted.
+func parseTriageFromNotes(notes []model.Note) *siem.TriageData {
+	for i := len(notes) - 1; i >= 0; i-- {
+		n := notes[i]
+		if n.Author != model.AuthorAITriage {
+			continue
+		}
+		// Extract the provider name stored in the note prefix: "AI Triage (anthropic)\n\n..."
+		provider := ""
+		if strings.HasPrefix(n.Text, "AI Triage (") {
+			if end := strings.Index(n.Text, ")"); end > 11 {
+				provider = n.Text[11:end]
+			}
+		}
+		t := parseBriefingVerdict(n.Text, provider)
+		if t.Verdict != "" {
+			return &t
+		}
+	}
+	return nil
 }
 
 // buildEnrichmentEvidence renders the finding's detector output and existing

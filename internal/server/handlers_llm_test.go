@@ -177,3 +177,91 @@ func TestEnrichEndpoint_AuditsEgress(t *testing.T) {
 		t.Errorf("audit details missing provider/egress posture: %q", details)
 	}
 }
+
+// TestEnrichSendsTriageCEFWhenEscalated verifies that when enrichment completes
+// on an already-escalated finding, a supplemental AI Triage CEF event is sent
+// to the configured SIEM. The event must carry the verdict, confidence, and
+// provider, and must use the "ai_triage" device-event-class-id.
+func TestEnrichSendsTriageCEFWhenEscalated(t *testing.T) {
+	s := newAuditTestServer(t)
+
+	// Enable SIEM and capture the sent line via the injectable siemSend.
+	var capturedLines []string
+	s.siemSend = func(_, line string) error {
+		capturedLines = append(capturedLines, line)
+		return nil
+	}
+	cfg := config.Default()
+	cfg.SIEMEnabled = true
+	cfg.SIEMHost = "127.0.0.1"
+	cfg.SIEMPort = 9003
+	s.store.SetConfig(cfg)
+
+	// Seed a finding in escalated status.
+	s.store.SetFindings([]model.Finding{{
+		Type:     "DNS Beacon",
+		Severity: model.SevHigh,
+		Score:    92,
+		Status:   model.StatusOpen,
+		SrcIP:    "10.0.0.5",
+		DstIP:    "203.0.113.7",
+		DstPort:  "53",
+	}})
+	id := s.store.GetFindings()[0].ID
+	ts := "2026-06-26 10:00:00 UTC"
+	s.store.UpdateFinding(id, model.StatusEscalated, "alice", "", ts)
+
+	before, _ := s.store.GetFinding(id)
+	stub := &stubLLM{reply: "LIKELY MALICIOUS (high) — periodic DNS queries to rare external resolver, no benign explanation.\n\nThe beacon cadence and external resolver are the core signal; it flips if the resolver is a known corporate DNS forwarder.\n\n1. Pull DNS query logs and check subdomain entropy.\n2. Verify whether 203.0.113.7 appears in the operator allowlist or TI feeds.\n3. Check which process is issuing the queries on 10.0.0.5."}
+	s.runLLMEnrichment(stub, before, nil, nil, "https://archer.corp/?finding="+strconv.Itoa(id))
+
+	var triageLine string
+	for _, l := range capturedLines {
+		if strings.Contains(l, "ai_triage") {
+			triageLine = l
+			break
+		}
+	}
+	if triageLine == "" {
+		t.Fatalf("no ai_triage CEF line sent; all lines: %v", capturedLines)
+	}
+	for _, want := range []string{
+		"ai_triage",
+		"AI Triage: LIKELY MALICIOUS",
+		"LIKELY MALICIOUS",
+		"cs3Label=AIConfidence cs3=high",
+		"cs5Label=AIProvider cs5=stub",
+		"cs6Label=FindingType cs6=DNS Beacon",
+		`cs4Label=ArcherUrl`,
+	} {
+		if !strings.Contains(triageLine, want) {
+			t.Errorf("ai_triage CEF missing %q:\n%s", want, triageLine)
+		}
+	}
+}
+
+// TestEnrichDoesNotSendTriageCEFForOpenFinding verifies that no supplemental
+// SIEM event fires when enrichment completes on a finding that is still open
+// (not escalated). The SIEM event is tied to escalation, not enrichment per se.
+func TestEnrichDoesNotSendTriageCEFForOpenFinding(t *testing.T) {
+	s := newAuditTestServer(t)
+	sent := false
+	s.siemSend = func(_, _ string) error { sent = true; return nil }
+
+	cfg := config.Default()
+	cfg.SIEMEnabled = true
+	cfg.SIEMHost = "127.0.0.1"
+	s.store.SetConfig(cfg)
+	s.store.SetFindings([]model.Finding{{
+		Type: "Beacon", Severity: model.SevHigh, Score: 80, Status: model.StatusOpen,
+		SrcIP: "10.0.0.1", DstIP: "203.0.113.1", DstPort: "443",
+	}})
+
+	before, _ := s.store.GetFinding(s.store.GetFindings()[0].ID)
+	stub := &stubLLM{reply: "LIKELY MALICIOUS (high) — suspicious.\n\n1. Check logs."}
+	s.runLLMEnrichment(stub, before, nil, nil, "")
+
+	if sent {
+		t.Error("SIEM send fired for an open (non-escalated) finding — should be gated on escalated status")
+	}
+}

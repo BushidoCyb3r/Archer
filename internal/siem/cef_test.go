@@ -113,3 +113,73 @@ func TestFormatCEF_EscapesEqualsInNonMsgField(t *testing.T) {
 	f := model.Finding{ID: 1, Type: "X", Score: 50, Sensor: "a=b", Analyst: "x"}
 	mustContain(t, FormatCEF(f, "v", "u"), `cs2Label=ArcherSensor cs2=a\=b`)
 }
+
+func TestFormatCEFEnriched_TriagePrependsMsg(t *testing.T) {
+	f := model.Finding{
+		ID: 10, Type: "DNS Beacon", Score: 95,
+		SrcIP: "10.0.0.5", DstIP: "1.2.3.4", DstPort: "53",
+		Detail:  "Connections: 144 | Mean interval: 600s",
+		Analyst: "alice",
+	}
+	triage := &TriageData{Verdict: "LIKELY MALICIOUS", Confidence: "high", Provider: "anthropic"}
+	line := FormatCEFEnriched(f, triage, "v0.77.0", "https://archer/?finding=10")
+
+	mustContain(t, line, "msg=AI: LIKELY MALICIOUS (high) | Connections: 144 | Mean interval: 600s")
+	// cs slots and all other fields must be unchanged from non-enriched path.
+	mustContain(t, line, "cs1Label=ArcherScore cs1=95")
+	mustContain(t, line, "cs4Label=ArcherAnalyst cs4=alice")
+}
+
+func TestFormatCEFEnriched_NoTriageMatchesFormatCEF(t *testing.T) {
+	f := model.Finding{ID: 5, Type: "Beacon", Score: 80, SrcIP: "10.0.0.1", Analyst: "x"}
+	want := FormatCEF(f, "v0.77.0", "u")
+	got := FormatCEFEnriched(f, nil, "v0.77.0", "u")
+	if want != got {
+		t.Errorf("FormatCEFEnriched(nil) must equal FormatCEF\nwant: %s\n got: %s", want, got)
+	}
+}
+
+func TestFormatAITriageCEF(t *testing.T) {
+	f := model.Finding{
+		ID: 42, Type: "Multi-Stage Beacon", Score: 99,
+		SrcIP: "10.10.40.84", DstIP: "172.233.181.138", DstPort: "443",
+		Timestamp: "2026-06-26 21:47:55",
+	}
+	triage := TriageData{
+		Verdict:    "LIKELY MALICIOUS",
+		Confidence: "high",
+		Reason:     "Multi-stage C2 indicators to unlisted external IP, 9 internal hosts",
+		Provider:   "anthropic",
+	}
+	line := FormatAITriageCEF(f, triage, "v0.77.0", "https://archer/?finding=42")
+
+	// Device event class ID must be "ai_triage" so SIEM rules can target it.
+	mustContain(t, line, "CEF:0|Archer|Archer|v0.77.0|ai_triage|AI Triage: LIKELY MALICIOUS|10|")
+	mustContain(t, line, "externalId=42")
+	mustContain(t, line, "src=10.10.40.84")
+	mustContain(t, line, "dst=172.233.181.138")
+	mustContain(t, line, "dpt=443")
+	mustContain(t, line, "msg=LIKELY MALICIOUS (high) — Multi-stage C2 indicators")
+	mustContain(t, line, "cs1Label=ArcherScore cs1=99")
+	mustContain(t, line, "cs2Label=AIVerdict cs2=LIKELY MALICIOUS")
+	mustContain(t, line, "cs3Label=AIConfidence cs3=high")
+	mustContain(t, line, `cs4Label=ArcherUrl cs4=https://archer/?finding\=42`)
+	mustContain(t, line, "cs5Label=AIProvider cs5=anthropic")
+	mustContain(t, line, "cs6Label=FindingType cs6=Multi-Stage Beacon")
+	mustContain(t, line, "flexString2Label=ArcherEventTime flexString2=2026-06-26 21:47:55")
+	// rt must never appear — same constraint as the escalation event.
+	if strings.Contains(line, "rt=") {
+		t.Errorf("rt must not be emitted:\n%s", line)
+	}
+}
+
+func TestFormatAITriageCEF_EmptyConfidenceOmitted(t *testing.T) {
+	f := model.Finding{ID: 1, Type: "Beacon", Score: 80, SrcIP: "10.0.0.1"}
+	triage := TriageData{Verdict: "INVESTIGATE", Reason: "ambiguous traffic"}
+	line := FormatAITriageCEF(f, triage, "v", "u")
+	mustContain(t, line, "msg=INVESTIGATE — ambiguous traffic")
+	mustContain(t, line, "cs2Label=AIVerdict cs2=INVESTIGATE")
+	if strings.Contains(line, "cs3Label=AIConfidence") {
+		t.Errorf("empty confidence must be omitted:\n%s", line)
+	}
+}

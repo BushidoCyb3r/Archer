@@ -17,15 +17,26 @@ import (
 // (dhost/request/reason/flexString*) still leave the datagram under ~1.5 KB.
 const maxMsgLen = 600
 
-// FormatCEF renders one escalated finding as a bare CEF line:
-//
-//	CEF:0|Archer|Archer|<ver>|<type>|<type>|<sev>|<ext>
-//
-// No syslog (RFC3164) header — the line begins at "CEF:" so Elastic's
-// decode_cef (the Security Onion CEF Fleet integration's input) parses it
-// directly, the same way it parses bare-CEF senders. version is the Archer
-// build version; deepLink is a URL back to the finding.
+// TriageData carries the AI Triage verdict extracted from a briefing note.
+// All fields are optional; an empty Verdict means no triage data is available.
+type TriageData struct {
+	Verdict    string // "LIKELY MALICIOUS", "INVESTIGATE", or "LIKELY BENIGN"
+	Confidence string // "high", "medium", or "low"
+	Reason     string // one-line reason from the verdict line
+	Provider   string // LLM provider name (e.g. "anthropic", "ollama")
+}
+
+// FormatCEF renders one escalated finding as a bare CEF line. It is a wrapper
+// around FormatCEFEnriched with no triage data — existing call sites are unchanged.
 func FormatCEF(f model.Finding, version, deepLink string) string {
+	return FormatCEFEnriched(f, nil, version, deepLink)
+}
+
+// FormatCEFEnriched renders an escalated finding as a bare CEF line. When
+// triage is non-nil and carries a verdict, that verdict is prepended to msg so
+// the AI assessment is visible in the SIEM alert listing without any schema
+// change: "AI: LIKELY MALICIOUS (high) | <truncated detail>".
+func FormatCEFEnriched(f model.Finding, triage *TriageData, version, deepLink string) string {
 	header := strings.Join([]string{
 		"CEF:0", "Archer", "Archer",
 		cefHeaderEscape(version),
@@ -33,10 +44,77 @@ func FormatCEF(f model.Finding, version, deepLink string) string {
 		cefHeaderEscape(f.Type),
 		strconv.Itoa(cefSeverity(f.Score)),
 	}, "|")
-	return header + "|" + buildExtensions(f, deepLink)
+	return header + "|" + buildExtensions(f, triage, deepLink)
 }
 
-func buildExtensions(f model.Finding, deepLink string) string {
+// FormatAITriageCEF renders a supplemental bare CEF event for an AI Triage
+// briefing on an already-escalated finding. It uses a distinct
+// device-event-class-id ("ai_triage") so SIEM detection rules can target it
+// specifically. The cs slots carry the verdict, confidence, deep-link, provider,
+// and finding type; msg carries the verdict line for immediate readability.
+// The event is correlated to the escalation event by externalId (finding ID).
+func FormatAITriageCEF(f model.Finding, triage TriageData, version, deepLink string) string {
+	header := strings.Join([]string{
+		"CEF:0", "Archer", "Archer",
+		cefHeaderEscape(version),
+		"ai_triage",
+		cefHeaderEscape("AI Triage: " + triage.Verdict),
+		strconv.Itoa(cefSeverity(f.Score)),
+	}, "|")
+
+	var b strings.Builder
+	add := func(key, val string) {
+		if val == "" {
+			return
+		}
+		if b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(key)
+		b.WriteByte('=')
+		b.WriteString(cefValueEscape(val))
+	}
+	cs := func(n int, label, val string) {
+		if val == "" {
+			return
+		}
+		add(fmt.Sprintf("cs%dLabel", n), label)
+		add(fmt.Sprintf("cs%d", n), val)
+	}
+
+	add("externalId", strconv.Itoa(f.ID))
+	add("src", f.SrcIP)
+	add("dst", f.DstIP)
+	if isNumeric(f.DstPort) {
+		add("dpt", f.DstPort)
+	}
+	// msg = verdict line; this is what shows in the SIEM alert listing.
+	verdictLine := triage.Verdict
+	if triage.Confidence != "" {
+		verdictLine += " (" + triage.Confidence + ")"
+	}
+	if triage.Reason != "" {
+		verdictLine += " — " + triage.Reason
+	}
+	add("msg", truncateDetail(verdictLine, maxMsgLen))
+	cs(1, "ArcherScore", strconv.Itoa(f.Score))
+	cs(2, "AIVerdict", triage.Verdict)
+	cs(3, "AIConfidence", triage.Confidence)
+	cs(4, "ArcherUrl", deepLink)
+	cs(5, "AIProvider", triage.Provider)
+	cs(6, "FindingType", f.Type)
+	if ids := attackIDs(f.Type); ids != "" {
+		add("flexString1Label", "ATT&CK")
+		add("flexString1", ids)
+	}
+	if f.Timestamp != "" {
+		add("flexString2Label", "ArcherEventTime")
+		add("flexString2", f.Timestamp)
+	}
+	return header + "|" + b.String()
+}
+
+func buildExtensions(f model.Finding, triage *TriageData, deepLink string) string {
 	var b strings.Builder
 	add := func(key, val string) {
 		if val == "" {
@@ -69,7 +147,21 @@ func buildExtensions(f model.Finding, deepLink string) string {
 		add("dpt", f.DstPort)
 	}
 	add("app", f.Service)
-	add("msg", truncateDetail(f.Detail, maxMsgLen))
+	// When an AI Triage verdict is available, prepend it to msg so the
+	// assessment is immediately visible in the SIEM alert listing.
+	detail := truncateDetail(f.Detail, maxMsgLen)
+	if triage != nil && triage.Verdict != "" {
+		prefix := "AI: " + triage.Verdict
+		if triage.Confidence != "" {
+			prefix += " (" + triage.Confidence + ")"
+		}
+		if detail != "" {
+			detail = prefix + " | " + detail
+		} else {
+			detail = prefix
+		}
+	}
+	add("msg", detail)
 	cs(1, "ArcherScore", strconv.Itoa(f.Score))
 	cs(2, "ArcherSensor", f.Sensor)
 	cs(3, "ArcherUrl", deepLink)

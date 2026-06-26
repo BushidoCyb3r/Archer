@@ -38,6 +38,17 @@ relevant, `### Detection changes` in each release entry.
   reason, an analysis block, and a numbered next-checks list. Plain notes are
   unchanged. Handles both new-format notes (confidence inline on verdict line)
   and older notes automatically.
+- **AI Triage SIEM forwarding.** The SIEM integration now carries AI Triage
+  data on both paths: (1) the escalation CEF event prepends the verdict to
+  `msg` (`AI: LIKELY MALICIOUS (high) | <detail>`) when a triage note already
+  exists at escalation time; (2) a supplemental `ai_triage` CEF event fires from
+  `runLLMEnrichment` when enrichment completes on an already-escalated finding
+  (covers auto-on-escalate where the note isn't ready at escalation time). The
+  supplemental event uses `device-event-class-id = ai_triage` so SIEM detection
+  rules can target it independently; `externalId` correlates it to the
+  escalation event. New cs slots on the supplemental event: `AIVerdict`,
+  `AIConfidence`, `AIProvider`, `FindingType`. SIEM-forwarding is unchanged for
+  findings that are not escalated.
 - Tightened the AI triage system prompt so the model places confidence inline on
   the verdict line, combines the driving-fact and flip into a single statement,
   and keeps next checks to one sentence each. Removed the "decision support, not

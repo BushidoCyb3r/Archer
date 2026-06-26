@@ -116,6 +116,41 @@ may use `http` on a trusted local/enclave network.
 
 ---
 
+## SIEM forwarding of AI Triage data
+
+When SIEM forwarding is enabled (`siem_enabled`), AI Triage verdicts travel
+to your SIEM on two paths:
+
+**Enriched escalation event.** When you escalate a finding that already has
+a triage note, the escalation CEF event's `msg` field is prefixed with the
+verdict: `AI: LIKELY MALICIOUS (high) | <truncated detail>`. The rest of the
+event is unchanged — the verdict is visible in the SIEM alert listing with no
+schema changes.
+
+**Supplemental `ai_triage` event.** When enrichment completes on an
+already-escalated finding — including auto-triage triggered by the `Escalate`
+button — a second CEF event fires with `device-event-class-id = ai_triage`.
+This covers the race where the enrichment goroutine hadn't written its note
+yet when the escalation CEF was sent.
+
+The supplemental event carries:
+
+| CEF field | Value |
+|---|---|
+| `externalId` | Finding ID (correlates to the escalation event) |
+| `msg` | Full verdict line: `LIKELY MALICIOUS (high) — <one-line reason>` |
+| `cs1` / `ArcherScore` | Finding score |
+| `cs2` / `AIVerdict` | Verdict keyword |
+| `cs3` / `AIConfidence` | `high` / `medium` / `low` |
+| `cs4` / `ArcherUrl` | Deep-link back to the finding |
+| `cs5` / `AIProvider` | Provider name (`anthropic`, `ollama`, etc.) |
+| `cs6` / `FindingType` | Finding type string |
+
+No supplemental event fires for open (non-escalated) findings, so enriching
+a finding you haven't escalated yet does not generate SIEM noise.
+
+---
+
 ## Quick checklist before enabling a cloud provider
 
 1. Is a local/enclave provider (`ollama`/`dod`/`custom`) viable instead? If
