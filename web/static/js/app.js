@@ -5829,6 +5829,14 @@
     // Fetch current user for display, note authorship, and role-gating
     api('/api/me').then(u => {
       _currentUser = u;
+      // If the /api/llm/status fetch already resolved (it's lightweight and
+      // often wins the race against /api/me), the AI Triage button reveal
+      // silently failed because _currentUser was null at that moment. Re-check
+      // now that we know the role.
+      if (_llmStatus.enabled && u.role !== 'viewer') {
+        const aiBtn = document.getElementById('ai-enrich-btn');
+        if (aiBtn) aiBtn.classList.remove('hidden');
+      }
       const el = document.getElementById('user-display');
       if (el) el.textContent = u.display || u.email || '';
       if (u.role === 'admin') {
