@@ -828,6 +828,7 @@ Opt-in. Configure in **Settings → AI Enrichment** (admin only). Disabled by de
 | `llm_api_key` | — | Credential (redacted). Required for cloud providers; optional for local/enclave gateways that authenticate at the network/PKI layer |
 | `llm_timeout_sec` | `30` | Per-request timeout, in seconds. Range `0`–`600` (`0` = default 30s) |
 | `llm_auto_on_escalate` | `false` | Also run AI triage automatically whenever a finding is escalated (single-finding escalate only — bulk escalate never fans out enrichment) |
+| `llm_context` | — | Optional free-text deployment context prepended to the evidence for every triage (after the hardcoded FP-awareness preamble). Describe your network type, host inventory, and expected traffic patterns so the model can factor them into verdicts. Runs through the same redactor as the finding evidence |
 | `org_internal_domains` | — | Internal DNS domain suffixes (Settings → Organization Hosts). Hostnames under these are tokenized out of evidence before send, the hostname analog of `org_internal_cidrs` |
 
 The act of sending a finding's evidence to a provider is recorded in the audit log (`finding_ai_enrich`, with the provider and whether it was a cloud or local egress). **What is and isn't redacted, and how to choose a provider for an air-gapped or accredited deployment, is covered in [docs/AI_TRIAGE.md](docs/AI_TRIAGE.md).**

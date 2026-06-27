@@ -113,6 +113,17 @@ may use `http` on a trusted local/enclave network.
   evidence as untrusted data, and the annotation-only invariant means a
   manipulated verdict can never move a finding's score or status — but treat
   the briefing as decision support, not ground truth.
+- **Triage context.** Every enrichment begins with a hardcoded
+  platform/false-positive-awareness block that frames Archer, names common
+  FP source shapes (package managers, backup agents, NTP/OCSP/CDN traffic,
+  .edu/.gov domains), and instructs the model to evaluate each finding's own
+  connection-level evidence before reaching for host-level roll-ups. An
+  optional `llm_context` field (Settings → AI Enrichment → "Additional triage
+  context") lets you append deployment-specific facts — network type, host
+  inventory, expected traffic patterns — that the model factors into every
+  triage result. This text runs through the same redactor as the finding
+  evidence; do not include sensitive indicators you do not want forwarded to
+  the configured provider.
 
 ---
 
