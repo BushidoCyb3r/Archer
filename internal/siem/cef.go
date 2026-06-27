@@ -5,6 +5,7 @@ package siem
 
 import (
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 
@@ -83,8 +84,12 @@ func FormatAITriageCEF(f model.Finding, triage TriageData, version, deepLink str
 	}
 
 	add("externalId", strconv.Itoa(f.ID))
-	add("src", f.SrcIP)
-	add("dst", f.DstIP)
+	if isIP(f.SrcIP) {
+		add("src", f.SrcIP)
+	}
+	if isIP(f.DstIP) {
+		add("dst", f.DstIP)
+	}
 	if isNumeric(f.DstPort) {
 		add("dpt", f.DstPort)
 	}
@@ -141,8 +146,12 @@ func buildExtensions(f model.Finding, triage *TriageData, deepLink string) strin
 	// ingest time — i.e. when the analyst escalated and Archer forwarded —
 	// which is the right time for an escalation alert anyway. The finding's own
 	// timestamps remain in msg/Detail and via the deep-link. Do not re-add rt.
-	add("src", f.SrcIP)
-	add("dst", f.DstIP)
+	if isIP(f.SrcIP) {
+		add("src", f.SrcIP)
+	}
+	if isIP(f.DstIP) {
+		add("dst", f.DstIP)
+	}
 	if isNumeric(f.DstPort) {
 		add("dpt", f.DstPort)
 	}
@@ -236,6 +245,15 @@ func isNumeric(s string) bool {
 	}
 	_, err := strconv.Atoi(s)
 	return err == nil
+}
+
+func isIP(s string) bool {
+	if s == "" {
+		return false
+	}
+	// net.ParseIP handles IPv4, IPv6, and IPv4-mapped IPv6 — exactly what
+	// decode_cef accepts. Hostnames, CIDRs, and empty strings return false.
+	return net.ParseIP(s) != nil
 }
 
 // truncateDetail keeps whole pipe-delimited segments up to max chars so the
