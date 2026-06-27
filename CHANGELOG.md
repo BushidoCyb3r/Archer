@@ -46,7 +46,9 @@ relevant, `### Detection changes` in each release entry.
   (covers auto-on-escalate where the note isn't ready at escalation time). The
   supplemental event uses `device-event-class-id = ai_triage` so SIEM detection
   rules can target it independently; `externalId` correlates it to the
-  escalation event. New cs slots on the supplemental event: `AIVerdict`,
+  escalation event. The event name field embeds the finding ID
+  (`AI Triage #42: LIKELY MALICIOUS`) so the pairing is visible at a glance
+  in the raw event list without opening extensions. New cs slots on the supplemental event: `AIVerdict`,
   `AIConfidence`, `AIProvider`, `FindingType`. SIEM-forwarding is unchanged for
   findings that are not escalated.
 - Tightened the AI triage system prompt so the model places confidence inline on

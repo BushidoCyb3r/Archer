@@ -58,7 +58,7 @@ func FormatAITriageCEF(f model.Finding, triage TriageData, version, deepLink str
 		"CEF:0", "Archer", "Archer",
 		cefHeaderEscape(version),
 		"ai_triage",
-		cefHeaderEscape("AI Triage: " + triage.Verdict),
+		cefHeaderEscape(fmt.Sprintf("AI Triage #%d: %s", f.ID, triage.Verdict)),
 		strconv.Itoa(cefSeverity(f.Score)),
 	}, "|")
 

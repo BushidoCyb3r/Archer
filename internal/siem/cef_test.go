@@ -154,7 +154,7 @@ func TestFormatAITriageCEF(t *testing.T) {
 	line := FormatAITriageCEF(f, triage, "v0.77.0", "https://archer/?finding=42")
 
 	// Device event class ID must be "ai_triage" so SIEM rules can target it.
-	mustContain(t, line, "CEF:0|Archer|Archer|v0.77.0|ai_triage|AI Triage: LIKELY MALICIOUS|10|")
+	mustContain(t, line, "CEF:0|Archer|Archer|v0.77.0|ai_triage|AI Triage #42: LIKELY MALICIOUS|10|")
 	mustContain(t, line, "externalId=42")
 	mustContain(t, line, "src=10.10.40.84")
 	mustContain(t, line, "dst=172.233.181.138")

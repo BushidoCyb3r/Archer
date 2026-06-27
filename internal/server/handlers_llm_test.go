@@ -227,7 +227,7 @@ func TestEnrichSendsTriageCEFWhenEscalated(t *testing.T) {
 	}
 	for _, want := range []string{
 		"ai_triage",
-		"AI Triage: LIKELY MALICIOUS",
+		"AI Triage #",
 		"LIKELY MALICIOUS",
 		"cs3Label=AIConfidence cs3=high",
 		"cs5Label=AIProvider cs5=stub",
