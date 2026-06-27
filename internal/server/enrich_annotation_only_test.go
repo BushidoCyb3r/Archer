@@ -188,7 +188,7 @@ func TestEnrichment_IsAnnotationOnly(t *testing.T) {
 	stub := &stubLLM{reply: "HOST_1 is beaconing to the external host; investigate."}
 	// Called synchronously (not via the go in handleEnrich) so the note is
 	// written before we assert.
-	s.runLLMEnrichment(stub, before, nil, nil, "")
+	s.runLLMEnrichment(stub, before, nil, nil, "", "")
 
 	after, ok := st.GetFinding(id)
 	if !ok {

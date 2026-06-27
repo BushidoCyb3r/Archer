@@ -128,6 +128,14 @@ type Config struct {
 	LLMAPIKey         string `json:"llm_api_key,omitempty"`
 	LLMTimeoutSec     int    `json:"llm_timeout_sec,omitempty"`
 	LLMAutoOnEscalate bool   `json:"llm_auto_on_escalate,omitempty"`
+	// LLMContext is operator-supplied free-text that is prepended to the
+	// evidence block for every AI Triage enrichment, after the hardcoded
+	// DefaultNetworkContext. Use it to describe deployment-specific facts the
+	// model should factor into triage: network type, host inventory, expected
+	// traffic patterns, mission context. Runs through the same redactor as the
+	// rest of the evidence, so any internal IPs or configured internal hostnames
+	// in this text are tokenized before send.
+	LLMContext string `json:"llm_context,omitempty"`
 
 	// Operator timezone — IANA name, e.g. "America/New_York". Empty = UTC.
 	// Used by the watch scheduler (WatchTime is HH:MM in this TZ) and by

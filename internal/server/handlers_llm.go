@@ -102,7 +102,7 @@ func (s *Server) handleEnrich(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditEnrich(r, f, provider)
-	go s.runLLMEnrichment(provider, f, cfg.OrgInternalCIDRs, cfg.OrgInternalDomains, siemDeepLink(r, f.ID))
+	go s.runLLMEnrichment(provider, f, cfg.OrgInternalCIDRs, cfg.OrgInternalDomains, cfg.LLMContext, siemDeepLink(r, f.ID))
 	jsonOK(w)
 }
 
@@ -151,7 +151,7 @@ func (s *Server) auditEnrich(r *http.Request, f model.Finding, provider llm.Prov
 // progress is signalled over SSE so the detail pane can spin and then refresh.
 // deepLink is the Archer URL back to this finding, forwarded to the SIEM if the
 // finding is already escalated when enrichment completes.
-func (s *Server) runLLMEnrichment(provider llm.Provider, f model.Finding, orgCIDRs, orgDomains []string, deepLink string) {
+func (s *Server) runLLMEnrichment(provider llm.Provider, f model.Finding, orgCIDRs, orgDomains []string, operatorCtx, deepLink string) {
 	defer s.releaseEnrich(f.ID)
 	publishDone := func(ok bool, errMsg string) {
 		data, _ := json.Marshal(map[string]any{
@@ -164,10 +164,17 @@ func (s *Server) runLLMEnrichment(provider llm.Provider, f model.Finding, orgCID
 	}
 
 	redactor := llm.NewRedactor(orgCIDRs, orgDomains)
+	// Context block: hardcoded platform/FP-awareness preamble followed by any
+	// operator-supplied deployment context. Both run through the redactor so
+	// internal addresses in the operator text are tokenized like the rest.
+	contextBlock := llm.DefaultNetworkContext
+	if operatorCtx != "" {
+		contextBlock += "\n\nOperator network context:\n" + operatorCtx
+	}
 	// Finding-intrinsic evidence plus the store-derived decision context (host
 	// reputation, fingerprint rarity, campaign roll-ups, related findings) — the
 	// full workup, so the verdict rests on everything an analyst would check.
-	raw := buildEnrichmentEvidence(f, redactor) + s.decisionContext(f)
+	raw := contextBlock + "\n\n---\n\n" + buildEnrichmentEvidence(f, redactor) + s.decisionContext(f)
 	evidence, mapping := redactor.Redact(raw)
 
 	ctx := context.Background()

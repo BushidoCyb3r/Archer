@@ -213,7 +213,7 @@ func TestEnrichSendsTriageCEFWhenEscalated(t *testing.T) {
 
 	before, _ := s.store.GetFinding(id)
 	stub := &stubLLM{reply: "LIKELY MALICIOUS (high) — periodic DNS queries to rare external resolver, no benign explanation.\n\nThe beacon cadence and external resolver are the core signal; it flips if the resolver is a known corporate DNS forwarder.\n\n1. Pull DNS query logs and check subdomain entropy.\n2. Verify whether 203.0.113.7 appears in the operator allowlist or TI feeds.\n3. Check which process is issuing the queries on 10.0.0.5."}
-	s.runLLMEnrichment(stub, before, nil, nil, "https://archer.corp/?finding="+strconv.Itoa(id))
+	s.runLLMEnrichment(stub, before, nil, nil, "", "https://archer.corp/?finding="+strconv.Itoa(id))
 
 	var triageLine string
 	for _, l := range capturedLines {
@@ -259,7 +259,7 @@ func TestEnrichDoesNotSendTriageCEFForOpenFinding(t *testing.T) {
 
 	before, _ := s.store.GetFinding(s.store.GetFindings()[0].ID)
 	stub := &stubLLM{reply: "LIKELY MALICIOUS (high) — suspicious.\n\n1. Check logs."}
-	s.runLLMEnrichment(stub, before, nil, nil, "")
+	s.runLLMEnrichment(stub, before, nil, nil, "", "")
 
 	if sent {
 		t.Error("SIEM send fired for an open (non-escalated) finding — should be gated on escalated status")

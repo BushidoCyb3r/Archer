@@ -1458,6 +1458,10 @@
         For air-gapped or accredited deployments, point this at a model on your own network — Ollama on a local/LAN host, or the DoD GenAI platform inside the accredited boundary — so finding context never leaves the enclave. Cloud providers (Anthropic / OpenAI / Gemini) send the redacted evidence off-box.
       </div>
       <label style="display:block;margin-top:10px"><input id="cfg-llm-auto-escalate" type="checkbox"> Automatically run AI triage when a finding is escalated</label>
+      <label style="display:block;margin-top:14px">Additional triage context <span style="color:var(--fg-dim)">(optional)</span>
+        <textarea class="dlg-input" id="cfg-llm-context" rows="4" placeholder="Describe your network to improve triage accuracy — e.g. SOHO network, 10 Windows workstations and 2 RHEL servers, no enterprise patch management, uses standard Linux package repos. Do not include sensitive indicators or internal addresses you do not want forwarded to the configured provider." autocomplete="off" style="width:100%;margin-top:4px;resize:vertical;font-size:0.9em"></textarea>
+      </label>
+      <div style="color:var(--fg-dim);font-size:0.85em;margin-top:6px">This text is sent to the AI provider alongside the finding evidence. Internal IPs and configured internal hostnames are redacted automatically; other free-text you enter here is sent as written.</div>
     </div>
     </div>
     <div class="settings-tab-panel" data-setpanel="ops">

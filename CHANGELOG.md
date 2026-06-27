@@ -32,6 +32,15 @@ relevant, `### Detection changes` in each release entry.
 
 ### Changed
 
+- **AI Triage context preamble.** Every enrichment now begins with a hardcoded
+  platform/false-positive-awareness block (`llm.DefaultNetworkContext`) that
+  frames Archer, names common FP source shapes (package managers, backup agents,
+  NTP/OCSP/CDN traffic, .edu/.gov domains), and enforces the finding-level-before-
+  host-level evaluation rule. Settings → AI Enrichment gains an optional
+  "Additional triage context" textarea (`llm_context`) for operator-supplied
+  deployment facts (network type, host inventory, expected traffic patterns).
+  Operator context is appended after the default and runs through the same
+  redactor as the finding evidence.
 - **AI Triage note card.** AI enrichment briefings are now rendered as a
   structured card in the Notes tab: a colored verdict row (red / amber / green
   for LIKELY MALICIOUS / INVESTIGATE / LIKELY BENIGN), confidence chip, one-line

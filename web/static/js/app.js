@@ -4427,6 +4427,7 @@
     if (llmTimeout) llmTimeout.value = cfg.llm_timeout_sec || '';
     const llmAuto = document.getElementById('cfg-llm-auto-escalate');
     if (llmAuto) llmAuto.checked = !!cfg.llm_auto_on_escalate;
+    set('cfg-llm-context', cfg.llm_context);
     const cidrEl = document.getElementById('cfg-org-cidrs');
     if (cidrEl) cidrEl.value = Array.isArray(cfg.org_internal_cidrs) ? cfg.org_internal_cidrs.join('\n') : '';
     const domEl = document.getElementById('cfg-org-domains');
@@ -4557,6 +4558,7 @@
       llm_base_url: g('cfg-llm-base-url').trim(),
       llm_timeout_sec: parseInt(g('cfg-llm-timeout'), 10) || 0,
       llm_auto_on_escalate: !!(document.getElementById('cfg-llm-auto-escalate') || {}).checked,
+      llm_context: g('cfg-llm-context').trim(),
     };
   }
 

@@ -207,7 +207,7 @@ func (s *Server) handleEscalate(w http.ResponseWriter, r *http.Request) {
 		if provider, err := llm.NewProvider(llmSettingsFromConfig(cfg)); err == nil {
 			if f, ok := s.store.GetFinding(id); ok && s.acquireEnrich(f.ID) {
 				s.auditEnrich(r, f, provider)
-				go s.runLLMEnrichment(provider, f, cfg.OrgInternalCIDRs, cfg.OrgInternalDomains, siemDeepLink(r, id))
+				go s.runLLMEnrichment(provider, f, cfg.OrgInternalCIDRs, cfg.OrgInternalDomains, cfg.LLMContext, siemDeepLink(r, id))
 			}
 		}
 	}
