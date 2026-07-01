@@ -30,6 +30,9 @@ MATURATION_PLAN.md
 # Private AI-assistant onboarding doc — operator voice, conventions, lessons learned
 CLAUDE.md
 
+# Codex onboarding pointer — same private treatment as CLAUDE.md
+AGENTS.md
+
 # Private rolling punch list — short-lived; not for the public repo
 TODO.md
 
@@ -42,3 +45,6 @@ HANDOFF.md
 
 # AI-assistant brainstorming specs — design scratch, not product docs
 docs/superpowers/
+
+# graphify knowledge graph outputs
+graphify-out/
