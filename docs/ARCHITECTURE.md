@@ -388,6 +388,55 @@ CREATE TABLE fingerprint_allowlist (
     created_at  INTEGER NOT NULL
 );  -- UNIQUE(kind, fingerprint) — migration 0032
 
+-- v0.55.0 / migration 0033. ioc_fp_list — operator JA3/JA4 fingerprint IOC
+-- list, sibling to ioc_list (0001) but for TLS client fingerprints. An
+-- operator addition is treated exactly like the built-in KnownBadJA3/
+-- KnownBadJA4 tables on the next analysis pass; the built-in C2
+-- fingerprints stay in code and are always active regardless of this table.
+CREATE TABLE ioc_fp_list (entry TEXT PRIMARY KEY);
+
+-- v0.55.0-era / migration 0034. ts_raw / ts_mm / ts_ent / spectral_rescued /
+-- spectral_period on findings — per-layer timing-axis attribution (which of
+-- raw/multimodal/entropy/spectral drove the beacon's final score) durable on
+-- the finding itself, not just in beacon_history's 30-day-retention rollup.
+-- DEFAULT 0 for all; the UI/tooling gate display on finding type plus a
+-- non-zero sample_size, same as the 0018 sub-scores.
+ALTER TABLE findings ADD COLUMN ts_raw           REAL    NOT NULL DEFAULT 0;
+ALTER TABLE findings ADD COLUMN ts_mm            REAL    NOT NULL DEFAULT 0;
+ALTER TABLE findings ADD COLUMN ts_ent           REAL    NOT NULL DEFAULT 0;
+ALTER TABLE findings ADD COLUMN spectral_rescued INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE findings ADD COLUMN spectral_period  REAL    NOT NULL DEFAULT 0;
+
+-- migration 0035. channel on findings — the per-channel beacon split
+-- discriminator (`ja3:<hash>`, see phase 2.5 above) enters
+-- Finding.Fingerprint() so a promoted channel keeps its own analyst state
+-- across re-analyses instead of colliding with its blend. DEFAULT '': the
+-- blend and every non-channel finding are unaffected.
+ALTER TABLE findings ADD COLUMN channel TEXT NOT NULL DEFAULT '';
+
+-- v0.73.0-era / migration 0036. service on findings — the Zeek DPD-detected
+-- L7 protocol, stamped on conn-derived findings and backing the `service:`
+-- query field and the Protocol on Unexpected Port detector. Not part of
+-- Finding.Fingerprint() (descriptive, not an identity discriminator).
+-- DEFAULT '': no DPD service recognized, matches no `service:` predicate.
+ALTER TABLE findings ADD COLUMN service TEXT NOT NULL DEFAULT '';
+
+-- v0.69.0 / migration 0037. orig_bytes / resp_bytes on findings — per-pair
+-- sent/received payload-byte totals backing the `outratio:` query field,
+-- stamped on Beacon / Port-Hopping Beacon / Data Exfiltration. Not part of
+-- Finding.Fingerprint(). DEFAULT 0: pre-0037 rows match no `outratio:`
+-- predicate until the next full analysis re-stamps them.
+ALTER TABLE findings ADD COLUMN orig_bytes INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE findings ADD COLUMN resp_bytes INTEGER NOT NULL DEFAULT 0;
+
+-- migration 0038. Additive indexes only, no schema/data change:
+-- idx_findings_is_new backs the new-findings counter (a handful of
+-- is_new=1 rows against a mostly-zero column — scan becomes a seek);
+-- idx_findings_detected_at_type backs the unseen-count query (leading
+-- detected_at serves the range, carried type lets the roll-up-exclusion
+-- evaluate from the index without a row fetch). Superset of the existing
+-- single-column idx_findings_detected_at (0029), which is left in place.
+
 -- v0.38.0 / migration 0027. sensor column on pair_allowlist + unique-index
 -- rebuild to include sensor. sensor='' is a wildcard that matches all
 -- sensors (existing rules upgrade with sensor='', preserving behavior).
@@ -807,23 +856,33 @@ The values surface at:
 
 ## Testing
 
-Limited at the moment — `go test ./...` runs:
+`go test ./...` runs 100+ test files across `internal/store`,
+`internal/server`, and `internal/analysis` — fingerprint-merge
+invariants, findings-filter/query-language coverage, handler contract
+tests (`newAuditTestServer`-style, real SQLite + migrations), and
+detection-semantics regressions (each detector family has its own
+`_test.go`; `heuristics.go`'s thresholds and the spectral-rescue math
+are directly unit-tested).
 
-- `internal/server/archive_test.go` — archive-worker dry-run logic.
-- `internal/server/authorized_keys_test.go` — `authorized_keys` rewrite.
-- `internal/store/store_test.go` — fingerprint-merge invariants.
+**Golden-file detection-semantics tests** (`internal/analysis/golden_test.go`)
+are the drift detector: a checked-in synthetic Zeek corpus per scenario
+(`internal/analysis/testdata/zeek/<scenario>/`, one `README.md` per
+scenario explaining what it exercises) plus an expected-findings
+fixture; the test re-analyzes each corpus and diffs against expected.
+Adding or changing a detector should come with a scenario here.
 
-There's no analyzer test suite yet. Phase 4 of the maturation plan adds
-golden-file tests for detection semantics — a checked-in synthetic Zeek
-corpus + expected-findings JSON, with a test that re-analyzes the
-fixture and diffs against expected. That's how detection drift becomes
-detectable.
-
-CI is also pending (Phase 5) — currently `go vet`, `go test`, and
-`go build` are run by hand.
+**CI** (`.github/workflows/ci.yml`) runs on every push/PR: `gofmt` +
+`go vet` (`lint`), `go test -race` (`test`), `govulncheck` (`vuln`), and
+`js-test` — the dependency-free `web/test/*.test.js` harness (see
+"Code" → "Regression testing is required" in CLAUDE.md for the pattern:
+`loadModule` drives a browser IIFE module in a `vm` sandbox with no
+build step). `gate.sh` mirrors the full CI gate set locally (added
+v0.76.0) so the release-readiness check runs identically on any box,
+CI or not. `.github/workflows/semgrep.yml` runs static analysis
+separately.
 
 ---
 
-*Last updated: 2026-06 alongside the v0.63.0 release. Update
+*Last updated: 2026-06 alongside the v0.77.0 release. Update
 this doc whenever the dataflow, schema, SSE catalog, or process model
 materially changes.*
