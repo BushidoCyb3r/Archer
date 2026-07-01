@@ -265,3 +265,46 @@ func TestEnrichDoesNotSendTriageCEFForOpenFinding(t *testing.T) {
 		t.Error("SIEM send fired for an open (non-escalated) finding — should be gated on escalated status")
 	}
 }
+
+// TestDecisionContext_RollupsSurfacedNotDoubleCounted verifies roll-ups feed
+// the dedicated campaign and host-risk summaries but never leak into related
+// activity counters, where they would appear a second time.
+func TestDecisionContext_RollupsSurfacedNotDoubleCounted(t *testing.T) {
+	s := newAuditTestServer(t)
+
+	s.store.SetFindings([]model.Finding{{
+		Type: "Beacon", SrcIP: "10.0.0.9", DstIP: "203.0.113.50",
+		Severity: model.SevHigh, Score: 80,
+	}})
+	f := s.store.GetFindings()[0]
+
+	s.store.SetFindings([]model.Finding{
+		{ID: f.ID, Type: "Beacon", SrcIP: "10.0.0.9", DstIP: "203.0.113.50", Severity: model.SevHigh, Score: 80},
+		{Type: model.TypeCorrelatedActivity, SrcIP: "10.0.0.9", DstIP: "203.0.113.50", Severity: model.SevCritical, Score: 95, Correlations: []int{f.ID}},
+		{Type: model.TypeHostRiskScore, SrcIP: "10.0.0.9", DstIP: "(network)", Severity: model.SevHigh, Score: 91},
+		{Type: "Beacon", SrcIP: "10.0.0.9", DstIP: "203.0.113.51", Severity: model.SevMedium, Score: 55},
+	})
+	for _, finding := range s.store.GetFindings() {
+		if finding.Type == "Beacon" && finding.DstIP == "203.0.113.50" {
+			f = finding
+			break
+		}
+	}
+
+	got := s.decisionContext(f)
+	if !strings.Contains(got, "Analyzer campaign verdict") || !strings.Contains(got, model.TypeCorrelatedActivity) {
+		t.Errorf("decision context missing campaign verdict:\n%s", got)
+	}
+	if !strings.Contains(got, "Source host overall risk roll-up") || !strings.Contains(got, "91") {
+		t.Errorf("decision context missing Host Risk Score summary:\n%s", got)
+	}
+	if strings.Count(got, model.TypeHostRiskScore) != 1 {
+		t.Errorf("Host Risk Score appeared outside its dedicated summary:\n%s", got)
+	}
+	if strings.Count(got, model.TypeCorrelatedActivity) != 1 {
+		t.Errorf("Correlated Activity appeared outside its dedicated summary:\n%s", got)
+	}
+	if !strings.Contains(got, "This source host has other findings: Beacon") {
+		t.Errorf("decision context missing unrelated same-source Beacon:\n%s", got)
+	}
+}

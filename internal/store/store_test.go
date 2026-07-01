@@ -2652,3 +2652,58 @@ func TestSetFindings_BellExcludedTypes(t *testing.T) {
 		t.Errorf("notified type = %q, want Beacon", notifs[0].Type)
 	}
 }
+
+// TestDeleteOrphanedHostRiskScores_KeepsBackedDropsOrphaned verifies an HRS
+// survives only when its host has a live non-rollup finding. A sibling
+// Correlated Activity roll-up is not sufficient backing.
+func TestDeleteOrphanedHostRiskScores_KeepsBackedDropsOrphaned(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s := New(config.Default())
+	s.InitDB(db)
+
+	s.SetFindings([]model.Finding{
+		{Type: "Beacon", SrcIP: "10.0.0.1", DstIP: "203.0.113.1", Score: 80, Severity: model.SevHigh},
+		{Type: model.TypeHostRiskScore, SrcIP: "10.0.0.1", DstIP: "(network)", Score: 80, Severity: model.SevHigh},
+		{Type: model.TypeHostRiskScore, SrcIP: "10.0.0.2", DstIP: "(network)", Score: 60, Severity: model.SevMedium},
+		{Type: model.TypeCorrelatedActivity, SrcIP: "10.0.0.2", DstIP: "203.0.113.2", Score: 75, Severity: model.SevHigh},
+	})
+
+	s.DeleteOrphanedHostRiskScores()
+
+	gotTypes := map[string]int{}
+	var hrsSrc string
+	for _, f := range s.GetFindings() {
+		gotTypes[f.Type]++
+		if f.Type == model.TypeHostRiskScore {
+			hrsSrc = f.SrcIP
+		}
+	}
+	if gotTypes[model.TypeHostRiskScore] != 1 {
+		t.Errorf("Host Risk Score count = %d, want 1", gotTypes[model.TypeHostRiskScore])
+	}
+	if hrsSrc != "10.0.0.1" {
+		t.Errorf("surviving Host Risk Score source = %q, want 10.0.0.1", hrsSrc)
+	}
+	if gotTypes["Beacon"] != 1 {
+		t.Errorf("Beacon count = %d, want 1", gotTypes["Beacon"])
+	}
+	if gotTypes[model.TypeCorrelatedActivity] != 1 {
+		t.Errorf("Correlated Activity count = %d, want 1", gotTypes[model.TypeCorrelatedActivity])
+	}
+
+	var persistedHRS int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM findings WHERE type = 'Host Risk Score'`).Scan(&persistedHRS); err != nil {
+		t.Fatalf("query persisted Host Risk Scores: %v", err)
+	}
+	if persistedHRS != 1 {
+		t.Errorf("persisted Host Risk Score count = %d, want 1", persistedHRS)
+	}
+}
