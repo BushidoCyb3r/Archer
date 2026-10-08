@@ -1,6 +1,6 @@
 module github.com/BushidoCyb3r/Archer
 
-go 1.26.0
+go 1.27.1
 
 require (
 	github.com/xuri/excelize/v2 v2.11.0
